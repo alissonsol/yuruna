@@ -22,11 +22,11 @@ import (
 )
 
 // sharedVectors reads the one vector file the aggregator, hostctl, the host's
-// PowerShell verifier and the refresh proof all pin. This gate refuses the
+// PowerShell verifier and the repair proof all pin. This gate refuses the
 // legacy control proof, so it must agree with that file on what that proof is.
-func sharedVectors(t *testing.T) (legacyToken, legacyWire string, legacyExpiry, verifyAt int64, refreshWire string) {
+func sharedVectors(t *testing.T) (legacyToken, legacyWire string, legacyExpiry, verifyAt int64, repairWire string) {
 	t.Helper()
-	raw, err := os.ReadFile(filepath.Join("..", "hostrefresh", "testdata", "vectors.json"))
+	raw, err := os.ReadFile(filepath.Join("..", "hostrepair", "testdata", "vectors.json"))
 	if err != nil {
 		t.Fatalf("read shared vectors: %v", err)
 	}
@@ -80,31 +80,31 @@ func TestTheLegacyControlProofIsRefused(t *testing.T) {
 	}
 }
 
-// A refresh proof is never a control proof: the control-proof verifier refuses
+// A repair proof is never a control proof: the control-proof verifier refuses
 // it under the very token that derived its key.
-func TestRefreshWireIsNotALegacyProof(t *testing.T) {
-	token, _, _, verifyAt, refreshWire := sharedVectors(t)
-	if !strings.HasPrefix(refreshWire, "yhr1.") {
-		t.Fatalf("unexpected shared refresh vector %q", refreshWire)
+func TestRepairWireIsNotALegacyProof(t *testing.T) {
+	token, _, _, verifyAt, repairWire := sharedVectors(t)
+	if !strings.HasPrefix(repairWire, "yrp1.") {
+		t.Fatalf("unexpected shared repair vector %q", repairWire)
 	}
-	if controlproof.VerifyFor(token, refreshWire, "", time.Unix(verifyAt, 0), ControlProofMaxTTL) {
-		t.Fatal("the control-proof verifier accepted a refresh proof")
+	if controlproof.VerifyFor(token, repairWire, "", time.Unix(verifyAt, 0), ControlProofMaxTTL) {
+		t.Fatal("the control-proof verifier accepted a repair proof")
 	}
-	if controlProofRE.MatchString(refreshWire) {
-		t.Fatal("the local shape check accepted a refresh proof")
+	if controlProofRE.MatchString(repairWire) {
+		t.Fatal("the local shape check accepted a repair proof")
 	}
 }
 
-// Posting the refresh proof to the unlock route cannot buy a session: it fails
+// Posting the repair proof to the unlock route cannot buy a session: it fails
 // the local shape check, is not counted as a guess, and sets no cookie.
-func TestRefreshWireCannotUnlockASession(t *testing.T) {
-	token, _, _, _, refreshWire := sharedVectors(t)
+func TestRepairWireCannotUnlockASession(t *testing.T) {
+	token, _, _, _, repairWire := sharedVectors(t)
 	g := New(Options{BearerToken: token})
-	body, _ := json.Marshal(map[string]string{"proof": refreshWire})
+	body, _ := json.Marshal(map[string]string{"proof": repairWire})
 	w := httptest.NewRecorder()
 	g.HandleProofUnlock(w, httptest.NewRequest(http.MethodPost, "/api/unlock-proof", strings.NewReader(string(body))))
 	if w.Code != http.StatusBadRequest {
-		t.Fatalf("unlock with a refresh proof = %d, want 400", w.Code)
+		t.Fatalf("unlock with a repair proof = %d, want 400", w.Code)
 	}
 	var reply map[string]any
 	_ = json.Unmarshal(w.Body.Bytes(), &reply)
@@ -112,6 +112,6 @@ func TestRefreshWireCannotUnlockASession(t *testing.T) {
 		t.Fatalf("refusal code = %v, want auth.proof_shape", reply["code"])
 	}
 	if len(w.Result().Cookies()) != 0 {
-		t.Fatal("a refresh proof bought a session cookie")
+		t.Fatal("a repair proof bought a session cookie")
 	}
 }

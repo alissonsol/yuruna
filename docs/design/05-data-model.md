@@ -274,7 +274,7 @@ The seven entities separate the host's project selection, the companion
 repository's runner selection and project sequences from the framework's
 runtime credentials. Dotted relations are name lookups or the optional clone.
 Each entity shows at most seven key fields; sequence variables,
-localized labels, and snapshot settings are described below. The
+localized labels, snapshot settings, and `defaultSurface` are described below. The
 `test-config-yml` fields belong to its `repositories` section. The `users-yml`
 fields after `users` belong to a logical-user
 entry; the `vault-yml` fields after `users` belong to a secret-key entry.
@@ -309,6 +309,16 @@ file without `resource` is treated as an orchestration or host sequence. A step
 can be `{ snippet: <name> }`, spliced from `_snippets.yml` in framework
 `test/sequences/` or a project `test` directory. A project name overrides a
 framework name; the same name in two project libraries stops planning.
+A guest-sequence step can instead be a sentence, `{ step: <sentence> }`, with
+optional `on`, `timeoutSeconds`, `description`, and `descriptionLocalized`; the
+reader replaces it with the action steps of the phrase that matches it in the
+`_phrases.yml` libraries of those same locations, as the website example's
+[page check](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/workload.guest.ubuntu.server.26.k8s.website.page.ssh.yml)
+does. `on` selects the phrase's `screen` or `page` steps and defaults to the
+sequence's `defaultSurface`, which is `screen` when absent. Phrase libraries
+never override one another: a phrase id defined twice, or two phrases that can
+match one sentence, stops planning, as does a step that is not exactly one of
+an action, a snippet, or a sentence.
 An orchestration sequence has `name`, optional `continueOnError`, and `steps`
 whose entries are `action: InvokeTestSequence` with a `sequence` name. A host
 sequence has a `host` block with `script` or `scripts`, optional `arguments`, and
@@ -353,7 +363,11 @@ password fails in either mode. The strict checker scans usernames in framework
 and project sequence YAML, not only the selected top-level sequences. Initialization creates a vault only if it is
 absent. Credentials persist across successful and failed cycles until explicitly
 changed or removed; password updates retain the previous password and update
-`updatedUtc`.
+`updatedUtc`. Before validating either file, the pre-cycle check renames a
+`vault.yml` or `users.yml` that two reads find empty, unparseable, or not a
+mapping to `<name>.unreadable-<UTC stamp>` beside it; `users.yml` is recreated
+from its template, and the vault starts empty, so the passwords it held must be
+set again.
 
 Service-builder previews use the authentication implementation's `ReadOnly`
 lookup. It reads the existing mapping and vault snapshot without initializing
@@ -373,6 +387,8 @@ rebuilds; a failed vault read never replaces it.
 Sources: [runner selection](../../test/modules/Test.SequencePlanner.psm1),
 [sequence resolution](../../test/modules/Test.SequenceResolve.psm1),
 [guest schema](../../test/schemas/sequence.schema.yml),
+[phrase schema](../../test/schemas/phrases.schema.yml),
+[phrase reader](../../test/modules/Test.StepPhrase.psm1),
 [users schema](../../test/schemas/users.schema.yml),
 [vault schema](../../test/schemas/vault.schema.yml),
 [identity template](../../test/extension/authentication/users.yml.template),
@@ -399,6 +415,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 [Architecture](../architecture.md) | [Design overview](README.md)

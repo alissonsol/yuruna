@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4277cde3-5e56-4d5e-beb5-7bed391f35c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,9 @@ param()
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
+# The private state root and the runner gate resolve under $HOME; a scratch
+# home keeps this suite and every process it starts off the operator's own.
+$script:TestHome = Enter-YurunaTestHome
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 # The loop reads testCycle.autoRemediation through the config reader, which needs the YAML module;
@@ -91,7 +94,7 @@ Describe 'The failure pause shortcut is budgeted by the ledger' {
         $env:YURUNA_LOG_DIR = $script:Dir
         $script:Config = New-LoopConfig -Enabled $true -MaxAttempts 1
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }
@@ -181,7 +184,7 @@ Describe 'A run of attempts that produce no verdict' {
         $script:Holds = [System.Collections.Generic.List[int]]::new()
         $script:Faults = [System.Collections.Generic.List[string]]::new()
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
         Mock -ModuleName Test.RunnerOuterLoop Wait-OuterInterruptible { $script:Holds.Add([int]$Seconds) }
         Mock -ModuleName Test.RunnerOuterLoop Update-RunnerFaultStatus { $script:Faults.Add([string]$FailureClass); $true }
@@ -234,7 +237,7 @@ Describe 'A passing cycle that skipped a guest' {
         Set-Content -LiteralPath (Join-Path $script:Dir 'recovery.ledger.ndjson') -Value ''
         $script:Refills = 0
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
         Mock -ModuleName Test.RunnerOuterLoop Complete-RecoveryFingerprint { $script:Refills++; $true }
         Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
@@ -281,7 +284,7 @@ Describe 'A cycle that failed nothing but skipped a planned guest' {
         $script:Refills = 0
         $script:Faults = 0
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
         Mock -ModuleName Test.RunnerOuterLoop Complete-RecoveryFingerprint { $script:Refills++; $true }
         Mock -ModuleName Test.RunnerOuterLoop Update-RunnerFaultStatus { $script:Faults++; $true }
@@ -324,7 +327,7 @@ Describe 'A host condition whose probe says it cleared' {
         $script:Probes = 0
         $script:ProbeClears = $true
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'sha0' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }
@@ -470,7 +473,7 @@ Describe 'A framework pull that fails on a stale git lock' {
         $env:YURUNA_LOG_DIR = $script:Runtime
         $script:Waits = [System.Collections.Generic.List[int]]::new()
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
         Mock -ModuleName Test.RunnerOuterLoop Wait-OuterInterruptible { $script:Waits.Add([int]$Seconds); return $true }
         # A real git process elsewhere on the machine must not decide this case.
@@ -575,4 +578,7 @@ Describe 'A framework pull that fails on a stale git lock' {
     }
 }
 
-AfterAll { Remove-YurunaTestTempDir $script:LoopConfigDir }
+AfterAll {
+    Remove-YurunaTestTempDir $script:LoopConfigDir
+    Exit-YurunaTestHome $script:TestHome
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,9 @@ Import-Module (Join-Path $here 'Test.Prelude.psm1')   -Force -DisableNameCheckin
 Import-Module (Join-Path $here 'Test.ServiceVm.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# The private state root and the runner gate resolve under $HOME; a scratch
+# home keeps this suite and every process it starts off the operator's own.
+$script:TestHome = Enter-YurunaTestHome
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.ServiceStartSource.psm1') -Force -DisableNameChecking
 
 # Pester is not installed on every host that runs this repo's scripts, and the
@@ -162,6 +165,8 @@ $script:SilentGuest = Invoke-SilentGuestWait
 $script:SeededGuest = Invoke-SilentGuestWait -SeedAddress '10.44.7.9' -ResolveAddress { '' }
 
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'A readiness timeout is a failure, not a pass' {
 

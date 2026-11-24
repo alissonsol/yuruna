@@ -4,7 +4,7 @@
   "locale": "en-US",
   "messages": {
     "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": {
-      "message": "A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool Status reads what the members are doing now — choosing a value applies it to every member.",
+      "message": "A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool status reads what the members are doing now — choosing a value applies it to every member.",
       "description": "Complete paragraph or standalone label in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html. Command placeholders preserve literal machine syntax.",
       "lifecycle": "active"
     },
@@ -92,7 +92,7 @@
       }
     },
     "pool.aggregator_url": {
-      "message": "aggregator URL",
+      "message": "Aggregator URL",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -832,7 +832,7 @@
       "lifecycle": "active"
     },
     "pool.duration": {
-      "message": "duration",
+      "message": "Duration",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -926,7 +926,7 @@
       }
     },
     "pool.exit_code": {
-      "message": "exit code",
+      "message": "Exit code",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -988,7 +988,7 @@
       "lifecycle": "active"
     },
     "pool.framework_revision": {
-      "message": "framework revision",
+      "message": "Framework revision",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -998,17 +998,17 @@
       "lifecycle": "active"
     },
     "pool.framework_version": {
-      "message": "framework version",
+      "message": "Framework version",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
     "pool.free_storage": {
-      "message": "Free Storage",
+      "message": "Free storage",
       "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
     "pool.go": {
-      "message": "go",
+      "message": "Go",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -1060,7 +1060,7 @@
       "lifecycle": "active"
     },
     "pool.host_id_7b624c8f": {
-      "message": "host id",
+      "message": "Host ID",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -1076,9 +1076,9 @@
         }
       }
     },
-    "pool.host_refresh_body_invalid": {
-      "message": "The refresh request must be a JSON object of strings with only hostId, requestId, tier and maxRung ({detail}).",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the request body is not one JSON object of string values with the allowed keys; HTTP 400, or 413 when too large. Keep the four field names exactly; detail is a short token naming the problem.",
+    "pool.host_repair_body_invalid": {
+      "message": "The repair request must be a JSON object of strings with only hostId, requestId, tier and maxRung ({detail}).",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the request body is not one JSON object of string values with the allowed keys; HTTP 400, or 413 when too large. Keep the four field names exactly; detail is a short token naming the problem.",
       "lifecycle": "active",
       "placeholders": {
         "detail": {
@@ -1088,9 +1088,9 @@
         }
       }
     },
-    "pool.host_refresh_busy": {
-      "message": "Host {hostId} is already handling refresh request {activeRequestId}; follow that request instead of starting another.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host answers that another request is active; HTTP 409 with activeRequestId and stateUrl.",
+    "pool.host_repair_busy": {
+      "message": "Host {hostId} is already handling repair request {activeRequestId}; follow that request instead of starting another.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host answers that another request is active; HTTP 409 with activeRequestId and stateUrl.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1105,9 +1105,9 @@
         }
       }
     },
-    "pool.host_refresh_control_proof_unavailable": {
+    "pool.host_repair_control_proof_unavailable": {
       "message": "No control proof could be obtained for host {hostId} ({detail}).",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when neither the internal authentication key nor the aggregator yields the legacy transport proof the host's control routes require; HTTP 503. detail is a short untranslated token: no_internal_key or aggregator_refused.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when neither the internal authentication key nor the aggregator yields the legacy transport proof the host's control routes require; HTTP 503. detail is a short untranslated token: no_internal_key or aggregator_refused.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1122,9 +1122,9 @@
         }
       }
     },
-    "pool.host_refresh_field_unsupported": {
-      "message": "The refresh request carried the unsupported field {field}; force and hard-stop options are never accepted remotely.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the body carries a key other than hostId, requestId, tier and maxRung; HTTP 400. The field is the key the caller sent.",
+    "pool.host_repair_field_unsupported": {
+      "message": "The repair request carried the unsupported field {field}; force and hard-stop options are never accepted remotely.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the body carries a key other than hostId, requestId, tier and maxRung; HTTP 400. The field is the key the caller sent.",
       "lifecycle": "active",
       "placeholders": {
         "field": {
@@ -1134,9 +1134,9 @@
         }
       }
     },
-    "pool.host_refresh_host_address_unknown": {
+    "pool.host_repair_host_address_unknown": {
       "message": "The pool aggregator knows host {hostId} but has no address for it.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host is known but has no status-service address; HTTP 409.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host is known but has no status-service address; HTTP 409.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1146,14 +1146,14 @@
         }
       }
     },
-    "pool.host_refresh_host_id_invalid": {
+    "pool.host_repair_host_id_invalid": {
       "message": "hostId must be a 32-character hexadecimal host id.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when hostId is not a host id; HTTP 400. Keep the field name hostId.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when hostId is not a host id; HTTP 400. Keep the field name hostId.",
       "lifecycle": "active"
     },
-    "pool.host_refresh_host_refused": {
-      "message": "Host {hostId} refused the refresh (HTTP {status}, {hostReason}).",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host answers with a client error; HTTP 502 with hostStatus and hostReason. hostReason is the host's short reason code.",
+    "pool.host_repair_host_refused": {
+      "message": "Host {hostId} refused the repair (HTTP {status}, {hostReason}).",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host answers with a client error; HTTP 502 with hostStatus and hostReason. hostReason is the host's short reason code.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1169,13 +1169,13 @@
         "hostReason": {
           "type": "identifier",
           "trust": "external",
-          "example": "refresh_proof_expired"
+          "example": "repair_proof_expired"
         }
       }
     },
-    "pool.host_refresh_host_unavailable": {
-      "message": "Host {hostId} could not start the refresh (HTTP {status}, {hostReason}); retry with the same request id {requestId}.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host answers with a timeout or a server error; HTTP 503, retryable. Retrying with the same request id is the documented recovery.",
+    "pool.host_repair_host_unavailable": {
+      "message": "Host {hostId} could not start the repair (HTTP {status}, {hostReason}); retry with the same request id {requestId}.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host answers with a timeout or a server error; HTTP 503, retryable. Retrying with the same request id is the documented recovery.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1200,9 +1200,9 @@
         }
       }
     },
-    "pool.host_refresh_host_unknown": {
+    "pool.host_repair_host_unknown": {
       "message": "The pool aggregator does not know host {hostId}.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the aggregator's pool status has no entry for the host; HTTP 404.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the aggregator's pool status has no entry for the host; HTTP 404.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1212,9 +1212,9 @@
         }
       }
     },
-    "pool.host_refresh_host_unreachable": {
+    "pool.host_repair_host_unreachable": {
       "message": "Host {hostId} did not answer; retry with the same request id {requestId}.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host gave no HTTP answer after one same-id resend; HTTP 504, retryable.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host gave no HTTP answer after one same-id resend; HTTP 504, retryable.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1229,9 +1229,9 @@
         }
       }
     },
-    "pool.host_refresh_mint_failed": {
-      "message": "This service could not sign the refresh request for host {hostId}.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the refresh proof could not be minted after the request validated; HTTP 500.",
+    "pool.host_repair_mint_failed": {
+      "message": "This service could not sign the repair request for host {hostId}.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the repair proof could not be minted after the request validated; HTTP 500.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1241,9 +1241,9 @@
         }
       }
     },
-    "pool.host_refresh_reply_invalid": {
+    "pool.host_repair_reply_invalid": {
       "message": "Host {hostId} answered with a reply this service cannot use ({detail}).",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host's answer is an unexpected success or redirect, names another request id, or cannot be decoded, or when the request could not be sent at all; HTTP 502. detail is a short untranslated token such as HTTP 204, host_address_unusable, invalid_claim or proof_missing.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host's answer is an unexpected success or redirect, names another request id, or cannot be decoded, or when the request could not be sent at all; HTTP 502. detail is a short untranslated token such as HTTP 204, host_address_unusable, invalid_claim or proof_missing.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1258,9 +1258,9 @@
         }
       }
     },
-    "pool.host_refresh_request_closed": {
-      "message": "Request {requestId} on host {hostId} already ended ({state}, {verdict}); generate a new request id to refresh again.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host reports that this request id already reached a closed state; HTTP 409. state and verdict are short codes such as refused.",
+    "pool.host_repair_request_closed": {
+      "message": "Request {requestId} on host {hostId} already ended ({state}, {verdict}); generate a new request id to repair again.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host reports that this request id already reached a closed state; HTTP 409. state and verdict are short codes such as refused.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1285,9 +1285,9 @@
         }
       }
     },
-    "pool.host_refresh_request_conflict": {
+    "pool.host_repair_request_conflict": {
       "message": "Request {requestId} was already used with a different tier or ceiling; resend the original policy or generate a new request id.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host has this request id with a different policy; HTTP 409.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host has this request id with a different policy; HTTP 409.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1297,36 +1297,36 @@
         }
       }
     },
-    "pool.host_refresh_request_id_invalid": {
+    "pool.host_repair_request_id_invalid": {
       "message": "requestId must be a lowercase UUID (8-4-4-4-12) that the caller generates once and reuses on every retry.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when requestId is not a canonical lowercase UUID; HTTP 400. Keep the field name requestId and the 8-4-4-4-12 shape.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when requestId is not a canonical lowercase UUID; HTTP 400. Keep the field name requestId and the 8-4-4-4-12 shape.",
       "lifecycle": "active"
     },
-    "pool.host_refresh_rung_unsupported": {
+    "pool.host_repair_rung_unsupported": {
       "message": "maxRung must be probe, reclaim, start-if-stopped, restart-if-hung or restart-broker.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when maxRung names a rung a remote request may not use; HTTP 400. The rung names are protocol vocabulary; keep them exactly.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when maxRung names a rung a remote request may not use; HTTP 400. The rung names are protocol vocabulary; keep them exactly.",
       "lifecycle": "active"
     },
-    "pool.host_refresh_signing_unconfigured": {
-      "message": "Remote host refresh is disabled: this service holds no refresh signing authority ({path}).",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when no refresh signing authority file was loaded; HTTP 503. The path is the authority file the service was launched with.",
+    "pool.host_repair_signing_unconfigured": {
+      "message": "Remote host repair is disabled: this service holds no repair signing authority ({path}).",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when no repair signing authority file was loaded; HTTP 503. The path is the authority file the service was launched with.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
           "type": "detail",
           "trust": "internal",
-          "example": "/etc/yuruna/host-refresh/authority.key"
+          "example": "/etc/yuruna/host-repair/authority.key"
         }
       }
     },
-    "pool.host_refresh_tier_unsupported": {
+    "pool.host_repair_tier_unsupported": {
       "message": "Only the restart tier can be requested remotely; the full tier is local-only.",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when tier is missing or not restart; HTTP 400. restart and full are tier names; keep them.",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when tier is missing or not restart; HTTP 400. restart and full are tier names; keep them.",
       "lifecycle": "active"
     },
-    "pool.host_refresh_unavailable": {
-      "message": "Host {hostId} does not advertise remote refresh ({reason}).",
-      "description": "Reply of the pool-control per-host refresh route POST /api/host/refresh and its MCP tool pool_control_refresh_host when the host's refresh capability is not remotely usable or the aggregator could not be read; HTTP 409, nothing sent to the host. reason is a short code such as observation_expired.",
+    "pool.host_repair_unavailable": {
+      "message": "Host {hostId} does not advertise remote repair ({reason}).",
+      "description": "Reply of the pool-control per-host repair route POST /api/host/repair and its MCP tool pool_control_repair_host when the host's repair capability is not remotely usable or the aggregator could not be read; HTTP 409, nothing sent to the host. reason is a short code such as observation_expired.",
       "lifecycle": "active",
       "placeholders": {
         "hostId": {
@@ -1340,6 +1340,343 @@
           "example": "observation_expired"
         }
       }
+    },
+    "pool.host_update_body_invalid": {
+      "message": "The update request must be one JSON object with only hostId, requestId, scope, drainSeconds and expectCommit, each once ({detail}).",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the request body is not one JSON object with the allowed keys and value kinds; HTTP 400, or 413 when too large. Keep the five field names exactly.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "duplicate_key"
+        }
+      }
+    },
+    "pool.host_update_field_unsupported": {
+      "message": "The update request carried the unsupported field {field}.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the body carries a key other than hostId, requestId, scope, drainSeconds and expectCommit that does not name drain; HTTP 400. The field is the key the caller sent.",
+      "lifecycle": "active",
+      "placeholders": {
+        "field": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "force"
+        }
+      }
+    },
+    "pool.host_update_field_forbidden": {
+      "message": "The update request carried {field}; no request from this service ends a running cycle. To end one, run Invoke-HostUpdate.ps1 -Drain now in a shell on the host.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the body names drain in any spelling other than drainSeconds; HTTP 400, reason forbidden_field. Keep Invoke-HostUpdate.ps1 -Drain now exactly.",
+      "lifecycle": "active",
+      "placeholders": {
+        "field": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "drain"
+        }
+      }
+    },
+    "pool.host_update_scope_invalid": {
+      "message": "scope must be restart or full.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host and of its read half GET /api/host/update when scope is not a scope name; HTTP 400. restart and full are scope names; keep them and the field name scope.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_drain_invalid": {
+      "message": "drainSeconds must be a whole number from 60 to 21600.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when drainSeconds is not a JSON integer in range; HTTP 400. Keep the field name drainSeconds and both bounds.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_commit_invalid": {
+      "message": "expectCommit must be 7 to 40 lowercase hexadecimal digits.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when expectCommit is not a lowercase commit prefix; HTTP 400. Keep the field name expectCommit.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_signing_unconfigured": {
+      "message": "Remote host update is disabled: this service holds no update signing key or no operator credential ({path}).",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host, and of its read half GET /api/host/update, when no usable update signing key or operator credential was loaded; HTTP 503. The path is the signing key file the service was launched with.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/etc/yuruna/host-repair/update-signing.key"
+        }
+      }
+    },
+    "pool.host_update_unavailable": {
+      "message": "Host {hostId} cannot take a remote host update now ({reason}).",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the host's own control status says it cannot take a remote update (no controller, no pool-control record, the scope not listed) or the aggregator or the host's status could not be read; HTTP 409, nothing sent to the host. reason is a short code such as controller_absent.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "controller_absent"
+        }
+      }
+    },
+    "pool.host_update_mint_failed": {
+      "message": "This service could not sign the update request for host {hostId}.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the update proof could not be signed after the request validated; HTTP 500.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      }
+    },
+    "pool.host_update_busy": {
+      "message": "Host {hostId} is busy with request {activeRequestId}; follow that request instead of starting another.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the host answers that another repair, start-cycle or host update holds it; HTTP 409 with activeKind, activeRequestId and stateUrl.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "activeRequestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "4242aaaa-0000-4000-8000-000000000009"
+        }
+      }
+    },
+    "pool.host_update_request_conflict": {
+      "message": "Request {requestId} was already used with a different scope, drain bound or expected commit; resend the original request or start a new one.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the host has this request id with a different policy; HTTP 409.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "pool.host_update_host_refused": {
+      "message": "Host {hostId} refused the update (HTTP {status}, {hostReason}).",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the host answers with a client error; HTTP 502 with hostStatus and hostReason. hostReason is the host's short reason code, such as update_proof_expired.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "status": {
+          "type": "integer",
+          "trust": "external",
+          "example": "403"
+        },
+        "hostReason": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "update_proof_expired"
+        }
+      }
+    },
+    "pool.host_update_host_unavailable": {
+      "message": "Host {hostId} could not queue the update (HTTP {status}, {hostReason}); retry with the same request id {requestId}.",
+      "description": "Reply of the pool-control per-host update route POST /api/host/update and its MCP tool pool_control_update_host when the host answers with a timeout or a server error; HTTP 503, retryable. Retrying with the same request id is the documented recovery.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "status": {
+          "type": "integer",
+          "trust": "external",
+          "example": "503"
+        },
+        "hostReason": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "controller_absent"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "pool.host_update_page_title": {
+      "message": "Update host — Yuruna Pool Control",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_heading": {
+      "message": "Update host",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_intro": {
+      "message": "This page signs one host update for the host below and sends it there. The host waits for its running cycle to end, then stops its runner, brings its checkout current and starts the runner again; it gives up after the drain bound with nothing changed. No request from this page ends a running cycle: to end one, run the command shown below in a shell on the host.",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_scope_label": {
+      "message": "Scope",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_drain_label": {
+      "message": "Drain bound",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts. The longest the update waits for the running cycle before it gives up.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_commit_label": {
+      "message": "Expected commit",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_request_label": {
+      "message": "Request ID",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_drain_now_label": {
+      "message": "To end the running cycle now",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts. Labels the host command that ends a running cycle.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_credential_label": {
+      "message": "Operator credential",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_submit": {
+      "message": "Send the update",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_open_diagnostics": {
+      "message": "Open the host's Diagnostics page",
+      "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html, pool-control's host update confirmation page; preserve product names, protocol tokens and keyboard shortcuts.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_scope": {
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers. The label of a scope; the selector is the scope token, shown as written when this page does not know it.",
+      "lifecycle": "active",
+      "placeholders": {
+        "scope": {
+          "type": "token",
+          "trust": "external",
+          "example": "restart"
+        }
+      },
+      "select": {
+        "selector": "scope",
+        "variants": {
+          "restart": "Restart the runner on current code",
+          "full": "Reinstall dependencies and settings, then restart",
+          "other": "{scope}"
+        }
+      }
+    },
+    "pool.host_update_drain_value": {
+      "message": "{seconds} s ({minutes} min)",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 7200
+        },
+        "minutes": {
+          "type": "integer",
+          "trust": "internal",
+          "example": 120
+        }
+      }
+    },
+    "pool.host_update_not_offered": {
+      "message": "Host {hostId} cannot take a remote host update now ({reason}).",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers. reason is a short code such as controller_absent or update_remote_unprovisioned.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "update_remote_unprovisioned"
+        }
+      }
+    },
+    "pool.host_update_loading": {
+      "message": "Reading the host…",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_credential_missing": {
+      "message": "Enter the operator credential.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_sending": {
+      "message": "Signing and sending the update…",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active"
+    },
+    "pool.host_update_sent": {
+      "message": "Host {hostId} queued update {requestId}; opening its Diagnostics page.",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "pool.host_update_completed": {
+      "message": "Request {requestId} already ended on host {hostId} ({verdict}).",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hostupdate.js, pool-control's host update confirmation page. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers. verdict is a short code such as updated.",
+      "lifecycle": "active",
+      "placeholders": {
+        "hostId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        },
+        "verdict": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "updated"
+        }
+      }
+    },
+    "pool.host_update_action": {
+      "message": "Update host",
+      "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js: the link in a host's row that opens the host update confirmation page.",
+      "lifecycle": "active"
     },
     "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": {
       "message": "Host {value1} no longer answers at {value2}; {value3} does.\n\nMove the pool membership to that id and forget this one?",
@@ -1470,7 +1807,7 @@
       "lifecycle": "active"
     },
     "pool.configuration_git_url": {
-      "message": "configuration git URL",
+      "message": "Configuration git URL",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -1532,7 +1869,7 @@
       }
     },
     "pool.listen_addr": {
-      "message": "listen addr",
+      "message": "Listen addr",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -1819,12 +2156,12 @@
       "lifecycle": "tombstone"
     },
     "pool.pid": {
-      "message": "pid",
+      "message": "PID",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
     "pool.platform": {
-      "message": "platform",
+      "message": "Platform",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -1878,7 +2215,7 @@
       "lifecycle": "active"
     },
     "pool.pool_status": {
-      "message": "Pool Status",
+      "message": "Pool status",
       "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/pools.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
@@ -2063,7 +2400,7 @@
       }
     },
     "pool.repo_dir": {
-      "message": "repo dir",
+      "message": "Repo dir",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -2404,7 +2741,7 @@
       "lifecycle": "active"
     },
     "pool.service_user": {
-      "message": "service user",
+      "message": "Service user",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -2414,7 +2751,7 @@
       "lifecycle": "active"
     },
     "pool.started_at": {
-      "message": "started at",
+      "message": "Started at",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -2423,7 +2760,7 @@
       "lifecycle": "tombstone"
     },
     "pool.state_dir": {
-      "message": "state dir",
+      "message": "State dir",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -2659,7 +2996,7 @@
       "lifecycle": "active"
     },
     "pool.total_storage": {
-      "message": "Total Storage",
+      "message": "Total storage",
       "description": "Visible text in test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
@@ -2684,7 +3021,7 @@
       "lifecycle": "active"
     },
     "pool.uptime": {
-      "message": "uptime",
+      "message": "Uptime",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -2806,7 +3143,7 @@
       }
     },
     "pool.version": {
-      "message": "version",
+      "message": "Version",
       "description": "Operator-facing browser message in test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },

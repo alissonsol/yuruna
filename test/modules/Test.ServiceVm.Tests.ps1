@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4244dbae-a452-49ac-b6cb-0ab2d797bde7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,7 +149,7 @@ Describe 'Restore-YurunaServiceVM' {
         Assert-Equal 'stash' $r[0].Key
     }
     It 'says the state was never probed, and leaves the service unresolved, when there is no driver' {
-        # The automatic refresh trigger reads ProbeReason: a sweep that could
+        # The automatic repair trigger reads ProbeReason: a sweep that could
         # not look must neither count as fault evidence nor reset it.
         foreach ($x in @(Restore-YurunaServiceVM -Confirm:$false)) {
             Assert-Equal 'not-probed' $x.ProbeReason

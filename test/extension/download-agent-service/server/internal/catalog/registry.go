@@ -769,8 +769,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "Forbidden (not a served file)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP",
   "status.api_guest_channel_key_absent": "this host holds no guest-channel key yet; it is created when the host first renders a guest seed",
-  "status.api_host_refresh_authorization_refused": [
-    "refresh authorization refused (",
+  "status.api_host_repair_authorization_refused": [
+    "repair authorization refused (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -778,8 +778,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "another host operation is in progress",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "another host operation is in progress",
+  "status.api_host_repair_request_closed": [
     "this request id is already closed (",
     {
       "arg": "state",
@@ -788,15 +788,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "this request id was already used with different settings",
-  "status.api_host_refresh_unavailable": [
-    "host refresh is not available on this host (",
+  "status.api_host_repair_request_conflict": "this request id was already used with different settings",
+  "status.api_host_repair_unavailable": [
+    "host repair is not available on this host (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "host update authorization refused (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "a host update is in progress on this host",
+  "status.api_host_update_controller_absent": "no host controller is running on this host; nothing was queued",
+  "status.api_host_update_proof_missing": "a host update from another machine needs an update proof from pool-control; nothing was queued",
+  "status.api_host_update_scope_unavailable": [
+    "the host controller does not run the ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " scope; nothing was queued"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "internal authentication key not configured on this host",
   "status.api_internal_error": "the request failed on the host; see server.err",
@@ -975,8 +996,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "Config",
   "status.config_field_alwaysredownload": "alwaysRedownload",
   "status.config_field_armwindowhours": "armWindowHours",
-  "status.config_field_autorefreshafterstalls": "autoRefreshAfterStalls",
   "status.config_field_autoremediation": "autoRemediation",
+  "status.config_field_autorepairafterstalls": "autoRepairAfterStalls",
   "status.config_field_autoseed": "autoSeed",
   "status.config_field_bootdelayseconds": "bootDelaySeconds",
   "status.config_field_cachingproxyip": "cachingProxyIp",
@@ -1086,7 +1107,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.control_host_token_missing": "This host holds no lab token yet.",
+  "status.control_host_token_missing": "This host holds no internal authentication key yet.",
   "status.control_instructions": [
     "This host accepts control only from a browser on the host itself (",
     {
@@ -1094,7 +1115,7 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), or one opened through the Yuruna hosts dashboard link (which grants a short-lived token). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run ",
+    "), or one opened through the Yuruna hosts dashboard link (which grants a short-lived control proof). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run ",
     {
       "arg": "command",
       "type": "detail",
@@ -1102,7 +1123,7 @@ var Catalogs = map[string]map[string]string{
     },
     " with the code from the dashboard’s Lab token tile."
   ],
-  "status.control_proof_expired": "This page’s control token has expired (they last 15 minutes).",
+  "status.control_proof_expired": "This page’s control proof has expired (proofs last 15 minutes).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "Control proof expires in ",
@@ -1113,12 +1134,12 @@ var Catalogs = map[string]map[string]string{
     },
     "s -- save soon, or re-open this host from the dashboard link for a fresh one."
   ],
-  "status.control_proof_invalid": "This page’s control token does not verify here — this host’s stored lab token likely differs from the lab’s current one, so re-enroll.",
-  "status.control_proof_missing": "This page was opened without a control token, so none was sent.",
+  "status.control_proof_invalid": "This page’s control proof does not verify here — this host’s internal authentication key likely differs from the lab’s current one, so re-enroll with a Lab token.",
+  "status.control_proof_missing": "This page was opened without a control proof, so none was sent.",
   "status.control_refused": "Control refused.",
   "status.control_routes": "control-route setup",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "This host has no lab-auth-token, so remote control is loopback-only. Open this page as ",
+    "This host has no internal authentication key, so remote control is loopback-only. Open this page as ",
     {
       "arg": "address",
       "type": "token",
@@ -1371,11 +1392,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "mirror.origin",
-  "status.git_source_mirror_fresh": "mirror.fresh",
-  "status.git_source_mirror_stale": "mirror.stale",
-  "status.git_source_not_applicable": "not.applicable",
-  "status.git_source_origin_direct": "remote.origin",
+  "status.git_source_mirror_confirmed": "mirror",
+  "status.git_source_mirror_fresh": "mirror fresh",
+  "status.git_source_mirror_stale": "mirror stale",
+  "status.git_source_not_applicable": "not applicable",
+  "status.git_source_origin_direct": "remote",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -1439,24 +1460,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
-  "status.host_refresh_action_elevate": "Next step: the repair needs administrator rights; run it on the host from an elevated session.",
-  "status.host_refresh_action_grant_automation": "Next step: allow this host's automation access to UTM, then refresh again.",
-  "status.host_refresh_action_gui_session": "Next step: sign in to a desktop session on the host, then refresh again.",
-  "status.host_refresh_action_install_client": "Next step: install the hypervisor's command-line client on the host, then refresh again.",
-  "status.host_refresh_action_resume_request": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
-  "status.host_refresh_action_start_runner": "Next step: start the runner on the host; no recorded launch could be reused to restart it.",
-  "status.host_refresh_authorization_refused": [
-    "This refresh needs a refresh proof that this page does not have (",
+  "status.host_repair_action_dispose_obligations": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.",
+  "status.host_repair_action_elevate": "Next step: the repair needs administrator rights; run it on the host from an elevated session.",
+  "status.host_repair_action_grant_automation": "Next step: allow this host's automation access to UTM, then repair again.",
+  "status.host_repair_action_gui_session": "Next step: sign in to a desktop session on the host, then repair again.",
+  "status.host_repair_action_install_client": "Next step: install the hypervisor's command-line client on the host, then repair again.",
+  "status.host_repair_action_resume_request": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRepair.ps1 -Resume.",
+  "status.host_repair_action_start_runner": "Next step: start the runner on the host; no recorded launch could be reused to restart it.",
+  "status.host_repair_authorization_refused": [
+    "This repair needs a repair proof that this page does not have (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Use the status page on the host itself, or the pool-control refresh action."
+    "). Use the status page on the host itself, or the pool-control repair action."
   ],
-  "status.host_refresh_busy": [
-    "Another host refresh (",
+  "status.host_repair_busy": [
+    "Another host repair (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1464,8 +1485,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") is in progress; showing its progress."
   ],
-  "status.host_refresh_check_host": "On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "On the host, run pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf to see the current state.",
+  "status.host_repair_closed": [
     "Request ",
     {
       "arg": "requestId",
@@ -1478,10 +1499,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); start a new refresh."
+    "); start a new repair."
   ],
-  "status.host_refresh_confirm": [
-    "Refresh this host, up to the ",
+  "status.host_repair_confirm": [
+    "Repair this host, up to the ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -1495,18 +1516,9 @@ var Catalogs = map[string]map[string]string{
     },
     " minutes."
   ],
-  "status.host_refresh_conflict": [
-    "Request ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " was already sent with different settings; start a new refresh."
-  ],
-  "status.host_refresh_launcher_failed": "The host could not start the refresh worker. The request is kept; select Retry to start it again.",
-  "status.host_refresh_lost": [
-    "Refresh ",
+  "status.host_repair_launcher_failed": "The host could not start the repair worker. The request is kept; select Retry to start it again.",
+  "status.host_repair_lost": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1518,11 +1530,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one."
+    " seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Repair host to start a new one."
   ],
-  "status.host_refresh_note": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.",
-  "status.host_refresh_progress": [
-    "Refresh ",
+  "status.host_repair_note": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.",
+  "status.host_repair_progress": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1554,19 +1566,11 @@ var Catalogs = map[string]map[string]string{
     },
     " seconds left."
   ],
-  "status.host_refresh_recovery_pending": "Services or the runner still need restoring. Retry resumes the same request.",
-  "status.host_refresh_rejected": [
-    "The host rejected the refresh request: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "This page is open from another machine, so it can watch a host refresh but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRefresh.ps1.",
-  "status.host_refresh_retry": "Retry",
-  "status.host_refresh_stale": [
-    "Refresh ",
+  "status.host_repair_recovery_pending": "Services or the runner still need restoring. Retry resumes the same request.",
+  "status.host_repair_remote_viewer": "This page is open from another machine, so it can watch a host repair but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRepair.ps1.",
+  "status.host_repair_retry": "Retry",
+  "status.host_repair_stale": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1580,12 +1584,11 @@ var Catalogs = map[string]map[string]string{
     },
     " seconds. The worker may have stopped; check the host before starting another repair."
   ],
-  "status.host_refresh_start": "Refresh host",
-  "status.host_refresh_start_cycle_busy": "A start-cycle request is in progress; try again when it finishes.",
-  "status.host_refresh_submitting": "Sending the refresh request...",
-  "status.host_refresh_title": "Host refresh",
-  "status.host_refresh_unavailable": [
-    "Host refresh is not available on this host (",
+  "status.host_repair_start": "Repair host",
+  "status.host_repair_start_cycle_busy": "A start-cycle request is in progress; try again when it finishes.",
+  "status.host_repair_title": "Host repair",
+  "status.host_repair_unavailable": [
+    "Host repair is not available on this host (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1593,8 +1596,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "Refresh ",
+  "status.host_repair_verdict_abandoned": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1602,8 +1605,8 @@ var Catalogs = map[string]map[string]string{
     },
     " was abandoned after repeated attempts; its recovery record is kept on the host."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "Refresh ",
+  "status.host_repair_verdict_already_healthy": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1611,8 +1614,8 @@ var Catalogs = map[string]map[string]string{
     },
     " finished: the host was already healthy, so nothing was changed."
   ],
-  "status.host_refresh_verdict_failed": [
-    "Refresh ",
+  "status.host_repair_verdict_failed": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1626,8 +1629,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "Refresh ",
+  "status.host_repair_verdict_partial": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1641,8 +1644,8 @@ var Catalogs = map[string]map[string]string{
     },
     "); some services or the runner still need attention."
   ],
-  "status.host_refresh_verdict_refused": [
-    "Refresh ",
+  "status.host_repair_verdict_refused": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1656,8 +1659,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "Refresh ",
+  "status.host_repair_verdict_repaired": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1665,8 +1668,8 @@ var Catalogs = map[string]map[string]string{
     },
     " finished: the host was repaired and the runner is ready."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "Refresh ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1674,8 +1677,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ended: the hypervisor still does not respond."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "Refresh ",
+  "status.host_repair_verdict_unknown": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1689,8 +1692,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "Refresh ",
+  "status.host_repair_waiting": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1698,8 +1701,8 @@ var Catalogs = map[string]map[string]string{
     },
     " was accepted; waiting for the worker's first report."
   ],
-  "status.host_refresh_waiting_long": [
-    "Refresh ",
+  "status.host_repair_waiting_long": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1713,6 +1716,543 @@ var Catalogs = map[string]map[string]string{
     },
     " seconds. The worker may have failed to start; check the host."
   ],
+  "status.host_request_conflict": [
+    "Request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " was already sent with different settings; start a new request."
+  ],
+  "status.host_request_rejected": [
+    "The host rejected the request: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "Sending the request...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "Next step: check the host and act there.",
+      "end_one_shot": "Next step: end the one-shot session on the host, then press again.",
+      "other": [
+        "Next step: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "Next step: give the runner its sudo rule on the host, then press again.",
+      "provision_elevation_macos": [
+        "Next step: on the host, run ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " from a terminal of the desktop session and answer its prompts; it installs the sudoers entry host updates use. Then press again."
+      ],
+      "read_remarks": "Next step: read the remarks.",
+      "reboot_host": "Next step: restart Windows on the host, then start the runner.",
+      "release": [
+        "Next step: to end it, run on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "Next step: release the VM kept for diagnosis, then press again.",
+      "repair_checkout": "Next step: repair the checkout on the host; the host keeps trying.",
+      "retry_or_drain_now": [
+        "Next step: press again, or end the cycle now on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "Next step: start the runner on the host.",
+      "stop_runner_by_hand": "Next step: stop the runner on the host by hand."
+    }
+  },
+  "status.host_update_blocks": [
+    "A host update (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") is in progress; try again when it finishes."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "A host repair (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") is in progress; try again when it finishes."
+      ],
+      "host_update": [
+        "Another host update (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") is in progress; showing its progress."
+      ],
+      "other": "A start-cycle request is in progress; try again when it finishes."
+    }
+  },
+  "status.host_update_confirm": [
+    "Update host (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? The runner stops when the running cycle ends and restarts on current code; the update gives up after ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutes. To end the cycle now instead, run on the host: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "The runner started without a console.",
+      "other": [
+        "The runner's console: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "To open the runner's console, run on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "The runner's console is a window of its own on the desktop of the test account: open it at the machine, or over a remote desktop connection to that session."
+    }
+  },
+  "status.host_update_countdown": [
+    "The status service is restarting; expected back in ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " seconds."
+  ],
+  "status.host_update_cycle_time": [
+    "The running cycle has run ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; recent cycles took about ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "Still owed on the host: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "The first cycle after the update failed.",
+      "other": "Waiting for the first cycle after the update.",
+      "pass": "The first cycle after the update passed."
+    }
+  },
+  "status.host_update_lost": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": the host no longer reports it, so its outcome is unknown here; check the host."
+  ],
+  "status.host_update_note": [
+    "Updates this host's code and restarts the runner when the running cycle ends, giving up after ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutes. To end the cycle now, run on the host: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": phase ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " of ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), bounded at ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " is queued; it starts when the running cycle ends."
+  ],
+  "status.host_update_remarks": [
+    "Remarks: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "Update host opens pool-control at ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", which signs the request and brings you back here."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstall dependencies and settings, then restart",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Restart the runner on current code"
+    }
+  },
+  "status.host_update_stale": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": no report for ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds; check the host."
+  ],
+  "status.host_update_start": "Update host",
+  "status.host_update_title": "Host update",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "No host controller runs on this host. To set one up, run on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "A host update holds this host's runner and no host controller is running. Run ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " once more from a terminal of the desktop session and leave a runner that is running alone: that start stops at the runner gate and starts the controller, which continues the update."
+      ],
+      "controller_absent_macos": [
+        "No host controller runs on this host. On macOS the runner's start starts it: run ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " from a terminal of the desktop session, or stop a running runner after its cycle and start it again that way. On a host never set up for host updates, run ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " first."
+      ],
+      "host_type": "Host updates are not yet available on this host type.",
+      "journal_unreadable": "The host cannot read its operation journal; check the host.",
+      "listener_dependency_missing": "The status service could not load what host updates need; restart it on the host.",
+      "other": [
+        "Host updates are not available on this host (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "From another machine this page can only watch a host update; until ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " is installed on the host, press Update host there."
+      ],
+      "scope_unavailable": "This host cannot run the chosen scope now.",
+      "session_unusable": [
+        "The host controller's session cannot start a working runner: it is not the desktop session, or a privacy grant is missing there. On the host, end the session yuruna-controller with ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (under screen, quit the yuruna-controller session that ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " lists), stop a running runner after its cycle, and start the runner again from a terminal of the desktop session that holds the grants."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " gave up: the running cycle outlasted the wait. Nothing changed."
+      ],
+      "failed_restored": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " did not complete (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); the host was restored."
+      ],
+      "other": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ended with an outcome this page does not recognize (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished, but Windows must restart before the hypervisor can run, so the runner was not started."
+      ],
+      "recovering": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": the runner is not running yet; the host keeps trying (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": the runner is not running yet (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), and no host controller is running to try again."
+      ],
+      "refused": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " was refused; nothing changed (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " was released on the host."
+      ],
+      "stop_failed": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": the runner could not be stopped, so nothing was started."
+      ],
+      "superseded": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " was taken over by ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished; the runner runs current code."
+      ],
+      "updated_not_started": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished; the runner was stopped before it, so it was not started."
+      ],
+      "updated_with_remarks": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished with remarks; the runner runs current code."
+      ]
+    }
+  },
   "status.host_value1": [
     "Host: ",
     {
@@ -1741,7 +2281,7 @@ var Catalogs = map[string]map[string]string{
     }
   ],
   "status.lab_hold_unspecified": "Lab hold -- waiting for a lab service",
-  "status.latest_cycle": "Latest Cycle",
+  "status.latest_cycle": "Latest cycle",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -1964,7 +2504,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "New VM",
   "status.pill_start_guestos": "Start OS",
   "status.pill_start_guestworkload": "Workload",
-  "status.preflight_failed": "PREFLIGHT FAILED",
+  "status.preflight_failed": "Preflight failed",
   "status.process_environment_value_the_status_service_inherited_at_startup": "Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.",
   "status.quarantine_pinned": [
     "Quarantined after repeated same-class failures (skipped until a new commit; pinned at ",
@@ -1981,7 +2521,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "Recalculate",
   "status.recalculating": "Recalculating…",
   "status.recalculating_perf_aggregates": "Recalculating perf aggregates…",
-  "status.recent_cycles": "Recent Cycles",
+  "status.recent_cycles": "Recent cycles",
   "status.refresh": "Refresh",
   "status.results_folder": [
     "Open results folder for ",
@@ -2137,8 +2677,8 @@ var Catalogs = map[string]map[string]string{
     },
     ", restart the VM, then resume the sequence"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "A host refresh (",
+  "status.start_cycle_blocked_by_repair": [
+    "A host repair (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2228,7 +2768,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "Testing caching-proxy service from host…",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "The archive is built from server logs only and downloaded to this machine. No data from this browsing session is included.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "The control proof expired. Re-open this host from the dashboard link to get a fresh one.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "The control proof was rejected. It may have been minted with a different lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "The control proof was rejected. It may have been minted with a different internal authentication key than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "The host could not load its control-proof verifier; check the status service log.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "The share sheet expired while the host packed the folder. ",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "This browser could not attach the file to a message itself. ",
@@ -2410,7 +2950,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "status.working": "Working...",
   "status.yuruna_host_status": "Yuruna host status",
-  "status.yuruna_status": "Yuruna Status"
+  "status.yuruna_status": "Yuruna status"
 }
 `,
 	},
@@ -3230,8 +3770,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "אסור (אינו קובץ שמוגש)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "אסור: יעד הבדיקה חייב להיות כתובת פרטית (loopback⁦/RFC1918/link-local⁩) או כתובת IP המוגדרת עבור המטמון",
   "status.api_guest_channel_key_absent": "למארח זה אין עדיין מפתח ערוץ אורחים; הוא נוצר כשהמארח מייצר לראשונה seed של אורח",
-  "status.api_host_refresh_authorization_refused": [
-    "ההרשאה לרענון נדחתה (",
+  "status.api_host_repair_authorization_refused": [
+    "ההרשאה לתיקון נדחתה (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -3239,8 +3779,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "פעולה אחרת במארח נמצאת בביצוע",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "פעולה אחרת במארח נמצאת בביצוע",
+  "status.api_host_repair_request_closed": [
     "מזהה הבקשה הזה כבר סגור (",
     {
       "arg": "state",
@@ -3249,15 +3789,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "מזהה הבקשה הזה כבר שימש עם הגדרות אחרות",
-  "status.api_host_refresh_unavailable": [
-    "רענון המארח אינו זמין במארח זה (",
+  "status.api_host_repair_request_conflict": "מזהה הבקשה הזה כבר שימש עם הגדרות אחרות",
+  "status.api_host_repair_unavailable": [
+    "תיקון המארח אינו זמין במארח זה (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "הרשאת עדכון המארח נדחתה (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "עדכון מארח מתבצע במארח זה",
+  "status.api_host_update_controller_absent": "אין בקר מארח פועל במארח זה; דבר לא נוסף לתור",
+  "status.api_host_update_proof_missing": "עדכון מארח ממכונה אחרת דורש הוכחת עדכון מ-pool-control; דבר לא נוסף לתור",
+  "status.api_host_update_scope_unavailable": [
+    "בקר המארח אינו מריץ את ההיקף ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; דבר לא נוסף לתור"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "מפתח אימות פנימי אינו מוגדר במארח זה",
   "status.api_internal_error": "הבקשה נכשלה במארח; עיינו בקובץ ⁦server.err⁩",
@@ -3436,8 +3997,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "תצורה",
   "status.config_field_alwaysredownload": "הורדה מחדש תמיד (alwaysRedownload)",
   "status.config_field_armwindowhours": "חלון דריכה בשעות",
-  "status.config_field_autorefreshafterstalls": "רענון אוטומטי לאחר תקיעות (autoRefreshAfterStalls)",
   "status.config_field_autoremediation": "תיקון אוטומטי (autoRemediation)",
+  "status.config_field_autorepairafterstalls": "תיקון אוטומטי לאחר תקיעות (autoRepairAfterStalls)",
   "status.config_field_autoseed": "הזנה ראשונית אוטומטית",
   "status.config_field_bootdelayseconds": "השהיית אתחול בשניות (bootDelaySeconds)",
   "status.config_field_cachingproxyip": "כתובת IP של שרת מתווך עם מטמון (cachingProxyIp)",
@@ -3547,7 +4108,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.control_host_token_missing": "למארח זה אין עדיין אסימון מעבדה.",
+  "status.control_host_token_missing": "למארח זה אין עדיין מפתח אימות פנימי.",
   "status.control_instructions": [
     "מארח זה מקבל פקודות שליטה רק מדפדפן במארח עצמו (",
     {
@@ -3555,7 +4116,7 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק אסימון לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו ",
+    "), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק הוכחת שליטה לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו ",
     {
       "arg": "command",
       "type": "detail",
@@ -3563,7 +4124,7 @@ var Catalogs = map[string]map[string]string{
     },
     " עם הקוד מאריח אסימון המעבדה בלוח הבקרה."
   ],
-  "status.control_proof_expired": "פג תוקפו של אסימון השליטה בדף זה (תוקף האסימונים הוא 15 דקות).",
+  "status.control_proof_expired": "פג תוקפה של הוכחת השליטה בדף זה (תוקף ההוכחות הוא 15 דקות).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "פג תוקפה של הוכחת השליטה -- פתחו מחדש את המארח דרך הקישור בלוח הבקרה לפני השמירה. העריכות שלכם נשמרות עד שתעשו זאת.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "תוקפה של הוכחת השליטה יפוג בעוד ",
@@ -3574,12 +4135,12 @@ var Catalogs = map[string]map[string]string{
     },
     "s -- שמרו בקרוב, או פתחו מחדש את המארח דרך הקישור בלוח הבקרה לקבלת הוכחה חדשה."
   ],
-  "status.control_proof_invalid": "לא ניתן לאמת כאן את אסימון השליטה של דף זה — אסימון המעבדה השמור במארח כנראה שונה מהאסימון הנוכחי של המעבדה, לכן רשמו את המארח מחדש.",
-  "status.control_proof_missing": "דף זה נפתח ללא אסימון שליטה, ולכן לא נשלח אסימון.",
+  "status.control_proof_invalid": "לא ניתן לאמת כאן את הוכחת השליטה של דף זה — מפתח האימות הפנימי של מארח זה כנראה שונה מהמפתח הנוכחי של המעבדה, לכן רשמו את המארח מחדש באמצעות אסימון מעבדה.",
+  "status.control_proof_missing": "דף זה נפתח ללא הוכחת שליטה, ולכן לא נשלחה הוכחה.",
   "status.control_refused": "בקשת השליטה נדחתה.",
   "status.control_routes": "הגדרת נתיבי שליטה",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "למארח זה אין lab-auth-token, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת ",
+    "למארח זה אין מפתח אימות פנימי, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת ",
     {
       "arg": "address",
       "type": "token",
@@ -3836,11 +4397,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "⁦mirror.origin⁩",
-  "status.git_source_mirror_fresh": "⁦mirror.fresh⁩",
-  "status.git_source_mirror_stale": "⁦mirror.stale⁩",
-  "status.git_source_not_applicable": "⁦not.applicable⁩",
-  "status.git_source_origin_direct": "⁦remote.origin⁩",
+  "status.git_source_mirror_confirmed": "⁦mirror⁩",
+  "status.git_source_mirror_fresh": "⁦mirror fresh⁩",
+  "status.git_source_mirror_stale": "⁦mirror stale⁩",
+  "status.git_source_not_applicable": "⁦not applicable⁩",
+  "status.git_source_origin_direct": "⁦remote⁩",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -3913,24 +4474,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-DisposeObligation⁩.",
-  "status.host_refresh_action_elevate": "השלב הבא: התיקון דורש הרשאות מנהל; הריצו אותו במארח מתוך הפעלה עם הרשאות מוגברות.",
-  "status.host_refresh_action_grant_automation": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז רעננו שוב.",
-  "status.host_refresh_action_gui_session": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז רעננו שוב.",
-  "status.host_refresh_action_install_client": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז רעננו שוב.",
-  "status.host_refresh_action_resume_request": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.",
-  "status.host_refresh_action_start_runner": "השלב הבא: הפעילו את רכיב ההרצה במארח; לא נמצאה הפעלה מתועדת שניתן להשתמש בה להפעלתו מחדש.",
-  "status.host_refresh_authorization_refused": [
-    "רענון זה דורש הוכחת הרשאה לרענון שאינה קיימת בדף זה (",
+  "status.host_repair_action_dispose_obligations": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-DisposeObligation⁩.",
+  "status.host_repair_action_elevate": "השלב הבא: התיקון דורש הרשאות מנהל; הריצו אותו במארח מתוך הפעלה עם הרשאות מוגברות.",
+  "status.host_repair_action_grant_automation": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז תקנו שוב.",
+  "status.host_repair_action_gui_session": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז תקנו שוב.",
+  "status.host_repair_action_install_client": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז תקנו שוב.",
+  "status.host_repair_action_resume_request": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.",
+  "status.host_repair_action_start_runner": "השלב הבא: הפעילו את רכיב ההרצה במארח; לא נמצאה הפעלה מתועדת שניתן להשתמש בה להפעלתו מחדש.",
+  "status.host_repair_authorization_refused": [
+    "תיקון זה דורש הוכחת תיקון שאינה קיימת בדף זה (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). השתמשו בדף המצב במארח עצמו, או בפעולת הרענון של בקרת המאגר."
+    "). השתמשו בדף המצב במארח עצמו, או בפעולת התיקון של בקרת המאגר."
   ],
-  "status.host_refresh_busy": [
-    "רענון מארח אחר (",
+  "status.host_repair_busy": [
+    "תיקון מארח אחר (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -3938,8 +4499,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") מתבצע כעת; התקדמותו מוצגת."
   ],
-  "status.host_refresh_check_host": "הריצו במארח pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "הריצו במארח pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי.",
+  "status.host_repair_closed": [
     "בקשה ",
     {
       "arg": "requestId",
@@ -3952,16 +4513,16 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); התחילו רענון חדש."
+    "); התחילו תיקון חדש."
   ],
-  "status.host_refresh_confirm": [
+  "status.host_repair_confirm": [
     "מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש, ורכיב ההרצה מופעל מחדש. התהליך עשוי להימשך עד ",
     {
       "arg": "minutes",
       "type": "integer",
       "trust": "internal"
     },
-    " דקות. לרענן מארח זה עד לשלב ",
+    " דקות. לתקן מארח זה עד לשלב ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -3969,18 +4530,9 @@ var Catalogs = map[string]map[string]string{
     },
     "?"
   ],
-  "status.host_refresh_conflict": [
-    "בקשה ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " כבר נשלחה עם הגדרות שונות; התחילו רענון חדש."
-  ],
-  "status.host_refresh_launcher_failed": "המארח לא הצליח להפעיל את תהליך הרענון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב.",
-  "status.host_refresh_lost": [
-    "רענון ",
+  "status.host_repair_launcher_failed": "המארח לא הצליח להפעיל את תהליך התיקון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב.",
+  "status.host_repair_lost": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -3992,11 +4544,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או ברענון המארח כדי להתחיל רענון חדש."
+    " שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או בתיקון המארח כדי להתחיל תיקון חדש."
   ],
-  "status.host_refresh_note": "מתקן רכיב הרצה או מנהל מכונות וירטואליות שנתקע במארח זה. מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש.",
-  "status.host_refresh_progress": [
-    "רענון ",
+  "status.host_repair_note": "מתקן רכיב הרצה או מנהל מכונות וירטואליות שנתקע במארח זה. מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש.",
+  "status.host_repair_progress": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4028,19 +4580,11 @@ var Catalogs = map[string]map[string]string{
     },
     " שניות."
   ],
-  "status.host_refresh_recovery_pending": "עדיין נדרש שחזור של שירותים או של רכיב ההרצה. ניסיון חוזר ממשיך את אותה בקשה.",
-  "status.host_refresh_rejected": [
-    "המארח דחה את בקשת הרענון: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו ברענון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩.",
-  "status.host_refresh_retry": "ניסיון חוזר",
-  "status.host_refresh_stale": [
-    "רענון ",
+  "status.host_repair_recovery_pending": "עדיין נדרש שחזור של שירותים או של רכיב ההרצה. ניסיון חוזר ממשיך את אותה בקשה.",
+  "status.host_repair_remote_viewer": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו בתיקון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩.",
+  "status.host_repair_retry": "ניסיון חוזר",
+  "status.host_repair_stale": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4052,14 +4596,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות. ייתכן שתהליך הרענון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
+    " שניות. ייתכן שתהליך התיקון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
   ],
-  "status.host_refresh_start": "רענון המארח",
-  "status.host_refresh_start_cycle_busy": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים.",
-  "status.host_refresh_submitting": "בקשת הרענון נשלחת...",
-  "status.host_refresh_title": "רענון המארח",
-  "status.host_refresh_unavailable": [
-    "רענון המארח אינו זמין במארח זה (",
+  "status.host_repair_start": "תיקון המארח",
+  "status.host_repair_start_cycle_busy": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים.",
+  "status.host_repair_title": "תיקון המארח",
+  "status.host_repair_unavailable": [
+    "תיקון המארח אינו זמין במארח זה (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -4067,8 +4610,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "רענון ",
+  "status.host_repair_verdict_abandoned": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4076,8 +4619,8 @@ var Catalogs = map[string]map[string]string{
     },
     " נזנח לאחר ניסיונות חוזרים; רשומת השחזור שלו נשמרת במארח."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "רענון ",
+  "status.host_repair_verdict_already_healthy": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4085,8 +4628,8 @@ var Catalogs = map[string]map[string]string{
     },
     " הסתיים: המארח כבר היה תקין, ולכן לא בוצעו שינויים."
   ],
-  "status.host_refresh_verdict_failed": [
-    "רענון ",
+  "status.host_repair_verdict_failed": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4100,8 +4643,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "רענון ",
+  "status.host_repair_verdict_partial": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4115,8 +4658,8 @@ var Catalogs = map[string]map[string]string{
     },
     "); חלק מהשירותים או רכיב ההרצה עדיין דורשים טיפול."
   ],
-  "status.host_refresh_verdict_refused": [
-    "רענון ",
+  "status.host_repair_verdict_refused": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4130,8 +4673,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "רענון ",
+  "status.host_repair_verdict_repaired": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4139,8 +4682,8 @@ var Catalogs = map[string]map[string]string{
     },
     " הסתיים: המארח תוקן ורכיב ההרצה מוכן."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "רענון ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4148,8 +4691,8 @@ var Catalogs = map[string]map[string]string{
     },
     " הסתיים: מנהל המכונות הווירטואליות עדיין אינו מגיב."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "רענון ",
+  "status.host_repair_verdict_unknown": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4163,17 +4706,17 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "רענון ",
+  "status.host_repair_waiting": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " התקבל; ממתינים לדיווח הראשון מתהליך הרענון."
+    " התקבל; ממתינים לדיווח הראשון מתהליך התיקון."
   ],
-  "status.host_refresh_waiting_long": [
-    "רענון ",
+  "status.host_repair_waiting_long": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4185,8 +4728,545 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות. ייתכן שהפעלת תהליך הרענון נכשלה; בדקו את המארח."
+    " שניות. ייתכן שהפעלת תהליך התיקון נכשלה; בדקו את המארח."
   ],
+  "status.host_request_conflict": [
+    "בקשה ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " כבר נשלחה עם הגדרות שונות; התחילו בקשה חדשה."
+  ],
+  "status.host_request_rejected": [
+    "המארח דחה את הבקשה: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "הבקשה נשלחת...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "הצעד הבא: בדקו את המארח ופעלו בו.",
+      "end_one_shot": "הצעד הבא: סיימו את ההפעלה החד-פעמית במארח, ואז לחצו שוב.",
+      "other": [
+        "הצעד הבא: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "הצעד הבא: תנו לרכיב ההרצה את כלל ה-sudo שלו במארח, ואז לחצו שוב.",
+      "provision_elevation_macos": [
+        "הצעד הבא: במארח, הריצו ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ממסוף של הפעלת שולחן העבודה וענו על השאלות שלו; הוא מתקין את רשומת ה-sudoers שעדכוני מארח משתמשים בה. לאחר מכן לחצו שוב."
+      ],
+      "read_remarks": "הצעד הבא: קראו את ההערות.",
+      "reboot_host": "הצעד הבא: הפעילו מחדש את Windows במארח, ואז הפעילו את רכיב ההרצה.",
+      "release": [
+        "הצעד הבא: כדי לסיים אותו, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "הצעד הבא: שחררו את ה-VM שנשמרה לאבחון, ואז לחצו שוב.",
+      "repair_checkout": "הצעד הבא: תקנו את עותק הקוד במארח; המארח ממשיך לנסות.",
+      "retry_or_drain_now": [
+        "הצעד הבא: לחצו שוב, או סיימו את המחזור עכשיו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "הצעד הבא: הפעילו את רכיב ההרצה במארח.",
+      "stop_runner_by_hand": "הצעד הבא: עצרו את רכיב ההרצה במארח ידנית."
+    }
+  },
+  "status.host_update_blocks": [
+    "עדכון מארח (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") מתבצע; נסו שוב לאחר שיסתיים."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "תיקון מארח (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") מתבצע; נסו שוב לאחר שיסתיים."
+      ],
+      "host_update": [
+        "עדכון מארח אחר (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") מתבצע; מוצגת ההתקדמות שלו."
+      ],
+      "other": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים."
+    }
+  },
+  "status.host_update_confirm": [
+    "לעדכן את המארח (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? רכיב ההרצה ייעצר כשהמחזור הנוכחי יסתיים ויופעל מחדש על הקוד הנוכחי; העדכון מוותר לאחר ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "רכיב ההרצה הופעל ללא מסוף.",
+      "other": [
+        "המסוף של רכיב ההרצה: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "כדי לפתוח את המסוף של רכיב ההרצה, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "המסוף של רכיב ההרצה הוא חלון משלו בשולחן העבודה של חשבון הבדיקה: פתחו אותו ליד המכונה, או דרך חיבור לשולחן עבודה מרוחק להפעלה זו."
+    }
+  },
+  "status.host_update_countdown": [
+    "שירות הסטטוס מופעל מחדש; צפוי לחזור בעוד ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " שניות."
+  ],
+  "status.host_update_cycle_time": [
+    "המחזור הנוכחי רץ כבר ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; מחזורים אחרונים נמשכו כ-",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "עדיין נדרש במארח: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "המחזור הראשון לאחר העדכון נכשל.",
+      "other": "ממתין למחזור הראשון לאחר העדכון.",
+      "pass": "המחזור הראשון לאחר העדכון עבר."
+    }
+  },
+  "status.host_update_lost": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": המארח כבר אינו מדווח עליו, ולכן תוצאתו אינה ידועה כאן; בדקו את המארח."
+  ],
+  "status.host_update_note": [
+    "מעדכן את הקוד של מארח זה ומפעיל מחדש את רכיב ההרצה כשהמחזור הנוכחי מסתיים, ומוותר לאחר ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": שלב ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " מתוך ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), מוגבל ל-",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ממתין בתור; הוא יתחיל כשהמחזור הנוכחי יסתיים."
+  ],
+  "status.host_update_remarks": [
+    "הערות: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "עדכון המארח פותח את pool-control בכתובת ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", שחותם על הבקשה ומחזיר אתכם לכאן."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "התקנה מחדש של תלויות והגדרות, ואז הפעלה מחדש",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "הפעלה מחדש של רכיב ההרצה על הקוד הנוכחי"
+    }
+  },
+  "status.host_update_stale": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": אין דיווח זה ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " שניות; בדקו את המארח."
+  ],
+  "status.host_update_start": "עדכון המארח",
+  "status.host_update_title": "עדכון המארח",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "אין בקר מארח שרץ במארח זה. כדי להגדיר אחד, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "עדכון מארח מחזיק את רכיב ההרצה של מארח זה ואין בקר מארח פועל. הריצו ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " פעם נוספת ממסוף של הפעלת שולחן העבודה והשאירו כמו שהוא רכיב הרצה שפועל: הפעלה זו נעצרת בשער המריץ ומפעילה את הבקר, שממשיך את העדכון."
+      ],
+      "controller_absent_macos": [
+        "אין בקר מארח שרץ במארח זה. ב-macOS הפעלת רכיב ההרצה מפעילה אותו: הריצו ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ממסוף של הפעלת שולחן העבודה, או עצרו רכיב הרצה פועל אחרי המחזור שלו והפעילו אותו שוב בדרך זו. במארח שמעולם לא הוכן לעדכוני מארח, הריצו קודם את ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "."
+      ],
+      "host_type": "עדכוני מארח עדיין אינם זמינים בסוג מארח זה.",
+      "journal_unreadable": "המארח אינו יכול לקרוא את יומן הפעולות שלו; בדקו את המארח.",
+      "listener_dependency_missing": "שירות הסטטוס לא טען את מה שעדכוני מארח צריכים; הפעילו אותו מחדש במארח.",
+      "other": [
+        "עדכוני מארח אינם זמינים במארח זה (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "ממכונה אחרת הדף הזה רק עוקב אחר עדכון מארח; עד ש-",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " יותקן במארח, לחצו שם על עדכון המארח."
+      ],
+      "scope_unavailable": "המארח אינו יכול להריץ כעת את ההיקף שנבחר.",
+      "session_unusable": [
+        "ההפעלה של בקר המארח אינה יכולה להפעיל רכיב הרצה תקין: היא אינה הפעלת שולחן העבודה, או שחסרה בה הרשאת פרטיות. במארח, סיימו את ההפעלה yuruna-controller באמצעות ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (תחת screen, סיימו את ההפעלה yuruna-controller ש-",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " מציג), עצרו רכיב הרצה פועל אחרי המחזור שלו, והפעילו שוב את רכיב ההרצה ממסוף של הפעלת שולחן העבודה שיש לו את ההרשאות."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ויתר: המחזור הנוכחי נמשך יותר מזמן ההמתנה. דבר לא השתנה."
+      ],
+      "failed_restored": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " לא הושלם (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); המארח שוחזר."
+      ],
+      "other": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים בתוצאה שהדף הזה אינו מזהה (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים, אבל יש להפעיל מחדש את Windows לפני שה-hypervisor יוכל לרוץ, ולכן רכיב ההרצה לא הופעל."
+      ],
+      "recovering": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": רכיב ההרצה עדיין אינו רץ; המארח ממשיך לנסות (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": רכיב ההרצה עדיין אינו רץ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), ואין בקר מארח פועל שינסה שוב."
+      ],
+      "refused": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " נדחה; דבר לא השתנה (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " שוחרר במארח."
+      ],
+      "stop_failed": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": לא ניתן היה לעצור את רכיב ההרצה, ולכן דבר לא הופעל."
+      ],
+      "superseded": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הוחלף על ידי ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים; רכיב ההרצה מריץ את הקוד הנוכחי."
+      ],
+      "updated_not_started": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים; רכיב ההרצה נעצר לפניו, ולכן לא הופעל."
+      ],
+      "updated_with_remarks": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים עם הערות; רכיב ההרצה מריץ את הקוד הנוכחי."
+      ]
+    }
+  },
   "status.host_value1": [
     "מארח: ",
     {
@@ -4663,8 +5743,8 @@ var Catalogs = map[string]map[string]string{
     },
     ", הפעילו מחדש את המכונה הווירטואלית ואז המשיכו את הרצף"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "רענון מארח (",
+  "status.start_cycle_blocked_by_repair": [
+    "תיקון מארח (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -4754,7 +5834,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "מתבצעת בדיקת שירות מתווך המטמון מהמארח…",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "הארכיון נבנה מיומני השרת בלבד ומורד למחשב זה. לא נכללים נתונים מהפעלת הגלישה הנוכחית.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "תוקף הוכחת השליטה פג. פתחו מחדש את המארח הזה דרך הקישור בלוח הבקרה כדי לקבל הוכחה חדשה.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות lab-auth-token שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות מפתח אימות פנימי שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "המארח לא הצליח לטעון את מאמת הוכחת השליטה שלו; בדקו את היומן של status service.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "תוקף חלונית השיתוף פג בזמן שהמארח ארז את התיקייה. ",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "הדפדפן הזה לא הצליח לצרף את הקובץ להודעה בעצמו. ",
@@ -5398,7 +6478,7 @@ var Catalogs = map[string]map[string]string{
   "download.pages": "Páginas",
   "download.pause": "Pausa",
   "download.pool": "Grupo",
-  "download.pool_bytes": "bytes de grupo",
+  "download.pool_bytes": "Bytes do grupo",
   "download.previous_value1": [
     {
       "arg": "value1",
@@ -5769,8 +6849,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "Proibido (não é um arquivo servido)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado",
   "status.api_guest_channel_key_absent": "este host ainda não possui chave do canal de convidados; ela é criada quando o host gera a primeira seed de convidado",
-  "status.api_host_refresh_authorization_refused": [
-    "autorização de atualização recusada (",
+  "status.api_host_repair_authorization_refused": [
+    "autorização de reparo recusada (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -5778,8 +6858,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "outra operação do hospedeiro está em andamento",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "outra operação do hospedeiro está em andamento",
+  "status.api_host_repair_request_closed": [
     "este ID de solicitação já foi encerrado (",
     {
       "arg": "state",
@@ -5788,15 +6868,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "este ID de solicitação já foi usado com configurações diferentes",
-  "status.api_host_refresh_unavailable": [
-    "a atualização do hospedeiro não está disponível neste hospedeiro (",
+  "status.api_host_repair_request_conflict": "este ID de solicitação já foi usado com configurações diferentes",
+  "status.api_host_repair_unavailable": [
+    "o reparo do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "autorização de atualização do hospedeiro recusada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "uma atualização do hospedeiro está em andamento neste hospedeiro",
+  "status.api_host_update_controller_absent": "nenhum controlador do hospedeiro está em execução neste hospedeiro; nada foi enfileirado",
+  "status.api_host_update_proof_missing": "uma atualização de hospedeiro vinda de outra máquina precisa de uma prova de atualização do pool-control; nada foi enfileirado",
+  "status.api_host_update_scope_unavailable": [
+    "o controlador do hospedeiro não executa o escopo ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; nada foi enfileirado"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "chave de autenticação interna não configurada nesta máquina",
   "status.api_internal_error": "a solicitação falhou no hospedeiro; consulte server.err",
@@ -5975,8 +7076,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "Configuração",
   "status.config_field_alwaysredownload": "sempreRedownload",
   "status.config_field_armwindowhours": "BraçoWindowHours",
-  "status.config_field_autorefreshafterstalls": "AutoRefreshAfterStalls",
   "status.config_field_autoremediation": "AutoRemediação",
+  "status.config_field_autorepairafterstalls": "AutoRepairAfterStalls",
   "status.config_field_autoseed": "AutoSeed",
   "status.config_field_bootdelayseconds": "bootDelaySeconds",
   "status.config_field_cachingproxyip": "cachingProxyIp",
@@ -6086,23 +7187,23 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.control_host_token_missing": "Este hospedeiro ainda não tem ficha de laboratório.",
+  "status.control_host_token_missing": "Este hospedeiro ainda não tem chave de autenticação interna.",
   "status.control_instructions": [
-    "Esta máquina só aceita o controle a partir de um navegador na própria máquina (",
+    "Este hospedeiro só aceita controle de um navegador no próprio hospedeiro (",
     {
       "arg": "address",
       "type": "detail",
       "trust": "external"
     },
-    "), ou um aberto através do link do painel de máquinas Yuruna (que concede um token de curta duração). o painel; se este host nunca foi matriculado, execute ",
+    ") ou de um navegador aberto pelo link do painel de hospedeiros Yuruna (que concede uma prova de controle de curta duração). Para controlá-lo de outra máquina, abra-o pelo painel; se este hospedeiro nunca foi inscrito, execute ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "external"
     },
-    " com o código do ladrilho de token Lab do painel."
+    " com o código do bloco do token do laboratório no painel."
   ],
-  "status.control_proof_expired": "O token de controle desta página expirou (duram 15 minutos).",
+  "status.control_proof_expired": "A prova de controle desta página expirou (as provas duram 15 minutos).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "A prova de controle expirou -- reabrir esta máquina do link do painel antes de salvar. Suas edições são mantidas até que você o faça.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "A prova de controle expira em ",
@@ -6113,12 +7214,12 @@ var Catalogs = map[string]map[string]string{
     },
     "s -- salvar em breve, ou reabrir este host do link do painel para um novo."
   ],
-  "status.control_proof_invalid": "O token de controle desta página não verifica aqui – o token do laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza.",
-  "status.control_proof_missing": "Esta página foi aberta sem um token de controle, então nenhuma foi enviada.",
+  "status.control_proof_invalid": "A prova de controle desta página não é verificada aqui – a chave de autenticação interna deste hospedeiro provavelmente difere da atual do laboratório, então inscreva-o novamente com um token do laboratório.",
+  "status.control_proof_missing": "Esta página foi aberta sem uma prova de controle, então nenhuma foi enviada.",
   "status.control_refused": "Controle recusado.",
   "status.control_routes": "configuração da rota de controlo",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "Esta máquina não tem nenhum lab-auth-token, então o controle remoto é somente loopback. Abra esta página como ",
+    "Esta máquina não tem chave de autenticação interna, então o controle remoto é somente loopback. Abra esta página como ",
     {
       "arg": "address",
       "type": "token",
@@ -6371,11 +7472,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "mirror.origin",
-  "status.git_source_mirror_fresh": "mirror.fresh",
-  "status.git_source_mirror_stale": "mirror.stale",
-  "status.git_source_not_applicable": "not.applicable",
-  "status.git_source_origin_direct": "remote.origin",
+  "status.git_source_mirror_confirmed": "mirror",
+  "status.git_source_mirror_fresh": "mirror fresh",
+  "status.git_source_mirror_stale": "mirror stale",
+  "status.git_source_not_applicable": "not applicable",
+  "status.git_source_origin_direct": "remote",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -6448,33 +7549,33 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
-  "status.host_refresh_action_elevate": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada.",
-  "status.host_refresh_action_grant_automation": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e atualize novamente.",
-  "status.host_refresh_action_gui_session": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e atualize novamente.",
-  "status.host_refresh_action_install_client": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e atualize novamente.",
-  "status.host_refresh_action_resume_request": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
-  "status.host_refresh_action_start_runner": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo.",
-  "status.host_refresh_authorization_refused": [
-    "Esta atualização exige uma prova de atualização que esta página não tem (",
+  "status.host_repair_action_dispose_obligations": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.",
+  "status.host_repair_action_elevate": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada.",
+  "status.host_repair_action_grant_automation": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e repare novamente.",
+  "status.host_repair_action_gui_session": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e repare novamente.",
+  "status.host_repair_action_install_client": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e repare novamente.",
+  "status.host_repair_action_resume_request": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRepair.ps1 -Resume.",
+  "status.host_repair_action_start_runner": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo.",
+  "status.host_repair_authorization_refused": [
+    "Este reparo exige uma prova de reparo que esta página não tem (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Use a página de status no próprio hospedeiro ou a ação de atualização do controle do grupo."
+    "). Use a página de status no próprio hospedeiro ou a ação de reparo do controle do grupo."
   ],
-  "status.host_refresh_busy": [
-    "Outra atualização do hospedeiro (",
+  "status.host_repair_busy": [
+    "Outro reparo do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") está em andamento; exibindo o progresso dela."
+    ") está em andamento; exibindo o progresso dele."
   ],
-  "status.host_refresh_check_host": "No hospedeiro, execute pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf para ver o estado atual.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "No hospedeiro, execute pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf para ver o estado atual.",
+  "status.host_repair_closed": [
     "A solicitação ",
     {
       "arg": "requestId",
@@ -6487,10 +7588,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); inicie uma nova atualização."
+    "); inicie um novo reparo."
   ],
-  "status.host_refresh_confirm": [
-    "Atualizar este hospedeiro, até a etapa ",
+  "status.host_repair_confirm": [
+    "Reparar este hospedeiro, até a etapa ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -6504,18 +7605,9 @@ var Catalogs = map[string]map[string]string{
     },
     " minutos."
   ],
-  "status.host_refresh_conflict": [
-    "A solicitação ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " já foi enviada com configurações diferentes; inicie uma nova atualização."
-  ],
-  "status.host_refresh_launcher_failed": "O hospedeiro não pôde iniciar o processo de atualização. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo.",
-  "status.host_refresh_lost": [
-    "Atualização ",
+  "status.host_repair_launcher_failed": "O hospedeiro não pôde iniciar o processo de reparo. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo.",
+  "status.host_repair_lost": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6527,11 +7619,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " segundos, ou uma solicitação posterior substituiu o relatório dela. Selecione Tentar novamente para perguntar ao hospedeiro como ela terminou, ou Atualizar hospedeiro para iniciar uma nova."
+    " segundos, ou uma solicitação posterior substituiu o relatório dele. Selecione Tentar novamente para perguntar ao hospedeiro como ele terminou, ou Reparar hospedeiro para iniciar um novo."
   ],
-  "status.host_refresh_note": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera.",
-  "status.host_refresh_progress": [
-    "Atualização ",
+  "status.host_repair_note": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera.",
+  "status.host_repair_progress": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6563,19 +7655,11 @@ var Catalogs = map[string]map[string]string{
     },
     " segundos restantes."
   ],
-  "status.host_refresh_recovery_pending": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação.",
-  "status.host_refresh_rejected": [
-    "O hospedeiro rejeitou a solicitação de atualização: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "Esta página está aberta em outra máquina, então ela pode acompanhar uma atualização do hospedeiro, mas não iniciá-la. Inicie-a no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRefresh.ps1.",
-  "status.host_refresh_retry": "Tentar novamente",
-  "status.host_refresh_stale": [
-    "Atualização ",
+  "status.host_repair_recovery_pending": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação.",
+  "status.host_repair_remote_viewer": "Esta página está aberta em outra máquina, então ela pode acompanhar um reparo do hospedeiro, mas não iniciá-lo. Inicie-o no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRepair.ps1.",
+  "status.host_repair_retry": "Tentar novamente",
+  "status.host_repair_stale": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6589,12 +7673,11 @@ var Catalogs = map[string]map[string]string{
     },
     " segundos. O processo de trabalho pode ter parado; verifique o hospedeiro antes de iniciar outro reparo."
   ],
-  "status.host_refresh_start": "Atualizar hospedeiro",
-  "status.host_refresh_start_cycle_busy": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar.",
-  "status.host_refresh_submitting": "Enviando a solicitação de atualização...",
-  "status.host_refresh_title": "Atualização do hospedeiro",
-  "status.host_refresh_unavailable": [
-    "A atualização do hospedeiro não está disponível neste hospedeiro (",
+  "status.host_repair_start": "Reparar hospedeiro",
+  "status.host_repair_start_cycle_busy": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar.",
+  "status.host_repair_title": "Reparo do hospedeiro",
+  "status.host_repair_unavailable": [
+    "O reparo do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -6602,26 +7685,26 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "A atualização ",
+  "status.host_repair_verdict_abandoned": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi abandonada após tentativas repetidas; o registro de recuperação dela é mantido no hospedeiro."
+    " foi abandonado após tentativas repetidas; o registro de recuperação dele é mantido no hospedeiro."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "Atualização ",
+  "status.host_repair_verdict_already_healthy": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " concluída: o hospedeiro já estava íntegro, então nada foi alterado."
+    " concluído: o hospedeiro já estava íntegro, então nada foi alterado."
   ],
-  "status.host_refresh_verdict_failed": [
-    "A atualização ",
+  "status.host_repair_verdict_failed": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6635,14 +7718,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "A atualização ",
+  "status.host_repair_verdict_partial": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " terminou incompleta (",
+    " terminou incompleto (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -6650,14 +7733,14 @@ var Catalogs = map[string]map[string]string{
     },
     "); alguns serviços ou o executor ainda precisam de atenção."
   ],
-  "status.host_refresh_verdict_refused": [
-    "A atualização ",
+  "status.host_repair_verdict_refused": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi recusada antes de qualquer alteração (",
+    " foi recusado antes de qualquer alteração (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -6665,26 +7748,26 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "Atualização ",
+  "status.host_repair_verdict_repaired": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " concluída: o hospedeiro foi reparado e o executor está pronto."
+    " concluído: o hospedeiro foi reparado e o executor está pronto."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "Atualização ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " encerrada: o hipervisor ainda não responde."
+    " encerrado: o hipervisor ainda não responde."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "A atualização ",
+  "status.host_repair_verdict_unknown": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6698,17 +7781,17 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "A atualização ",
+  "status.host_repair_waiting": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi aceita; aguardando o primeiro relatório do worker."
+    " foi aceito; aguardando o primeiro relatório do worker."
   ],
-  "status.host_refresh_waiting_long": [
-    "Atualização ",
+  "status.host_repair_waiting_long": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6722,6 +7805,543 @@ var Catalogs = map[string]map[string]string{
     },
     " segundos. O worker pode ter falhado ao iniciar; verifique o hospedeiro."
   ],
+  "status.host_request_conflict": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já foi enviada com configurações diferentes; inicie uma nova solicitação."
+  ],
+  "status.host_request_rejected": [
+    "O hospedeiro rejeitou a solicitação: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "Enviando a solicitação...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "Próxima etapa: verifique o hospedeiro e aja nele.",
+      "end_one_shot": "Próxima etapa: encerre a sessão avulsa no hospedeiro e pressione novamente.",
+      "other": [
+        "Próxima etapa: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "Próxima etapa: dê ao executor sua regra de sudo no hospedeiro e pressione novamente.",
+      "provision_elevation_macos": [
+        "Próxima etapa: no hospedeiro, execute ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " em um terminal da sessão da área de trabalho e responda às perguntas; ele instala a entrada de sudoers que as atualizações de hospedeiro usam. Depois pressione novamente."
+      ],
+      "read_remarks": "Próxima etapa: leia as observações.",
+      "reboot_host": "Próxima etapa: reinicie o Windows no hospedeiro e depois inicie o executor.",
+      "release": [
+        "Próxima etapa: para encerrá-la, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "Próxima etapa: libere a VM mantida para diagnóstico e pressione novamente.",
+      "repair_checkout": "Próxima etapa: repare o checkout no hospedeiro; o hospedeiro continua tentando.",
+      "retry_or_drain_now": [
+        "Próxima etapa: pressione novamente, ou encerre o ciclo agora no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "Próxima etapa: inicie o executor no hospedeiro.",
+      "stop_runner_by_hand": "Próxima etapa: pare o executor no hospedeiro manualmente."
+    }
+  },
+  "status.host_update_blocks": [
+    "Uma atualização de hospedeiro (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") está em andamento; tente novamente quando ela terminar."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "Um reparo do hospedeiro (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") está em andamento; tente novamente quando ele terminar."
+      ],
+      "host_update": [
+        "Outra atualização de hospedeiro (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") está em andamento; mostrando o progresso dela."
+      ],
+      "other": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar."
+    }
+  },
+  "status.host_update_confirm": [
+    "Atualizar hospedeiro (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? O executor para quando o ciclo em execução termina e reinicia no código atual; a atualização desiste após ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos. Para encerrar o ciclo agora, execute no hospedeiro: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "O executor foi iniciado sem console.",
+      "other": [
+        "Console do executor: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "Para abrir o console do executor, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "O console do executor é uma janela própria na área de trabalho da conta de teste: abra-a na máquina ou por uma conexão de área de trabalho remota a essa sessão."
+    }
+  },
+  "status.host_update_countdown": [
+    "O serviço de status está reiniciando; previsto de volta em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " segundos."
+  ],
+  "status.host_update_cycle_time": [
+    "O ciclo em execução já dura ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; ciclos recentes levaram cerca de ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "Ainda pendente no hospedeiro: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "O primeiro ciclo após a atualização falhou.",
+      "other": "Aguardando o primeiro ciclo após a atualização.",
+      "pass": "O primeiro ciclo após a atualização passou."
+    }
+  },
+  "status.host_update_lost": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": o hospedeiro não a reporta mais, então o resultado é desconhecido aqui; verifique o hospedeiro."
+  ],
+  "status.host_update_note": [
+    "Atualiza o código deste hospedeiro e reinicia o executor quando o ciclo em execução termina, desistindo após ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos. Para encerrar o ciclo agora, execute no hospedeiro: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": fase ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " de ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), limitada a ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "A atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " está na fila; ela começa quando o ciclo em execução termina."
+  ],
+  "status.host_update_remarks": [
+    "Observações: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "Atualizar hospedeiro abre o pool-control em ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", que assina a solicitação e traz você de volta aqui."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstalar dependências e configurações, depois reiniciar",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Reiniciar o executor no código atual"
+    }
+  },
+  "status.host_update_stale": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": nenhum relatório há ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos; verifique o hospedeiro."
+  ],
+  "status.host_update_start": "Atualizar hospedeiro",
+  "status.host_update_title": "Atualização do hospedeiro",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "Nenhum controlador de hospedeiro está em execução aqui. Para configurar um, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "Uma atualização de hospedeiro retém o executor deste hospedeiro e nenhum controlador de hospedeiro está em execução. Execute ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " mais uma vez em um terminal da sessão da área de trabalho e deixe como está um executor em execução: esse início para no portão do executor e inicia o controlador, que continua a atualização."
+      ],
+      "controller_absent_macos": [
+        "Nenhum controlador de hospedeiro está em execução aqui. No macOS, o início do executor o inicia: execute ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " em um terminal da sessão da área de trabalho, ou pare um executor em execução após seu ciclo e inicie-o de novo dessa forma. Em um hospedeiro nunca preparado para atualizações de hospedeiro, execute ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " primeiro."
+      ],
+      "host_type": "Atualizações de hospedeiro ainda não estão disponíveis neste tipo de hospedeiro.",
+      "journal_unreadable": "O hospedeiro não consegue ler seu diário de operações; verifique o hospedeiro.",
+      "listener_dependency_missing": "O serviço de status não carregou o que as atualizações de hospedeiro exigem; reinicie-o no hospedeiro.",
+      "other": [
+        "Atualizações de hospedeiro não estão disponíveis neste hospedeiro (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "De outra máquina, esta página só acompanha uma atualização de hospedeiro; até que ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " esteja instalado no hospedeiro, pressione Atualizar hospedeiro lá."
+      ],
+      "scope_unavailable": "Este hospedeiro não pode executar o escopo escolhido agora.",
+      "session_unusable": [
+        "A sessão do controlador do hospedeiro não consegue iniciar um executor funcional: ela não é a sessão da área de trabalho, ou falta ali uma permissão de privacidade. No hospedeiro, encerre a sessão yuruna-controller com ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (no screen, encerre a sessão yuruna-controller que ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " lista), pare um executor em execução após seu ciclo e inicie o executor de novo em um terminal da sessão da área de trabalho que tenha as permissões."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " desistiu: o ciclo em execução durou mais que a espera. Nada mudou."
+      ],
+      "failed_restored": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " não foi concluída (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); o hospedeiro foi restaurado."
+      ],
+      "other": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou com um resultado que esta página não reconhece (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou, mas o Windows precisa reiniciar antes que o hipervisor possa ser executado, então o executor não foi iniciado."
+      ],
+      "recovering": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": o executor ainda não está em execução; o hospedeiro continua tentando (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": o executor ainda não está em execução (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), e nenhum controlador de hospedeiro está em execução para tentar de novo."
+      ],
+      "refused": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi recusada; nada mudou (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi liberada no hospedeiro."
+      ],
+      "stop_failed": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": não foi possível parar o executor, então nada foi iniciado."
+      ],
+      "superseded": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi assumida por ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou; o executor executa o código atual."
+      ],
+      "updated_not_started": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou; o executor estava parado antes dela, então não foi iniciado."
+      ],
+      "updated_with_remarks": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou com observações; o executor executa o código atual."
+      ]
+    }
+  },
   "status.host_value1": [
     "Máquina: ",
     {
@@ -6738,7 +8358,7 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "status.images_refresh": "Actualizar as Imagens",
+  "status.images_refresh": "Atualização das imagens",
   "status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple": "Invocação inferida da ordem de passos legada; corridas simultâneas ou incompletas podem permanecer combinadas.",
   "status.ips": "IPs:",
   "status.lab_hold": [
@@ -6750,7 +8370,7 @@ var Catalogs = map[string]map[string]string{
     }
   ],
   "status.lab_hold_unspecified": "Lab hold -- esperando por um serviço de laboratório",
-  "status.latest_cycle": "Último Ciclo",
+  "status.latest_cycle": "Último ciclo",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -7027,7 +8647,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "Nova VM",
   "status.pill_start_guestos": "Iniciar o SO",
   "status.pill_start_guestworkload": "Carga de trabalho",
-  "status.preflight_failed": "FALHA NA VERIFICAÇÃO PRÉVIA",
+  "status.preflight_failed": "Falha na verificação prévia",
   "status.process_environment_value_the_status_service_inherited_at_startup": "O valor do ambiente do processo do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio.",
   "status.quarantine_pinned": [
     "Quarentenado após falhas repetidas da mesma classe (esqueceu até um novo commit; fixado em ",
@@ -7044,7 +8664,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "Recalcular",
   "status.recalculating": "Recalculando...",
   "status.recalculating_perf_aggregates": "Recalculando os agregados perf...",
-  "status.recent_cycles": "Ciclos Recentes",
+  "status.recent_cycles": "Ciclos recentes",
   "status.refresh": "Actualizar",
   "status.results_folder": [
     "Abrir pasta de resultados para ",
@@ -7199,14 +8819,14 @@ var Catalogs = map[string]map[string]string{
     },
     ", reiniciar a VM e, em seguida, retomar a sequência"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "Uma atualização do hospedeiro (",
+  "status.start_cycle_blocked_by_repair": [
+    "Um reparo do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") está em andamento; o ciclo não pode iniciar até que ela termine."
+    ") está em andamento; o ciclo não pode iniciar até que ele termine."
   ],
   "status.start_cycle_cycle_restarted": "Ciclo reiniciado",
   "status.start_cycle_failed": [
@@ -7290,7 +8910,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "Testando o serviço de cache-proxy da máquina...",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "O arquivo é construído apenas a partir de registros do servidor e baixado para esta máquina. Nenhum dado desta sessão de navegação está incluído.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "A prova de controlo expirou.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com um lab-auth-token diferente do que este host mantém; o re-introdução com test/lab/Set-LabToken.ps1 realinha-os.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com uma chave de autenticação interna diferente da que este hospedeiro mantém; a nova inscrição com test/lab/Set-LabToken.ps1 as realinha.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registro do serviço de estado.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "A folha de partilha expirou enquanto a máquina embalava a pasta.",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "Este navegador não pôde anexar o arquivo a uma mensagem propriamente dita.",
@@ -8301,8 +9921,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "[Ƒóřƀíďďéñ (ñóţ á šéřṽéď ƒíļé) ~~~~~~~~~~~~]",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "[ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_guest_channel_key_absent": "[ţħíš ħóšţ ħóļďš ñó ğúéšţ-çħáññéļ ķéý ýéţ; íţ íš çřéáţéď ŵħéñ ţħé ħóšţ ƒířšţ řéñďéřš á ğúéšţ šééď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_authorization_refused": [
-    "[řéƒřéšħ áúţħóřížáţíóñ řéƒúšéď (",
+  "status.api_host_repair_authorization_refused": [
+    "[řéƥáíř áúţħóřížáţíóñ řéƒúšéď (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -8310,8 +9930,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") ~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_busy": "[áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš ~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "[áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš ~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_request_closed": [
     "[ţħíš řéʠúéšţ íď íš áļřéáďý çļóšéď (",
     {
       "arg": "state",
@@ -8320,15 +9940,36 @@ var Catalogs = map[string]map[string]string{
     },
     ") ~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_request_conflict": "[ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš ~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_unavailable": [
-    "[ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.api_host_repair_request_conflict": "[ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš ~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_unavailable": [
+    "[ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    ") ~~~~~~~~~~~~~~~~~~~~~~]"
+    ") ~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "[ħóšţ úƥďáţé áúţħóřížáţíóñ řéƒúšéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") ~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_busy": "[á ħóšţ úƥďáţé íš íñ ƥřóğřéšš óñ ţħíš ħóšţ ~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_controller_absent": "[ñó ħóšţ çóñţřóļļéř íš řúññíñğ óñ ţħíš ħóšţ; ñóţħíñğ ŵáš ʠúéúéď ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_proof_missing": "[á ħóšţ úƥďáţé ƒřóɱ áñóţħéř ɱáçħíñé ñééďš áñ úƥďáţé ƥřóóƒ ƒřóɱ ƥóóļ-çóñţřóļ; ñóţħíñğ ŵáš ʠúéúéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_scope_unavailable": [
+    "[ţħé ħóšţ çóñţřóļļéř ďóéš ñóţ řúñ ţħé ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " šçóƥé; ñóţħíñğ ŵáš ʠúéúéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "[íñţéřñáļ áúţħéñţíçáţíóñ ķéý ñóţ çóñƒíğúřéď óñ ţħíš ħóšţ ~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_internal_error": "[ţħé řéʠúéšţ ƒáíļéď óñ ţħé ħóšţ; šéé server.err ~~~~~~~~~~~~~~~~~~~]",
@@ -8513,8 +10154,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "[Çóñƒíğ ~~~]",
   "status.config_field_alwaysredownload": "[áļŵáýšŘéďóŵñļóáď ~~~~~~~]",
   "status.config_field_armwindowhours": "[ářɱŴíñďóŵĦóúřš ~~~~~~]",
-  "status.config_field_autorefreshafterstalls": "[áúţóŘéƒřéšħÁƒţéřŠţáļļš ~~~~~~~~~]",
   "status.config_field_autoremediation": "[áúţóŘéɱéďíáţíóñ ~~~~~~]",
+  "status.config_field_autorepairafterstalls": "[áúţóŘéƥáířÁƒţéřŠţáļļš ~~~~~~~~~]",
   "status.config_field_autoseed": "[áúţóŠééď ~~~~]",
   "status.config_field_bootdelayseconds": "[ƀóóţĎéļáýŠéçóñďš ~~~~~~~]",
   "status.config_field_cachingproxyip": "[çáçħíñğƤřóẋýÍƥ ~~~~~~]",
@@ -8624,7 +10265,7 @@ var Catalogs = map[string]map[string]string{
     },
     ") ~~~~~~~]"
   ],
-  "status.control_host_token_missing": "[Ţħíš ħóšţ ħóļďš ñó ļáƀ ţóķéñ ýéţ. ~~~~~~~~~~~~~~]",
+  "status.control_host_token_missing": "[Ţħíš ħóšţ ħóļďš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý ýéţ. ~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_instructions": [
     "[Ţħíš ħóšţ áççéƥţš çóñţřóļ óñļý ƒřóɱ á ƀřóŵšéř óñ ţħé ħóšţ íţšéļƒ (",
     {
@@ -8632,15 +10273,15 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď ţóķéñ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
+    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď çóñţřóļ ƥřóóƒ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "external"
     },
-    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_expired": "[Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ħáš éẋƥířéď (ţħéý ļášţ 15 ɱíñúţéš). ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_expired": "[Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ħáš éẋƥířéď (ƥřóóƒš ļášţ 15 ɱíñúţéš). ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "[Çóñţřóļ ƥřóóƒ éẋƥířéď -- řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƀéƒóřé šáṽíñğ. Ýóúř éďíţš ářé ķéƥţ úñţíļ ýóú ďó. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "[Çóñţřóļ ƥřóóƒ éẋƥířéš íñ ",
@@ -8651,12 +10292,12 @@ var Catalogs = map[string]map[string]string{
     },
     "š -- šáṽé šóóñ, óř řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƒóř á ƒřéšħ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_invalid": "[Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š šţóřéď ļáƀ ţóķéñ ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.control_proof_missing": "[Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ţóķéñ, šó ñóñé ŵáš šéñţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_invalid": "[Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š íñţéřñáļ áúţħéñţíçáţíóñ ķéý ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ ŵíţħ á Ļáƀ ţóķéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_missing": "[Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ƥřóóƒ, šó ñóñé ŵáš šéñţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_refused": "[Çóñţřóļ řéƒúšéď. ~~~~~~~]",
   "status.control_routes": "[çóñţřóļ-řóúţé šéţúƥ ~~~~~~~~]",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "[Ţħíš ħóšţ ħáš ñó ļáƀ-áúţħ-ţóķéñ, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
+    "[Ţħíš ħóšţ ħáš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
     {
       "arg": "address",
       "type": "token",
@@ -8674,7 +10315,7 @@ var Catalogs = map[string]map[string]string{
       "type": "token",
       "trust": "internal"
     },
-    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.control_verifier_unavailable": "[Ţħíš ħóšţ’š šţáţúš šéřṽíçé çóúļď ñóţ ļóáď íţš ţóķéñ ṽéříƒíéř (çħéçķ ţéšţ/status/runtime/server.err óñ ţħé ħóšţ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.could_not_check_the_cycle_folder_first": "[Çóúļď ñóţ çħéçķ ţħé çýçļé ƒóļďéř ƒířšţ.  ~~~~~~~~~~~~~~~~]",
@@ -8930,11 +10571,11 @@ var Catalogs = map[string]map[string]string{
     },
     " ⱮɃ ~~~~]"
   ],
-  "status.git_source_mirror_confirmed": "[mirror.origin ~~~~~~]",
-  "status.git_source_mirror_fresh": "[mirror.fresh ~~~~~]",
-  "status.git_source_mirror_stale": "[mirror.stale ~~~~~]",
-  "status.git_source_not_applicable": "[not.applicable ~~~~~~]",
-  "status.git_source_origin_direct": "[remote.origin ~~~~~~]",
+  "status.git_source_mirror_confirmed": "[ɱířřóř ~~~]",
+  "status.git_source_mirror_fresh": "[ɱířřóř ƒřéšħ ~~~~~]",
+  "status.git_source_mirror_stale": "[ɱířřóř šţáļé ~~~~~]",
+  "status.git_source_not_applicable": "[ñóţ áƥƥļíçáƀļé ~~~~~~]",
+  "status.git_source_origin_direct": "[řéɱóţé ~~~]",
   "status.guest_not_found": [
     "[",
     {
@@ -9001,24 +10642,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "[Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ĎíšƥóšéÓƀļíğáţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_elevate": "[Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_grant_automation": "[Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_gui_session": "[Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_install_client": "[Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_resume_request": "[Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_start_runner": "[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_authorization_refused": [
-    "[Ţħíš řéƒřéšħ ñééďš á řéƒřéšħ ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
+  "status.host_repair_action_dispose_obligations": "[Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ĎíšƥóšéÓƀļíğáţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_elevate": "[Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_grant_automation": "[Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_gui_session": "[Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_install_client": "[Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_resume_request": "[Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_start_runner": "[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_authorization_refused": [
+    "[Ţħíš řéƥáíř ñééďš á řéƥáíř ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƒřéšħ áçţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƥáíř áçţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_busy": [
-    "[Áñóţħéř ħóšţ řéƒřéšħ (",
+  "status.host_repair_busy": [
+    "[Áñóţħéř ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9026,8 +10667,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_check_host": "[Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "[Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_closed": [
     "[Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -9040,10 +10681,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šţářţ á ñéŵ řéƒřéšħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šţářţ á ñéŵ řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_confirm": [
-    "[Řéƒřéšħ ţħíš ħóšţ, úƥ ţó ţħé ",
+  "status.host_repair_confirm": [
+    "[Řéƥáíř ţħíš ħóšţ, úƥ ţó ţħé ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -9055,20 +10696,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " ɱíñúţéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ɱíñúţéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_conflict": [
-    "[Řéʠúéšţ ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéƒřéšħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_launcher_failed": "[Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƒřéšħ ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_lost": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_launcher_failed": "[Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƥáíř ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_lost": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9080,11 +10712,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƒřéšħ ħóšţ ţó šţářţ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƥáíř ħóšţ ţó šţářţ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_note": "[Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_progress": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_note": "[Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_progress": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9114,22 +10746,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "external"
     },
-    " šéçóñďš ļéƒţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš ļéƒţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_recovery_pending": "[Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_rejected": [
-    "[Ţħé ħóšţ řéĵéçţéď ţħé řéƒřéšħ řéʠúéšţ: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_remote_viewer": "[Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƒřéšħ ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_retry": "[Řéţřý ~~]",
-  "status.host_refresh_stale": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_recovery_pending": "[Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_remote_viewer": "[Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƥáíř ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_retry": "[Řéţřý ~~]",
+  "status.host_repair_stale": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9141,14 +10764,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_start": "[Řéƒřéšħ ħóšţ ~~~~~]",
-  "status.host_refresh_start_cycle_busy": "[Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_submitting": "[Šéñďíñğ ţħé řéƒřéšħ řéʠúéšţ... ~~~~~~~~~~~~]",
-  "status.host_refresh_title": "[Ħóšţ řéƒřéšħ ~~~~~]",
-  "status.host_refresh_unavailable": [
-    "[Ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.host_repair_start": "[Řéƥáíř ħóšţ ~~~~~]",
+  "status.host_repair_start_cycle_busy": "[Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_title": "[Ħóšţ řéƥáíř ~~~~~]",
+  "status.host_repair_unavailable": [
+    "[Ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -9156,8 +10778,8 @@ var Catalogs = map[string]map[string]string{
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_abandoned": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9165,17 +10787,17 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áƀáñďóñéď áƒţéř řéƥéáţéď áţţéɱƥţš; íţš řéçóṽéřý řéçóřď íš ķéƥţ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_already_healthy": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_failed": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_failed": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9187,10 +10809,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "). ~~~~~~~~~~~~~~~~]"
+    "). ~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_partial": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_partial": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9202,10 +10824,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_refused": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_refused": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9217,19 +10839,19 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "). ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_repaired": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_repaired": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9237,8 +10859,8 @@ var Catalogs = map[string]map[string]string{
     },
     " éñďéď: ţħé ħýƥéřṽíšóř šţíļļ ďóéš ñóţ řéšƥóñď. ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_unknown": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_unknown": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9250,10 +10872,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_waiting": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9261,8 +10883,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áççéƥţéď; ŵáíţíñğ ƒóř ţħé ŵóřķéř'š ƒířšţ řéƥóřţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting_long": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_waiting_long": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9274,8 +10896,554 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "status.host_request_conflict": [
+    "[Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_rejected": [
+    "[Ţħé ħóšţ řéĵéçţéď ţħé řéʠúéšţ: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_submitting": "[Šéñďíñğ ţħé řéʠúéšţ... ~~~~~~~~~]",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "[Ñéẋţ šţéƥ: çħéçķ ţħé ħóšţ áñď áçţ ţħéřé. ~~~~~~~~~~~~~~~~]",
+      "end_one_shot": "[Ñéẋţ šţéƥ: éñď ţħé óñé-šħóţ šéššíóñ óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[Ñéẋţ šţéƥ: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        ". ~~~~~~~~]"
+      ],
+      "provision_elevation": "[Ñéẋţ šţéƥ: ğíṽé ţħé řúññéř íţš šúďó řúļé óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "provision_elevation_macos": [
+        "[Ñéẋţ šţéƥ: óñ ţħé ħóšţ, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď áñšŵéř íţš ƥřóɱƥţš; íţ íñšţáļļš ţħé šúďóéřš éñţřý ħóšţ úƥďáţéš úšé. Ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "read_remarks": "[Ñéẋţ šţéƥ: řéáď ţħé řéɱářķš. ~~~~~~~~~~~~]",
+      "reboot_host": "[Ñéẋţ šţéƥ: řéšţářţ Ŵíñďóŵš óñ ţħé ħóšţ, ţħéñ šţářţ ţħé řúññéř. ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "release": [
+        "[Ñéẋţ šţéƥ: ţó éñď íţ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "release_diagnostic_hold": "[Ñéẋţ šţéƥ: řéļéášé ţħé ṼⱮ ķéƥţ ƒóř ďíáğñóšíš, ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "repair_checkout": "[Ñéẋţ šţéƥ: řéƥáíř ţħé çħéçķóúţ óñ ţħé ħóšţ; ţħé ħóšţ ķééƥš ţřýíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "retry_or_drain_now": [
+        "[Ñéẋţ šţéƥ: ƥřéšš áğáíñ, óř éñď ţħé çýçļé ñóŵ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "start_runner": "[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~]",
+      "stop_runner_by_hand": "[Ñéẋţ šţéƥ: šţóƥ ţħé řúññéř óñ ţħé ħóšţ ƀý ħáñď. ~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_blocks": [
+    "[Á ħóšţ úƥďáţé (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "[Á ħóšţ řéƥáíř (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_update": [
+        "[Áñóţħéř ħóšţ úƥďáţé (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": "[Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_confirm": [
+    "[Úƥďáţé ħóšţ (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? Ţħé řúññéř šţóƥš ŵħéñ ţħé řúññíñğ çýçļé éñďš áñď řéšţářţš óñ çúřřéñţ çóďé; ţħé úƥďáţé ğíṽéš úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ íñšţéáď, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "[Ţħé řúññéř šţářţéď ŵíţħóúţ á çóñšóļé. ~~~~~~~~~~~~~~~]",
+      "other": [
+        "[Ţħé řúññéř'š çóñšóļé: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        ". ~~~~~~~~~~~~~]"
+      ],
+      "tmux": [
+        "[Ţó óƥéñ ţħé řúññéř'š çóñšóļé, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "window": "[Ţħé řúññéř'š çóñšóļé íš á ŵíñďóŵ óƒ íţš óŵñ óñ ţħé ďéšķţóƥ óƒ ţħé ţéšţ áççóúñţ: óƥéñ íţ áţ ţħé ɱáçħíñé, óř óṽéř á řéɱóţé ďéšķţóƥ çóññéçţíóñ ţó ţħáţ šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_countdown": [
+    "[Ţħé šţáţúš šéřṽíçé íš řéšţářţíñğ; éẋƥéçţéď ƀáçķ íñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " šéçóñďš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_cycle_time": [
+    "[Ţħé řúññíñğ çýçļé ħáš řúñ ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; řéçéñţ çýçļéš ţóóķ áƀóúţ ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_debt": [
+    "[Šţíļļ óŵéď óñ ţħé ħóšţ: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "[Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƒáíļéď. ~~~~~~~~~~~~~~~~]",
+      "other": "[Ŵáíţíñğ ƒóř ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé. ~~~~~~~~~~~~~~~~~~]",
+      "pass": "[Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƥáššéď. ~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_lost": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ţħé ħóšţ ñó ļóñğéř řéƥóřţš íţ, šó íţš óúţçóɱé íš úñķñóŵñ ħéřé; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_note": [
+    "[Úƥďáţéš ţħíš ħóšţ'š çóďé áñď řéšţářţš ţħé řúññéř ŵħéñ ţħé řúññíñğ çýçļé éñďš, ğíṽíñğ úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_progress": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ƥħášé ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " óƒ ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), ƀóúñďéď áţ ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_queued": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ʠúéúéď; íţ šţářţš ŵħéñ ţħé řúññíñğ çýçļé éñďš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_remarks": [
+    "[Řéɱářķš: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    ". ~~~~~~~~]"
+  ],
+  "status.host_update_remote_hint": [
+    "[Úƥďáţé ħóšţ óƥéñš ƥóóļ-çóñţřóļ áţ ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", ŵħíçħ šíğñš ţħé řéʠúéšţ áñď ƀříñğš ýóú ƀáçķ ħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "[Řéíñšţáļļ ďéƥéñďéñçíéš áñď šéţţíñğš, ţħéñ řéšţářţ ~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[",
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        },
+        " ~~~]"
+      ],
+      "restart": "[Řéšţářţ ţħé řúññéř óñ çúřřéñţ çóďé ~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_stale": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ñó řéƥóřţ ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_start": "[Úƥďáţé ħóšţ ~~~~~]",
+  "status.host_update_title": "[Ħóšţ úƥďáţé ~~~~~]",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "[Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Ţó šéţ óñé úƥ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_gate": [
+        "[Á ħóšţ úƥďáţé ħóļďš ţħíš ħóšţ'š řúññéř áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ. Řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " óñçé ɱóřé ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď ļéáṽé á řúññéř ţħáţ íš řúññíñğ áļóñé: ţħáţ šţářţ šţóƥš áţ ţħé řúññéř ğáţé áñď šţářţš ţħé çóñţřóļļéř, ŵħíçħ çóñţíñúéš ţħé úƥďáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_macos": [
+        "[Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Óñ ɱáçÓŠ ţħé řúññéř'š šţářţ šţářţš íţ: řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ, óř šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé áñď šţářţ íţ áğáíñ ţħáţ ŵáý. Óñ á ħóšţ ñéṽéř šéţ úƥ ƒóř ħóšţ úƥďáţéš, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒířšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_type": "[Ħóšţ úƥďáţéš ářé ñóţ ýéţ áṽáíļáƀļé óñ ţħíš ħóšţ ţýƥé. ~~~~~~~~~~~~~~~~~~~~~~]",
+      "journal_unreadable": "[Ţħé ħóšţ çáññóţ řéáď íţš óƥéřáţíóñ ĵóúřñáļ; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "listener_dependency_missing": "[Ţħé šţáţúš šéřṽíçé çóúļď ñóţ ļóáď ŵħáţ ħóšţ úƥďáţéš ñééď; řéšţářţ íţ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[Ħóšţ úƥďáţéš ářé ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "remote": [
+        "[Ƒřóɱ áñóţħéř ɱáçħíñé ţħíš ƥáğé çáñ óñļý ŵáţçħ á ħóšţ úƥďáţé; úñţíļ ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " íš íñšţáļļéď óñ ţħé ħóšţ, ƥřéšš Úƥďáţé ħóšţ ţħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "scope_unavailable": "[Ţħíš ħóšţ çáññóţ řúñ ţħé çħóšéñ šçóƥé ñóŵ. ~~~~~~~~~~~~~~~~~]",
+      "session_unusable": [
+        "[Ţħé ħóšţ çóñţřóļļéř'š šéššíóñ çáññóţ šţářţ á ŵóřķíñğ řúññéř: íţ íš ñóţ ţħé ďéšķţóƥ šéššíóñ, óř á ƥříṽáçý ğřáñţ íš ɱíššíñğ ţħéřé. Óñ ţħé ħóšţ, éñď ţħé šéššíóñ ýúřúñá-çóñţřóļļéř ŵíţħ ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (úñďéř šçřééñ, ʠúíţ ţħé ýúřúñá-çóñţřóļļéř šéššíóñ ţħáţ ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ļíšţš), šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé, áñď šţářţ ţħé řúññéř áğáíñ ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ ţħáţ ħóļďš ţħé ğřáñţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ğáṽé úƥ: ţħé řúññíñğ çýçļé óúţļášţéď ţħé ŵáíţ. Ñóţħíñğ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "failed_restored": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ďíď ñóţ çóɱƥļéţé (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); ţħé ħóšţ ŵáš řéšţóřéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " éñďéď ŵíţħ áñ óúţçóɱé ţħíš ƥáğé ďóéš ñóţ řéçóğñížé (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "reboot_required": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď, ƀúţ Ŵíñďóŵš ɱúšţ řéšţářţ ƀéƒóřé ţħé ħýƥéřṽíšóř çáñ řúñ, šó ţħé řúññéř ŵáš ñóţ šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ; ţħé ħóšţ ķééƥš ţřýíñğ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering_without_controller": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ ţó ţřý áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "refused": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéƒúšéď; ñóţħíñğ çħáñğéď (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "released": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéļéášéď óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "stop_failed": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř çóúļď ñóţ ƀé šţóƥƥéď, šó ñóţħíñğ ŵáš šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "superseded": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš ţáķéñ óṽéř ƀý ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ". ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř řúñš çúřřéñţ çóďé. ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_not_started": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř ŵáš šţóƥƥéď ƀéƒóřé íţ, šó íţ ŵáš ñóţ šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_with_remarks": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď ŵíţħ řéɱářķš; ţħé řúññéř řúñš çúřřéñţ çóďé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
   "status.host_value1": [
     "[Ħóšţ: ",
     {
@@ -9307,7 +11475,7 @@ var Catalogs = map[string]map[string]string{
     " ~~~~~~~~~~~~~]"
   ],
   "status.lab_hold_unspecified": "[Ļáƀ ħóļď -- ŵáíţíñğ ƒóř á ļáƀ šéřṽíçé ~~~~~~~~~~~~~~~]",
-  "status.latest_cycle": "[Ļáţéšţ Çýçļé ~~~~~]",
+  "status.latest_cycle": "[Ļáţéšţ çýçļé ~~~~~]",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -9533,7 +11701,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "[Ñéŵ ṼⱮ ~~~]",
   "status.pill_start_guestos": "[Šţářţ ÓŠ ~~~~]",
   "status.pill_start_guestworkload": "[Ŵóřķļóáď ~~~~]",
-  "status.preflight_failed": "[ƤŘÉƑĻÍĞĦŢ ƑÁÍĻÉĎ ~~~~~~~]",
+  "status.preflight_failed": "[Ƥřéƒļíğħţ ƒáíļéď ~~~~~~~]",
   "status.process_environment_value_the_status_service_inherited_at_startup": "[Ƥřóçéšš-éñṽířóñɱéñţ ṽáļúé ţħé šţáţúš šéřṽíçé íñħéříţéď áţ šţářţúƥ. Řéáď-óñļý ħéřé; ƒáļļƀáçķ šóúřçé óñļý: áţ çýçļé šţářţ ţħé vmStart.cachingProxyIp ƒíéļď áƀóṽé íš ƥřóƀéď ƒířšţ áñď ŵíñš ŵħéñ íţš :3128 áñšŵéřš. Éẋƥóřţ ţħíš íñ ţħé šħéļļ ţħáţ ļáúñçħéš Start-TestRunner.ps1 ƒóř ħóšţš ŵħóšé çóñƒíğ ƒíéļď íš éɱƥţý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.quarantine_pinned": [
     "[ʠúářáñţíñéď áƒţéř řéƥéáţéď šáɱé-çļášš ƒáíļúřéš (šķíƥƥéď úñţíļ á ñéŵ çóɱɱíţ; ƥíññéď áţ ",
@@ -9550,7 +11718,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "[Řéçáļçúļáţé ~~~~~]",
   "status.recalculating": "[Řéçáļçúļáţíñğ… ~~~~~~]",
   "status.recalculating_perf_aggregates": "[Řéçáļçúļáţíñğ ƥéřƒ áğğřéğáţéš… ~~~~~~~~~~~~]",
-  "status.recent_cycles": "[Řéçéñţ Çýçļéš ~~~~~~]",
+  "status.recent_cycles": "[Řéçéñţ çýçļéš ~~~~~~]",
   "status.refresh": "[Řéƒřéšħ ~~~]",
   "status.results_folder": [
     "[Óƥéñ řéšúļţš ƒóļďéř ƒóř ",
@@ -9713,14 +11881,14 @@ var Catalogs = map[string]map[string]string{
     },
     ", řéšţářţ ţħé ṼⱮ, ţħéñ řéšúɱé ţħé šéʠúéñçé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "[Á ħóšţ řéƒřéšħ (",
+  "status.start_cycle_blocked_by_repair": [
+    "[Á ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.start_cycle_cycle_restarted": "[Çýçļé řéšţářţéď ~~~~~~]",
   "status.start_cycle_failed": [
@@ -9804,7 +11972,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "[Ţéšţíñğ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ… ~~~~~~~~~~~~~~~~]",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "[Ţħé ářçħíṽé íš ƀúíļţ ƒřóɱ šéřṽéř ļóğš óñļý áñď ďóŵñļóáďéď ţó ţħíš ɱáçħíñé. Ñó ďáţá ƒřóɱ ţħíš ƀřóŵšíñğ šéššíóñ íš íñçļúďéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "[Ţħé çóñţřóļ ƥřóóƒ éẋƥířéď. Řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ţó ğéţ á ƒřéšħ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ ļáƀ-áúţħ-ţóķéñ ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ íñţéřñáļ áúţħéñţíçáţíóñ ķéý ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "[Ţħé ħóšţ çóúļď ñóţ ļóáď íţš çóñţřóļ-ƥřóóƒ ṽéříƒíéř; çħéçķ ţħé šţáţúš šéřṽíçé ļóğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "[Ţħé šħářé šħééţ éẋƥířéď ŵħíļé ţħé ħóšţ ƥáçķéď ţħé ƒóļďéř.  ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "[Ţħíš ƀřóŵšéř çóúļď ñóţ áţţáçħ ţħé ƒíļé ţó á ɱéššáğé íţšéļƒ.  ~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -10004,7 +12172,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "status.working": "[Ŵóřķíñğ... ~~~~]",
   "status.yuruna_host_status": "[Ýúřúñá ħóšţ šţáţúš ~~~~~~~~]",
-  "status.yuruna_status": "[Ýúřúñá Šţáţúš ~~~~~~]"
+  "status.yuruna_status": "[Ýúřúñá šţáţúš ~~~~~~]"
 }
 `,
 	},
@@ -10825,8 +12993,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "[!‮Ƒóřƀíďďéñ (ñóţ á šéřṽéď ƒíļé)‬ ~~~~~~~~~~~~]",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "[!‮ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_guest_channel_key_absent": "[!‮ţħíš ħóšţ ħóļďš ñó ğúéšţ-çħáññéļ ķéý ýéţ; íţ íš çřéáţéď ŵħéñ ţħé ħóšţ ƒířšţ řéñďéřš á ğúéšţ šééď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_authorization_refused": [
-    "[!‮řéƒřéšħ áúţħóřížáţíóñ řéƒúšéď (",
+  "status.api_host_repair_authorization_refused": [
+    "[!‮řéƥáíř áúţħóřížáţíóñ řéƒúšéď (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -10834,8 +13002,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")‬ ~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_busy": "[!‮áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš‬ ~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "[!‮áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš‬ ~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_request_closed": [
     "[!‮ţħíš řéʠúéšţ íď íš áļřéáďý çļóšéď (",
     {
       "arg": "state",
@@ -10844,15 +13012,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")‬ ~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_request_conflict": "[!‮ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_unavailable": [
-    "[!‮ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.api_host_repair_request_conflict": "[!‮ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_unavailable": [
+    "[!‮ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    ")‬ ~~~~~~~~~~~~~~~~~~~~~~]"
+    ")‬ ~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "[!‮ħóšţ úƥďáţé áúţħóřížáţíóñ řéƒúšéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_busy": "[!‮á ħóšţ úƥďáţé íš íñ ƥřóğřéšš óñ ţħíš ħóšţ‬ ~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_controller_absent": "[!‮ñó ħóšţ çóñţřóļļéř íš řúññíñğ óñ ţħíš ħóšţ; ñóţħíñğ ŵáš ʠúéúéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_proof_missing": "[!‮á ħóšţ úƥďáţé ƒřóɱ áñóţħéř ɱáçħíñé ñééďš áñ úƥďáţé ƥřóóƒ ƒřóɱ ƥóóļ-çóñţřóļ; ñóţħíñğ ŵáš ʠúéúéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_scope_unavailable": [
+    "[!‮ţħé ħóšţ çóñţřóļļéř ďóéš ñóţ řúñ ţħé ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " šçóƥé; ñóţħíñğ ŵáš ʠúéúéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "[!‮íñţéřñáļ áúţħéñţíçáţíóñ ķéý ñóţ çóñƒíğúřéď óñ ţħíš ħóšţ‬ ~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_internal_error": "[!‮ţħé řéʠúéšţ ƒáíļéď óñ ţħé ħóšţ; šéé server.err‬ ~~~~~~~~~~~~~~~~~~~]",
@@ -11037,8 +13226,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "[!‮Çóñƒíğ‬ ~~~]",
   "status.config_field_alwaysredownload": "[!‮áļŵáýšŘéďóŵñļóáď‬ ~~~~~~~]",
   "status.config_field_armwindowhours": "[!‮ářɱŴíñďóŵĦóúřš‬ ~~~~~~]",
-  "status.config_field_autorefreshafterstalls": "[!‮áúţóŘéƒřéšħÁƒţéřŠţáļļš‬ ~~~~~~~~~]",
   "status.config_field_autoremediation": "[!‮áúţóŘéɱéďíáţíóñ‬ ~~~~~~]",
+  "status.config_field_autorepairafterstalls": "[!‮áúţóŘéƥáířÁƒţéřŠţáļļš‬ ~~~~~~~~~]",
   "status.config_field_autoseed": "[!‮áúţóŠééď‬ ~~~~]",
   "status.config_field_bootdelayseconds": "[!‮ƀóóţĎéļáýŠéçóñďš‬ ~~~~~~~]",
   "status.config_field_cachingproxyip": "[!‮çáçħíñğƤřóẋýÍƥ‬ ~~~~~~]",
@@ -11148,7 +13337,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")‬ ~~~~~~~]"
   ],
-  "status.control_host_token_missing": "[!‮Ţħíš ħóšţ ħóļďš ñó ļáƀ ţóķéñ ýéţ.‬ ~~~~~~~~~~~~~~]",
+  "status.control_host_token_missing": "[!‮Ţħíš ħóšţ ħóļďš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý ýéţ.‬ ~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_instructions": [
     "[!‮Ţħíš ħóšţ áççéƥţš çóñţřóļ óñļý ƒřóɱ á ƀřóŵšéř óñ ţħé ħóšţ íţšéļƒ (",
     {
@@ -11156,15 +13345,15 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď ţóķéñ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
+    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď çóñţřóļ ƥřóóƒ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "external"
     },
-    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_expired": "[!‮Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ħáš éẋƥířéď (ţħéý ļášţ 15 ɱíñúţéš).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_expired": "[!‮Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ħáš éẋƥířéď (ƥřóóƒš ļášţ 15 ɱíñúţéš).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "[!‮Çóñţřóļ ƥřóóƒ éẋƥířéď -- řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƀéƒóřé šáṽíñğ. Ýóúř éďíţš ářé ķéƥţ úñţíļ ýóú ďó.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "[!‮Çóñţřóļ ƥřóóƒ éẋƥířéš íñ ",
@@ -11175,12 +13364,12 @@ var Catalogs = map[string]map[string]string{
     },
     "š -- šáṽé šóóñ, óř řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƒóř á ƒřéšħ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_invalid": "[!‮Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š šţóřéď ļáƀ ţóķéñ ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.control_proof_missing": "[!‮Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ţóķéñ, šó ñóñé ŵáš šéñţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_invalid": "[!‮Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š íñţéřñáļ áúţħéñţíçáţíóñ ķéý ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ ŵíţħ á Ļáƀ ţóķéñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_missing": "[!‮Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ƥřóóƒ, šó ñóñé ŵáš šéñţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_refused": "[!‮Çóñţřóļ řéƒúšéď.‬ ~~~~~~~]",
   "status.control_routes": "[!‮çóñţřóļ-řóúţé šéţúƥ‬ ~~~~~~~~]",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "[!‮Ţħíš ħóšţ ħáš ñó ļáƀ-áúţħ-ţóķéñ, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
+    "[!‮Ţħíš ħóšţ ħáš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
     {
       "arg": "address",
       "type": "token",
@@ -11198,7 +13387,7 @@ var Catalogs = map[string]map[string]string{
       "type": "token",
       "trust": "internal"
     },
-    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.control_verifier_unavailable": "[!‮Ţħíš ħóšţ’š šţáţúš šéřṽíçé çóúļď ñóţ ļóáď íţš ţóķéñ ṽéříƒíéř (çħéçķ ţéšţ/status/runtime/server.err óñ ţħé ħóšţ).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.could_not_check_the_cycle_folder_first": "[!‮Çóúļď ñóţ çħéçķ ţħé çýçļé ƒóļďéř ƒířšţ. ‬ ~~~~~~~~~~~~~~~~]",
@@ -11454,11 +13643,11 @@ var Catalogs = map[string]map[string]string{
     },
     " ⱮɃ‬ ~~~~]"
   ],
-  "status.git_source_mirror_confirmed": "[!‮mirror.origin‬ ~~~~~~]",
-  "status.git_source_mirror_fresh": "[!‮mirror.fresh‬ ~~~~~]",
-  "status.git_source_mirror_stale": "[!‮mirror.stale‬ ~~~~~]",
-  "status.git_source_not_applicable": "[!‮not.applicable‬ ~~~~~~]",
-  "status.git_source_origin_direct": "[!‮remote.origin‬ ~~~~~~]",
+  "status.git_source_mirror_confirmed": "[!‮ɱířřóř‬ ~~~]",
+  "status.git_source_mirror_fresh": "[!‮ɱířřóř ƒřéšħ‬ ~~~~~]",
+  "status.git_source_mirror_stale": "[!‮ɱířřóř šţáļé‬ ~~~~~]",
+  "status.git_source_not_applicable": "[!‮ñóţ áƥƥļíçáƀļé‬ ~~~~~~]",
+  "status.git_source_origin_direct": "[!‮řéɱóţé‬ ~~~]",
   "status.guest_not_found": [
     "[!‮",
     {
@@ -11525,24 +13714,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "[!‮Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ĎíšƥóšéÓƀļíğáţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_elevate": "[!‮Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_grant_automation": "[!‮Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_gui_session": "[!‮Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_install_client": "[!‮Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_resume_request": "[!‮Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_start_runner": "[!‮Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_authorization_refused": [
-    "[!‮Ţħíš řéƒřéšħ ñééďš á řéƒřéšħ ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
+  "status.host_repair_action_dispose_obligations": "[!‮Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ĎíšƥóšéÓƀļíğáţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_elevate": "[!‮Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_grant_automation": "[!‮Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƥáíř áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_gui_session": "[!‮Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_install_client": "[!‮Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_resume_request": "[!‮Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_start_runner": "[!‮Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_authorization_refused": [
+    "[!‮Ţħíš řéƥáíř ñééďš á řéƥáíř ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƒřéšħ áçţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƥáíř áçţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_busy": [
-    "[!‮Áñóţħéř ħóšţ řéƒřéšħ (",
+  "status.host_repair_busy": [
+    "[!‮Áñóţħéř ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11550,8 +13739,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_check_host": "[!‮Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "[!‮Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_closed": [
     "[!‮Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -11564,10 +13753,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šţářţ á ñéŵ řéƒřéšħ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šţářţ á ñéŵ řéƥáíř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_confirm": [
-    "[!‮Řéƒřéšħ ţħíš ħóšţ, úƥ ţó ţħé ",
+  "status.host_repair_confirm": [
+    "[!‮Řéƥáíř ţħíš ħóšţ, úƥ ţó ţħé ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -11579,20 +13768,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " ɱíñúţéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ɱíñúţéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_conflict": [
-    "[!‮Řéʠúéšţ ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéƒřéšħ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_launcher_failed": "[!‮Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƒřéšħ ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_lost": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_launcher_failed": "[!‮Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƥáíř ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_lost": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11604,11 +13784,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƒřéšħ ħóšţ ţó šţářţ á ñéŵ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƥáíř ħóšţ ţó šţářţ á ñéŵ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_note": "[!‮Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_progress": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_note": "[!‮Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_progress": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11638,22 +13818,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "external"
     },
-    " šéçóñďš ļéƒţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš ļéƒţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_recovery_pending": "[!‮Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_rejected": [
-    "[!‮Ţħé ħóšţ řéĵéçţéď ţħé řéƒřéšħ řéʠúéšţ: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    },
-    "‬ ~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_remote_viewer": "[!‮Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƒřéšħ ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_retry": "[!‮Řéţřý‬ ~~]",
-  "status.host_refresh_stale": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_recovery_pending": "[!‮Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_remote_viewer": "[!‮Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƥáíř ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_retry": "[!‮Řéţřý‬ ~~]",
+  "status.host_repair_stale": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11665,14 +13836,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_start": "[!‮Řéƒřéšħ ħóšţ‬ ~~~~~]",
-  "status.host_refresh_start_cycle_busy": "[!‮Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_submitting": "[!‮Šéñďíñğ ţħé řéƒřéšħ řéʠúéšţ...‬ ~~~~~~~~~~~~]",
-  "status.host_refresh_title": "[!‮Ħóšţ řéƒřéšħ‬ ~~~~~]",
-  "status.host_refresh_unavailable": [
-    "[!‮Ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.host_repair_start": "[!‮Řéƥáíř ħóšţ‬ ~~~~~]",
+  "status.host_repair_start_cycle_busy": "[!‮Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_title": "[!‮Ħóšţ řéƥáíř‬ ~~~~~]",
+  "status.host_repair_unavailable": [
+    "[!‮Ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -11680,8 +13850,8 @@ var Catalogs = map[string]map[string]string{
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_abandoned": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11689,17 +13859,17 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áƀáñďóñéď áƒţéř řéƥéáţéď áţţéɱƥţš; íţš řéçóṽéřý řéçóřď íš ķéƥţ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_already_healthy": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_failed": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_failed": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11711,10 +13881,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ").‬ ~~~~~~~~~~~~~~~~]"
+    ").‬ ~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_partial": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_partial": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11726,10 +13896,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_refused": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_refused": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11741,19 +13911,19 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_repaired": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_repaired": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11761,8 +13931,8 @@ var Catalogs = map[string]map[string]string{
     },
     " éñďéď: ţħé ħýƥéřṽíšóř šţíļļ ďóéš ñóţ řéšƥóñď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_unknown": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_unknown": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11774,10 +13944,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_waiting": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11785,8 +13955,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áççéƥţéď; ŵáíţíñğ ƒóř ţħé ŵóřķéř'š ƒířšţ řéƥóřţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting_long": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_waiting_long": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -11798,8 +13968,554 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "status.host_request_conflict": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéʠúéšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_rejected": [
+    "[!‮Ţħé ħóšţ řéĵéçţéď ţħé řéʠúéšţ: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_submitting": "[!‮Šéñďíñğ ţħé řéʠúéšţ...‬ ~~~~~~~~~]",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "[!‮Ñéẋţ šţéƥ: çħéçķ ţħé ħóšţ áñď áçţ ţħéřé.‬ ~~~~~~~~~~~~~~~~]",
+      "end_one_shot": "[!‮Ñéẋţ šţéƥ: éñď ţħé óñé-šħóţ šéššíóñ óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮Ñéẋţ šţéƥ: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        ".‬ ~~~~~~~~]"
+      ],
+      "provision_elevation": "[!‮Ñéẋţ šţéƥ: ğíṽé ţħé řúññéř íţš šúďó řúļé óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "provision_elevation_macos": [
+        "[!‮Ñéẋţ šţéƥ: óñ ţħé ħóšţ, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď áñšŵéř íţš ƥřóɱƥţš; íţ íñšţáļļš ţħé šúďóéřš éñţřý ħóšţ úƥďáţéš úšé. Ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "read_remarks": "[!‮Ñéẋţ šţéƥ: řéáď ţħé řéɱářķš.‬ ~~~~~~~~~~~~]",
+      "reboot_host": "[!‮Ñéẋţ šţéƥ: řéšţářţ Ŵíñďóŵš óñ ţħé ħóšţ, ţħéñ šţářţ ţħé řúññéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "release": [
+        "[!‮Ñéẋţ šţéƥ: ţó éñď íţ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "release_diagnostic_hold": "[!‮Ñéẋţ šţéƥ: řéļéášé ţħé ṼⱮ ķéƥţ ƒóř ďíáğñóšíš, ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "repair_checkout": "[!‮Ñéẋţ šţéƥ: řéƥáíř ţħé çħéçķóúţ óñ ţħé ħóšţ; ţħé ħóšţ ķééƥš ţřýíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "retry_or_drain_now": [
+        "[!‮Ñéẋţ šţéƥ: ƥřéšš áğáíñ, óř éñď ţħé çýçļé ñóŵ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "start_runner": "[!‮Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~]",
+      "stop_runner_by_hand": "[!‮Ñéẋţ šţéƥ: šţóƥ ţħé řúññéř óñ ţħé ħóšţ ƀý ħáñď.‬ ~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_blocks": [
+    "[!‮Á ħóšţ úƥďáţé (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "[!‮Á ħóšţ řéƥáíř (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_update": [
+        "[!‮Áñóţħéř ħóšţ úƥďáţé (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": "[!‮Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_confirm": [
+    "[!‮Úƥďáţé ħóšţ (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? Ţħé řúññéř šţóƥš ŵħéñ ţħé řúññíñğ çýçļé éñďš áñď řéšţářţš óñ çúřřéñţ çóďé; ţħé úƥďáţé ğíṽéš úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ íñšţéáď, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "[!‮Ţħé řúññéř šţářţéď ŵíţħóúţ á çóñšóļé.‬ ~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮Ţħé řúññéř'š çóñšóļé: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        ".‬ ~~~~~~~~~~~~~]"
+      ],
+      "tmux": [
+        "[!‮Ţó óƥéñ ţħé řúññéř'š çóñšóļé, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "window": "[!‮Ţħé řúññéř'š çóñšóļé íš á ŵíñďóŵ óƒ íţš óŵñ óñ ţħé ďéšķţóƥ óƒ ţħé ţéšţ áççóúñţ: óƥéñ íţ áţ ţħé ɱáçħíñé, óř óṽéř á řéɱóţé ďéšķţóƥ çóññéçţíóñ ţó ţħáţ šéššíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_countdown": [
+    "[!‮Ţħé šţáţúš šéřṽíçé íš řéšţářţíñğ; éẋƥéçţéď ƀáçķ íñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " šéçóñďš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_cycle_time": [
+    "[!‮Ţħé řúññíñğ çýçļé ħáš řúñ ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; řéçéñţ çýçļéš ţóóķ áƀóúţ ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_debt": [
+    "[!‮Šţíļļ óŵéď óñ ţħé ħóšţ: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "[!‮Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƒáíļéď.‬ ~~~~~~~~~~~~~~~~]",
+      "other": "[!‮Ŵáíţíñğ ƒóř ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé.‬ ~~~~~~~~~~~~~~~~~~]",
+      "pass": "[!‮Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƥáššéď.‬ ~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_lost": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ţħé ħóšţ ñó ļóñğéř řéƥóřţš íţ, šó íţš óúţçóɱé íš úñķñóŵñ ħéřé; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_note": [
+    "[!‮Úƥďáţéš ţħíš ħóšţ'š çóďé áñď řéšţářţš ţħé řúññéř ŵħéñ ţħé řúññíñğ çýçļé éñďš, ğíṽíñğ úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_progress": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ƥħášé ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " óƒ ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), ƀóúñďéď áţ ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_queued": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ʠúéúéď; íţ šţářţš ŵħéñ ţħé řúññíñğ çýçļé éñďš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_remarks": [
+    "[!‮Řéɱářķš: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~]"
+  ],
+  "status.host_update_remote_hint": [
+    "[!‮Úƥďáţé ħóšţ óƥéñš ƥóóļ-çóñţřóļ áţ ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", ŵħíçħ šíğñš ţħé řéʠúéšţ áñď ƀříñğš ýóú ƀáçķ ħéřé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "[!‮Řéíñšţáļļ ďéƥéñďéñçíéš áñď šéţţíñğš, ţħéñ řéšţářţ‬ ~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮",
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        },
+        "‬ ~~~]"
+      ],
+      "restart": "[!‮Řéšţářţ ţħé řúññéř óñ çúřřéñţ çóďé‬ ~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_stale": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ñó řéƥóřţ ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_start": "[!‮Úƥďáţé ħóšţ‬ ~~~~~]",
+  "status.host_update_title": "[!‮Ħóšţ úƥďáţé‬ ~~~~~]",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "[!‮Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Ţó šéţ óñé úƥ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_gate": [
+        "[!‮Á ħóšţ úƥďáţé ħóļďš ţħíš ħóšţ'š řúññéř áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ. Řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " óñçé ɱóřé ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď ļéáṽé á řúññéř ţħáţ íš řúññíñğ áļóñé: ţħáţ šţářţ šţóƥš áţ ţħé řúññéř ğáţé áñď šţářţš ţħé çóñţřóļļéř, ŵħíçħ çóñţíñúéš ţħé úƥďáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_macos": [
+        "[!‮Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Óñ ɱáçÓŠ ţħé řúññéř'š šţářţ šţářţš íţ: řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ, óř šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé áñď šţářţ íţ áğáíñ ţħáţ ŵáý. Óñ á ħóšţ ñéṽéř šéţ úƥ ƒóř ħóšţ úƥďáţéš, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒířšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_type": "[!‮Ħóšţ úƥďáţéš ářé ñóţ ýéţ áṽáíļáƀļé óñ ţħíš ħóšţ ţýƥé.‬ ~~~~~~~~~~~~~~~~~~~~~~]",
+      "journal_unreadable": "[!‮Ţħé ħóšţ çáññóţ řéáď íţš óƥéřáţíóñ ĵóúřñáļ; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "listener_dependency_missing": "[!‮Ţħé šţáţúš šéřṽíçé çóúļď ñóţ ļóáď ŵħáţ ħóšţ úƥďáţéš ñééď; řéšţářţ íţ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮Ħóšţ úƥďáţéš ářé ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "remote": [
+        "[!‮Ƒřóɱ áñóţħéř ɱáçħíñé ţħíš ƥáğé çáñ óñļý ŵáţçħ á ħóšţ úƥďáţé; úñţíļ ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " íš íñšţáļļéď óñ ţħé ħóšţ, ƥřéšš Úƥďáţé ħóšţ ţħéřé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "scope_unavailable": "[!‮Ţħíš ħóšţ çáññóţ řúñ ţħé çħóšéñ šçóƥé ñóŵ.‬ ~~~~~~~~~~~~~~~~~]",
+      "session_unusable": [
+        "[!‮Ţħé ħóšţ çóñţřóļļéř'š šéššíóñ çáññóţ šţářţ á ŵóřķíñğ řúññéř: íţ íš ñóţ ţħé ďéšķţóƥ šéššíóñ, óř á ƥříṽáçý ğřáñţ íš ɱíššíñğ ţħéřé. Óñ ţħé ħóšţ, éñď ţħé šéššíóñ ýúřúñá-çóñţřóļļéř ŵíţħ ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (úñďéř šçřééñ, ʠúíţ ţħé ýúřúñá-çóñţřóļļéř šéššíóñ ţħáţ ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ļíšţš), šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé, áñď šţářţ ţħé řúññéř áğáíñ ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ ţħáţ ħóļďš ţħé ğřáñţš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ğáṽé úƥ: ţħé řúññíñğ çýçļé óúţļášţéď ţħé ŵáíţ. Ñóţħíñğ çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "failed_restored": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ďíď ñóţ çóɱƥļéţé (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); ţħé ħóšţ ŵáš řéšţóřéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " éñďéď ŵíţħ áñ óúţçóɱé ţħíš ƥáğé ďóéš ñóţ řéçóğñížé (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "reboot_required": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď, ƀúţ Ŵíñďóŵš ɱúšţ řéšţářţ ƀéƒóřé ţħé ħýƥéřṽíšóř çáñ řúñ, šó ţħé řúññéř ŵáš ñóţ šţářţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ; ţħé ħóšţ ķééƥš ţřýíñğ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering_without_controller": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ ţó ţřý áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "refused": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéƒúšéď; ñóţħíñğ çħáñğéď (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "released": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéļéášéď óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "stop_failed": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř çóúļď ñóţ ƀé šţóƥƥéď, šó ñóţħíñğ ŵáš šţářţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "superseded": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš ţáķéñ óṽéř ƀý ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ".‬ ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř řúñš çúřřéñţ çóďé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_not_started": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř ŵáš šţóƥƥéď ƀéƒóřé íţ, šó íţ ŵáš ñóţ šţářţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_with_remarks": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď ŵíţħ řéɱářķš; ţħé řúññéř řúñš çúřřéñţ çóďé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
   "status.host_value1": [
     "[!‮Ħóšţ: ",
     {
@@ -11831,7 +14547,7 @@ var Catalogs = map[string]map[string]string{
     "‬ ~~~~~~~~~~~~~]"
   ],
   "status.lab_hold_unspecified": "[!‮Ļáƀ ħóļď -- ŵáíţíñğ ƒóř á ļáƀ šéřṽíçé‬ ~~~~~~~~~~~~~~~]",
-  "status.latest_cycle": "[!‮Ļáţéšţ Çýçļé‬ ~~~~~]",
+  "status.latest_cycle": "[!‮Ļáţéšţ çýçļé‬ ~~~~~]",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -12057,7 +14773,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "[!‮Ñéŵ ṼⱮ‬ ~~~]",
   "status.pill_start_guestos": "[!‮Šţářţ ÓŠ‬ ~~~~]",
   "status.pill_start_guestworkload": "[!‮Ŵóřķļóáď‬ ~~~~]",
-  "status.preflight_failed": "[!‮ƤŘÉƑĻÍĞĦŢ ƑÁÍĻÉĎ‬ ~~~~~~~]",
+  "status.preflight_failed": "[!‮Ƥřéƒļíğħţ ƒáíļéď‬ ~~~~~~~]",
   "status.process_environment_value_the_status_service_inherited_at_startup": "[!‮Ƥřóçéšš-éñṽířóñɱéñţ ṽáļúé ţħé šţáţúš šéřṽíçé íñħéříţéď áţ šţářţúƥ. Řéáď-óñļý ħéřé; ƒáļļƀáçķ šóúřçé óñļý: áţ çýçļé šţářţ ţħé vmStart.cachingProxyIp ƒíéļď áƀóṽé íš ƥřóƀéď ƒířšţ áñď ŵíñš ŵħéñ íţš :3128 áñšŵéřš. Éẋƥóřţ ţħíš íñ ţħé šħéļļ ţħáţ ļáúñçħéš Start-TestRunner.ps1 ƒóř ħóšţš ŵħóšé çóñƒíğ ƒíéļď íš éɱƥţý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.quarantine_pinned": [
     "[!‮ʠúářáñţíñéď áƒţéř řéƥéáţéď šáɱé-çļášš ƒáíļúřéš (šķíƥƥéď úñţíļ á ñéŵ çóɱɱíţ; ƥíññéď áţ ",
@@ -12074,7 +14790,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "[!‮Řéçáļçúļáţé‬ ~~~~~]",
   "status.recalculating": "[!‮Řéçáļçúļáţíñğ…‬ ~~~~~~]",
   "status.recalculating_perf_aggregates": "[!‮Řéçáļçúļáţíñğ ƥéřƒ áğğřéğáţéš…‬ ~~~~~~~~~~~~]",
-  "status.recent_cycles": "[!‮Řéçéñţ Çýçļéš‬ ~~~~~~]",
+  "status.recent_cycles": "[!‮Řéçéñţ çýçļéš‬ ~~~~~~]",
   "status.refresh": "[!‮Řéƒřéšħ‬ ~~~]",
   "status.results_folder": [
     "[!‮Óƥéñ řéšúļţš ƒóļďéř ƒóř ",
@@ -12237,14 +14953,14 @@ var Catalogs = map[string]map[string]string{
     },
     ", řéšţářţ ţħé ṼⱮ, ţħéñ řéšúɱé ţħé šéʠúéñçé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "[!‮Á ħóšţ řéƒřéšħ (",
+  "status.start_cycle_blocked_by_repair": [
+    "[!‮Á ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.start_cycle_cycle_restarted": "[!‮Çýçļé řéšţářţéď‬ ~~~~~~]",
   "status.start_cycle_failed": [
@@ -12328,7 +15044,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "[!‮Ţéšţíñğ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ…‬ ~~~~~~~~~~~~~~~~]",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "[!‮Ţħé ářçħíṽé íš ƀúíļţ ƒřóɱ šéřṽéř ļóğš óñļý áñď ďóŵñļóáďéď ţó ţħíš ɱáçħíñé. Ñó ďáţá ƒřóɱ ţħíš ƀřóŵšíñğ šéššíóñ íš íñçļúďéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "[!‮Ţħé çóñţřóļ ƥřóóƒ éẋƥířéď. Řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ţó ğéţ á ƒřéšħ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[!‮Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ ļáƀ-áúţħ-ţóķéñ ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[!‮Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ íñţéřñáļ áúţħéñţíçáţíóñ ķéý ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "[!‮Ţħé ħóšţ çóúļď ñóţ ļóáď íţš çóñţřóļ-ƥřóóƒ ṽéříƒíéř; çħéçķ ţħé šţáţúš šéřṽíçé ļóğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "[!‮Ţħé šħářé šħééţ éẋƥířéď ŵħíļé ţħé ħóšţ ƥáçķéď ţħé ƒóļďéř. ‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "[!‮Ţħíš ƀřóŵšéř çóúļď ñóţ áţţáçħ ţħé ƒíļé ţó á ɱéššáğé íţšéļƒ. ‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -12528,7 +15244,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "status.working": "[!‮Ŵóřķíñğ...‬ ~~~~]",
   "status.yuruna_host_status": "[!‮Ýúřúñá ħóšţ šţáţúš‬ ~~~~~~~~]",
-  "status.yuruna_status": "[!‮Ýúřúñá Šţáţúš‬ ~~~~~~]"
+  "status.yuruna_status": "[!‮Ýúřúñá šţáţúš‬ ~~~~~~]"
 }
 `,
 	},
@@ -13252,8 +15968,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "禁止（不是提供的文件）",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "禁止访问：探测目标必须是私有地址（loopback/RFC1918/link-local）或配置的缓存IP",
   "status.api_guest_channel_key_absent": "此主机尚无来宾通道密钥；密钥会在主机首次生成来宾种子时创建",
-  "status.api_host_refresh_authorization_refused": [
-    "刷新授权被拒绝（",
+  "status.api_host_repair_authorization_refused": [
+    "修复授权被拒绝（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -13261,8 +15977,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）"
   ],
-  "status.api_host_refresh_busy": "另一个宿主机操作正在进行中",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "另一个宿主机操作正在进行中",
+  "status.api_host_repair_request_closed": [
     "此请求ID已关闭（",
     {
       "arg": "state",
@@ -13271,15 +15987,36 @@ var Catalogs = map[string]map[string]string{
     },
     "）"
   ],
-  "status.api_host_refresh_request_conflict": "此请求ID已用于不同的设置",
-  "status.api_host_refresh_unavailable": [
-    "此宿主机不支持宿主机刷新（",
+  "status.api_host_repair_request_conflict": "此请求ID已用于不同的设置",
+  "status.api_host_repair_unavailable": [
+    "此宿主机不支持宿主机修复（",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     "）"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "宿主机更新授权被拒绝（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）"
+  ],
+  "status.api_host_update_busy": "此宿主机上正在进行宿主机更新",
+  "status.api_host_update_controller_absent": "此宿主机上没有正在运行的宿主机控制器；未排队任何请求",
+  "status.api_host_update_proof_missing": "来自其他机器的宿主机更新需要pool-control提供的更新证明；未加入任何队列",
+  "status.api_host_update_scope_unavailable": [
+    "宿主机控制器不运行 ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 范围；未排队任何请求"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "此宿主机未配置内部身份验证密钥",
   "status.api_internal_error": "请求在宿主机上执行失败；请查看server.err",
@@ -13459,8 +16196,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "配置",
   "status.config_field_alwaysredownload": "始终重新下载（alwaysRedownload）",
   "status.config_field_armwindowhours": "配置项armWindowHours",
-  "status.config_field_autorefreshafterstalls": "停滞后自动刷新（autoRefreshAfterStalls）",
   "status.config_field_autoremediation": "自动修复（autoRemediation）",
+  "status.config_field_autorepairafterstalls": "停滞后自动修复（autoRepairAfterStalls）",
   "status.config_field_autoseed": "配置项autoSeed",
   "status.config_field_bootdelayseconds": "启动延迟秒数（bootDelaySeconds）",
   "status.config_field_cachingproxyip": "缓存代理IP（cachingProxyIp）",
@@ -13570,7 +16307,7 @@ var Catalogs = map[string]map[string]string{
     },
     "）"
   ],
-  "status.control_host_token_missing": "此宿主机尚无实验室令牌。",
+  "status.control_host_token_missing": "此宿主机尚无内部身份验证密钥。",
   "status.control_instructions": [
     "此宿主机仅接受来自宿主机本地浏览器（",
     {
@@ -13578,7 +16315,7 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "）或通过Yuruna宿主机仪表板链接打开的浏览器的控制（该链接会授予短期令牌）。要从其他计算机控制此宿主机，请通过仪表板打开；如果此宿主机从未注册，请使用仪表板“实验室令牌”卡片中的代码运行",
+    "）或通过Yuruna宿主机仪表板链接打开的浏览器的控制（该链接会授予短期控制证明）。要从其他计算机控制此宿主机，请通过仪表板打开；如果此宿主机从未注册，请使用仪表板“实验室令牌”卡片中的代码运行",
     {
       "arg": "command",
       "type": "detail",
@@ -13586,7 +16323,7 @@ var Catalogs = map[string]map[string]string{
     },
     "。"
   ],
-  "status.control_proof_expired": "此页面的控制令牌已过期（有效期为15分钟）。",
+  "status.control_proof_expired": "此页面的控制证明已过期（证明有效期为15分钟）。",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "控制凭证已过期，请在保存前通过仪表板链接重新打开此宿主机。在此之前，所做的编辑会保留。",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "控制凭证将在",
@@ -13597,12 +16334,12 @@ var Catalogs = map[string]map[string]string{
     },
     " s后过期，请尽快保存，或通过仪表板链接重新打开此宿主机以获取新凭证。"
   ],
-  "status.control_proof_invalid": "此页面的控制令牌在此处验证失败，此宿主机存储的实验室令牌可能与实验室当前的令牌不同，请重新注册。",
-  "status.control_proof_missing": "打开此页面时未携带控制令牌，因此未发送令牌。",
+  "status.control_proof_invalid": "此页面的控制证明在此处验证失败，此宿主机的内部身份验证密钥可能与实验室当前的密钥不同，请使用实验室令牌重新注册。",
+  "status.control_proof_missing": "打开此页面时未携带控制证明，因此未发送证明。",
   "status.control_refused": "控制请求被拒绝。",
   "status.control_routes": "控制路由设置",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "此宿主机没有lab-auth-token，因此远程控制仅限回环连接。请在宿主机上通过",
+    "此宿主机没有内部身份验证密钥，因此远程控制仅限回环连接。请在宿主机上通过",
     {
       "arg": "address",
       "type": "token",
@@ -13859,11 +16596,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "mirror.origin",
-  "status.git_source_mirror_fresh": "mirror.fresh",
-  "status.git_source_mirror_stale": "mirror.stale",
-  "status.git_source_not_applicable": "not.applicable",
-  "status.git_source_origin_direct": "remote.origin",
+  "status.git_source_mirror_confirmed": "mirror",
+  "status.git_source_mirror_fresh": "mirror fresh",
+  "status.git_source_mirror_stale": "mirror stale",
+  "status.git_source_not_applicable": "not applicable",
+  "status.git_source_origin_direct": "remote",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -13919,24 +16656,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "下一步：查看宿主机上尚未完成的恢复项，并使用pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation进行处置。",
-  "status.host_refresh_action_elevate": "下一步：修复需要管理员权限；请在宿主机上以提升权限的会话运行修复。",
-  "status.host_refresh_action_grant_automation": "下一步：允许此宿主机的自动化程序访问UTM，然后再次刷新。",
-  "status.host_refresh_action_gui_session": "下一步：登录宿主机的桌面会话，然后再次刷新。",
-  "status.host_refresh_action_install_client": "下一步：在宿主机上安装虚拟机监控程序的命令行客户端，然后再次刷新。",
-  "status.host_refresh_action_resume_request": "下一步：在宿主机上使用pwsh test/lab/Invoke-HostRefresh.ps1 -Resume继续此请求。",
-  "status.host_refresh_action_start_runner": "下一步：在宿主机上启动运行器；没有可用于重启运行器的启动记录。",
-  "status.host_refresh_authorization_refused": [
-    "此次刷新需要刷新凭证，但此页面没有该凭证（",
+  "status.host_repair_action_dispose_obligations": "下一步：查看宿主机上尚未完成的恢复项，并使用pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation进行处置。",
+  "status.host_repair_action_elevate": "下一步：修复需要管理员权限；请在宿主机上以提升权限的会话运行修复。",
+  "status.host_repair_action_grant_automation": "下一步：允许此宿主机的自动化程序访问UTM，然后再次修复。",
+  "status.host_repair_action_gui_session": "下一步：登录宿主机的桌面会话，然后再次修复。",
+  "status.host_repair_action_install_client": "下一步：在宿主机上安装虚拟机监控程序的命令行客户端，然后再次修复。",
+  "status.host_repair_action_resume_request": "下一步：在宿主机上使用pwsh test/lab/Invoke-HostRepair.ps1 -Resume继续此请求。",
+  "status.host_repair_action_start_runner": "下一步：在宿主机上启动运行器；没有可用于重启运行器的启动记录。",
+  "status.host_repair_authorization_refused": [
+    "此次修复需要修复证明，但此页面没有该证明（",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "）。请使用宿主机本机上的状态页面，或pool-control刷新操作。"
+    "）。请使用宿主机本机上的状态页面，或pool-control修复操作。"
   ],
-  "status.host_refresh_busy": [
-    "另一个宿主机刷新请求（",
+  "status.host_repair_busy": [
+    "另一个宿主机修复请求（",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13944,8 +16681,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）正在进行中；正在显示其进度。"
   ],
-  "status.host_refresh_check_host": "在宿主机上运行pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf以查看当前状态。",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "在宿主机上运行pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf以查看当前状态。",
+  "status.host_repair_closed": [
     "请求",
     {
       "arg": "requestId",
@@ -13958,16 +16695,16 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "）；请发起新的刷新。"
+    "）；请发起新的修复。"
   ],
-  "status.host_refresh_confirm": [
+  "status.host_repair_confirm": [
     "在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启，运行器也会重启。此过程最多需要",
     {
       "arg": "minutes",
       "type": "integer",
       "trust": "internal"
     },
-    "分钟。是否刷新此宿主机，最多执行到",
+    "分钟。是否修复此宿主机，最多执行到",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -13975,18 +16712,9 @@ var Catalogs = map[string]map[string]string{
     },
     "步骤？"
   ],
-  "status.host_refresh_conflict": [
-    "请求",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    "已使用不同的设置发送；请发起新的刷新。"
-  ],
-  "status.host_refresh_launcher_failed": "宿主机无法启动刷新工作进程。请求已保留；请选择“重试”以再次启动。",
-  "status.host_refresh_lost": [
-    "刷新",
+  "status.host_repair_launcher_failed": "宿主机无法启动修复工作进程。请求已保留；请选择“重试”以再次启动。",
+  "status.host_repair_lost": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13998,11 +16726,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    "秒后仍无结果，或后续请求已替换其报告。选择“重试”以向宿主机查询其最终结果，或选择“刷新宿主机”以发起新的刷新。"
+    "秒后仍无结果，或后续请求已替换其报告。选择“重试”以向宿主机查询其最终结果，或选择“修复宿主机”以发起新的修复。"
   ],
-  "status.host_refresh_note": "修复此宿主机上停滞的运行器或虚拟机监控程序。在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启。",
-  "status.host_refresh_progress": [
-    "刷新",
+  "status.host_repair_note": "修复此宿主机上停滞的运行器或虚拟机监控程序。在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启。",
+  "status.host_repair_progress": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14034,19 +16762,11 @@ var Catalogs = map[string]map[string]string{
     },
     "秒。"
   ],
-  "status.host_refresh_recovery_pending": "服务或运行器仍需恢复。选择“重试”将继续同一请求。",
-  "status.host_refresh_rejected": [
-    "宿主机拒绝了刷新请求：",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "此页面是从另一台计算机打开的，因此只能观察宿主机刷新，无法启动刷新。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRefresh.ps1。",
-  "status.host_refresh_retry": "重试",
-  "status.host_refresh_stale": [
-    "刷新",
+  "status.host_repair_recovery_pending": "服务或运行器仍需恢复。选择“重试”将继续同一请求。",
+  "status.host_repair_remote_viewer": "此页面是从另一台计算机打开的，因此只能观察宿主机修复，无法启动修复。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRepair.ps1。",
+  "status.host_repair_retry": "重试",
+  "status.host_repair_stale": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14060,12 +16780,11 @@ var Catalogs = map[string]map[string]string{
     },
     "秒没有进度报告。工作进程可能已停止；请先检查宿主机，再发起另一次修复。"
   ],
-  "status.host_refresh_start": "刷新宿主机",
-  "status.host_refresh_start_cycle_busy": "启动周期的请求正在进行中；请在其完成后重试。",
-  "status.host_refresh_submitting": "正在发送刷新请求……",
-  "status.host_refresh_title": "宿主机刷新",
-  "status.host_refresh_unavailable": [
-    "此宿主机不支持宿主机刷新（",
+  "status.host_repair_start": "修复宿主机",
+  "status.host_repair_start_cycle_busy": "启动周期的请求正在进行中；请在其完成后重试。",
+  "status.host_repair_title": "宿主机修复",
+  "status.host_repair_unavailable": [
+    "此宿主机不支持宿主机修复（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -14073,8 +16792,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "刷新",
+  "status.host_repair_verdict_abandoned": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14082,8 +16801,8 @@ var Catalogs = map[string]map[string]string{
     },
     "在多次尝试后已放弃；其恢复记录保留在宿主机上。"
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "刷新",
+  "status.host_repair_verdict_already_healthy": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14091,8 +16810,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已完成：宿主机原本就处于正常状态，因此未做任何更改。"
   ],
-  "status.host_refresh_verdict_failed": [
-    "刷新",
+  "status.host_repair_verdict_failed": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14106,8 +16825,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_verdict_partial": [
-    "刷新",
+  "status.host_repair_verdict_partial": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14121,8 +16840,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）；部分服务或运行器仍需处理。"
   ],
-  "status.host_refresh_verdict_refused": [
-    "刷新",
+  "status.host_repair_verdict_refused": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14136,8 +16855,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_verdict_repaired": [
-    "刷新",
+  "status.host_repair_verdict_repaired": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14145,8 +16864,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已完成：宿主机已修复，运行器已就绪。"
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "刷新",
+  "status.host_repair_verdict_still_unresponsive": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14154,8 +16873,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已结束：虚拟机监控程序仍无响应。"
   ],
-  "status.host_refresh_verdict_unknown": [
-    "刷新",
+  "status.host_repair_verdict_unknown": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14169,8 +16888,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_waiting": [
-    "刷新",
+  "status.host_repair_waiting": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14178,8 +16897,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已接受；正在等待工作进程的首份报告。"
   ],
-  "status.host_refresh_waiting_long": [
-    "刷新",
+  "status.host_repair_waiting_long": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14193,6 +16912,543 @@ var Catalogs = map[string]map[string]string{
     },
     "秒后仍无报告。工作进程可能未能启动；请检查宿主机。"
   ],
+  "status.host_request_conflict": [
+    "请求",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已使用不同的设置发送；请发起新的请求。"
+  ],
+  "status.host_request_rejected": [
+    "宿主机拒绝了请求：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "正在发送请求……",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "下一步：检查宿主机并在那里处理。",
+      "end_one_shot": "下一步：在宿主机上结束一次性会话，然后再按一次。",
+      "other": [
+        "下一步：",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "。"
+      ],
+      "provision_elevation": "下一步：在宿主机上为运行器配置 sudo 规则，然后再按一次。",
+      "provision_elevation_macos": [
+        "下一步：在宿主机上，从桌面会话的终端运行 ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 并回答其提示；它会安装宿主机更新所用的 sudoers 条目。然后再按一次。"
+      ],
+      "read_remarks": "下一步：阅读备注。",
+      "reboot_host": "下一步：在宿主机上重启 Windows，然后启动运行器。",
+      "release": [
+        "下一步：要结束它，请在宿主机上运行：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "下一步：释放为诊断保留的 VM，然后再按一次。",
+      "repair_checkout": "下一步：修复宿主机上的代码检出；宿主机会继续尝试。",
+      "retry_or_drain_now": [
+        "下一步：再按一次，或在宿主机上立即结束周期：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "下一步：在宿主机上启动运行器。",
+      "stop_runner_by_hand": "下一步：在宿主机上手动停止运行器。"
+    }
+  },
+  "status.host_update_blocks": [
+    "宿主机更新（",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）正在进行；请在其完成后重试。"
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "宿主机修复（",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "）正在进行；请在其完成后重试。"
+      ],
+      "host_update": [
+        "另一个宿主机更新（",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "）正在进行；正在显示其进度。"
+      ],
+      "other": "启动周期的请求正在进行中；请在其完成后重试。"
+    }
+  },
+  "status.host_update_confirm": [
+    "更新宿主机（",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    "）？运行器会在当前周期结束时停止，并在当前代码上重启；更新在 ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 分钟后放弃。要立即结束周期，请在宿主机上运行：",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "运行器启动时没有控制台。",
+      "other": [
+        "运行器的控制台：",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "。"
+      ],
+      "tmux": [
+        "要打开运行器的控制台，请在宿主机上运行：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "运行器的控制台是测试账户桌面上的一个独立窗口：请在本机上打开，或通过远程桌面连接到该会话打开。"
+    }
+  },
+  "status.host_update_countdown": [
+    "状态服务正在重启；预计 ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " 秒后恢复。"
+  ],
+  "status.host_update_cycle_time": [
+    "当前周期已运行 ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "；最近的周期约需 ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "status.host_update_debt": [
+    "宿主机上仍待处理：",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "更新后的第一个周期失败。",
+      "other": "正在等待更新后的第一个周期。",
+      "pass": "更新后的第一个周期已通过。"
+    }
+  },
+  "status.host_update_lost": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "：宿主机已不再报告它，因此这里无法得知其结果；请检查宿主机。"
+  ],
+  "status.host_update_note": [
+    "在当前周期结束时更新此宿主机的代码并重启运行器，",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 分钟后放弃。要立即结束周期，请在宿主机上运行：",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "：第 ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " 阶段，共 ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " 个（",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "），上限 ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "status.host_update_queued": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 已排队；它会在当前周期结束时开始。"
+  ],
+  "status.host_update_remarks": [
+    "备注：",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "status.host_update_remote_hint": [
+    "“更新宿主机”会打开 ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    " 上的 pool-control，由它签署请求并带您返回此处。"
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "重新安装依赖和设置，然后重启",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "在当前代码上重启运行器"
+    }
+  },
+  "status.host_update_stale": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "：已 ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒没有报告；请检查宿主机。"
+  ],
+  "status.host_update_start": "更新宿主机",
+  "status.host_update_title": "宿主机更新",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "此宿主机上没有运行宿主机控制器。要设置一个，请在宿主机上运行：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "一个宿主机更新占用此宿主机的运行器，且没有正在运行的宿主机控制器。请在桌面会话的终端中再运行一次 ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        "，并保持正在运行的运行器不变：该启动会停在运行器门控处并启动控制器，由控制器继续此更新。"
+      ],
+      "controller_absent_macos": [
+        "此宿主机上没有运行宿主机控制器。在 macOS 上由运行器的启动来启动它：请在桌面会话的终端中运行 ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        "，或在正在运行的运行器完成当前周期后停止它，再以这种方式重新启动。对于从未为宿主机更新做过设置的宿主机，请先运行 ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "。"
+      ],
+      "host_type": "此类宿主机尚不支持宿主机更新。",
+      "journal_unreadable": "宿主机无法读取其操作日志；请检查宿主机。",
+      "listener_dependency_missing": "状态服务未能加载宿主机更新所需的内容；请在宿主机上重启它。",
+      "other": [
+        "此宿主机不提供宿主机更新（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "remote": [
+        "从其他机器打开时，此页面只能查看宿主机更新；在宿主机上安装 ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 之前，请在宿主机上按“更新宿主机”。"
+      ],
+      "scope_unavailable": "此宿主机目前无法运行所选范围。",
+      "session_unusable": [
+        "宿主机控制器的会话无法启动可正常工作的运行器：它不是桌面会话，或其中缺少某项隐私权限。请在宿主机上用 ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 结束会话 yuruna-controller（使用 screen 时，结束 ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 列出的 yuruna-controller 会话），在正在运行的运行器完成当前周期后停止它，然后从拥有这些权限的桌面会话终端重新启动运行器。"
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已放弃：当前周期超出了等待时间。没有任何更改。"
+      ],
+      "failed_restored": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 未完成（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）；宿主机已恢复。"
+      ],
+      "other": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 以本页面无法识别的结果结束（",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "reboot_required": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成，但必须先重启 Windows，虚拟机监控程序才能运行，因此运行器未启动。"
+      ],
+      "recovering": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "：运行器尚未运行；宿主机会继续尝试（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "recovering_without_controller": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "：运行器尚未运行（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "），且没有正在运行的宿主机控制器来重试。"
+      ],
+      "refused": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 被拒绝；没有任何更改（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "released": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已在宿主机上释放。"
+      ],
+      "stop_failed": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "：无法停止运行器，因此没有启动任何内容。"
+      ],
+      "superseded": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已被 ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 接管。"
+      ],
+      "updated": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成；运行器运行当前代码。"
+      ],
+      "updated_not_started": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成；运行器在更新前已停止，因此未启动。"
+      ],
+      "updated_with_remarks": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成但有备注；运行器运行当前代码。"
+      ]
+    }
+  },
   "status.host_value1": [
     "宿主机：",
     {
@@ -14562,8 +17818,8 @@ var Catalogs = map[string]map[string]string{
     },
     "的快照，重启虚拟机，然后继续执行序列"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "宿主机刷新（",
+  "status.start_cycle_blocked_by_repair": [
+    "宿主机修复（",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -14653,7 +17909,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "正在从宿主机测试缓存代理服务……",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "归档文件仅由服务器日志生成，并下载到本机。不包含本次浏览会话的任何数据。",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "控制凭证已过期。请通过仪表板链接重新打开此宿主机，以获取新凭证。",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "控制凭证被拒绝。生成凭证时使用的lab-auth-token可能与此宿主机持有的不同；使用test/lab/Set-LabToken.ps1重新注册可使两者一致。",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "控制证明被拒绝。生成证明时使用的内部身份验证密钥可能与此宿主机持有的不同；使用test/lab/Set-LabToken.ps1重新注册可使两者一致。",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "宿主机无法加载控制凭证验证器；请检查status service日志。",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "宿主机打包文件夹期间，分享面板已过期。 ",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "此浏览器无法自动将文件附加到消息中。 ",
@@ -14835,4 +18091,4 @@ var Catalogs = map[string]map[string]string{
 	},
 }
 
-const BrowserKernel = "// >>> yuruna-i18n embedded block -- generated by tools/Invoke-CatalogEmbed.ps1\n// Edit globalization/kernel/yuruna.i18n.js or the catalog sources, then re-run\n// that tool. An edit made here is overwritten and the drift gate fails first.\n(function (root) {\n  'use strict';\n  root.YurunaLocaleData = {\"en-US\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"one-if-1\",\"direction\":\"ltr\"},\"he-IL\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"he-cardinal-cldr46\",\"direction\":\"rtl\"},\"pt-BR\":{\"group\":\".\",\"decimal\":\",\",\"groupSize\":3,\"plural\":\"pt-cardinal-cldr46\",\"direction\":\"ltr\"},\"qps-Ploc\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"one-if-1\",\"direction\":\"ltr\"},\"qps-Plocm\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"one-if-1\",\"direction\":\"rtl\"},\"zh-CN\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"zh-cardinal-cldr46\",\"direction\":\"ltr\"}};\n  root.YurunaEnabledLocales = {\"en-us\":\"en-US\",\"he-il\":\"he-IL\",\"pt-br\":\"pt-BR\",\"qps-ploc\":\"qps-Ploc\",\"qps-plocm\":\"qps-Plocm\",\"zh-cn\":\"zh-CN\"};\n  root.YurunaLocaleAliases = {\"en\":\"en-US\",\"he\":\"he-IL\",\"iw\":\"he-IL\",\"iw-il\":\"he-IL\",\"pt\":\"pt-BR\",\"pt-pt\":\"pt-BR\",\"zh\":\"zh-CN\",\"zh-hans\":\"zh-CN\",\"zh-hans-cn\":\"zh-CN\",\"zh-sg\":\"zh-CN\"};\n  root.YurunaCatalogProvenance = {\"version\":\"2026.11.16\",\"hash\":\"2487d9ddce19bbe062c4682e86381e9e5058fa2c900a3054ce4860c3045bf893\"};\n}(typeof window !== 'undefined' ? window : this));\n// Generated by tools/Invoke-CatalogCompile.ps1 from globalization/catalogs.\n// Edit the source catalog and regenerate; changes made here are overwritten.\n// LICENSEURI https://yuruna.link/license\n// Copyright (c) 2019-2026 by Alisson Sol et al.\n// locale: en-US  domain: download\n(function (root) {\n  'use strict';\n  var registry = root.YurunaCatalog = root.YurunaCatalog || {};\n  var byLocale = registry['en-US'] = registry['en-US'] || {};\n  byLocale['download'] = {'download.actions':'Actions','download.actions_need_the_internal_authentication_key_as_a_bearer':'Actions need the internal authentication key as a bearer','download.api_arch_query_parameter_is_required_amd64_or_arm64':'arch query parameter is required (amd64 or arm64)','download.api_delete_refused_reason':['delete refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.api_detail':[{'arg':'detail','type':'detail','trust':'external'}],'download.api_generation_not_found':'generation not found','download.api_invalid_generation_name':'invalid generation name','download.api_invalid_json_body_detail':['invalid JSON body: ',{'arg':'detail','type':'detail','trust':'external'}],'download.api_no_image_store_configured':'no image store configured','download.api_pool_refresh_refused_reason':['pool refresh refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.api_prune_refused_reason':['prune refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.api_refresh_refused_reason':['refresh refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.argv_value1':['argv: ',{'arg':'value1','type':'detail','trust':'external'}],'download.artifact':'Artifact','download.as_of_value1':['As of ',{'arg':'value1','type':'detail','trust':'external'}],'download.as_of_value1_273588ee':['as of ',{'arg':'value1','type':'detail','trust':'external'}],'download.attempt_arch':['arch ',{'arg':'value','type':'detail','trust':'external'}],'download.attempt_exit':['exit ',{'arg':'value','type':'detail','trust':'external'}],'download.auto_seed':'Auto-seed','download.available':'available','download.best_effort':'Best effort','download.best_effort_identity':[{'arg':'identity','type':'detail','trust':'external'},' - best effort'],'download.byte_downloads_go_direct':'Byte downloads go direct.','download.checksum':'Checksum','download.command_line':'Command line','download.configured':'configured','download.deferred_count':['Deferred: ',{'arg':'count','type':'integer','trust':'internal'},'.'],'download.delete':'Delete','download.delete_every_generation_of_value1_value2_value3_value4_the_next_h':['Delete every generation of ',{'arg':'value1','type':'detail','trust':'external'},' (',{'arg':'value2','type':'detail','trust':'external'},', ',{'arg':'value3','type':'detail','trust':'external'},', ',{'arg':'value4','type':'detail','trust':'external'},')?\\n\\nThe next host request or seed pass re-downloads it from origin. Hosts keep their local copies.'],'download.diagnostics':'Diagnostics','download.diagnostics_load_failed_value1':['Diagnostics load failed: ',{'arg':'value1','type':'detail','trust':'external'}],'download.diagnostics_yuruna_download_agent':'Diagnostics \\u2014 Yuruna Download Agent','download.discard_the_previous_generations_of_value1_value2_value3_value4_t':['Discard the previous generations of ',{'arg':'value1','type':'detail','trust':'external'},' (',{'arg':'value2','type':'detail','trust':'external'},', ',{'arg':'value3','type':'detail','trust':'external'},', ',{'arg':'value4','type':'detail','trust':'external'},')?\\n\\nThe current generation is kept. The discarded ones are not recoverable.'],'download.download_pool':'Download pool','download.download_pool_yuruna_download_agent':'Download pool \\u2014 Yuruna Download Agent','download.enter_the_dashboard_lab_token_to_enable_actions':'Enter the dashboard Lab token to enable actions','download.entry':'Entry','download.entry_bytes':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' entry - ',{'arg':'bytes','type':'text','trust':'internal'},' current'],'other':[{'arg':'count','type':'integer','trust':'internal'},' entries - ',{'arg':'bytes','type':'text','trust':'internal'},' current']}},'download.entry_count':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' entry'],'other':[{'arg':'count','type':'integer','trust':'internal'},' entries']}},'download.error':'Error','download.every_value1':['every ',{'arg':'value1','type':'detail','trust':'external'}],'download.expired_value1_ago':['expired ',{'arg':'value1','type':'detail','trust':'external'},' ago'],'download.expires_in_value1':['expires in ',{'arg':'value1','type':'detail','trust':'external'}],'download.failed':'failed','download.fido_script':'Fido script','download.force_refresh':'Force refresh','download.found':'found','download.freshness_window':['Freshness: ',{'arg':'freshness','type':'detail','trust':'external'},'; prefetch lead: ',{'arg':'lead','type':'detail','trust':'external'},'.'],'download.guest':'Guest','download.guide':'Guide','download.held_by_value1':['held by ',{'arg':'value1','type':'detail','trust':'external'}],'download.hosts_without_status':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' host without status.'],'other':[{'arg':'count','type':'integer','trust':'internal'},' hosts without status.']}},'download.image':'Image','download.interpreter':'Interpreter','download.interpreter_and_script_present_resolves_are_attempted':'Interpreter and script present; resolves are attempted.','download.ips':'IPs:','download.lab_token':'Lab token','download.last_pass_failed_value1':['last pass failed: ',{'arg':'value1','type':'detail','trust':'external'}],'download.last_resolver_run':'Last resolver run','download.last_value1':['last ',{'arg':'value1','type':'detail','trust':'external'}],'download.lease':'Lease','download.loaded':'Loaded:','download.manual_copy':'Copy the downloaded file into the destination folder.','download.manual_resolve':['Fido failed. Visit the download page and select: ',{'arg':'selections','type':'detail','trust':'external'},'.'],'download.menu':'Menu','download.minted_url':['Minted: ',{'arg':'url','type':'detail','trust':'external'}],'download.missing':'missing','download.next_scan':['Next scan: ',{'arg':'time','type':'detail','trust':'external'},'.'],'download.no_aggregator_url_and_no_internal_authentication_key_are_configur':['No aggregator URL and no internal authentication key are configured, so the resolver test is disabled. Set ',{'arg':'command1','type':'token','trust':'internal'},' or ',{'arg':'command2','type':'token','trust':'internal'},' on the daemon to enable it.'],'download.no_aggregator_url_and_no_internal_authentication_key_are_configur_cb1dd86e':['No aggregator URL and no internal authentication key are configured, so Force refresh, Delete and Prune are disabled. Set ',{'arg':'command1','type':'token','trust':'internal'},' (which lets the dashboard\\'s Lab token unlock them) or ',{'arg':'command2','type':'token','trust':'internal'},' on the daemon to enable them.'],'download.no_aggregator_url_or_internal_authentication_key_configured_on_th':'No aggregator URL or internal authentication key configured on the daemon','download.no_pool_entries_yet_the_scanner_seeds_the_pool_on_its_next_pass_o':'No pool entries yet. The scanner seeds the pool on its next pass, or use Force refresh on a row to start one now.','download.no_previous':'no previous','download.no_remembered_refresh_errors':'No remembered refresh errors.','download.no_resolver':'no resolver','download.no_resolver_run_recorded_since_the_daemon_started_a_scan_a_host_r':'No resolver run recorded since the daemon started. A scan, a host request, or the test button above will record one.','download.none':'none','download.off':'off','download.on':'on','download.pages':'Pages','download.pause':'Pause','download.pool':'Pool','download.pool_bytes':'Pool bytes','download.previous_value1':['previous ',{'arg':'value1','type':'detail','trust':'external'}],'download.proxy':'Proxy','download.prune_previous':'Prune previous','download.read_only':'read-only','download.recent_errors':'Recent errors','download.recent_image_errors':'Recent image errors','download.refresh':'Refresh','download.refresh_origin_probe':['origin probe ',{'arg':'url','type':'detail','trust':'external'},': ',{'arg':'detail','type':'detail','trust':'external'}],'download.refresh_proxy_retry':['proxy stream failed (',{'arg':'proxy','type':'detail','trust':'external'},'); direct retry: ',{'arg':'direct','type':'detail','trust':'external'}],'download.refresh_size_mismatch':['origin ',{'arg':'url','type':'detail','trust':'external'},': HEAD reported ',{'arg':'expected','type':'detail','trust':'external'},' byte(s), the download produced ',{'arg':'actual','type':'detail','trust':'external'}],'download.refresh_view':'Refresh view','download.resolve_failed_the_capture_below_says_why':'Resolve failed -- the capture below says why.','download.resolve_succeeded_the_family_is_usable_on_this_agent':'Resolve succeeded -- the family is usable on this agent.','download.resolved_variant':[{'arg':'identity','type':'detail','trust':'external'},' (resolved ',{'arg':'variant','type':'detail','trust':'external'},')'],'download.resolver_test':'Resolver test','download.resolver_test_failed_to_run_value1':['Resolver test failed to run: ',{'arg':'value1','type':'detail','trust':'external'}],'download.resolver_test_refused_value1':['Resolver test refused: ',{'arg':'value1','type':'detail','trust':'external'}],'download.retries_after':['Retries after ',{'arg':'time','type':'detail','trust':'external'},'.'],'download.row_number':'Row number','download.running_a_resolve_can_take_up_to_3_minutes':'Running \\u2014 a resolve can take up to 3 minutes\\u2026','download.runs_the_vendored_fido_once_with_the_exact_parameters_a_resolve_u':'Runs the vendored Fido once with the exact parameters a resolve uses.\\n      It mints a signed URL and downloads nothing, but each run spends a\\n      Microsoft session (their servers rate-ban chatty addresses), so use it to\\n      diagnose, not to poll. A successful test clears a remembered failure on\\n      the spot; a failed one re-arms it.','download.scanner':'Scanner','download.six_character_lab_token_from_the_dashboard':'Six-character lab token from the dashboard','download.size_current_previous':'Size (current / previous)','download.skipped_value1':['skipped: ',{'arg':'value1','type':'detail','trust':'external'}],'download.source':'Source','download.standard_error':'Standard error','download.standard_output':'Standard output','download.state':'State','download.state_absent':'absent','download.state_adopting':'adopting','download.state_deleting':'deleting','download.state_downloading':'downloading','download.state_failed':'failed','download.state_fresh':'fresh','download.state_match':'match','download.state_mismatch':'mismatch','download.state_missing':'missing','download.state_probing':'probing','download.state_promoting':'promoting','download.state_ready':'ready','download.state_resolving':'resolving','download.state_stale':'stale','download.state_unavailable':'unavailable','download.state_unsupported':'unsupported','download.state_verifying':'verifying','download.state_working':'working','download.stderr':'stderr','download.stdout':'stdout','download.test_amd64_resolve':'Test amd64 resolve','download.test_arm64_resolve':'Test arm64 resolve','download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti':'The 6-character code on the Yuruna hosts dashboard\\'s Lab token tile; upper or lower case both work. Needed only for the resolver test below -- everything else on this page is read-only.','download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti_c3e28ca2':'The 6-character code on the Yuruna hosts dashboard\\'s Lab token tile; upper or lower case both work. The pool aggregator checks it, and it rotates, so a code noted down last week will not open anything.','download.the_last_remembered_refresh_failure_per_pool_entry_newest_first_t':'The last remembered refresh failure per pool entry, newest first. These are the errors behind a failed badge on the pool page.','download.the_pool_share_is_not_available_the_agent_still_answers_metadata_':'The pool share is not available. The agent still answers metadata, but nothing can be downloaded or served until it is mounted.','download.this_folder':'this folder','download.this_page':'this page','download.totals':'Totals','download.unavailable':'unavailable','download.unlock_actions':'Unlock actions','download.unlock_actions_first_enter_the_lab_token_above':'Unlock actions first -- enter the Lab token above.','download.value1_failed_for_value2_value3':[{'arg':'value1','type':'detail','trust':'external'},' failed for ',{'arg':'value2','type':'detail','trust':'external'},': ',{'arg':'value3','type':'detail','trust':'external'}],'download.value1_failed_value2':[{'arg':'value1','type':'detail','trust':'external'},' failed: ',{'arg':'value2','type':'detail','trust':'external'}],'download.value1_of_value2_available':[{'arg':'value1','type':'detail','trust':'external'},' of ',{'arg':'value2','type':'detail','trust':'external'},' available'],'download.value1_on_the_share':[{'arg':'value1','type':'detail','trust':'external'},' on the share'],'download.value1_started':[{'arg':'value1','type':'detail','trust':'external'},' started.'],'download.value1_started_value2':[{'arg':'value1','type':'detail','trust':'external'},' - started ',{'arg':'value2','type':'detail','trust':'external'}],'download.verified':'Verified','download.when':'When','download.windows_11_family':'Windows 11 family','download.writer':'writer','download.yuruna_download_agent':'Yuruna Download Agent'};\n}(this));\n// Generated by tools/Invoke-CatalogCompile.ps1 from globalization/catalogs.\n// Edit the source catalog and regenerate; changes made here are overwritten.\n// LICENSEURI https://yuruna.link/license\n// Copyright (c) 2019-2026 by Alisson Sol et al.\n// locale: en-US  domain: status\n(function (root) {\n  'use strict';\n  var registry = root.YurunaCatalog = root.YurunaCatalog || {};\n  var byLocale = registry['en-US'] = registry['en-US'] || {};\n  byLocale['status'] = {'status.a_cycle_is_currently_running_save_the_config_abort_the_running_cy':'A cycle is currently running. Save the config, abort the running cycle, and start a new one? In-progress VMs are removed first -- this is not instant: each running VM is given up to ~30 seconds to shut down (macOS/UTM is the slowest), so with several VMs up the new cycle can take a minute or two to begin.','status.add_item':'+ add item','status.add_item_all_guests_added':'+ add item (all guests added)','status.aggregate_summary':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' sequence \\u00b7 latest ',{'arg':'cycles','type':'integer','trust':'internal'},' cycles each \\u00b7 generated ',{'arg':'generated','type':'detail','trust':'external'}],'other':[{'arg':'count','type':'integer','trust':'internal'},' sequences \\u00b7 latest ',{'arg':'cycles','type':'integer','trust':'internal'},' cycles each \\u00b7 generated ',{'arg':'generated','type':'detail','trust':'external'}]}},'status.api_admission_unavailable':['the host could not record the request (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_another_start_cycle_request_is_in_progress_3f51d139':'another start-cycle request is in progress','status.api_authentication_extension_unavailable_2ece9896':'authentication extension unavailable','status.api_body_must_be_a_json_object_831ab327':'body must be a JSON object','status.api_could_not_pack_folder_detail_268ee848':['Could not pack ',{'arg':'folder','type':'detail','trust':'external'},': ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_could_not_read_body_aa31dc00':'could not read body','status.api_detail_caf3c2c2':[{'arg':'detail','type':'detail','trust':'external'}],'status.api_diagnostic_failed':['Error running Get-SystemDiagnostic.ps1: ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_diagnostic_script_missing':['Get-SystemDiagnostic.ps1 not found at ',{'arg':'path','type':'identifier','trust':'external'}],'status.api_expected_diagnostics_folder_filename_5f581c78':'expected /diagnostics/\\x3cfolder\\x3e.../\\x3cfilename\\x3e','status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e':'failure folder not found; runner must have created it first','status.api_filename_must_match_system_diagnostic_id_txt_ec048334':'filename must match *.system.diagnostic.\\x3cid\\x3e.txt','status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5':'folder segment contains traversal or backslash','status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1':'follow guidance at https://yuruna.link/42185271-0007','status.api_forbidden_78342a09':'Forbidden','status.api_forbidden_deny_list_1c7d1cfa':'Forbidden (deny-list)','status.api_forbidden_directory_listing_disabled_5d107f5b':'Forbidden (directory listing disabled)','status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5':'forbidden: missing X-Yuruna request header (cross-site request guard)','status.api_forbidden_not_served':'Forbidden (not a served file)','status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac':'forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP','status.api_guest_channel_key_absent':'this host holds no guest-channel key yet; it is created when the host first renders a guest seed','status.api_host_refresh_authorization_refused':['refresh authorization refused (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_host_refresh_busy':'another host operation is in progress','status.api_host_refresh_request_closed':['this request id is already closed (',{'arg':'state','type':'identifier','trust':'internal'},')'],'status.api_host_refresh_request_conflict':'this request id was already used with different settings','status.api_host_refresh_unavailable':['host refresh is not available on this host (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0':'internal authentication key not configured on this host','status.api_internal_error':'the request failed on the host; see server.err','status.api_invalid_json_detail_c907dfc3':['invalid JSON: ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c':'invalid upload path (must end in .log/.txt/.json/.err/.crash/.tar, no traversal)','status.api_listener_busy':'too many request bodies are being read; retry shortly','status.api_listener_dependency_missing':'a module this route needs could not be loaded; see server.err','status.api_method_not_allowed_be4fb6a2':'method not allowed','status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf':'method not allowed; POST the checkpoint body','status.api_method_not_allowed_post_the_dump_body_fa73866b':'method not allowed; POST the dump body','status.api_no_break_active_bc29bdab':'no break active','status.api_no_caching_proxy_service_ca_resolvable_f924b0aa':'no caching-proxy-service CA resolvable','status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2':['No cycle ',{'arg':'cycle','type':'detail','trust':'external'},' in the retained log history.'],'status.api_no_cycle_results_folder_folder_on_this_host_51798923':['No cycle results folder ',{'arg':'folder','type':'detail','trust':'external'},' on this host.'],'status.api_no_lab_hold_is_active_49dd8185':'no lab hold is active','status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b':'no stored credential for that user on this host','status.api_not_a_cycle_results_archive_name_395b9777':'Not a cycle results archive name.','status.api_path_escapes_log_dir_355b2034':'path escapes log dir','status.api_path_escapes_log_root_13754cf8':'path escapes log root','status.api_payload_too_large_1_mb_350b49df':'payload too large (\\x3e1 MB)','status.api_payload_too_large_256_kb_ad49d5cd':'payload too large (\\x3e256 KB)','status.api_payload_too_large_4_kb':'payload too large (4 KB max)','status.api_payload_too_large_4_mb_3455f869':'payload too large (\\x3e4 MB)','status.api_payload_too_large_5_mb_ab90ca52':'payload too large (\\x3e5 MB)','status.api_post_required_663cc07c':'POST required','status.api_private_state_unavailable':['the host\\'s private state directory is unavailable (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_project_repo_not_present_on_host_885e6338':'project repo not present on host','status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b':'proof mismatch (wrong or stale internal authentication key)','status.api_put_or_post_required_1f919659':'PUT or POST required','status.api_query_invalid':['invalid query: ',{'arg':'field','type':'identifier','trust':'internal'},' ',{'arg':'reason','type':'detail','trust':'internal'}],'status.api_request_body_invalid':['invalid request body: ',{'arg':'reason','type':'identifier','trust':'internal'},' (',{'arg':'field','type':'identifier','trust':'external'},')'],'status.api_request_body_timeout':'the request body did not arrive within 2 seconds','status.api_runner_script_missing':['Start-TestRunner.ps1 not found at ',{'arg':'path','type':'identifier','trust':'external'}],'status.api_sidecar_write_failed_0ce361a9':'sidecar write failed','status.api_test_config_yml_not_found_3b38d785':'test.config.yml not found','status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c':'Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)','status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c':'Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)','status.api_unsupported_media_type':'Content-Type must be application/json','status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9':'user, nonce and proof query parameters are required','status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3':'user not referenced by this host\\'s networkStorage config','status.api_worker_launcher_failed':['the worker could not be started (',{'arg':'reason','type':'identifier','trust':'internal'},'); the request can be retried'],'status.api_write_failed_detail_c07681e1':['write failed: ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_yaml_parse_failed_detail_363d5cf4':['YAML parse failed: ',{'arg':'detail','type':'detail','trust':'external'}],'status.archive':'Archive','status.attach_downloaded_file':'Draft emails cannot automatically include attachments, so please manually attach the downloaded file before you send it.','status.auto_refresh_paused':'Auto-refresh paused','status.banner_fail':'Incident detected \\u2014 see status','status.banner_idle':'No test data available','status.banner_incident_details':'Incident detected \\u2014 see details below','status.banner_pass':'All guests operational','status.banner_recovery_disabled':'Automatic recovery is off: the recovery ledger cannot be read or written.','status.banner_running':'Test in progress','status.banner_stalled':['Test in progress, but no step has advanced within its ',{'arg':'boundSeconds','type':'integer','trust':'internal'},' s bound'],'status.banner_stopped':'Test runner stopped','status.banner_unguarded':'Test in progress without the step watchdog; the runner bounds this cycle instead','status.cache_caching_proxy_service_306beb37':'Caching-proxy service:','status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d':['Caching-proxy service: configured at ',{'arg':'address','type':'detail','trust':'external'},', not answering'],'status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf':'Caching-proxy service: detected (port map failed)','status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937':'Caching-proxy service: detected (port map owned by a bring-up)','status.cache_caching_proxy_service_not_detected_eeb2edfb':'Caching-proxy service: not detected','status.cache_detected_b96da48a':'detected','status.caching_proxy_test_endpoint_unavailable_value1':['Caching-proxy test endpoint unavailable: ',{'arg':'value1','type':'detail','trust':'external'}],'status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host':'Caching-proxy test timed out (15 s) - not reachable from this host?','status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65':'Caching-proxy test timed out (15 s) \\u2014 not reachable from this host?','status.commit':'Commit','status.config':'Config','status.config_field_alwaysredownload':'alwaysRedownload','status.config_field_armwindowhours':'armWindowHours','status.config_field_autorefreshafterstalls':'autoRefreshAfterStalls','status.config_field_autoremediation':'autoRemediation','status.config_field_autoseed':'autoSeed','status.config_field_bootdelayseconds':'bootDelaySeconds','status.config_field_cachingproxyip':'cachingProxyIp','status.config_field_chardelayms':'charDelayMs','status.config_field_cleanupvmnameprefixes':'cleanupVmNamePrefixes','status.config_field_configservice':'configService','status.config_field_configurationgiturl':'configurationGitUrl','status.config_field_cycledelayseconds':'cycleDelaySeconds','status.config_field_discoveryintervalseconds':'discoveryIntervalSeconds','status.config_field_downloadagentservice':'downloadAgentService','status.config_field_enabled':'enabled','status.config_field_failuresbeforealert':'failuresBeforeAlert','status.config_field_failurestoquarantine':'failuresToQuarantine','status.config_field_frameworkurl':'frameworkUrl','status.config_field_freshnessseconds':'freshnessSeconds','status.config_field_ghtoken':'ghToken','status.config_field_guestquarantine':'guestQuarantine','status.config_field_guestsequence':'guestSequence','status.config_field_labhealth':'labHealth','status.config_field_language':'language','status.config_field_localclonepath':'localClonePath','status.config_field_loglevel':'logLevel','status.config_field_maxattempts':'maxAttempts','status.config_field_maxattemptspercycle':'maxAttemptsPerCycle','status.config_field_maxholdattempts':'maxHoldAttempts','status.config_field_minintervalseconds':'minIntervalSeconds','status.config_field_movelogstopoolstorage':'moveLogsToPoolStorage','status.config_field_networkstorage':'networkStorage','status.config_field_notification':'notification','status.config_field_perflog':'perfLog','status.config_field_pollseconds':'pollSeconds','status.config_field_pool':'pool','status.config_field_poolstoragelocalpath':'poolStorageLocalPath','status.config_field_poolstoragenetworkpath':'poolStorageNetworkPath','status.config_field_poolstoragenetworkuser':'poolStorageNetworkUser','status.config_field_port':'port','status.config_field_preambletimeoutseconds':'preambleTimeoutSeconds','status.config_field_prefetchleadseconds':'prefetchLeadSeconds','status.config_field_projecturl':'projectUrl','status.config_field_pulltimeoutseconds':'pullTimeoutSeconds','status.config_field_recentdisplaycount':'recentDisplayCount','status.config_field_refreshseconds':'refreshSeconds','status.config_field_repositories':'repositories','status.config_field_require':'require','status.config_field_scanintervalseconds':'scanIntervalSeconds','status.config_field_screenhistorysize':'screenHistorySize','status.config_field_skipcycles':'skipCycles','status.config_field_starttimeoutseconds':'startTimeoutSeconds','status.config_field_stashstoragelocalpath':'stashStorageLocalPath','status.config_field_stashstoragenetworkpath':'stashStorageNetworkPath','status.config_field_stashstoragenetworkuser':'stashStorageNetworkUser','status.config_field_statusservice':'statusService','status.config_field_steptimeoutseconds':'stepTimeoutSeconds','status.config_field_stoponfailure':'stopOnFailure','status.config_field_successesbeforerearm':'successesBeforeRearm','status.config_field_testcycle':'testCycle','status.config_field_testvmnameprefix':'testVmNamePrefix','status.config_field_timeoutseconds':'timeoutSeconds','status.config_field_vmcommunication':'vmCommunication','status.config_field_vmimage':'vmImage','status.config_field_vmstart':'vmStart','status.config_field_vncport':'vncPort','status.config_field_warmresume':'warmResume','status.config_loading':'Loading\\u2026','status.config_type_array':['array (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_boolean':['boolean (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_number':['number (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_object':['object (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_string':['string (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.control_host_token_missing':'This host holds no lab token yet.','status.control_instructions':['This host accepts control only from a browser on the host itself (',{'arg':'address','type':'detail','trust':'external'},'), or one opened through the Yuruna hosts dashboard link (which grants a short-lived token). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run ',{'arg':'command','type':'detail','trust':'external'},' with the code from the dashboard\\u2019s Lab token tile.'],'status.control_proof_expired':'This page\\u2019s control token has expired (they last 15 minutes).','status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b':'Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.','status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_':['Control proof expires in ',{'arg':'value1','type':'detail','trust':'external'},'s -- save soon, or re-open this host from the dashboard link for a fresh one.'],'status.control_proof_invalid':'This page\\u2019s control token does not verify here \\u2014 this host\\u2019s stored lab token likely differs from the lab\\u2019s current one, so re-enroll.','status.control_proof_missing':'This page was opened without a control token, so none was sent.','status.control_refused':'Control refused.','status.control_routes':'control-route setup','status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80':['This host has no lab-auth-token, so remote control is loopback-only. Open this page as ',{'arg':'address','type':'token','trust':'internal'},' on the host, or enroll it: ',{'arg':'command','type':'token','trust':'internal'},' \\x3ccode from the dashboard\\u2019s Lab token tile\\x3e. See ',{'arg':'documentation','type':'token','trust':'internal'}],'status.control_verifier_unavailable':'This host\\u2019s status service could not load its token verifier (check test/status/runtime/server.err on the host).','status.could_not_check_the_cycle_folder_first':'Could not check the cycle folder first. ','status.could_not_determine_runner_status_value1_save_and_start_cycle_any':['Could not determine runner status (',{'arg':'value1','type':'detail','trust':'external'},'). Save and start cycle anyway? In-progress VMs (if any) are removed first -- up to ~30 seconds per running VM (macOS/UTM is the slowest), so the new cycle may take a minute or two to begin.'],'status.could_not_load_aggregates_value1':['Could not load aggregates: ',{'arg':'value1','type':'detail','trust':'external'}],'status.could_not_load_config_value1':['Could not load config: ',{'arg':'value1','type':'detail','trust':'external'}],'status.could_not_load_test_status_refresh_to_retry':'Could not load test status. Refresh to retry.','status.could_not_load_value1':['Could not load: ',{'arg':'value1','type':'detail','trust':'external'}],'status.could_not_serialize_value1':['Could not serialize: ',{'arg':'value1','type':'detail','trust':'external'}],'status.cycle':'Cycle','status.cycle_duration':['Duration: ',{'arg':'elapsed','type':'duration','trust':'internal'}],'status.cycle_paused':'Paused, waiting for resume.','status.cycle_performance':'Cycle performance','status.cycle_resume_action':'Continue','status.cycle_resuming':'Continuing...','status.cycle_running':[{'arg':'cycle','type':'detail','trust':'external'},' (still running)'],'status.cycle_start_utc':'Cycle start (UTC)','status.dashboards':'Dashboards','status.delete_item_value1':['Delete item ',{'arg':'value1','type':'detail','trust':'external'}],'status.diagnostics':'Diagnostics','status.diagnostics_yuruna':'Diagnostics \\u2014 Yuruna','status.directory_column_modified_utc':'Modified (UTC)','status.directory_column_name':'Name','status.directory_column_size':'Size','status.directory_contents_caption':['Contents of ',{'arg':'path','type':'detail','trust':'external'}],'status.directory_index_title':['Index of ',{'arg':'path','type':'detail','trust':'external'}],'status.directory_parent':'Parent directory','status.discard':'Discard','status.discard_unsaved_config_changes_and_return_to_status':'Discard unsaved config changes and return to status?','status.download_the_archive':'Download the archive','status.download_value1':['Download ',{'arg':'value1','type':'detail','trust':'external'}],'status.draft_emails_cannot_automatically_include_attachments_so_please_m':'Draft emails cannot automatically include attachments, so please\\n      manually attach the downloaded file before you send it.','status.duration':'Duration','status.e_g_192_168_1_42_probed_first_empty_env_var_fallback_else_local_d':'e.g. 192.168.1.42 (probed first; empty = env-var fallback, else local discovery)','status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_':'Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.','status.elapsed_duration':['Duration: ',{'arg':'duration','type':'detail','trust':'external'}],'status.elapsed_interval_value1_summed_top_level_work_value2_top_level_st':['Elapsed interval: ',{'arg':'value1','type':'detail','trust':'external'},'\\nSummed top-level work: ',{'arg':'value2','type':'detail','trust':'external'},'\\nTop-level steps: ',{'arg':'value3','type':'detail','trust':'external'},'\\nFailed retry children: ',{'arg':'value4','type':'detail','trust':'external'}],'status.empty_array':'(empty array)','status.empty_object':'(empty object)','status.empty_value':'(empty)','status.enter_a_valid_ip_address_to_test_caching_proxy_service_connectivi':'Enter a valid IP address to test caching-proxy-service connectivity from host.','status.enum_invalid':[{'arg':'value','type':'detail','trust':'external'},' (invalid \\u2014 pick one)'],'status.error_file_too_large':'File too large','status.error_not_found':'Not found','status.every_guest_folder_under_this_host_is_already_in_the_list':'Every guest folder under this host is already in the list','status.explain_details':'Details','status.external_detail':['The tool reported: ',{'arg':'detail','type':'detail','trust':'external'}],'status.failure_sequence':['sequence: ',{'arg':'sequence','type':'detail','trust':'external'}],'status.failure_sequence_step':['sequence: ',{'arg':'sequence','type':'detail','trust':'external'},' (step ',{'arg':'step','type':'detail','trust':'external'},')'],'status.failure_severity':['severity: ',{'arg':'severity','type':'detail','trust':'external'}],'status.false':'False','status.file_size_bytes':[{'arg':'size','type':'text','trust':'internal'},' B'],'status.file_size_gigabytes':[{'arg':'size','type':'text','trust':'internal'},' GB'],'status.file_size_kilobytes':[{'arg':'size','type':'text','trust':'internal'},' KB'],'status.file_size_megabytes':[{'arg':'size','type':'text','trust':'internal'},' MB'],'status.git_source_mirror_confirmed':'mirror.origin','status.git_source_mirror_fresh':'mirror.fresh','status.git_source_mirror_stale':'mirror.stale','status.git_source_not_applicable':'not.applicable','status.git_source_origin_direct':'remote.origin','status.guest_not_found':[{'arg':'guest','type':'detail','trust':'external'},' (not under host folder)'],'status.guest_sequence_fallback_note':['Fallback only. The guest set comes from ',{'arg':'file','type':'token','trust':'internal'},' in the project repository; this list is read only when that file resolves no plan.'],'status.guest_sequence_last_plan':['Last cycle ran: ',{'arg':'plan','type':'detail','trust':'external'},'.'],'status.guest_sequence_no_plan':'No resolved plan is recorded for the last cycle.','status.guide':'Guide','status.host':'Host','status.host_diagnostic_pending':'Collecting host diagnostics; this can take a minute...','status.host_diagnostic_timeout':['Host diagnostics did not finish within ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds. Reload the page to try again.'],'status.host_diagnostics':'Host diagnostics','status.host_ip_addresses':'Host IP addresses','status.host_online_count':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' host online.'],'other':[{'arg':'count','type':'integer','trust':'internal'},' hosts online.']}},'status.host_refresh_action_dispose_obligations':'Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.','status.host_refresh_action_elevate':'Next step: the repair needs administrator rights; run it on the host from an elevated session.','status.host_refresh_action_grant_automation':'Next step: allow this host\\'s automation access to UTM, then refresh again.','status.host_refresh_action_gui_session':'Next step: sign in to a desktop session on the host, then refresh again.','status.host_refresh_action_install_client':'Next step: install the hypervisor\\'s command-line client on the host, then refresh again.','status.host_refresh_action_resume_request':'Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.','status.host_refresh_action_start_runner':'Next step: start the runner on the host; no recorded launch could be reused to restart it.','status.host_refresh_authorization_refused':['This refresh needs a refresh proof that this page does not have (',{'arg':'reason','type':'identifier','trust':'external'},'). Use the status page on the host itself, or the pool-control refresh action.'],'status.host_refresh_busy':['Another host refresh (',{'arg':'requestId','type':'identifier','trust':'external'},') is in progress; showing its progress.'],'status.host_refresh_check_host':'On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state.','status.host_refresh_closed':['Request ',{'arg':'requestId','type':'identifier','trust':'external'},' is already closed (',{'arg':'state','type':'identifier','trust':'external'},'); start a new refresh.'],'status.host_refresh_confirm':['Refresh this host, up to the ',{'arg':'ceiling','type':'identifier','trust':'external'},' step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to ',{'arg':'minutes','type':'integer','trust':'internal'},' minutes.'],'status.host_refresh_conflict':['Request ',{'arg':'requestId','type':'identifier','trust':'external'},' was already sent with different settings; start a new refresh.'],'status.host_refresh_launcher_failed':'The host could not start the refresh worker. The request is kept; select Retry to start it again.','status.host_refresh_lost':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},': no outcome after ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one.'],'status.host_refresh_note':'Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.','status.host_refresh_progress':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},': step ',{'arg':'step','type':'integer','trust':'external'},' of ',{'arg':'count','type':'integer','trust':'external'},' (',{'arg':'stepName','type':'identifier','trust':'external'},'), up to ',{'arg':'remainingSeconds','type':'integer','trust':'external'},' seconds left.'],'status.host_refresh_recovery_pending':'Services or the runner still need restoring. Retry resumes the same request.','status.host_refresh_rejected':['The host rejected the refresh request: ',{'arg':'detail','type':'detail','trust':'external'}],'status.host_refresh_remote_viewer':'This page is open from another machine, so it can watch a host refresh but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRefresh.ps1.','status.host_refresh_retry':'Retry','status.host_refresh_stale':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},': no progress report for ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds. The worker may have stopped; check the host before starting another repair.'],'status.host_refresh_start':'Refresh host','status.host_refresh_start_cycle_busy':'A start-cycle request is in progress; try again when it finishes.','status.host_refresh_submitting':'Sending the refresh request...','status.host_refresh_title':'Host refresh','status.host_refresh_unavailable':['Host refresh is not available on this host (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.host_refresh_verdict_abandoned':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' was abandoned after repeated attempts; its recovery record is kept on the host.'],'status.host_refresh_verdict_already_healthy':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' finished: the host was already healthy, so nothing was changed.'],'status.host_refresh_verdict_failed':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' failed (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.host_refresh_verdict_partial':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' ended incomplete (',{'arg':'reason','type':'identifier','trust':'external'},'); some services or the runner still need attention.'],'status.host_refresh_verdict_refused':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' was refused before any change (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.host_refresh_verdict_repaired':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' finished: the host was repaired and the runner is ready.'],'status.host_refresh_verdict_still_unresponsive':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' ended: the hypervisor still does not respond.'],'status.host_refresh_verdict_unknown':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' ended with an outcome this page does not recognize (',{'arg':'verdict','type':'identifier','trust':'external'},').'],'status.host_refresh_waiting':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},' was accepted; waiting for the worker\\'s first report.'],'status.host_refresh_waiting_long':['Refresh ',{'arg':'requestId','type':'identifier','trust':'external'},': no report after ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds. The worker may have failed to start; check the host.'],'status.host_value1':['Host: ',{'arg':'value1','type':'detail','trust':'external'}],'status.http_value1':['HTTP ',{'arg':'value1','type':'detail','trust':'external'}],'status.images_refresh':'Images refresh','status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple':'Invocation inferred from legacy step order; concurrent or incomplete runs may remain combined.','status.ips':'IPs:','status.lab_hold':['Lab hold -- waiting for ',{'arg':'areas','type':'detail','trust':'external'}],'status.lab_hold_unspecified':'Lab hold -- waiting for a lab service','status.latest_cycle':'Latest Cycle','status.latest_runs':{'kind':'plural','selector':'count','variants':{'one':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' run'],'other':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' runs']}},'status.latest_runs_failures':{'kind':'plural','selector':'count','variants':{'one':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' run \\u00b7 ',{'arg':'failed','type':'integer','trust':'internal'},' with failures'],'other':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' runs \\u00b7 ',{'arg':'failed','type':'integer','trust':'internal'},' with failures']}},'status.leave_the_field_to_test_caching_proxy_service_from_host':'Leave the field to test caching-proxy service from host.','status.loaded':'Loaded:','status.loading':'Loading\\u2026','status.loading_47d2a515':'Loading...','status.loading_perf_aggregates':'Loading perf aggregates\\u2026','status.log_level_debug':'Debug','status.log_level_error':'Error','status.log_level_information':'Information','status.log_level_verbose':'Verbose','status.log_level_warning':'Warning','status.menu':'Menu','status.missing_step_timing':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' cycle lacks per-step timing \\u2014 drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in ',{'arg':'endpoint','type':'detail','trust':'external'},'. Restart it with: ',{'arg':'command','type':'detail','trust':'external'},', then reload this page.'],'other':[{'arg':'count','type':'integer','trust':'internal'},' cycles lack per-step timing \\u2014 drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in ',{'arg':'endpoint','type':'detail','trust':'external'},'. Restart it with: ',{'arg':'command','type':'detail','trust':'external'},', then reload this page.']}},'status.never':'never','status.no_aggregates_available':'No aggregates available.','status.no_control_proof_was_presented_reach_this_page_through_the_dashbo':['No control proof was presented. Reach this page through the dashboard link, or use http://localhost:',{'arg':'value1','type':'detail','trust':'external'},'/ on the host itself.'],'status.no_cycle_folder_recorded_for_this_cycle':'No cycle folder recorded for this cycle','status.no_cycle_to_share_open_this_page_from_the_cycle_timeline_on_the_y':'No cycle to share. Open this page from the cycle timeline on the Yuruna hosts dashboard.','status.no_dashboard_server':'No dashboard server','status.no_data':'(no data)','status.no_ip_set_nothing_to_test':'No IP set \\u2014 nothing to test.','status.no_output':'(no output)','status.no_perf_data_yet_run_at_least_one_test_cycle':'No perf data yet \\u2014 run at least one test cycle.','status.no_test_data_yet':'No test data yet','status.not_a_valid_ipv4_or_ipv6_address_save_will_be_rejected':'Not a valid IPv4 or IPv6 address. Save will be rejected.','status.not_a_valid_ipv4_or_ipv6_address_test_skipped':'Not a valid IPv4 or IPv6 address \\u2014 test skipped.','status.null':'null','status.open_cycle_data_folder':'Open cycle data folder','status.open_the_email_draft':'Open the email draft','status.pack_and_download_the_cycle_results':'Pack and download the cycle results','status.packing_value1':['Packing ',{'arg':'value1','type':'detail','trust':'external'},'\\u2026'],'status.pages':'Pages','status.pause':'Pause','status.pause_after_cycle':'Pause after cycle','status.pause_after_step':'Pause after step','status.paused':'Test paused','status.paused_age':['Test paused -- ',{'arg':'age','type':'text','trust':'internal'}],'status.paused_age_guest':['Test paused -- ',{'arg':'age','type':'text','trust':'internal'},', guest ',{'arg':'guest','type':'detail','trust':'external'},' running'],'status.paused_guest':['Test paused -- guest ',{'arg':'guest','type':'detail','trust':'external'},' running'],'status.pausing_after_cycle':'Test pausing (after cycle)','status.pausing_after_step':'Test pausing (after step)','status.perf_yuruna':'Perf \\u2014 Yuruna','status.performance':'Performance','status.performance_fit':'Fit all','status.performance_select_bar':'Select a duration or a bar to read its details here.','status.performance_zoom':'Time zoom','status.pill_new_vm_resource':'New VM','status.pill_start_guestos':'Start OS','status.pill_start_guestworkload':'Workload','status.preflight_failed':'PREFLIGHT FAILED','status.process_environment_value_the_status_service_inherited_at_startup':'Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.','status.quarantine_pinned':['Quarantined after repeated same-class failures (skipped until a new commit; pinned at ',{'arg':'commit','type':'detail','trust':'external'},')'],'status.quarantine_reason':'Quarantined after repeated same-class failures','status.quarantined':'quarantined','status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart':'Re-scan test/status/perf/cycles/*.jsonl and refresh every chart.','status.recalculate':'Recalculate','status.recalculating':'Recalculating\\u2026','status.recalculating_perf_aggregates':'Recalculating perf aggregates\\u2026','status.recent_cycles':'Recent Cycles','status.refresh':'Refresh','status.results_folder':['Open results folder for ',{'arg':'name','type':'detail','trust':'external'}],'status.resume':'Resume','status.resume_in_place':'Resume the sequence in place (no snapshot restore)','status.run_command1_to_start_a_test_cycle':['Run ',{'arg':'command1','type':'token','trust':'internal'},' to start a test cycle.'],'status.run_start_testrunner_ps1_to_start_a_test_cycle':'Run Start-TestRunner.ps1 to start a test cycle.','status.runner_attempt_failed':['Runner attempt failed: ',{'arg':'failureClass','type':'detail','trust':'external'}],'status.runner_attempt_started':['Attempt started: ',{'arg':'startedAt','type':'detail','trust':'external'}],'status.runner_attempts_description':'Failures from the latest 20 runner attempts remain here after recovery, and so do up to 30 older failures that a later attempt passed after. Preflight failures occur before a new test cycle starts.','status.runner_attempts_empty':'No retained runner attempt failures.','status.runner_attempts_title':'Runner attempt failures','status.runner_attempts_unavailable':'Runner attempt history is unavailable.','status.runner_failure_record':'Failure record','status.runner_failure_transcript':'Configuration gate transcript','status.runner_framework_commit':['Framework commit: ',{'arg':'commit','type':'detail','trust':'external'}],'status.runner_resident':['Resident runner: commit ',{'arg':'commit','type':'detail','trust':'external'},', started ',{'arg':'startedAt','type':'detail','trust':'external'},'.'],'status.runner_resident_unreported':'The resident runner has not reported its commit and start time. A runner started before that report existed reports them after its next restart.','status.save':'Save','status.save_and_start_cycle':'Save and start cycle','status.save_and_start_cycle_failed_value1':['Save and start cycle failed: ',{'arg':'value1','type':'detail','trust':'external'}],'status.save_failed_value1':['Save failed: ',{'arg':'value1','type':'detail','trust':'external'}],'status.saved_returning_to_status':'Saved. Returning to status\\u2026','status.saved_stopping_in_progress_vms_up_to_30s_each_and_starting_a_new_':'Saved. Stopping in-progress VMs (up to ~30s each) and starting a new cycle -- this can take a minute or two\\u2026','status.saving':'Saving\\u2026','status.saving_config':'Saving config\\u2026','status.sequences':'Sequences','status.server_reports_ip_not_valid_test_skipped':'Server reports IP not valid \\u2014 test skipped.','status.setup':'(setup)','status.share_body':'Yuruna cycle results are attached','status.share_cycle_results':'Share cycle results','status.share_cycle_yuruna':'Share cycle \\u2014 Yuruna','status.share_download_manual':['Download ',{'arg':'file','type':'detail','trust':'external'},' with the first link. Then open the draft and attach the file before sending.'],'status.share_download_started':['Downloading ',{'arg':'file','type':'detail','trust':'external'},'. The host packs the whole folder before the first byte arrives, so give it a moment. Then open the draft and attach the file before sending.'],'status.share_subject':['Yuruna Host ',{'arg':'host','type':'detail','trust':'external'},' at ',{'arg':'time','type':'detail','trust':'external'}],'status.shared_value1_value2':['Shared ',{'arg':'value1','type':'detail','trust':'external'},' (',{'arg':'value2','type':'detail','trust':'external'},').'],'status.sharing_canceled':'Sharing canceled.','status.show_only_the_first_8_characters':'Show only the first 8 characters','status.show_the_full_id':'Show the full id','status.skip_suffix':' (skip)','status.snapshot_restore':['Restore snapshot id ',{'arg':'snapshot','type':'detail','trust':'external'},', restart the VM, then resume the sequence'],'status.start_cycle_blocked_by_refresh':['A host refresh (',{'arg':'requestId','type':'identifier','trust':'external'},') is in progress; the cycle cannot start until it finishes.'],'status.start_cycle_cycle_restarted':'Cycle restarted','status.start_cycle_failed':['Start-cycle failed (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.start_cycle_no_report':['Start-cycle ',{'arg':'operationId','type':'identifier','trust':'external'},' has not reported after ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds; check the host.'],'status.start_cycle_not_spawned':['The cycle restart was requested, but the runner\\'s state could not be confirmed, so no second runner was started (',{'arg':'reason','type':'identifier','trust':'external'},'). A running runner restarts its cycle; if none is running, start it on the host.'],'status.start_cycle_queued':'Start-cycle accepted; stopping in-progress VMs and starting the runner...','status.start_cycle_runner_started':'Runner started','status.started':'Started','status.started_utc':'Started (UTC)','status.status':'Status','status.status_unavailable':'Status unavailable','status.step_timing_unavailable':'No per-step timing was recorded for this cycle.','status.test_caching_proxy_service_from_host_failed_value1_fail_value2_va':['Test caching-proxy service from host failed (',{'arg':'value1','type':'detail','trust':'external'},' fail',{'arg':'value2','type':'detail','trust':'external'},{'arg':'value3','type':'detail','trust':'external'},').'],'status.test_caching_proxy_service_from_host_succeeded_value1_pass_value2':['Test caching-proxy service from host succeeded (',{'arg':'value1','type':'detail','trust':'external'},' pass',{'arg':'value2','type':'detail','trust':'external'},').'],'status.test_config_yml':'test.config.yml','status.test_config_yml_yuruna':'test.config.yml \\u2014 Yuruna','status.test_sequences':'Test sequences','status.testing_caching_proxy_service_from_host':'Testing caching-proxy service from host\\u2026','status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this':'The archive is built from server logs only and downloaded to this machine. No data from this browsing session is included.','status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li':'The control proof expired. Re-open this host from the dashboard link to get a fresh one.','status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif':'The control proof was rejected. It may have been minted with a different lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.','status.the_host_could_not_load_its_control_proof_verifier_check_the_stat':'The host could not load its control-proof verifier; check the status service log.','status.the_share_sheet_expired_while_the_host_packed_the_folder':'The share sheet expired while the host packed the folder. ','status.this_browser_could_not_attach_the_file_to_a_message_itself':'This browser could not attach the file to a message itself. ','status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w':'This cycle is still running. The archive will hold what has been written so far.','status.this_host_will_not_pack_value1_http_value2_the_cycle_may_have_rot':['This host will not pack ',{'arg':'value1','type':'detail','trust':'external'},' (HTTP ',{'arg':'value2','type':'detail','trust':'external'},'). The cycle may have rotated out of the retained log history.'],'status.timing_cycle_started':['Cycle: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_diagnostic':['Diagnostic: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_duration':['Duration: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_evidence':['Evidence capture within step: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_incomplete_capture':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' incomplete capture(s)'],'other':[{'arg':'count','type':'integer','trust':'internal'},' incomplete capture(s)']}},'status.timing_incomplete_record':'incomplete record','status.timing_kind':['Kind: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_outcome':['Outcome: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_reused':['Reused execution: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_summed_work':['work ',{'arg':'duration','type':'text','trust':'internal'}],'status.timing_unavailable_value':'unavailable','status.timing_within':['Within: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_within_attempt':['Within: ',{'arg':'value','type':'detail','trust':'external'},' attempt ',{'arg':'attempt','type':'integer','trust':'internal'}],'status.transcript_for':['Open transcript for ',{'arg':'name','type':'detail','trust':'external'}],'status.true':'True','status.unavailable':'(unavailable)','status.unknown':'(unknown)','status.unnamed':'(unnamed)','status.user_account':'User account:','status.value1_returning_to_status_in_6_seconds':[{'arg':'value1','type':'detail','trust':'external'},'. Returning to status in 6 seconds\\u2026'],'status.value1_work_value2':[{'arg':'value1','type':'detail','trust':'external'},'\\nWork \\u00b7 ',{'arg':'value2','type':'detail','trust':'external'}],'status.value1_yuruna_status':[{'arg':'value1','type':'detail','trust':'external'},' \\u2014 Yuruna status'],'status.vm_name':['VM: ',{'arg':'name','type':'detail','trust':'external'}],'status.working':'Working...','status.yuruna_host_status':'Yuruna host status','status.yuruna_status':'Yuruna Status'};\n}(this));\n// LICENSEURI https://yuruna.link/license\n// Copyright (c) 2019-2026 by Alisson Sol et al.\n// GUID: 42b43dbb-8cdd-4455-9a28-0d90f88e6180\n//\n// The catalog kernel: resolve a locale, look a message up, format its\n// arguments. This file is the single source. tools/Invoke-CatalogEmbed.ps1\n// copies it, byte for byte, into every browser runtime that needs it, so a\n// page never spends a request on it and the two runtimes cannot drift apart.\n// Edit here and re-run that tool; an edit made in a copy is overwritten and\n// the drift gate fails first.\n//\n// Nothing here parses a message. The compiler already broke every message into\n// the pieces this walks, which is what lets a label be rendered per row without\n// the cost showing up on the page. Nothing here reads Intl either: the ICU data\n// behind a runtime differs by engine and shifts between releases, so separators\n// and plural rules come from the compiled locale data and are the same\n// everywhere.\n(function (root) {\n  'use strict';\n\n  var Y = root.YurunaI18n = root.YurunaI18n || {};\n  // The compiled tables register themselves here as they load, keyed by tag\n  // and then by domain. The default locale is compiled into the runtime, so\n  // this is never empty and a release fallback is always resident.\n  var catalogs = root.YurunaCatalog = root.YurunaCatalog || {};\n  var localeData = root.YurunaLocaleData = root.YurunaLocaleData || {};\n  // Generated separately from localeData. Planned locales have formatting\n  // data while translators work, but are not selectable. Pseudo locales are\n  // enabled here because the server independently gates whether a page may\n  // declare/load one for an explicit test run.\n  var enabledLocales = root.YurunaEnabledLocales || {};\n\n  var DEFAULT_TAG = 'en-US';\n  var current = DEFAULT_TAG;\n  var initialized = false;\n  var pageContext = null;\n  var reported = {};\n\n  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }\n\n  function freezeContext(value) {\n    // The guard is for deliberately capability-stripped test hosts: the\n    // context is still private there and callers receive no setter for its\n    // fields.\n    if (Object.freeze) { return Object.freeze(value); }\n    return value;\n  }\n\n  function validSource(value) {\n    return value === 'config' || value === 'user' || value === 'http' ||\n           value === 'process' || value === 'default';\n  }\n\n  function newPageContext(requested, resolved, source) {\n    var provenance = root.YurunaCatalogProvenance || {};\n    return freezeContext({\n      requestedTag: requested || resolved,\n      resolvedTag: resolved,\n      direction: dataFor(resolved).direction || 'ltr',\n      source: validSource(source) ? source : 'default',\n      // Browser wall clocks deliberately use the reader's local zone. That\n      // policy is explicit here rather than hidden inside Date getters.\n      timeZone: 'local',\n      catalogVersion: String(provenance.version || ''),\n      catalogHash: String(provenance.hash || '')\n    });\n  }\n\n  // One diagnostic per key per locale per page. A missing key inside a table\n  // render would otherwise log once per row, which buries the first report in\n  // its own repetitions.\n  function reportOnce(what) {\n    if (has(reported, what)) { return; }\n    reported[what] = true;\n    if (root.console && root.console.warn) { root.console.warn('Yuruna i18n: ' + what); }\n  }\n\n  function dataFor(tag) {\n    if (has(localeData, tag)) { return localeData[tag]; }\n    return localeData[DEFAULT_TAG] || { group: ',', decimal: '.', groupSize: 3, plural: 'one-if-1', direction: 'ltr' };\n  }\n\n  // The count's category, by the rule the manifest pinned for this locale.\n  // A locale whose rule is not pinned falls back to the default's rather than\n  // throwing: this runs inside a render, and a page that throws mid-render\n  // leaves a half-built DOM the reader cannot act on. The compiler is what\n  // keeps an unpinned locale from ever being marked supported.\n  function pluralCategory(tag, count) {\n    var rule = dataFor(tag).plural;\n    if (!rule) {\n      reportOnce('no pinned plural rule for ' + tag);\n      rule = dataFor(DEFAULT_TAG).plural;\n    }\n    switch (rule) {\n      case 'one-if-1': return count === 1 ? 'one' : 'other';\n      case 'pt-cardinal-cldr46':\n        count = Math.abs(count);\n        if (Math.floor(count) <= 1) { return 'one'; }\n        if (count > 0 && count % 1000000 === 0) { return 'many'; }\n        return 'other';\n      case 'zh-cardinal-cldr46': return 'other';\n      case 'he-cardinal-cldr46':\n        count = Math.abs(count);\n        var integer = Math.floor(count);\n        var hasFraction = count !== integer;\n        if ((integer === 1 && !hasFraction) || (integer === 0 && hasFraction)) { return 'one'; }\n        if (integer === 2 && !hasFraction) { return 'two'; }\n        return 'other';\n      default:\n        reportOnce('unknown plural rule ' + rule);\n        return 'other';\n    }\n  }\n\n  // Group a digit string from the right. toLocaleString is not usable here:\n  // its separators come from the engine's own ICU data, which differs between\n  // browsers and between releases, so the same number would be written one way\n  // on the page and another by the PowerShell and Go sides that have to agree\n  // with it byte for byte.\n  function groupDigits(digits, sep, size) {\n    if (!sep || size <= 0 || digits.length <= size) { return digits; }\n    var out = '';\n    var count = 0;\n    for (var i = digits.length - 1; i >= 0; i--) {\n      out = digits.charAt(i) + out;\n      count++;\n      if (count % size === 0 && i > 0) { out = sep + out; }\n    }\n    return out;\n  }\n\n  function formatNumber(value, tag, decimals) {\n    var d = dataFor(tag);\n    var n = Number(value);\n    if (!isFinite(n)) { return ''; }\n    var negative = n < 0;\n    var magnitude = Math.abs(n);\n    var text = magnitude.toFixed(decimals);\n    // An exactly representable decimal tie has an odd numerator when scaled\n    // by 2^(decimals+1). Checking the binary scale avoids treating a rounded\n    // decimal product (such as 2.675*100) as an exact tie.\n    var binary = magnitude * Math.pow(2, decimals + 1);\n    if (binary % 2 === 1) {\n      var last = Number(text.charAt(text.length - 1));\n      if (last % 2 === 1) { text = text.slice(0, -1) + String(last - 1); }\n    }\n    var parts = text.split('.');\n    var whole = groupDigits(parts[0], d.group, d.groupSize || 3);\n    var out = parts.length > 1 ? whole + d.decimal + parts[1] : whole;\n    return negative ? '-' + out : out;\n  }\n\n  function pad2(n) { return n < 10 ? '0' + n : '' + n; }\n\n  function formatArgument(value, type, tag) {\n    var t = formatText(value, type, tag);\n    if (dataFor(tag).direction !== 'rtl' || !t || /^[\\u2066-\\u2068][^]*\\u2069$/.test(t)) { return t; }\n    return (/^(integer|decimal|duration|datetime)$/.test(type) ? '\\u2066' : '\\u2068') + t + '\\u2069';\n  }\n\n  function formatText(value, type, tag) {\n    if (value === null || value === undefined) { return ''; }\n    switch (type) {\n      case 'integer': return formatNumber(value, tag, 0);\n      case 'decimal': return formatNumber(value, tag, 2);\n      case 'duration':\n        // Floor, never round. 5400 seconds is an hour and a half, and a rule\n        // that rounded would report it as \"2h 30m\" -- longer than the time\n        // that actually passed, in the part of the string a reader is least\n        // likely to question.\n        var total = Math.floor(Number(value));\n        if (!isFinite(total) || total < 0) { return ''; }\n        var h = Math.floor(total / 3600);\n        var m = Math.floor((total % 3600) / 60);\n        var s = total % 60;\n        if (h >= 1) { return h + 'h ' + m + 'm'; }\n        if (m >= 1) { return m + 'm ' + s + 's'; }\n        return s + 's';\n      case 'datetime':\n        var when = (value instanceof Date) ? value : new Date(value);\n        if (isNaN(when.getTime())) { return ''; }\n        return when.getUTCFullYear() + '-' + pad2(when.getUTCMonth() + 1) + '-' + pad2(when.getUTCDate()) +\n               ' ' + pad2(when.getUTCHours()) + ':' + pad2(when.getUTCMinutes()) + ':' + pad2(when.getUTCSeconds()) + ' UTC';\n      default:\n        // An external value is placed as given and never parsed back into\n        // state. Escaping belongs to the caller, which knows whether it is\n        // writing textContent or an attribute; this returns a string.\n        return String(value);\n    }\n  }\n\n  function renderSegments(segments, args, tag) {\n    if (typeof segments === 'string') { return segments; }\n    if (!segments || typeof segments.length !== 'number') { return ''; }\n    var out = '';\n    for (var i = 0; i < segments.length; i++) {\n      var piece = segments[i];\n      if (typeof piece === 'string') { out += piece; continue; }\n      if (piece && has(piece, 'arg')) {\n        var value = (args && has(args, piece.arg)) ? args[piece.arg] : null;\n        out += formatArgument(value, piece.type, tag);\n        continue;\n      }\n      out += String(piece);\n    }\n    return out;\n  }\n\n  function lookup(tag, key) {\n    var domain = key.split('.')[0];\n    var byLocale = catalogs[tag];\n    if (byLocale && byLocale[domain] && has(byLocale[domain], key)) { return byLocale[domain][key]; }\n    return null;\n  }\n\n  // The rendered message, or -- when nothing has this key -- the key itself.\n  // A supported catalog is complete by definition and the compiler fails on a\n  // gap, so reaching the fallback means a page asked for something no catalog\n  // declares. Showing the key keeps the surface readable and puts the mistake\n  // where someone will see it; blank text would not.\n  function translate(key, args, tag) {\n    var use = tag || current;\n    var entry = lookup(use, key);\n    if (entry === null && use !== DEFAULT_TAG) {\n      reportOnce('key ' + key + ' missing for ' + use);\n      entry = lookup(DEFAULT_TAG, key);\n      use = DEFAULT_TAG;\n    }\n    if (entry === null) {\n      reportOnce('key ' + key + ' is in no catalog');\n      return key;\n    }\n    if (typeof entry === 'string') { return entry; }\n\n    if (entry && has(entry, 'kind')) {\n      var selector = entry.selector;\n      var chosen = null;\n      if (entry.kind === 'plural') {\n        var count = (args && has(args, selector)) ? Number(args[selector]) : 0;\n        chosen = entry.variants[pluralCategory(use, count)];\n      } else {\n        var value = (args && has(args, selector)) ? String(args[selector]) : '';\n        chosen = has(entry.variants, value) ? entry.variants[value] : null;\n      }\n      if (chosen === null || chosen === undefined) { chosen = entry.variants.other; }\n      if (chosen === null || chosen === undefined) { return key; }\n      return renderSegments(chosen, args, use);\n    }\n\n    return renderSegments(entry, args, use);\n  }\n\n  // Which of the locales this page carries answers for a tag. Only an exact\n  // match or a declared alias counts: a page that answered pt-AO with pt-BR\n  // would be serving a dialect nobody reviewed, and the reader has no way to\n  // tell the difference until the wording is wrong.\n  function resolve(tag) {\n    if (!tag) { return DEFAULT_TAG; }\n    var canonical = String(tag).replace(/_/g, '-').replace(/^\\s+|\\s+$/g, '');\n    if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(canonical)) { return DEFAULT_TAG; }\n    var parts = canonical.split('-');\n    var normal = parts[0].toLowerCase();\n    for (var i = 1; i < parts.length; i++) {\n      var p = parts[i];\n      if (p.length === 4) { normal += '-' + p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }\n      else if (p.length === 2) { normal += '-' + p.toUpperCase(); }\n      else { normal += '-' + p.toLowerCase(); }\n    }\n    // A non-default catalog may load immediately after the shared runtime.\n    // Selection therefore follows generated locale authority, not the timing\n    // of script registration; t() can use the table as soon as it arrives.\n    var enabled = enabledLocales[normal.toLowerCase()];\n    if (enabled) { return enabled === true ? normal : enabled; }\n    var aliases = root.YurunaLocaleAliases || {};\n    var aliased = aliases[normal.toLowerCase()];\n    enabled = aliased ? enabledLocales[String(aliased).toLowerCase()] : '';\n    if (enabled) { return enabled === true ? aliased : enabled; }\n    return DEFAULT_TAG;\n  }\n\n  // The page's language is decided by the server and written into <html lang>,\n  // so it is already correct at first paint and nothing here can produce a\n  // flash of the wrong language.\n  function init(doc, decision) {\n    if (initialized) { return pageContext.resolvedTag; }\n    var el = doc && doc.documentElement;\n    var declared = el ? (el.getAttribute('lang') || '') : '';\n    current = resolve(declared);\n    var requested = decision && decision.requestedTag;\n    var source = decision && decision.source;\n    if (!requested && el) { requested = el.getAttribute('data-yuruna-requested-language') || declared; }\n    if (!source && el) { source = el.getAttribute('data-yuruna-locale-source') || 'default'; }\n    pageContext = newPageContext(requested, current, source);\n    initialized = true;\n    if (el && !el.getAttribute('dir')) { el.setAttribute('dir', pageContext.direction); }\n    return current;\n  }\n\n  // A wall-clock stamp in the reader's own zone, in a shape that does not\n  // change with the reader's device.\n  //\n  // toLocaleString would be the obvious call and is the wrong one: the shape it\n  // produces comes from the engine's ICU data, so the same instant is written\n  // one way on one browser and another way on the next, and neither matches\n  // what the PowerShell and Go sides emit for it. The shape here is fixed for\n  // everyone; only the zone is local, which is what makes a \"last seen\"\n  // readable.\n  function formatLocal(value) {\n    var when = (value instanceof Date) ? value : new Date(value);\n    if (isNaN(when.getTime())) { return ''; }\n    return when.getFullYear() + '-' + pad2(when.getMonth() + 1) + '-' + pad2(when.getDate()) +\n           ' ' + pad2(when.getHours()) + ':' + pad2(when.getMinutes());\n  }\n\n  // The time alone, for a ticker that says when the page last refreshed. The\n  // date would be noise there and the same reasoning applies to the shape.\n  function formatLocalTime(value) {\n    var when = (value instanceof Date) ? value : new Date(value);\n    if (isNaN(when.getTime())) { return ''; }\n    return pad2(when.getHours()) + ':' + pad2(when.getMinutes()) + ':' + pad2(when.getSeconds());\n  }\n\n  Y.fmtLocal = formatLocal;\n  Y.fmtLocalTime = formatLocalTime;\n  Y.t = translate;\n  Y.init = init;\n  Y.resolve = resolve;\n  Y.formatArgument = formatArgument;\n  Y.formatNumber = formatNumber;\n  Y.pluralCategory = pluralCategory;\n  Y.locale = function () { return current; };\n  // Kept for the older fixture harness. Once init has sealed the page's\n  // server-owned decision, a local caller cannot switch half the page into a\n  // different language.\n  Y.setLocale = function (tag) {\n    if (initialized) { return current; }\n    current = resolve(tag);\n    pageContext = newPageContext(tag, current, 'user');\n    return current;\n  };\n  Y.context = function () {\n    if (!pageContext) { pageContext = newPageContext(DEFAULT_TAG, DEFAULT_TAG, 'default'); }\n    return pageContext;\n  };\n  Y.direction = function () { return Y.context().direction; };\n}(typeof window !== 'undefined' ? window : this));\n// Explicit application readiness, from globalization/kernel/yuruna.first-usable.js.\n(function (window) {\n  'use strict';\n  if (window.YurunaFirstUsable) { return; }\n  var waiting = {};\n  var pending = null;\n  var finished = false;\n  var marker = window.YurunaFirstUsable = {\n    schema: 'yuruna.first-usable/v1',\n    contract: 'locale, direction, above-fold text/controls, and primary data or accessible state are ready',\n    ready: false, page: '', state: 'pending', locale: '', language: '', dir: '',\n    milliseconds: null, clock: 'unavailable'\n  };\n  function publish() {\n    if (finished || !pending) { return; }\n    for (var name in waiting) {\n      if (Object.prototype.hasOwnProperty.call(waiting, name)) { return; }\n    }\n    var element = window.document && window.document.documentElement;\n    var language = element && element.getAttribute('lang');\n    var direction = element && element.getAttribute('dir');\n    if (!language || (direction !== 'ltr' && direction !== 'rtl')) { return; }\n    var performance = window.performance;\n    var milliseconds = null;\n    var clock = 'unavailable';\n    try {\n      if (performance && typeof performance.now === 'function') {\n        milliseconds = performance.now();\n        if (typeof milliseconds === 'number' && isFinite(milliseconds) && milliseconds >= 0) { clock = 'performance.now'; }\n        else { milliseconds = null; }\n      }\n    } catch (ignore) { milliseconds = null; }\n    if (milliseconds === null && performance && performance.timing && performance.timing.navigationStart > 0) {\n      var elapsed = new Date().getTime() - performance.timing.navigationStart;\n      if (isFinite(elapsed) && elapsed >= 0) { milliseconds = elapsed; clock = 'navigationStart'; }\n    }\n    marker.page = pending.page;\n    marker.state = pending.state;\n    marker.language = language;\n    marker.locale = window.YurunaI18n ? window.YurunaI18n.locale() : language;\n    marker.dir = direction;\n    marker.milliseconds = milliseconds;\n    marker.clock = clock;\n    finished = true;\n    marker.ready = true;\n  }\n  // Opt-in collection times application rendering only; callbacks keep their\n  // return values and exceptions when measurement is disabled or unavailable.\n  marker.measure = function (page, state, callback) {\n    var clock = window.performance;\n    if (window.YurunaMeasureRenders !== true || !clock || typeof clock.now !== 'function') {\n      return callback();\n    }\n    var start;\n    try { start = clock.now(); } catch (unavailable) { return callback(); }\n    if (typeof start !== 'number' || !isFinite(start) || start < 0) { return callback(); }\n    var result = callback();\n    var elapsed;\n    try { elapsed = clock.now() - start; } catch (unavailableEnd) { return result; }\n    if (typeof elapsed === 'number' && isFinite(elapsed) && elapsed >= 0) {\n      var queue = window.YurunaRenderMeasurements;\n      if (!queue || queue.schema !== 'yuruna.render-measurements/v1' || !Array.isArray(queue.samples)) {\n        queue = window.YurunaRenderMeasurements = { schema: 'yuruna.render-measurements/v1', samples: [] };\n      }\n      queue.render = function () { return marker.measure(page, state, callback); };\n      var element = window.document && window.document.documentElement;\n      var locale = window.YurunaI18n ? window.YurunaI18n.locale() : element && element.getAttribute('lang');\n      queue.samples.push({ milliseconds: elapsed, locale: locale || marker.locale, page: page, state: state });\n      if (queue.samples.length > 1000) { queue.samples.shift(); }\n    }\n    return result;\n  };\n  marker.hold = function (name) { if (!finished) { waiting[name] = true; } };\n  marker.release = function (name) { delete waiting[name]; publish(); };\n  marker.mark = function (page, state) {\n    if (finished || pending || typeof page !== 'string' || !page ||\n        !/^(data|empty|error|static)$/.test(state)) { return; }\n    pending = { page: page, state: state };\n    publish();\n  };\n}(window));\n// <<< yuruna-i18n embedded block"
+const BrowserKernel = "// >>> yuruna-i18n embedded block -- generated by tools/Invoke-CatalogEmbed.ps1\n// Edit globalization/kernel/yuruna.i18n.js or the catalog sources, then re-run\n// that tool. An edit made here is overwritten and the drift gate fails first.\n(function (root) {\n  'use strict';\n  root.YurunaLocaleData = {\"en-US\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"one-if-1\",\"direction\":\"ltr\"},\"he-IL\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"he-cardinal-cldr46\",\"direction\":\"rtl\"},\"pt-BR\":{\"group\":\".\",\"decimal\":\",\",\"groupSize\":3,\"plural\":\"pt-cardinal-cldr46\",\"direction\":\"ltr\"},\"qps-Ploc\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"one-if-1\",\"direction\":\"ltr\"},\"qps-Plocm\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"one-if-1\",\"direction\":\"rtl\"},\"zh-CN\":{\"group\":\",\",\"decimal\":\".\",\"groupSize\":3,\"plural\":\"zh-cardinal-cldr46\",\"direction\":\"ltr\"}};\n  root.YurunaEnabledLocales = {\"en-us\":\"en-US\",\"he-il\":\"he-IL\",\"pt-br\":\"pt-BR\",\"qps-ploc\":\"qps-Ploc\",\"qps-plocm\":\"qps-Plocm\",\"zh-cn\":\"zh-CN\"};\n  root.YurunaLocaleAliases = {\"en\":\"en-US\",\"he\":\"he-IL\",\"iw\":\"he-IL\",\"iw-il\":\"he-IL\",\"pt\":\"pt-BR\",\"pt-pt\":\"pt-BR\",\"zh\":\"zh-CN\",\"zh-hans\":\"zh-CN\",\"zh-hans-cn\":\"zh-CN\",\"zh-sg\":\"zh-CN\"};\n  root.YurunaCatalogProvenance = {\"version\":\"2026.11.23\",\"hash\":\"b3600b60d8daf71cf762a3b101ebf67a498e62f87d6f8e6d997d6a8586e4ad42\"};\n}(typeof window !== 'undefined' ? window : this));\n// Generated by tools/Invoke-CatalogCompile.ps1 from globalization/catalogs.\n// Edit the source catalog and regenerate; changes made here are overwritten.\n// LICENSEURI https://yuruna.link/license\n// Copyright (c) 2019-2026 by Alisson Sol et al.\n// locale: en-US  domain: download\n(function (root) {\n  'use strict';\n  var registry = root.YurunaCatalog = root.YurunaCatalog || {};\n  var byLocale = registry['en-US'] = registry['en-US'] || {};\n  byLocale['download'] = {'download.actions':'Actions','download.actions_need_the_internal_authentication_key_as_a_bearer':'Actions need the internal authentication key as a bearer','download.api_arch_query_parameter_is_required_amd64_or_arm64':'arch query parameter is required (amd64 or arm64)','download.api_delete_refused_reason':['delete refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.api_detail':[{'arg':'detail','type':'detail','trust':'external'}],'download.api_generation_not_found':'generation not found','download.api_invalid_generation_name':'invalid generation name','download.api_invalid_json_body_detail':['invalid JSON body: ',{'arg':'detail','type':'detail','trust':'external'}],'download.api_no_image_store_configured':'no image store configured','download.api_pool_refresh_refused_reason':['pool refresh refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.api_prune_refused_reason':['prune refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.api_refresh_refused_reason':['refresh refused: ',{'arg':'reason','type':'detail','trust':'external'}],'download.argv_value1':['argv: ',{'arg':'value1','type':'detail','trust':'external'}],'download.artifact':'Artifact','download.as_of_value1':['As of ',{'arg':'value1','type':'detail','trust':'external'}],'download.as_of_value1_273588ee':['as of ',{'arg':'value1','type':'detail','trust':'external'}],'download.attempt_arch':['arch ',{'arg':'value','type':'detail','trust':'external'}],'download.attempt_exit':['exit ',{'arg':'value','type':'detail','trust':'external'}],'download.auto_seed':'Auto-seed','download.available':'available','download.best_effort':'Best effort','download.best_effort_identity':[{'arg':'identity','type':'detail','trust':'external'},' - best effort'],'download.byte_downloads_go_direct':'Byte downloads go direct.','download.checksum':'Checksum','download.command_line':'Command line','download.configured':'configured','download.deferred_count':['Deferred: ',{'arg':'count','type':'integer','trust':'internal'},'.'],'download.delete':'Delete','download.delete_every_generation_of_value1_value2_value3_value4_the_next_h':['Delete every generation of ',{'arg':'value1','type':'detail','trust':'external'},' (',{'arg':'value2','type':'detail','trust':'external'},', ',{'arg':'value3','type':'detail','trust':'external'},', ',{'arg':'value4','type':'detail','trust':'external'},')?\\n\\nThe next host request or seed pass re-downloads it from origin. Hosts keep their local copies.'],'download.diagnostics':'Diagnostics','download.diagnostics_load_failed_value1':['Diagnostics load failed: ',{'arg':'value1','type':'detail','trust':'external'}],'download.diagnostics_yuruna_download_agent':'Diagnostics \\u2014 Yuruna Download Agent','download.discard_the_previous_generations_of_value1_value2_value3_value4_t':['Discard the previous generations of ',{'arg':'value1','type':'detail','trust':'external'},' (',{'arg':'value2','type':'detail','trust':'external'},', ',{'arg':'value3','type':'detail','trust':'external'},', ',{'arg':'value4','type':'detail','trust':'external'},')?\\n\\nThe current generation is kept. The discarded ones are not recoverable.'],'download.download_pool':'Download pool','download.download_pool_yuruna_download_agent':'Download pool \\u2014 Yuruna Download Agent','download.enter_the_dashboard_lab_token_to_enable_actions':'Enter the dashboard Lab token to enable actions','download.entry':'Entry','download.entry_bytes':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' entry - ',{'arg':'bytes','type':'text','trust':'internal'},' current'],'other':[{'arg':'count','type':'integer','trust':'internal'},' entries - ',{'arg':'bytes','type':'text','trust':'internal'},' current']}},'download.entry_count':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' entry'],'other':[{'arg':'count','type':'integer','trust':'internal'},' entries']}},'download.error':'Error','download.every_value1':['every ',{'arg':'value1','type':'detail','trust':'external'}],'download.expired_value1_ago':['expired ',{'arg':'value1','type':'detail','trust':'external'},' ago'],'download.expires_in_value1':['expires in ',{'arg':'value1','type':'detail','trust':'external'}],'download.failed':'failed','download.fido_script':'Fido script','download.force_refresh':'Force refresh','download.found':'found','download.freshness_window':['Freshness: ',{'arg':'freshness','type':'detail','trust':'external'},'; prefetch lead: ',{'arg':'lead','type':'detail','trust':'external'},'.'],'download.guest':'Guest','download.guide':'Guide','download.held_by_value1':['held by ',{'arg':'value1','type':'detail','trust':'external'}],'download.hosts_without_status':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' host without status.'],'other':[{'arg':'count','type':'integer','trust':'internal'},' hosts without status.']}},'download.image':'Image','download.interpreter':'Interpreter','download.interpreter_and_script_present_resolves_are_attempted':'Interpreter and script present; resolves are attempted.','download.ips':'IPs:','download.lab_token':'Lab token','download.last_pass_failed_value1':['last pass failed: ',{'arg':'value1','type':'detail','trust':'external'}],'download.last_resolver_run':'Last resolver run','download.last_value1':['last ',{'arg':'value1','type':'detail','trust':'external'}],'download.lease':'Lease','download.loaded':'Loaded:','download.manual_copy':'Copy the downloaded file into the destination folder.','download.manual_resolve':['Fido failed. Visit the download page and select: ',{'arg':'selections','type':'detail','trust':'external'},'.'],'download.menu':'Menu','download.minted_url':['Minted: ',{'arg':'url','type':'detail','trust':'external'}],'download.missing':'missing','download.next_scan':['Next scan: ',{'arg':'time','type':'detail','trust':'external'},'.'],'download.no_aggregator_url_and_no_internal_authentication_key_are_configur':['No aggregator URL and no internal authentication key are configured, so the resolver test is disabled. Set ',{'arg':'command1','type':'token','trust':'internal'},' or ',{'arg':'command2','type':'token','trust':'internal'},' on the daemon to enable it.'],'download.no_aggregator_url_and_no_internal_authentication_key_are_configur_cb1dd86e':['No aggregator URL and no internal authentication key are configured, so Force refresh, Delete and Prune are disabled. Set ',{'arg':'command1','type':'token','trust':'internal'},' (which lets the dashboard\\'s Lab token unlock them) or ',{'arg':'command2','type':'token','trust':'internal'},' on the daemon to enable them.'],'download.no_aggregator_url_or_internal_authentication_key_configured_on_th':'No aggregator URL or internal authentication key configured on the daemon','download.no_pool_entries_yet_the_scanner_seeds_the_pool_on_its_next_pass_o':'No pool entries yet. The scanner seeds the pool on its next pass, or use Force refresh on a row to start one now.','download.no_previous':'no previous','download.no_remembered_refresh_errors':'No remembered refresh errors.','download.no_resolver':'no resolver','download.no_resolver_run_recorded_since_the_daemon_started_a_scan_a_host_r':'No resolver run recorded since the daemon started. A scan, a host request, or the test button above will record one.','download.none':'none','download.off':'off','download.on':'on','download.pages':'Pages','download.pause':'Pause','download.pool':'Pool','download.pool_bytes':'Pool bytes','download.previous_value1':['previous ',{'arg':'value1','type':'detail','trust':'external'}],'download.proxy':'Proxy','download.prune_previous':'Prune previous','download.read_only':'read-only','download.recent_errors':'Recent errors','download.recent_image_errors':'Recent image errors','download.refresh':'Refresh','download.refresh_origin_probe':['origin probe ',{'arg':'url','type':'detail','trust':'external'},': ',{'arg':'detail','type':'detail','trust':'external'}],'download.refresh_proxy_retry':['proxy stream failed (',{'arg':'proxy','type':'detail','trust':'external'},'); direct retry: ',{'arg':'direct','type':'detail','trust':'external'}],'download.refresh_size_mismatch':['origin ',{'arg':'url','type':'detail','trust':'external'},': HEAD reported ',{'arg':'expected','type':'detail','trust':'external'},' byte(s), the download produced ',{'arg':'actual','type':'detail','trust':'external'}],'download.refresh_view':'Refresh view','download.resolve_failed_the_capture_below_says_why':'Resolve failed -- the capture below says why.','download.resolve_succeeded_the_family_is_usable_on_this_agent':'Resolve succeeded -- the family is usable on this agent.','download.resolved_variant':[{'arg':'identity','type':'detail','trust':'external'},' (resolved ',{'arg':'variant','type':'detail','trust':'external'},')'],'download.resolver_test':'Resolver test','download.resolver_test_failed_to_run_value1':['Resolver test failed to run: ',{'arg':'value1','type':'detail','trust':'external'}],'download.resolver_test_refused_value1':['Resolver test refused: ',{'arg':'value1','type':'detail','trust':'external'}],'download.retries_after':['Retries after ',{'arg':'time','type':'detail','trust':'external'},'.'],'download.row_number':'Row number','download.running_a_resolve_can_take_up_to_3_minutes':'Running \\u2014 a resolve can take up to 3 minutes\\u2026','download.runs_the_vendored_fido_once_with_the_exact_parameters_a_resolve_u':'Runs the vendored Fido once with the exact parameters a resolve uses.\\n      It mints a signed URL and downloads nothing, but each run spends a\\n      Microsoft session (their servers rate-ban chatty addresses), so use it to\\n      diagnose, not to poll. A successful test clears a remembered failure on\\n      the spot; a failed one re-arms it.','download.scanner':'Scanner','download.six_character_lab_token_from_the_dashboard':'Six-character lab token from the dashboard','download.size_current_previous':'Size (current / previous)','download.skipped_value1':['skipped: ',{'arg':'value1','type':'detail','trust':'external'}],'download.source':'Source','download.standard_error':'Standard error','download.standard_output':'Standard output','download.state':'State','download.state_absent':'absent','download.state_adopting':'adopting','download.state_deleting':'deleting','download.state_downloading':'downloading','download.state_failed':'failed','download.state_fresh':'fresh','download.state_match':'match','download.state_mismatch':'mismatch','download.state_missing':'missing','download.state_probing':'probing','download.state_promoting':'promoting','download.state_ready':'ready','download.state_resolving':'resolving','download.state_stale':'stale','download.state_unavailable':'unavailable','download.state_unsupported':'unsupported','download.state_verifying':'verifying','download.state_working':'working','download.stderr':'stderr','download.stdout':'stdout','download.test_amd64_resolve':'Test amd64 resolve','download.test_arm64_resolve':'Test arm64 resolve','download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti':'The 6-character code on the Yuruna hosts dashboard\\'s Lab token tile; upper or lower case both work. Needed only for the resolver test below -- everything else on this page is read-only.','download.the_6_character_code_on_the_yuruna_hosts_dashboard_s_lab_token_ti_c3e28ca2':'The 6-character code on the Yuruna hosts dashboard\\'s Lab token tile; upper or lower case both work. The pool aggregator checks it, and it rotates, so a code noted down last week will not open anything.','download.the_last_remembered_refresh_failure_per_pool_entry_newest_first_t':'The last remembered refresh failure per pool entry, newest first. These are the errors behind a failed badge on the pool page.','download.the_pool_share_is_not_available_the_agent_still_answers_metadata_':'The pool share is not available. The agent still answers metadata, but nothing can be downloaded or served until it is mounted.','download.this_folder':'this folder','download.this_page':'this page','download.totals':'Totals','download.unavailable':'unavailable','download.unlock_actions':'Unlock actions','download.unlock_actions_first_enter_the_lab_token_above':'Unlock actions first -- enter the Lab token above.','download.value1_failed_for_value2_value3':[{'arg':'value1','type':'detail','trust':'external'},' failed for ',{'arg':'value2','type':'detail','trust':'external'},': ',{'arg':'value3','type':'detail','trust':'external'}],'download.value1_failed_value2':[{'arg':'value1','type':'detail','trust':'external'},' failed: ',{'arg':'value2','type':'detail','trust':'external'}],'download.value1_of_value2_available':[{'arg':'value1','type':'detail','trust':'external'},' of ',{'arg':'value2','type':'detail','trust':'external'},' available'],'download.value1_on_the_share':[{'arg':'value1','type':'detail','trust':'external'},' on the share'],'download.value1_started':[{'arg':'value1','type':'detail','trust':'external'},' started.'],'download.value1_started_value2':[{'arg':'value1','type':'detail','trust':'external'},' - started ',{'arg':'value2','type':'detail','trust':'external'}],'download.verified':'Verified','download.when':'When','download.windows_11_family':'Windows 11 family','download.writer':'writer','download.yuruna_download_agent':'Yuruna Download Agent'};\n}(this));\n// Generated by tools/Invoke-CatalogCompile.ps1 from globalization/catalogs.\n// Edit the source catalog and regenerate; changes made here are overwritten.\n// LICENSEURI https://yuruna.link/license\n// Copyright (c) 2019-2026 by Alisson Sol et al.\n// locale: en-US  domain: status\n(function (root) {\n  'use strict';\n  var registry = root.YurunaCatalog = root.YurunaCatalog || {};\n  var byLocale = registry['en-US'] = registry['en-US'] || {};\n  byLocale['status'] = {'status.a_cycle_is_currently_running_save_the_config_abort_the_running_cy':'A cycle is currently running. Save the config, abort the running cycle, and start a new one? In-progress VMs are removed first -- this is not instant: each running VM is given up to ~30 seconds to shut down (macOS/UTM is the slowest), so with several VMs up the new cycle can take a minute or two to begin.','status.add_item':'+ add item','status.add_item_all_guests_added':'+ add item (all guests added)','status.aggregate_summary':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' sequence \\u00b7 latest ',{'arg':'cycles','type':'integer','trust':'internal'},' cycles each \\u00b7 generated ',{'arg':'generated','type':'detail','trust':'external'}],'other':[{'arg':'count','type':'integer','trust':'internal'},' sequences \\u00b7 latest ',{'arg':'cycles','type':'integer','trust':'internal'},' cycles each \\u00b7 generated ',{'arg':'generated','type':'detail','trust':'external'}]}},'status.api_admission_unavailable':['the host could not record the request (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_another_start_cycle_request_is_in_progress_3f51d139':'another start-cycle request is in progress','status.api_authentication_extension_unavailable_2ece9896':'authentication extension unavailable','status.api_body_must_be_a_json_object_831ab327':'body must be a JSON object','status.api_could_not_pack_folder_detail_268ee848':['Could not pack ',{'arg':'folder','type':'detail','trust':'external'},': ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_could_not_read_body_aa31dc00':'could not read body','status.api_detail_caf3c2c2':[{'arg':'detail','type':'detail','trust':'external'}],'status.api_diagnostic_failed':['Error running Get-SystemDiagnostic.ps1: ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_diagnostic_script_missing':['Get-SystemDiagnostic.ps1 not found at ',{'arg':'path','type':'identifier','trust':'external'}],'status.api_expected_diagnostics_folder_filename_5f581c78':'expected /diagnostics/\\x3cfolder\\x3e.../\\x3cfilename\\x3e','status.api_failure_folder_not_found_runner_must_have_created_it_f_2d632e5e':'failure folder not found; runner must have created it first','status.api_filename_must_match_system_diagnostic_id_txt_ec048334':'filename must match *.system.diagnostic.\\x3cid\\x3e.txt','status.api_folder_segment_contains_traversal_or_backslash_0ada7fa5':'folder segment contains traversal or backslash','status.api_follow_guidance_at_https_yuruna_link_42185271_0007_ed03dcd1':'follow guidance at https://yuruna.link/42185271-0007','status.api_forbidden_78342a09':'Forbidden','status.api_forbidden_deny_list_1c7d1cfa':'Forbidden (deny-list)','status.api_forbidden_directory_listing_disabled_5d107f5b':'Forbidden (directory listing disabled)','status.api_forbidden_missing_x_yuruna_request_header_cross_site_r_c47c4ea5':'forbidden: missing X-Yuruna request header (cross-site request guard)','status.api_forbidden_not_served':'Forbidden (not a served file)','status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac':'forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP','status.api_guest_channel_key_absent':'this host holds no guest-channel key yet; it is created when the host first renders a guest seed','status.api_host_repair_authorization_refused':['repair authorization refused (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_host_repair_busy':'another host operation is in progress','status.api_host_repair_request_closed':['this request id is already closed (',{'arg':'state','type':'identifier','trust':'internal'},')'],'status.api_host_repair_request_conflict':'this request id was already used with different settings','status.api_host_repair_unavailable':['host repair is not available on this host (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_host_update_authorization_refused':['host update authorization refused (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_host_update_busy':'a host update is in progress on this host','status.api_host_update_controller_absent':'no host controller is running on this host; nothing was queued','status.api_host_update_proof_missing':'a host update from another machine needs an update proof from pool-control; nothing was queued','status.api_host_update_scope_unavailable':['the host controller does not run the ',{'arg':'scope','type':'identifier','trust':'internal'},' scope; nothing was queued'],'status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0':'internal authentication key not configured on this host','status.api_internal_error':'the request failed on the host; see server.err','status.api_invalid_json_detail_c907dfc3':['invalid JSON: ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c':'invalid upload path (must end in .log/.txt/.json/.err/.crash/.tar, no traversal)','status.api_listener_busy':'too many request bodies are being read; retry shortly','status.api_listener_dependency_missing':'a module this route needs could not be loaded; see server.err','status.api_method_not_allowed_be4fb6a2':'method not allowed','status.api_method_not_allowed_post_the_checkpoint_body_85c8aecf':'method not allowed; POST the checkpoint body','status.api_method_not_allowed_post_the_dump_body_fa73866b':'method not allowed; POST the dump body','status.api_no_break_active_bc29bdab':'no break active','status.api_no_caching_proxy_service_ca_resolvable_f924b0aa':'no caching-proxy-service CA resolvable','status.api_no_cycle_cycle_in_the_retained_log_history_99ad14e2':['No cycle ',{'arg':'cycle','type':'detail','trust':'external'},' in the retained log history.'],'status.api_no_cycle_results_folder_folder_on_this_host_51798923':['No cycle results folder ',{'arg':'folder','type':'detail','trust':'external'},' on this host.'],'status.api_no_lab_hold_is_active_49dd8185':'no lab hold is active','status.api_no_stored_credential_for_that_user_on_this_host_3f8ab13b':'no stored credential for that user on this host','status.api_not_a_cycle_results_archive_name_395b9777':'Not a cycle results archive name.','status.api_path_escapes_log_dir_355b2034':'path escapes log dir','status.api_path_escapes_log_root_13754cf8':'path escapes log root','status.api_payload_too_large_1_mb_350b49df':'payload too large (\\x3e1 MB)','status.api_payload_too_large_256_kb_ad49d5cd':'payload too large (\\x3e256 KB)','status.api_payload_too_large_4_kb':'payload too large (4 KB max)','status.api_payload_too_large_4_mb_3455f869':'payload too large (\\x3e4 MB)','status.api_payload_too_large_5_mb_ab90ca52':'payload too large (\\x3e5 MB)','status.api_post_required_663cc07c':'POST required','status.api_private_state_unavailable':['the host\\'s private state directory is unavailable (',{'arg':'reason','type':'identifier','trust':'internal'},')'],'status.api_project_repo_not_present_on_host_885e6338':'project repo not present on host','status.api_proof_mismatch_wrong_or_stale_internal_authentication__9dcc8f9b':'proof mismatch (wrong or stale internal authentication key)','status.api_put_or_post_required_1f919659':'PUT or POST required','status.api_query_invalid':['invalid query: ',{'arg':'field','type':'identifier','trust':'internal'},' ',{'arg':'reason','type':'detail','trust':'internal'}],'status.api_request_body_invalid':['invalid request body: ',{'arg':'reason','type':'identifier','trust':'internal'},' (',{'arg':'field','type':'identifier','trust':'external'},')'],'status.api_request_body_timeout':'the request body did not arrive within 2 seconds','status.api_runner_script_missing':['Start-TestRunner.ps1 not found at ',{'arg':'path','type':'identifier','trust':'external'}],'status.api_sidecar_write_failed_0ce361a9':'sidecar write failed','status.api_test_config_yml_not_found_3b38d785':'test.config.yml not found','status.api_test_configservicesync_test_config_could_not_be_loaded_084ff97c':'Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)','status.api_test_poolstorage_test_config_could_not_be_loaded_in_th_108a1c6c':'Test.PoolStorage / Test.Config could not be loaded in the server runspace (see runtime/server.err)','status.api_unsupported_media_type':'Content-Type must be application/json','status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9':'user, nonce and proof query parameters are required','status.api_user_not_referenced_by_this_host_s_networkstorage_conf_08561dd3':'user not referenced by this host\\'s networkStorage config','status.api_worker_launcher_failed':['the worker could not be started (',{'arg':'reason','type':'identifier','trust':'internal'},'); the request can be retried'],'status.api_write_failed_detail_c07681e1':['write failed: ',{'arg':'detail','type':'detail','trust':'external'}],'status.api_yaml_parse_failed_detail_363d5cf4':['YAML parse failed: ',{'arg':'detail','type':'detail','trust':'external'}],'status.archive':'Archive','status.attach_downloaded_file':'Draft emails cannot automatically include attachments, so please manually attach the downloaded file before you send it.','status.auto_refresh_paused':'Auto-refresh paused','status.banner_fail':'Incident detected \\u2014 see status','status.banner_idle':'No test data available','status.banner_incident_details':'Incident detected \\u2014 see details below','status.banner_pass':'All guests operational','status.banner_recovery_disabled':'Automatic recovery is off: the recovery ledger cannot be read or written.','status.banner_running':'Test in progress','status.banner_stalled':['Test in progress, but no step has advanced within its ',{'arg':'boundSeconds','type':'integer','trust':'internal'},' s bound'],'status.banner_stopped':'Test runner stopped','status.banner_unguarded':'Test in progress without the step watchdog; the runner bounds this cycle instead','status.cache_caching_proxy_service_306beb37':'Caching-proxy service:','status.cache_caching_proxy_service_configured_at_address_not_answer_df71d10d':['Caching-proxy service: configured at ',{'arg':'address','type':'detail','trust':'external'},', not answering'],'status.cache_caching_proxy_service_detected_port_map_failed_28a5d3cf':'Caching-proxy service: detected (port map failed)','status.cache_caching_proxy_service_detected_port_map_owned_by_a_bri_e1fa0937':'Caching-proxy service: detected (port map owned by a bring-up)','status.cache_caching_proxy_service_not_detected_eeb2edfb':'Caching-proxy service: not detected','status.cache_detected_b96da48a':'detected','status.caching_proxy_test_endpoint_unavailable_value1':['Caching-proxy test endpoint unavailable: ',{'arg':'value1','type':'detail','trust':'external'}],'status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host':'Caching-proxy test timed out (15 s) - not reachable from this host?','status.caching_proxy_test_timed_out_15_s_not_reachable_from_this_host_65801a65':'Caching-proxy test timed out (15 s) \\u2014 not reachable from this host?','status.commit':'Commit','status.config':'Config','status.config_field_alwaysredownload':'alwaysRedownload','status.config_field_armwindowhours':'armWindowHours','status.config_field_autoremediation':'autoRemediation','status.config_field_autorepairafterstalls':'autoRepairAfterStalls','status.config_field_autoseed':'autoSeed','status.config_field_bootdelayseconds':'bootDelaySeconds','status.config_field_cachingproxyip':'cachingProxyIp','status.config_field_chardelayms':'charDelayMs','status.config_field_cleanupvmnameprefixes':'cleanupVmNamePrefixes','status.config_field_configservice':'configService','status.config_field_configurationgiturl':'configurationGitUrl','status.config_field_cycledelayseconds':'cycleDelaySeconds','status.config_field_discoveryintervalseconds':'discoveryIntervalSeconds','status.config_field_downloadagentservice':'downloadAgentService','status.config_field_enabled':'enabled','status.config_field_failuresbeforealert':'failuresBeforeAlert','status.config_field_failurestoquarantine':'failuresToQuarantine','status.config_field_frameworkurl':'frameworkUrl','status.config_field_freshnessseconds':'freshnessSeconds','status.config_field_ghtoken':'ghToken','status.config_field_guestquarantine':'guestQuarantine','status.config_field_guestsequence':'guestSequence','status.config_field_labhealth':'labHealth','status.config_field_language':'language','status.config_field_localclonepath':'localClonePath','status.config_field_loglevel':'logLevel','status.config_field_maxattempts':'maxAttempts','status.config_field_maxattemptspercycle':'maxAttemptsPerCycle','status.config_field_maxholdattempts':'maxHoldAttempts','status.config_field_minintervalseconds':'minIntervalSeconds','status.config_field_movelogstopoolstorage':'moveLogsToPoolStorage','status.config_field_networkstorage':'networkStorage','status.config_field_notification':'notification','status.config_field_perflog':'perfLog','status.config_field_pollseconds':'pollSeconds','status.config_field_pool':'pool','status.config_field_poolstoragelocalpath':'poolStorageLocalPath','status.config_field_poolstoragenetworkpath':'poolStorageNetworkPath','status.config_field_poolstoragenetworkuser':'poolStorageNetworkUser','status.config_field_port':'port','status.config_field_preambletimeoutseconds':'preambleTimeoutSeconds','status.config_field_prefetchleadseconds':'prefetchLeadSeconds','status.config_field_projecturl':'projectUrl','status.config_field_pulltimeoutseconds':'pullTimeoutSeconds','status.config_field_recentdisplaycount':'recentDisplayCount','status.config_field_refreshseconds':'refreshSeconds','status.config_field_repositories':'repositories','status.config_field_require':'require','status.config_field_scanintervalseconds':'scanIntervalSeconds','status.config_field_screenhistorysize':'screenHistorySize','status.config_field_skipcycles':'skipCycles','status.config_field_starttimeoutseconds':'startTimeoutSeconds','status.config_field_stashstoragelocalpath':'stashStorageLocalPath','status.config_field_stashstoragenetworkpath':'stashStorageNetworkPath','status.config_field_stashstoragenetworkuser':'stashStorageNetworkUser','status.config_field_statusservice':'statusService','status.config_field_steptimeoutseconds':'stepTimeoutSeconds','status.config_field_stoponfailure':'stopOnFailure','status.config_field_successesbeforerearm':'successesBeforeRearm','status.config_field_testcycle':'testCycle','status.config_field_testvmnameprefix':'testVmNamePrefix','status.config_field_timeoutseconds':'timeoutSeconds','status.config_field_vmcommunication':'vmCommunication','status.config_field_vmimage':'vmImage','status.config_field_vmstart':'vmStart','status.config_field_vncport':'vncPort','status.config_field_warmresume':'warmResume','status.config_loading':'Loading\\u2026','status.config_type_array':['array (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_boolean':['boolean (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_number':['number (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_object':['object (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.config_type_string':['string (',{'arg':'count','type':'integer','trust':'internal'},')'],'status.control_host_token_missing':'This host holds no internal authentication key yet.','status.control_instructions':['This host accepts control only from a browser on the host itself (',{'arg':'address','type':'detail','trust':'external'},'), or one opened through the Yuruna hosts dashboard link (which grants a short-lived control proof). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run ',{'arg':'command','type':'detail','trust':'external'},' with the code from the dashboard\\u2019s Lab token tile.'],'status.control_proof_expired':'This page\\u2019s control proof has expired (proofs last 15 minutes).','status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b':'Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.','status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_':['Control proof expires in ',{'arg':'value1','type':'detail','trust':'external'},'s -- save soon, or re-open this host from the dashboard link for a fresh one.'],'status.control_proof_invalid':'This page\\u2019s control proof does not verify here \\u2014 this host\\u2019s internal authentication key likely differs from the lab\\u2019s current one, so re-enroll with a Lab token.','status.control_proof_missing':'This page was opened without a control proof, so none was sent.','status.control_refused':'Control refused.','status.control_routes':'control-route setup','status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80':['This host has no internal authentication key, so remote control is loopback-only. Open this page as ',{'arg':'address','type':'token','trust':'internal'},' on the host, or enroll it: ',{'arg':'command','type':'token','trust':'internal'},' \\x3ccode from the dashboard\\u2019s Lab token tile\\x3e. See ',{'arg':'documentation','type':'token','trust':'internal'}],'status.control_verifier_unavailable':'This host\\u2019s status service could not load its token verifier (check test/status/runtime/server.err on the host).','status.could_not_check_the_cycle_folder_first':'Could not check the cycle folder first. ','status.could_not_determine_runner_status_value1_save_and_start_cycle_any':['Could not determine runner status (',{'arg':'value1','type':'detail','trust':'external'},'). Save and start cycle anyway? In-progress VMs (if any) are removed first -- up to ~30 seconds per running VM (macOS/UTM is the slowest), so the new cycle may take a minute or two to begin.'],'status.could_not_load_aggregates_value1':['Could not load aggregates: ',{'arg':'value1','type':'detail','trust':'external'}],'status.could_not_load_config_value1':['Could not load config: ',{'arg':'value1','type':'detail','trust':'external'}],'status.could_not_load_test_status_refresh_to_retry':'Could not load test status. Refresh to retry.','status.could_not_load_value1':['Could not load: ',{'arg':'value1','type':'detail','trust':'external'}],'status.could_not_serialize_value1':['Could not serialize: ',{'arg':'value1','type':'detail','trust':'external'}],'status.cycle':'Cycle','status.cycle_duration':['Duration: ',{'arg':'elapsed','type':'duration','trust':'internal'}],'status.cycle_paused':'Paused, waiting for resume.','status.cycle_performance':'Cycle performance','status.cycle_resume_action':'Continue','status.cycle_resuming':'Continuing...','status.cycle_running':[{'arg':'cycle','type':'detail','trust':'external'},' (still running)'],'status.cycle_start_utc':'Cycle start (UTC)','status.dashboards':'Dashboards','status.delete_item_value1':['Delete item ',{'arg':'value1','type':'detail','trust':'external'}],'status.diagnostics':'Diagnostics','status.diagnostics_yuruna':'Diagnostics \\u2014 Yuruna','status.directory_column_modified_utc':'Modified (UTC)','status.directory_column_name':'Name','status.directory_column_size':'Size','status.directory_contents_caption':['Contents of ',{'arg':'path','type':'detail','trust':'external'}],'status.directory_index_title':['Index of ',{'arg':'path','type':'detail','trust':'external'}],'status.directory_parent':'Parent directory','status.discard':'Discard','status.discard_unsaved_config_changes_and_return_to_status':'Discard unsaved config changes and return to status?','status.download_the_archive':'Download the archive','status.download_value1':['Download ',{'arg':'value1','type':'detail','trust':'external'}],'status.draft_emails_cannot_automatically_include_attachments_so_please_m':'Draft emails cannot automatically include attachments, so please\\n      manually attach the downloaded file before you send it.','status.duration':'Duration','status.e_g_192_168_1_42_probed_first_empty_env_var_fallback_else_local_d':'e.g. 192.168.1.42 (probed first; empty = env-var fallback, else local discovery)','status.each_row_is_one_sequence_invocation_bars_show_elapsed_time_hover_':'Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.','status.elapsed_duration':['Duration: ',{'arg':'duration','type':'detail','trust':'external'}],'status.elapsed_interval_value1_summed_top_level_work_value2_top_level_st':['Elapsed interval: ',{'arg':'value1','type':'detail','trust':'external'},'\\nSummed top-level work: ',{'arg':'value2','type':'detail','trust':'external'},'\\nTop-level steps: ',{'arg':'value3','type':'detail','trust':'external'},'\\nFailed retry children: ',{'arg':'value4','type':'detail','trust':'external'}],'status.empty_array':'(empty array)','status.empty_object':'(empty object)','status.empty_value':'(empty)','status.enter_a_valid_ip_address_to_test_caching_proxy_service_connectivi':'Enter a valid IP address to test caching-proxy-service connectivity from host.','status.enum_invalid':[{'arg':'value','type':'detail','trust':'external'},' (invalid \\u2014 pick one)'],'status.error_file_too_large':'File too large','status.error_not_found':'Not found','status.every_guest_folder_under_this_host_is_already_in_the_list':'Every guest folder under this host is already in the list','status.explain_details':'Details','status.external_detail':['The tool reported: ',{'arg':'detail','type':'detail','trust':'external'}],'status.failure_sequence':['sequence: ',{'arg':'sequence','type':'detail','trust':'external'}],'status.failure_sequence_step':['sequence: ',{'arg':'sequence','type':'detail','trust':'external'},' (step ',{'arg':'step','type':'detail','trust':'external'},')'],'status.failure_severity':['severity: ',{'arg':'severity','type':'detail','trust':'external'}],'status.false':'False','status.file_size_bytes':[{'arg':'size','type':'text','trust':'internal'},' B'],'status.file_size_gigabytes':[{'arg':'size','type':'text','trust':'internal'},' GB'],'status.file_size_kilobytes':[{'arg':'size','type':'text','trust':'internal'},' KB'],'status.file_size_megabytes':[{'arg':'size','type':'text','trust':'internal'},' MB'],'status.git_source_mirror_confirmed':'mirror','status.git_source_mirror_fresh':'mirror fresh','status.git_source_mirror_stale':'mirror stale','status.git_source_not_applicable':'not applicable','status.git_source_origin_direct':'remote','status.guest_not_found':[{'arg':'guest','type':'detail','trust':'external'},' (not under host folder)'],'status.guest_sequence_fallback_note':['Fallback only. The guest set comes from ',{'arg':'file','type':'token','trust':'internal'},' in the project repository; this list is read only when that file resolves no plan.'],'status.guest_sequence_last_plan':['Last cycle ran: ',{'arg':'plan','type':'detail','trust':'external'},'.'],'status.guest_sequence_no_plan':'No resolved plan is recorded for the last cycle.','status.guide':'Guide','status.host':'Host','status.host_diagnostic_pending':'Collecting host diagnostics; this can take a minute...','status.host_diagnostic_timeout':['Host diagnostics did not finish within ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds. Reload the page to try again.'],'status.host_diagnostics':'Host diagnostics','status.host_ip_addresses':'Host IP addresses','status.host_online_count':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' host online.'],'other':[{'arg':'count','type':'integer','trust':'internal'},' hosts online.']}},'status.host_repair_action_dispose_obligations':'Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.','status.host_repair_action_elevate':'Next step: the repair needs administrator rights; run it on the host from an elevated session.','status.host_repair_action_grant_automation':'Next step: allow this host\\'s automation access to UTM, then repair again.','status.host_repair_action_gui_session':'Next step: sign in to a desktop session on the host, then repair again.','status.host_repair_action_install_client':'Next step: install the hypervisor\\'s command-line client on the host, then repair again.','status.host_repair_action_resume_request':'Next step: resume this request on the host with pwsh test/lab/Invoke-HostRepair.ps1 -Resume.','status.host_repair_action_start_runner':'Next step: start the runner on the host; no recorded launch could be reused to restart it.','status.host_repair_authorization_refused':['This repair needs a repair proof that this page does not have (',{'arg':'reason','type':'identifier','trust':'external'},'). Use the status page on the host itself, or the pool-control repair action.'],'status.host_repair_busy':['Another host repair (',{'arg':'requestId','type':'identifier','trust':'external'},') is in progress; showing its progress.'],'status.host_repair_check_host':'On the host, run pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf to see the current state.','status.host_repair_closed':['Request ',{'arg':'requestId','type':'identifier','trust':'external'},' is already closed (',{'arg':'state','type':'identifier','trust':'external'},'); start a new repair.'],'status.host_repair_confirm':['Repair this host, up to the ',{'arg':'ceiling','type':'identifier','trust':'external'},' step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to ',{'arg':'minutes','type':'integer','trust':'internal'},' minutes.'],'status.host_repair_launcher_failed':'The host could not start the repair worker. The request is kept; select Retry to start it again.','status.host_repair_lost':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},': no outcome after ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Repair host to start a new one.'],'status.host_repair_note':'Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.','status.host_repair_progress':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},': step ',{'arg':'step','type':'integer','trust':'external'},' of ',{'arg':'count','type':'integer','trust':'external'},' (',{'arg':'stepName','type':'identifier','trust':'external'},'), up to ',{'arg':'remainingSeconds','type':'integer','trust':'external'},' seconds left.'],'status.host_repair_recovery_pending':'Services or the runner still need restoring. Retry resumes the same request.','status.host_repair_remote_viewer':'This page is open from another machine, so it can watch a host repair but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRepair.ps1.','status.host_repair_retry':'Retry','status.host_repair_stale':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},': no progress report for ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds. The worker may have stopped; check the host before starting another repair.'],'status.host_repair_start':'Repair host','status.host_repair_start_cycle_busy':'A start-cycle request is in progress; try again when it finishes.','status.host_repair_title':'Host repair','status.host_repair_unavailable':['Host repair is not available on this host (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.host_repair_verdict_abandoned':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' was abandoned after repeated attempts; its recovery record is kept on the host.'],'status.host_repair_verdict_already_healthy':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' finished: the host was already healthy, so nothing was changed.'],'status.host_repair_verdict_failed':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' failed (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.host_repair_verdict_partial':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' ended incomplete (',{'arg':'reason','type':'identifier','trust':'external'},'); some services or the runner still need attention.'],'status.host_repair_verdict_refused':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' was refused before any change (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.host_repair_verdict_repaired':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' finished: the host was repaired and the runner is ready.'],'status.host_repair_verdict_still_unresponsive':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' ended: the hypervisor still does not respond.'],'status.host_repair_verdict_unknown':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' ended with an outcome this page does not recognize (',{'arg':'verdict','type':'identifier','trust':'external'},').'],'status.host_repair_waiting':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},' was accepted; waiting for the worker\\'s first report.'],'status.host_repair_waiting_long':['Repair ',{'arg':'requestId','type':'identifier','trust':'external'},': no report after ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds. The worker may have failed to start; check the host.'],'status.host_request_conflict':['Request ',{'arg':'requestId','type':'identifier','trust':'external'},' was already sent with different settings; start a new request.'],'status.host_request_rejected':['The host rejected the request: ',{'arg':'detail','type':'detail','trust':'external'}],'status.host_request_submitting':'Sending the request...','status.host_update_action':{'kind':'select','selector':'action','variants':{'act_at_host':'Next step: check the host and act there.','end_one_shot':'Next step: end the one-shot session on the host, then press again.','other':['Next step: ',{'arg':'action','type':'token','trust':'external'},'.'],'provision_elevation':'Next step: give the runner its sudo rule on the host, then press again.','provision_elevation_macos':['Next step: on the host, run ',{'arg':'command','type':'token','trust':'internal'},' from a terminal of the desktop session and answer its prompts; it installs the sudoers entry host updates use. Then press again.'],'read_remarks':'Next step: read the remarks.','reboot_host':'Next step: restart Windows on the host, then start the runner.','release':['Next step: to end it, run on the host: ',{'arg':'command','type':'token','trust':'internal'}],'release_diagnostic_hold':'Next step: release the VM kept for diagnosis, then press again.','repair_checkout':'Next step: repair the checkout on the host; the host keeps trying.','retry_or_drain_now':['Next step: press again, or end the cycle now on the host: ',{'arg':'command','type':'token','trust':'internal'}],'start_runner':'Next step: start the runner on the host.','stop_runner_by_hand':'Next step: stop the runner on the host by hand.'}},'status.host_update_blocks':['A host update (',{'arg':'requestId','type':'identifier','trust':'external'},') is in progress; try again when it finishes.'],'status.host_update_busy':{'kind':'select','selector':'kind','variants':{'host_repair':['A host repair (',{'arg':'requestId','type':'identifier','trust':'external'},') is in progress; try again when it finishes.'],'host_update':['Another host update (',{'arg':'requestId','type':'identifier','trust':'external'},') is in progress; showing its progress.'],'other':'A start-cycle request is in progress; try again when it finishes.'}},'status.host_update_confirm':['Update host (',{'arg':'scope','type':'text','trust':'internal'},')? The runner stops when the running cycle ends and restarts on current code; the update gives up after ',{'arg':'minutes','type':'integer','trust':'internal'},' minutes. To end the cycle now instead, run on the host: ',{'arg':'command','type':'token','trust':'internal'}],'status.host_update_console':{'kind':'select','selector':'console','variants':{'none':'The runner started without a console.','other':['The runner\\'s console: ',{'arg':'console','type':'token','trust':'external'},'.'],'tmux':['To open the runner\\'s console, run on the host: ',{'arg':'command','type':'token','trust':'internal'}],'window':'The runner\\'s console is a window of its own on the desktop of the test account: open it at the machine, or over a remote desktop connection to that session.'}},'status.host_update_countdown':['The status service is restarting; expected back in ',{'arg':'seconds','type':'integer','trust':'external'},' seconds.'],'status.host_update_cycle_time':['The running cycle has run ',{'arg':'elapsed','type':'duration','trust':'internal'},'; recent cycles took about ',{'arg':'median','type':'duration','trust':'internal'},'.'],'status.host_update_debt':['Still owed on the host: ',{'arg':'actions','type':'token','trust':'external'},'.'],'status.host_update_first_cycle':{'kind':'select','selector':'result','variants':{'fail':'The first cycle after the update failed.','other':'Waiting for the first cycle after the update.','pass':'The first cycle after the update passed.'}},'status.host_update_lost':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},': the host no longer reports it, so its outcome is unknown here; check the host.'],'status.host_update_note':['Updates this host\\'s code and restarts the runner when the running cycle ends, giving up after ',{'arg':'minutes','type':'integer','trust':'internal'},' minutes. To end the cycle now, run on the host: ',{'arg':'command','type':'token','trust':'internal'}],'status.host_update_progress':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},': phase ',{'arg':'index','type':'integer','trust':'external'},' of ',{'arg':'count','type':'integer','trust':'external'},' (',{'arg':'phase','type':'token','trust':'external'},'), bounded at ',{'arg':'bound','type':'duration','trust':'external'},'.'],'status.host_update_queued':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' is queued; it starts when the running cycle ends.'],'status.host_update_remarks':['Remarks: ',{'arg':'remarks','type':'token','trust':'external'},'.'],'status.host_update_remote_hint':['Update host opens pool-control at ',{'arg':'url','type':'token','trust':'external'},', which signs the request and brings you back here.'],'status.host_update_scope':{'kind':'select','selector':'scope','variants':{'full':'Reinstall dependencies and settings, then restart','other':[{'arg':'scope','type':'token','trust':'external'}],'restart':'Restart the runner on current code'}},'status.host_update_stale':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},': no report for ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds; check the host.'],'status.host_update_start':'Update host','status.host_update_title':'Host update','status.host_update_unavailable':{'kind':'select','selector':'reason','variants':{'controller_absent':['No host controller runs on this host. To set one up, run on the host: ',{'arg':'command','type':'token','trust':'internal'}],'controller_absent_gate':['A host update holds this host\\'s runner and no host controller is running. Run ',{'arg':'runner','type':'token','trust':'internal'},' once more from a terminal of the desktop session and leave a runner that is running alone: that start stops at the runner gate and starts the controller, which continues the update.'],'controller_absent_macos':['No host controller runs on this host. On macOS the runner\\'s start starts it: run ',{'arg':'runner','type':'token','trust':'internal'},' from a terminal of the desktop session, or stop a running runner after its cycle and start it again that way. On a host never set up for host updates, run ',{'arg':'command','type':'token','trust':'internal'},' first.'],'host_type':'Host updates are not yet available on this host type.','journal_unreadable':'The host cannot read its operation journal; check the host.','listener_dependency_missing':'The status service could not load what host updates need; restart it on the host.','other':['Host updates are not available on this host (',{'arg':'reason','type':'token','trust':'external'},').'],'remote':['From another machine this page can only watch a host update; until ',{'arg':'file','type':'token','trust':'internal'},' is installed on the host, press Update host there.'],'scope_unavailable':'This host cannot run the chosen scope now.','session_unusable':['The host controller\\'s session cannot start a working runner: it is not the desktop session, or a privacy grant is missing there. On the host, end the session yuruna-controller with ',{'arg':'tmux','type':'token','trust':'internal'},' (under screen, quit the yuruna-controller session that ',{'arg':'screen','type':'token','trust':'internal'},' lists), stop a running runner after its cycle, and start the runner again from a terminal of the desktop session that holds the grants.']}},'status.host_update_verdict':{'kind':'select','selector':'verdict','variants':{'drain_timeout':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' gave up: the running cycle outlasted the wait. Nothing changed.'],'failed_restored':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' did not complete (',{'arg':'reason','type':'token','trust':'external'},'); the host was restored.'],'other':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' ended with an outcome this page does not recognize (',{'arg':'verdict','type':'token','trust':'external'},').'],'reboot_required':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' finished, but Windows must restart before the hypervisor can run, so the runner was not started.'],'recovering':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},': the runner is not running yet; the host keeps trying (',{'arg':'reason','type':'token','trust':'external'},').'],'recovering_without_controller':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},': the runner is not running yet (',{'arg':'reason','type':'token','trust':'external'},'), and no host controller is running to try again.'],'refused':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' was refused; nothing changed (',{'arg':'reason','type':'token','trust':'external'},').'],'released':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' was released on the host.'],'stop_failed':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},': the runner could not be stopped, so nothing was started.'],'superseded':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' was taken over by ',{'arg':'supersededBy','type':'identifier','trust':'external'},'.'],'updated':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' finished; the runner runs current code.'],'updated_not_started':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' finished; the runner was stopped before it, so it was not started.'],'updated_with_remarks':['Host update ',{'arg':'requestId','type':'identifier','trust':'external'},' finished with remarks; the runner runs current code.']}},'status.host_value1':['Host: ',{'arg':'value1','type':'detail','trust':'external'}],'status.http_value1':['HTTP ',{'arg':'value1','type':'detail','trust':'external'}],'status.images_refresh':'Images refresh','status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple':'Invocation inferred from legacy step order; concurrent or incomplete runs may remain combined.','status.ips':'IPs:','status.lab_hold':['Lab hold -- waiting for ',{'arg':'areas','type':'detail','trust':'external'}],'status.lab_hold_unspecified':'Lab hold -- waiting for a lab service','status.latest_cycle':'Latest cycle','status.latest_runs':{'kind':'plural','selector':'count','variants':{'one':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' run'],'other':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' runs']}},'status.latest_runs_failures':{'kind':'plural','selector':'count','variants':{'one':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' run \\u00b7 ',{'arg':'failed','type':'integer','trust':'internal'},' with failures'],'other':['latest ',{'arg':'shown','type':'integer','trust':'internal'},' of ',{'arg':'count','type':'integer','trust':'internal'},' runs \\u00b7 ',{'arg':'failed','type':'integer','trust':'internal'},' with failures']}},'status.leave_the_field_to_test_caching_proxy_service_from_host':'Leave the field to test caching-proxy service from host.','status.loaded':'Loaded:','status.loading':'Loading\\u2026','status.loading_47d2a515':'Loading...','status.loading_perf_aggregates':'Loading perf aggregates\\u2026','status.log_level_debug':'Debug','status.log_level_error':'Error','status.log_level_information':'Information','status.log_level_verbose':'Verbose','status.log_level_warning':'Warning','status.menu':'Menu','status.missing_step_timing':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' cycle lacks per-step timing \\u2014 drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in ',{'arg':'endpoint','type':'detail','trust':'external'},'. Restart it with: ',{'arg':'command','type':'detail','trust':'external'},', then reload this page.'],'other':[{'arg':'count','type':'integer','trust':'internal'},' cycles lack per-step timing \\u2014 drawn as a single gray bar. This usually means the detached status-service process predates the per-step timing in ',{'arg':'endpoint','type':'detail','trust':'external'},'. Restart it with: ',{'arg':'command','type':'detail','trust':'external'},', then reload this page.']}},'status.never':'never','status.no_aggregates_available':'No aggregates available.','status.no_control_proof_was_presented_reach_this_page_through_the_dashbo':['No control proof was presented. Reach this page through the dashboard link, or use http://localhost:',{'arg':'value1','type':'detail','trust':'external'},'/ on the host itself.'],'status.no_cycle_folder_recorded_for_this_cycle':'No cycle folder recorded for this cycle','status.no_cycle_to_share_open_this_page_from_the_cycle_timeline_on_the_y':'No cycle to share. Open this page from the cycle timeline on the Yuruna hosts dashboard.','status.no_dashboard_server':'No dashboard server','status.no_data':'(no data)','status.no_ip_set_nothing_to_test':'No IP set \\u2014 nothing to test.','status.no_output':'(no output)','status.no_perf_data_yet_run_at_least_one_test_cycle':'No perf data yet \\u2014 run at least one test cycle.','status.no_test_data_yet':'No test data yet','status.not_a_valid_ipv4_or_ipv6_address_save_will_be_rejected':'Not a valid IPv4 or IPv6 address. Save will be rejected.','status.not_a_valid_ipv4_or_ipv6_address_test_skipped':'Not a valid IPv4 or IPv6 address \\u2014 test skipped.','status.null':'null','status.open_cycle_data_folder':'Open cycle data folder','status.open_the_email_draft':'Open the email draft','status.pack_and_download_the_cycle_results':'Pack and download the cycle results','status.packing_value1':['Packing ',{'arg':'value1','type':'detail','trust':'external'},'\\u2026'],'status.pages':'Pages','status.pause':'Pause','status.pause_after_cycle':'Pause after cycle','status.pause_after_step':'Pause after step','status.paused':'Test paused','status.paused_age':['Test paused -- ',{'arg':'age','type':'text','trust':'internal'}],'status.paused_age_guest':['Test paused -- ',{'arg':'age','type':'text','trust':'internal'},', guest ',{'arg':'guest','type':'detail','trust':'external'},' running'],'status.paused_guest':['Test paused -- guest ',{'arg':'guest','type':'detail','trust':'external'},' running'],'status.pausing_after_cycle':'Test pausing (after cycle)','status.pausing_after_step':'Test pausing (after step)','status.perf_yuruna':'Perf \\u2014 Yuruna','status.performance':'Performance','status.performance_fit':'Fit all','status.performance_select_bar':'Select a duration or a bar to read its details here.','status.performance_zoom':'Time zoom','status.pill_new_vm_resource':'New VM','status.pill_start_guestos':'Start OS','status.pill_start_guestworkload':'Workload','status.preflight_failed':'Preflight failed','status.process_environment_value_the_status_service_inherited_at_startup':'Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.','status.quarantine_pinned':['Quarantined after repeated same-class failures (skipped until a new commit; pinned at ',{'arg':'commit','type':'detail','trust':'external'},')'],'status.quarantine_reason':'Quarantined after repeated same-class failures','status.quarantined':'quarantined','status.re_scan_test_status_perf_cycles_jsonl_and_refresh_every_chart':'Re-scan test/status/perf/cycles/*.jsonl and refresh every chart.','status.recalculate':'Recalculate','status.recalculating':'Recalculating\\u2026','status.recalculating_perf_aggregates':'Recalculating perf aggregates\\u2026','status.recent_cycles':'Recent cycles','status.refresh':'Refresh','status.results_folder':['Open results folder for ',{'arg':'name','type':'detail','trust':'external'}],'status.resume':'Resume','status.resume_in_place':'Resume the sequence in place (no snapshot restore)','status.run_command1_to_start_a_test_cycle':['Run ',{'arg':'command1','type':'token','trust':'internal'},' to start a test cycle.'],'status.run_start_testrunner_ps1_to_start_a_test_cycle':'Run Start-TestRunner.ps1 to start a test cycle.','status.runner_attempt_failed':['Runner attempt failed: ',{'arg':'failureClass','type':'detail','trust':'external'}],'status.runner_attempt_started':['Attempt started: ',{'arg':'startedAt','type':'detail','trust':'external'}],'status.runner_attempts_description':'Failures from the latest 20 runner attempts remain here after recovery, and so do up to 30 older failures that a later attempt passed after. Preflight failures occur before a new test cycle starts.','status.runner_attempts_empty':'No retained runner attempt failures.','status.runner_attempts_title':'Runner attempt failures','status.runner_attempts_unavailable':'Runner attempt history is unavailable.','status.runner_failure_record':'Failure record','status.runner_failure_transcript':'Configuration gate transcript','status.runner_framework_commit':['Framework commit: ',{'arg':'commit','type':'detail','trust':'external'}],'status.runner_resident':['Resident runner: commit ',{'arg':'commit','type':'detail','trust':'external'},', started ',{'arg':'startedAt','type':'detail','trust':'external'},'.'],'status.runner_resident_unreported':'The resident runner has not reported its commit and start time. A runner started before that report existed reports them after its next restart.','status.save':'Save','status.save_and_start_cycle':'Save and start cycle','status.save_and_start_cycle_failed_value1':['Save and start cycle failed: ',{'arg':'value1','type':'detail','trust':'external'}],'status.save_failed_value1':['Save failed: ',{'arg':'value1','type':'detail','trust':'external'}],'status.saved_returning_to_status':'Saved. Returning to status\\u2026','status.saved_stopping_in_progress_vms_up_to_30s_each_and_starting_a_new_':'Saved. Stopping in-progress VMs (up to ~30s each) and starting a new cycle -- this can take a minute or two\\u2026','status.saving':'Saving\\u2026','status.saving_config':'Saving config\\u2026','status.sequences':'Sequences','status.server_reports_ip_not_valid_test_skipped':'Server reports IP not valid \\u2014 test skipped.','status.setup':'(setup)','status.share_body':'Yuruna cycle results are attached','status.share_cycle_results':'Share cycle results','status.share_cycle_yuruna':'Share cycle \\u2014 Yuruna','status.share_download_manual':['Download ',{'arg':'file','type':'detail','trust':'external'},' with the first link. Then open the draft and attach the file before sending.'],'status.share_download_started':['Downloading ',{'arg':'file','type':'detail','trust':'external'},'. The host packs the whole folder before the first byte arrives, so give it a moment. Then open the draft and attach the file before sending.'],'status.share_subject':['Yuruna Host ',{'arg':'host','type':'detail','trust':'external'},' at ',{'arg':'time','type':'detail','trust':'external'}],'status.shared_value1_value2':['Shared ',{'arg':'value1','type':'detail','trust':'external'},' (',{'arg':'value2','type':'detail','trust':'external'},').'],'status.sharing_canceled':'Sharing canceled.','status.show_only_the_first_8_characters':'Show only the first 8 characters','status.show_the_full_id':'Show the full id','status.skip_suffix':' (skip)','status.snapshot_restore':['Restore snapshot id ',{'arg':'snapshot','type':'detail','trust':'external'},', restart the VM, then resume the sequence'],'status.start_cycle_blocked_by_repair':['A host repair (',{'arg':'requestId','type':'identifier','trust':'external'},') is in progress; the cycle cannot start until it finishes.'],'status.start_cycle_cycle_restarted':'Cycle restarted','status.start_cycle_failed':['Start-cycle failed (',{'arg':'reason','type':'identifier','trust':'external'},').'],'status.start_cycle_no_report':['Start-cycle ',{'arg':'operationId','type':'identifier','trust':'external'},' has not reported after ',{'arg':'seconds','type':'integer','trust':'internal'},' seconds; check the host.'],'status.start_cycle_not_spawned':['The cycle restart was requested, but the runner\\'s state could not be confirmed, so no second runner was started (',{'arg':'reason','type':'identifier','trust':'external'},'). A running runner restarts its cycle; if none is running, start it on the host.'],'status.start_cycle_queued':'Start-cycle accepted; stopping in-progress VMs and starting the runner...','status.start_cycle_runner_started':'Runner started','status.started':'Started','status.started_utc':'Started (UTC)','status.status':'Status','status.status_unavailable':'Status unavailable','status.step_timing_unavailable':'No per-step timing was recorded for this cycle.','status.test_caching_proxy_service_from_host_failed_value1_fail_value2_va':['Test caching-proxy service from host failed (',{'arg':'value1','type':'detail','trust':'external'},' fail',{'arg':'value2','type':'detail','trust':'external'},{'arg':'value3','type':'detail','trust':'external'},').'],'status.test_caching_proxy_service_from_host_succeeded_value1_pass_value2':['Test caching-proxy service from host succeeded (',{'arg':'value1','type':'detail','trust':'external'},' pass',{'arg':'value2','type':'detail','trust':'external'},').'],'status.test_config_yml':'test.config.yml','status.test_config_yml_yuruna':'test.config.yml \\u2014 Yuruna','status.test_sequences':'Test sequences','status.testing_caching_proxy_service_from_host':'Testing caching-proxy service from host\\u2026','status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this':'The archive is built from server logs only and downloaded to this machine. No data from this browsing session is included.','status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li':'The control proof expired. Re-open this host from the dashboard link to get a fresh one.','status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif':'The control proof was rejected. It may have been minted with a different internal authentication key than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.','status.the_host_could_not_load_its_control_proof_verifier_check_the_stat':'The host could not load its control-proof verifier; check the status service log.','status.the_share_sheet_expired_while_the_host_packed_the_folder':'The share sheet expired while the host packed the folder. ','status.this_browser_could_not_attach_the_file_to_a_message_itself':'This browser could not attach the file to a message itself. ','status.this_cycle_is_still_running_the_archive_will_hold_what_has_been_w':'This cycle is still running. The archive will hold what has been written so far.','status.this_host_will_not_pack_value1_http_value2_the_cycle_may_have_rot':['This host will not pack ',{'arg':'value1','type':'detail','trust':'external'},' (HTTP ',{'arg':'value2','type':'detail','trust':'external'},'). The cycle may have rotated out of the retained log history.'],'status.timing_cycle_started':['Cycle: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_diagnostic':['Diagnostic: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_duration':['Duration: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_evidence':['Evidence capture within step: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_incomplete_capture':{'kind':'plural','selector':'count','variants':{'one':[{'arg':'count','type':'integer','trust':'internal'},' incomplete capture(s)'],'other':[{'arg':'count','type':'integer','trust':'internal'},' incomplete capture(s)']}},'status.timing_incomplete_record':'incomplete record','status.timing_kind':['Kind: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_outcome':['Outcome: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_reused':['Reused execution: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_summed_work':['work ',{'arg':'duration','type':'text','trust':'internal'}],'status.timing_unavailable_value':'unavailable','status.timing_within':['Within: ',{'arg':'value','type':'detail','trust':'external'}],'status.timing_within_attempt':['Within: ',{'arg':'value','type':'detail','trust':'external'},' attempt ',{'arg':'attempt','type':'integer','trust':'internal'}],'status.transcript_for':['Open transcript for ',{'arg':'name','type':'detail','trust':'external'}],'status.true':'True','status.unavailable':'(unavailable)','status.unknown':'(unknown)','status.unnamed':'(unnamed)','status.user_account':'User account:','status.value1_returning_to_status_in_6_seconds':[{'arg':'value1','type':'detail','trust':'external'},'. Returning to status in 6 seconds\\u2026'],'status.value1_work_value2':[{'arg':'value1','type':'detail','trust':'external'},'\\nWork \\u00b7 ',{'arg':'value2','type':'detail','trust':'external'}],'status.value1_yuruna_status':[{'arg':'value1','type':'detail','trust':'external'},' \\u2014 Yuruna status'],'status.vm_name':['VM: ',{'arg':'name','type':'detail','trust':'external'}],'status.working':'Working...','status.yuruna_host_status':'Yuruna host status','status.yuruna_status':'Yuruna status'};\n}(this));\n// LICENSEURI https://yuruna.link/license\n// Copyright (c) 2019-2026 by Alisson Sol et al.\n// GUID: 42b43dbb-8cdd-4455-9a28-0d90f88e6180\n//\n// The catalog kernel: resolve a locale, look a message up, format its\n// arguments. This file is the single source. tools/Invoke-CatalogEmbed.ps1\n// copies it, byte for byte, into every browser runtime that needs it, so a\n// page never spends a request on it and the two runtimes cannot drift apart.\n// Edit here and re-run that tool; an edit made in a copy is overwritten and\n// the drift gate fails first.\n//\n// Nothing here parses a message. The compiler already broke every message into\n// the pieces this walks, which is what lets a label be rendered per row without\n// the cost showing up on the page. Nothing here reads Intl either: the ICU data\n// behind a runtime differs by engine and shifts between releases, so separators\n// and plural rules come from the compiled locale data and are the same\n// everywhere.\n(function (root) {\n  'use strict';\n\n  var Y = root.YurunaI18n = root.YurunaI18n || {};\n  // The compiled tables register themselves here as they load, keyed by tag\n  // and then by domain. The default locale is compiled into the runtime, so\n  // this is never empty and a release fallback is always resident.\n  var catalogs = root.YurunaCatalog = root.YurunaCatalog || {};\n  var localeData = root.YurunaLocaleData = root.YurunaLocaleData || {};\n  // Generated separately from localeData. Planned locales have formatting\n  // data while translators work, but are not selectable. Pseudo locales are\n  // enabled here because the server independently gates whether a page may\n  // declare/load one for an explicit test run.\n  var enabledLocales = root.YurunaEnabledLocales || {};\n\n  var DEFAULT_TAG = 'en-US';\n  var current = DEFAULT_TAG;\n  var initialized = false;\n  var pageContext = null;\n  var reported = {};\n\n  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }\n\n  function freezeContext(value) {\n    // The guard is for deliberately capability-stripped test hosts: the\n    // context is still private there and callers receive no setter for its\n    // fields.\n    if (Object.freeze) { return Object.freeze(value); }\n    return value;\n  }\n\n  function validSource(value) {\n    return value === 'config' || value === 'user' || value === 'http' ||\n           value === 'process' || value === 'default';\n  }\n\n  function newPageContext(requested, resolved, source) {\n    var provenance = root.YurunaCatalogProvenance || {};\n    return freezeContext({\n      requestedTag: requested || resolved,\n      resolvedTag: resolved,\n      direction: dataFor(resolved).direction || 'ltr',\n      source: validSource(source) ? source : 'default',\n      // Browser wall clocks deliberately use the reader's local zone. That\n      // policy is explicit here rather than hidden inside Date getters.\n      timeZone: 'local',\n      catalogVersion: String(provenance.version || ''),\n      catalogHash: String(provenance.hash || '')\n    });\n  }\n\n  // One diagnostic per key per locale per page. A missing key inside a table\n  // render would otherwise log once per row, which buries the first report in\n  // its own repetitions.\n  function reportOnce(what) {\n    if (has(reported, what)) { return; }\n    reported[what] = true;\n    if (root.console && root.console.warn) { root.console.warn('Yuruna i18n: ' + what); }\n  }\n\n  function dataFor(tag) {\n    if (has(localeData, tag)) { return localeData[tag]; }\n    return localeData[DEFAULT_TAG] || { group: ',', decimal: '.', groupSize: 3, plural: 'one-if-1', direction: 'ltr' };\n  }\n\n  // The count's category, by the rule the manifest pinned for this locale.\n  // A locale whose rule is not pinned falls back to the default's rather than\n  // throwing: this runs inside a render, and a page that throws mid-render\n  // leaves a half-built DOM the reader cannot act on. The compiler is what\n  // keeps an unpinned locale from ever being marked supported.\n  function pluralCategory(tag, count) {\n    var rule = dataFor(tag).plural;\n    if (!rule) {\n      reportOnce('no pinned plural rule for ' + tag);\n      rule = dataFor(DEFAULT_TAG).plural;\n    }\n    switch (rule) {\n      case 'one-if-1': return count === 1 ? 'one' : 'other';\n      case 'pt-cardinal-cldr46':\n        count = Math.abs(count);\n        if (Math.floor(count) <= 1) { return 'one'; }\n        if (count > 0 && count % 1000000 === 0) { return 'many'; }\n        return 'other';\n      case 'zh-cardinal-cldr46': return 'other';\n      case 'he-cardinal-cldr46':\n        count = Math.abs(count);\n        var integer = Math.floor(count);\n        var hasFraction = count !== integer;\n        if ((integer === 1 && !hasFraction) || (integer === 0 && hasFraction)) { return 'one'; }\n        if (integer === 2 && !hasFraction) { return 'two'; }\n        return 'other';\n      default:\n        reportOnce('unknown plural rule ' + rule);\n        return 'other';\n    }\n  }\n\n  // Group a digit string from the right. toLocaleString is not usable here:\n  // its separators come from the engine's own ICU data, which differs between\n  // browsers and between releases, so the same number would be written one way\n  // on the page and another by the PowerShell and Go sides that have to agree\n  // with it byte for byte.\n  function groupDigits(digits, sep, size) {\n    if (!sep || size <= 0 || digits.length <= size) { return digits; }\n    var out = '';\n    var count = 0;\n    for (var i = digits.length - 1; i >= 0; i--) {\n      out = digits.charAt(i) + out;\n      count++;\n      if (count % size === 0 && i > 0) { out = sep + out; }\n    }\n    return out;\n  }\n\n  function formatNumber(value, tag, decimals) {\n    var d = dataFor(tag);\n    var n = Number(value);\n    if (!isFinite(n)) { return ''; }\n    var negative = n < 0;\n    var magnitude = Math.abs(n);\n    var text = magnitude.toFixed(decimals);\n    // An exactly representable decimal tie has an odd numerator when scaled\n    // by 2^(decimals+1). Checking the binary scale avoids treating a rounded\n    // decimal product (such as 2.675*100) as an exact tie.\n    var binary = magnitude * Math.pow(2, decimals + 1);\n    if (binary % 2 === 1) {\n      var last = Number(text.charAt(text.length - 1));\n      if (last % 2 === 1) { text = text.slice(0, -1) + String(last - 1); }\n    }\n    var parts = text.split('.');\n    var whole = groupDigits(parts[0], d.group, d.groupSize || 3);\n    var out = parts.length > 1 ? whole + d.decimal + parts[1] : whole;\n    return negative ? '-' + out : out;\n  }\n\n  function pad2(n) { return n < 10 ? '0' + n : '' + n; }\n\n  function formatArgument(value, type, tag) {\n    var t = formatText(value, type, tag);\n    if (dataFor(tag).direction !== 'rtl' || !t || /^[\\u2066-\\u2068][^]*\\u2069$/.test(t)) { return t; }\n    return (/^(integer|decimal|duration|datetime)$/.test(type) ? '\\u2066' : '\\u2068') + t + '\\u2069';\n  }\n\n  function formatText(value, type, tag) {\n    if (value === null || value === undefined) { return ''; }\n    switch (type) {\n      case 'integer': return formatNumber(value, tag, 0);\n      case 'decimal': return formatNumber(value, tag, 2);\n      case 'duration':\n        // Floor, never round. 5400 seconds is an hour and a half, and a rule\n        // that rounded would report it as \"2h 30m\" -- longer than the time\n        // that actually passed, in the part of the string a reader is least\n        // likely to question.\n        var total = Math.floor(Number(value));\n        if (!isFinite(total) || total < 0) { return ''; }\n        var h = Math.floor(total / 3600);\n        var m = Math.floor((total % 3600) / 60);\n        var s = total % 60;\n        if (h >= 1) { return h + 'h ' + m + 'm'; }\n        if (m >= 1) { return m + 'm ' + s + 's'; }\n        return s + 's';\n      case 'datetime':\n        var when = (value instanceof Date) ? value : new Date(value);\n        if (isNaN(when.getTime())) { return ''; }\n        return when.getUTCFullYear() + '-' + pad2(when.getUTCMonth() + 1) + '-' + pad2(when.getUTCDate()) +\n               ' ' + pad2(when.getUTCHours()) + ':' + pad2(when.getUTCMinutes()) + ':' + pad2(when.getUTCSeconds()) + ' UTC';\n      default:\n        // An external value is placed as given and never parsed back into\n        // state. Escaping belongs to the caller, which knows whether it is\n        // writing textContent or an attribute; this returns a string.\n        return String(value);\n    }\n  }\n\n  function renderSegments(segments, args, tag) {\n    if (typeof segments === 'string') { return segments; }\n    if (!segments || typeof segments.length !== 'number') { return ''; }\n    var out = '';\n    for (var i = 0; i < segments.length; i++) {\n      var piece = segments[i];\n      if (typeof piece === 'string') { out += piece; continue; }\n      if (piece && has(piece, 'arg')) {\n        var value = (args && has(args, piece.arg)) ? args[piece.arg] : null;\n        out += formatArgument(value, piece.type, tag);\n        continue;\n      }\n      out += String(piece);\n    }\n    return out;\n  }\n\n  function lookup(tag, key) {\n    var domain = key.split('.')[0];\n    var byLocale = catalogs[tag];\n    if (byLocale && byLocale[domain] && has(byLocale[domain], key)) { return byLocale[domain][key]; }\n    return null;\n  }\n\n  // The rendered message, or -- when nothing has this key -- the key itself.\n  // A supported catalog is complete by definition and the compiler fails on a\n  // gap, so reaching the fallback means a page asked for something no catalog\n  // declares. Showing the key keeps the surface readable and puts the mistake\n  // where someone will see it; blank text would not.\n  function translate(key, args, tag) {\n    var use = tag || current;\n    var entry = lookup(use, key);\n    if (entry === null && use !== DEFAULT_TAG) {\n      reportOnce('key ' + key + ' missing for ' + use);\n      entry = lookup(DEFAULT_TAG, key);\n      use = DEFAULT_TAG;\n    }\n    if (entry === null) {\n      reportOnce('key ' + key + ' is in no catalog');\n      return key;\n    }\n    if (typeof entry === 'string') { return entry; }\n\n    if (entry && has(entry, 'kind')) {\n      var selector = entry.selector;\n      var chosen = null;\n      if (entry.kind === 'plural') {\n        var count = (args && has(args, selector)) ? Number(args[selector]) : 0;\n        chosen = entry.variants[pluralCategory(use, count)];\n      } else {\n        var value = (args && has(args, selector)) ? String(args[selector]) : '';\n        chosen = has(entry.variants, value) ? entry.variants[value] : null;\n      }\n      if (chosen === null || chosen === undefined) { chosen = entry.variants.other; }\n      if (chosen === null || chosen === undefined) { return key; }\n      return renderSegments(chosen, args, use);\n    }\n\n    return renderSegments(entry, args, use);\n  }\n\n  // Which of the locales this page carries answers for a tag. Only an exact\n  // match or a declared alias counts: a page that answered pt-AO with pt-BR\n  // would be serving a dialect nobody reviewed, and the reader has no way to\n  // tell the difference until the wording is wrong.\n  function resolve(tag) {\n    if (!tag) { return DEFAULT_TAG; }\n    var canonical = String(tag).replace(/_/g, '-').replace(/^\\s+|\\s+$/g, '');\n    if (!/^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(canonical)) { return DEFAULT_TAG; }\n    var parts = canonical.split('-');\n    var normal = parts[0].toLowerCase();\n    for (var i = 1; i < parts.length; i++) {\n      var p = parts[i];\n      if (p.length === 4) { normal += '-' + p.charAt(0).toUpperCase() + p.slice(1).toLowerCase(); }\n      else if (p.length === 2) { normal += '-' + p.toUpperCase(); }\n      else { normal += '-' + p.toLowerCase(); }\n    }\n    // A non-default catalog may load immediately after the shared runtime.\n    // Selection therefore follows generated locale authority, not the timing\n    // of script registration; t() can use the table as soon as it arrives.\n    var enabled = enabledLocales[normal.toLowerCase()];\n    if (enabled) { return enabled === true ? normal : enabled; }\n    var aliases = root.YurunaLocaleAliases || {};\n    var aliased = aliases[normal.toLowerCase()];\n    enabled = aliased ? enabledLocales[String(aliased).toLowerCase()] : '';\n    if (enabled) { return enabled === true ? aliased : enabled; }\n    return DEFAULT_TAG;\n  }\n\n  // The page's language is decided by the server and written into <html lang>,\n  // so it is already correct at first paint and nothing here can produce a\n  // flash of the wrong language.\n  function init(doc, decision) {\n    if (initialized) { return pageContext.resolvedTag; }\n    var el = doc && doc.documentElement;\n    var declared = el ? (el.getAttribute('lang') || '') : '';\n    current = resolve(declared);\n    var requested = decision && decision.requestedTag;\n    var source = decision && decision.source;\n    if (!requested && el) { requested = el.getAttribute('data-yuruna-requested-language') || declared; }\n    if (!source && el) { source = el.getAttribute('data-yuruna-locale-source') || 'default'; }\n    pageContext = newPageContext(requested, current, source);\n    initialized = true;\n    if (el && !el.getAttribute('dir')) { el.setAttribute('dir', pageContext.direction); }\n    return current;\n  }\n\n  // A wall-clock stamp in the reader's own zone, in a shape that does not\n  // change with the reader's device.\n  //\n  // toLocaleString would be the obvious call and is the wrong one: the shape it\n  // produces comes from the engine's ICU data, so the same instant is written\n  // one way on one browser and another way on the next, and neither matches\n  // what the PowerShell and Go sides emit for it. The shape here is fixed for\n  // everyone; only the zone is local, which is what makes a \"last seen\"\n  // readable.\n  function formatLocal(value) {\n    var when = (value instanceof Date) ? value : new Date(value);\n    if (isNaN(when.getTime())) { return ''; }\n    return when.getFullYear() + '-' + pad2(when.getMonth() + 1) + '-' + pad2(when.getDate()) +\n           ' ' + pad2(when.getHours()) + ':' + pad2(when.getMinutes());\n  }\n\n  // The time alone, for a ticker that says when the page last refreshed. The\n  // date would be noise there and the same reasoning applies to the shape.\n  function formatLocalTime(value) {\n    var when = (value instanceof Date) ? value : new Date(value);\n    if (isNaN(when.getTime())) { return ''; }\n    return pad2(when.getHours()) + ':' + pad2(when.getMinutes()) + ':' + pad2(when.getSeconds());\n  }\n\n  Y.fmtLocal = formatLocal;\n  Y.fmtLocalTime = formatLocalTime;\n  Y.t = translate;\n  Y.init = init;\n  Y.resolve = resolve;\n  Y.formatArgument = formatArgument;\n  Y.formatNumber = formatNumber;\n  Y.pluralCategory = pluralCategory;\n  Y.locale = function () { return current; };\n  // Kept for the older fixture harness. Once init has sealed the page's\n  // server-owned decision, a local caller cannot switch half the page into a\n  // different language.\n  Y.setLocale = function (tag) {\n    if (initialized) { return current; }\n    current = resolve(tag);\n    pageContext = newPageContext(tag, current, 'user');\n    return current;\n  };\n  Y.context = function () {\n    if (!pageContext) { pageContext = newPageContext(DEFAULT_TAG, DEFAULT_TAG, 'default'); }\n    return pageContext;\n  };\n  Y.direction = function () { return Y.context().direction; };\n}(typeof window !== 'undefined' ? window : this));\n// Explicit application readiness, from globalization/kernel/yuruna.first-usable.js.\n(function (window) {\n  'use strict';\n  if (window.YurunaFirstUsable) { return; }\n  var waiting = {};\n  var pending = null;\n  var finished = false;\n  var marker = window.YurunaFirstUsable = {\n    schema: 'yuruna.first-usable/v1',\n    contract: 'locale, direction, above-fold text/controls, and primary data or accessible state are ready',\n    ready: false, page: '', state: 'pending', locale: '', language: '', dir: '',\n    milliseconds: null, clock: 'unavailable'\n  };\n  function publish() {\n    if (finished || !pending) { return; }\n    for (var name in waiting) {\n      if (Object.prototype.hasOwnProperty.call(waiting, name)) { return; }\n    }\n    var element = window.document && window.document.documentElement;\n    var language = element && element.getAttribute('lang');\n    var direction = element && element.getAttribute('dir');\n    if (!language || (direction !== 'ltr' && direction !== 'rtl')) { return; }\n    var performance = window.performance;\n    var milliseconds = null;\n    var clock = 'unavailable';\n    try {\n      if (performance && typeof performance.now === 'function') {\n        milliseconds = performance.now();\n        if (typeof milliseconds === 'number' && isFinite(milliseconds) && milliseconds >= 0) { clock = 'performance.now'; }\n        else { milliseconds = null; }\n      }\n    } catch (ignore) { milliseconds = null; }\n    if (milliseconds === null && performance && performance.timing && performance.timing.navigationStart > 0) {\n      var elapsed = new Date().getTime() - performance.timing.navigationStart;\n      if (isFinite(elapsed) && elapsed >= 0) { milliseconds = elapsed; clock = 'navigationStart'; }\n    }\n    marker.page = pending.page;\n    marker.state = pending.state;\n    marker.language = language;\n    marker.locale = window.YurunaI18n ? window.YurunaI18n.locale() : language;\n    marker.dir = direction;\n    marker.milliseconds = milliseconds;\n    marker.clock = clock;\n    finished = true;\n    marker.ready = true;\n  }\n  // Opt-in collection times application rendering only; callbacks keep their\n  // return values and exceptions when measurement is disabled or unavailable.\n  marker.measure = function (page, state, callback) {\n    var clock = window.performance;\n    if (window.YurunaMeasureRenders !== true || !clock || typeof clock.now !== 'function') {\n      return callback();\n    }\n    var start;\n    try { start = clock.now(); } catch (unavailable) { return callback(); }\n    if (typeof start !== 'number' || !isFinite(start) || start < 0) { return callback(); }\n    var result = callback();\n    var elapsed;\n    try { elapsed = clock.now() - start; } catch (unavailableEnd) { return result; }\n    if (typeof elapsed === 'number' && isFinite(elapsed) && elapsed >= 0) {\n      var queue = window.YurunaRenderMeasurements;\n      if (!queue || queue.schema !== 'yuruna.render-measurements/v1' || !Array.isArray(queue.samples)) {\n        queue = window.YurunaRenderMeasurements = { schema: 'yuruna.render-measurements/v1', samples: [] };\n      }\n      queue.render = function () { return marker.measure(page, state, callback); };\n      var element = window.document && window.document.documentElement;\n      var locale = window.YurunaI18n ? window.YurunaI18n.locale() : element && element.getAttribute('lang');\n      queue.samples.push({ milliseconds: elapsed, locale: locale || marker.locale, page: page, state: state });\n      if (queue.samples.length > 1000) { queue.samples.shift(); }\n    }\n    return result;\n  };\n  marker.hold = function (name) { if (!finished) { waiting[name] = true; } };\n  marker.release = function (name) { delete waiting[name]; publish(); };\n  marker.mark = function (page, state) {\n    if (finished || pending || typeof page !== 'string' || !page ||\n        !/^(data|empty|error|static)$/.test(state)) { return; }\n    pending = { page: page, state: state };\n    publish();\n  };\n}(window));\n// <<< yuruna-i18n embedded block"

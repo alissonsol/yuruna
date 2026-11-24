@@ -4,8 +4,9 @@
   "locale": "pt-BR",
   "messages": {
     "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": {
-      "sourceHash": "9b726e7ca8447fe0bbef4a9b2307e65ed597882741f0cbdf4d32016fc2bda32f",
-      "message": "Um grupo reúne hosts sob um ID estável (GUID); cada host pertence a no máximo um grupo. O Status do Grupo mostra o que os membros estão fazendo agora — escolher um valor o aplica a todos os membros."
+      "sourceHash": "17b5a565cb8b9f9f0c8ef944da33fbeeaf787fcf752a5c238d087e310b419387",
+      "origin": "machine",
+      "message": "Um grupo reúne hospedeiros sob um ID do grupo (um GUID estável); cada hospedeiro pertence a no máximo um grupo. O estado do grupo mostra o que os membros estão fazendo agora — escolher um valor o aplica a todos os membros."
     },
     "pool.a_scan_of_value1_is_already_running_following_that_one": {
       "sourceHash": "0f6169c3deb90a4611e8c178d3275cd964ec7f6d873340dd004d2b64ee04716f",
@@ -36,7 +37,8 @@
       "message": "O agregador não está disponível ({value1}); o estado de controle é desconhecido. As máquinas em movimento ainda funcionam."
     },
     "pool.aggregator_url": {
-      "sourceHash": "e74eeb5bdc6c7676faa0cb8f93aca8a8cc872284aea3424e2f0c0678e96dca53",
+      "sourceHash": "8bc3a2a3a25f74fef3fa2fac9cff74c42d823678266dd7191e20fe8f38ae86a7",
+      "origin": "machine",
       "message": "URL do agregador"
     },
     "pool.all_checks_passed_pool_control_service_value1_value2_collected_va": {
@@ -324,8 +326,9 @@
       "message": "Mostrar o nome"
     },
     "pool.duration": {
-      "sourceHash": "7ac1810e9dad6eb67ca570194a02cebc984c109ab9426762719f29c28f86ccc0",
-      "message": "duração"
+      "sourceHash": "d5f9bf21efcd942c54f3c1c1a97751ac72bb5b1cc5b0544b25526d9e3fe3b0f4",
+      "origin": "machine",
+      "message": "Duração"
     },
     "pool.each_of_the_four_numbers_must_be_0_to_255": {
       "sourceHash": "858515d008120d8e7c21def83e9fac2ffe90faeca75da9a94bf4e2524e7cb0de",
@@ -360,8 +363,9 @@
       "message": "Cada máquina que o agregador conhece. Controle: {command1} (o token deste laboratório, o relógio concorda — apenas estes auto-matrícula), {command2} (token diferente), {command3} (problema do relógio), {command4} (nunca se inscreveu). Escolha um pool move a máquina — uma máquina pertence, no máximo, a uma. Framework e Project são os repos dos relatórios da máquina, ligados à sua fonte; {command5} significa que ela não pode ler o configurado. Uma linha re-chaveada é a de uma máquina identidade antiga: foi reimaged ou re-cloned, de modo que o host live responde sob o id mostrado ao lado dele enquanto qualquer membro do pool permanece no antigo — entregue-o a partir dessa linha. Hostnames aparece uma vez que este navegador é Destrancada."
     },
     "pool.exit_code": {
-      "sourceHash": "6d08dab961a582dd3604a490979613fc8d672f3fb5198ce8e0ee38c1aca71a69",
-      "message": "código de saída"
+      "sourceHash": "d346a32f470bea8d7334eaa1cc4f68ff88d9181b416d4f7f3869bcdee64de89a",
+      "origin": "machine",
+      "message": "Código de saída"
     },
     "pool.fail": {
       "sourceHash": "8a0d1b9fb3b610143ccff45c0661b205747d0a3566ccdf2a27b0bf41d7250864",
@@ -404,24 +408,28 @@
       "message": "Framework / Projeto"
     },
     "pool.framework_revision": {
-      "sourceHash": "34bffa68b828b60e8569a93edfda73b478eb8127d5640509419fd812e2f53a36",
-      "message": "revisão do quadro"
+      "sourceHash": "e1f98f477a41e12f1eb4432259577ed7cde40ac767904a3182f35bc606634522",
+      "origin": "machine",
+      "message": "Revisão do framework"
     },
     "pool.framework_url": {
       "sourceHash": "2ec22042f47e161d0e326257f807598fbaa57263288a5b811fc293334eb59fee",
       "message": "URL do framework"
     },
     "pool.framework_version": {
-      "sourceHash": "cbf8bf126a471552d80265ed551e1c7ac35cec4bd4a9d0dc0cf5718c4b0223a2",
-      "message": "versão do framework"
+      "sourceHash": "d49a5c9d3f368e333a9091b76c4da6e4d6c503a6afbe72c77a9684a3cf63acf7",
+      "origin": "machine",
+      "message": "Versão do framework"
     },
     "pool.free_storage": {
-      "sourceHash": "78457c65e40005d44715634421d97419031785c5d2405e0be284d20c26361bf8",
-      "message": "Armazenamento Livre"
+      "sourceHash": "ab45a3b4b1f663a4eaa74acca4adf9e6706433bcf04e725e26512e55502139c8",
+      "origin": "machine",
+      "message": "Armazenamento livre"
     },
     "pool.go": {
-      "sourceHash": "977a7ed38614f607331e7fc68e63e24e72d964fe95bfb86588bcfb588ce7ec49",
-      "message": "Vai."
+      "sourceHash": "a767090f35ca38dd8b5bd729ae4f709dbd2076c94d003082c865f37f12979949",
+      "origin": "machine",
+      "message": "Go"
     },
     "pool.guide": {
       "sourceHash": "3eaa103407975468976041d819dd7f14545878986ffb2f2be535c9ee3e6198d0",
@@ -453,15 +461,18 @@
     },
     "pool.host_id": {
       "sourceHash": "eb8d1548c30de26e831c7c05ea83bc7f3e1f382f4fed84978c27dfc5edcc3f08",
-      "message": "ID da máquina"
+      "origin": "machine",
+      "message": "ID do hospedeiro"
     },
     "pool.host_id_7b624c8f": {
-      "sourceHash": "b73337db44df3879ea7b27fde8a3026388c95e2a7081be02351541ae0166141b",
-      "message": "ID da máquina"
+      "sourceHash": "49fff725f408b595f0fc9b06fc86a99e5c2d28d61f85d667bcb66ef80c3f6939",
+      "origin": "machine",
+      "message": "ID do hospedeiro"
     },
     "pool.host_id_to_add_to_pool_value1": {
       "sourceHash": "b88caae59fe459ca0fa5cec752d9cd6efae3f0d29a2354dec91ed4550f7e72a3",
-      "message": "ID da máquina a adicionar ao pool {value1}"
+      "origin": "machine",
+      "message": "ID do hospedeiro a adicionar ao grupo {value1}"
     },
     "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": {
       "sourceHash": "0aadd1cb3933da52bb5feab74b271ea3cf988dd5c5511541e8e87b3b0a7f4069",
@@ -514,7 +525,8 @@
       "message": "Hospedeiras — Controle de Grupos Yuruna"
     },
     "pool.configuration_git_url": {
-      "sourceHash": "665e2743922781cde016bfb4da478f9a673f00785684c2d0f34926c16cb34871",
+      "sourceHash": "e61f0395be5072f1430858aad2c1c5e530d2c20d57a5b950b52a7314b3fd3cd5",
+      "origin": "machine",
       "message": "URL git da configuração"
     },
     "pool.configuration_read_raw_invocation": {
@@ -558,8 +570,9 @@
       "message": ", visto pela última vez em {value1}"
     },
     "pool.listen_addr": {
-      "sourceHash": "368982d52e005915cbee2741fed1ca614296e790a664133fa960e5e12fb74af0",
-      "message": "ouvir addr"
+      "sourceHash": "00a347ad7a5c3c2c9bbceecb62cd20a1953271099b85f8705e599cfef4724110",
+      "origin": "machine",
+      "message": "Endereço de escuta"
     },
     "pool.loaded": {
       "sourceHash": "741f300c96ce9a027fe06b7d0207c323e7de41497d524a18d62a6dbd9f4a6a2a",
@@ -722,12 +735,14 @@
       "message": "(persistência deficiente)"
     },
     "pool.pid": {
-      "sourceHash": "ce4c4b549ff007f6da94d64f26a7e5e000a5fee36f08b65c4ccba54bb014ac42",
-      "message": "pid"
+      "sourceHash": "0f69e1b4e42de4c5652e40e9010725e7b4fc337d4dfc8c2796c2edf11f7644de",
+      "origin": "machine",
+      "message": "PID"
     },
     "pool.platform": {
-      "sourceHash": "ed74f0b2f3bc8e239d62812a9c5b7d13d109faa4b0304459b2413e3d0adaa3b1",
-      "message": "plataforma"
+      "sourceHash": "8a798fbbeee0106d0e452e5a3b123cbac344f33caada0f0f8eefd3a2ebfcc956",
+      "origin": "machine",
+      "message": "Plataforma"
     },
     "pool.pool": {
       "sourceHash": "2fb039ac815e0a063482ddbd33dd0ae2a42953dd4672649726cc1efc8b522f80",
@@ -743,7 +758,8 @@
     },
     "pool.pool_id_66d3d3f3": {
       "sourceHash": "9c715b3b6aae8389d99ac97d0cab22fe28c5af13e24af4f463dbf0731425201a",
-      "message": "ID do conjunto"
+      "origin": "machine",
+      "message": "ID do grupo"
     },
     "pool.pool_membership_moved_to_value1": {
       "sourceHash": "9f68e0c868954e6dba76cda27688188cd33ae5a6b1ef75b3647eb7f7f2da649e",
@@ -758,8 +774,9 @@
       "message": "O projecto que esta máquina atribuiu não respondeu. Esta é a rede, não a permissão, e o clone volta a tentar através do backoff normal."
     },
     "pool.pool_status": {
-      "sourceHash": "0129ef870a2572023a0f34024e862cfece633c11695e364eee6d5da8a561b721",
-      "message": "Estado do Grupo"
+      "sourceHash": "8189874338c7c0e889f2eab2c6a1485122485490f57443254c5fbbe633229960",
+      "origin": "machine",
+      "message": "Estado do grupo"
     },
     "pool.pool_status_change_failed_value1": {
       "sourceHash": "1d7bb46117e4a640ae49b2bb83e38997bb2a2b5aba584ff239eb4b0edaedf006",
@@ -848,8 +865,9 @@
       }
     },
     "pool.repo_dir": {
-      "sourceHash": "c7bcb9be9d262310f2bd7d2bdbca80af5974c053812c224cbbbd8863570391a5",
-      "message": "repo dir"
+      "sourceHash": "4a7edac9b30d14ae26bb4892e52b7e71b9418bbce3ceb9b5543557c027535499",
+      "origin": "machine",
+      "message": "Pasta do repositório"
     },
     "pool.repo_held_detail": {
       "sourceHash": "8d1ad4e97407c40a6ca1397ae0f1aad7a9f82c2dceec0a56fcc2b4f1bb9e6940",
@@ -960,20 +978,23 @@
       "message": "Diagnóstico de serviço"
     },
     "pool.service_user": {
-      "sourceHash": "278b030a9d4424850b6af6f0e4eae9077179904ef1e36601899982552660f196",
-      "message": "usuário de serviço"
+      "sourceHash": "6281c7a7223c680f27372af448f6d9b1815744cd138c6ea5e190304b656ad238",
+      "origin": "machine",
+      "message": "Usuário do serviço"
     },
     "pool.show_hostnames": {
       "sourceHash": "2c19e331974e958049e0919185d5f3caaea25076d2cae25f10ca192ee28befcc",
       "message": "Mostrar os nomes das máquinas"
     },
     "pool.started_at": {
-      "sourceHash": "3320efb45678a1e143255f63e327684f562c954e13eae6deb8b37e05358164bd",
-      "message": "iniciado em"
+      "sourceHash": "20efe2e0f537bb661b2e39c86760d8e49021d995bc3f990988ce3f68dd725166",
+      "origin": "machine",
+      "message": "Iniciado em"
     },
     "pool.state_dir": {
-      "sourceHash": "e65093e1bbb2bf9fc84227adc8c9d48f53cdd80c3eea9134a0326ef0a39e9020",
-      "message": "pasta de estado"
+      "sourceHash": "51904c54179383d466b595afdff016bcbe0bd41522c37c633d15c1999cb46be2",
+      "origin": "machine",
+      "message": "Pasta de estado"
     },
     "pool.state_fail": {
       "sourceHash": "51eaf9c03217d212a0c4dd63b22253c8f483df9c43cde24708ba96d6b33547ad",
@@ -1112,8 +1133,9 @@
       "message": "O Token está certo, mas o relógio está desligado. Conserte o relógio do hospedeiro."
     },
     "pool.total_storage": {
-      "sourceHash": "1e2e33bb65b80c4c29d67c4d336dbc9d432c484159c82c975eb4399d990ece4b",
-      "message": "Armazenamento Total"
+      "sourceHash": "e542bc9f31372e8dee6db1692b4ea76bb59b071e0a9f8d15990c6f10e37e8c9a",
+      "origin": "machine",
+      "message": "Armazenamento total"
     },
     "pool.type": {
       "sourceHash": "7bd81245a0e7202425dffdd098245e4c06c3498dd993968a12c6341584ec145f",
@@ -1132,8 +1154,9 @@
       "message": "intervalo não suportado; use 1h, 24h, 7d ou 30d"
     },
     "pool.uptime": {
-      "sourceHash": "41e5a1d85fa323980eb7d9e25f409667a7e87bfa4048aa9418525994fa4449a4",
-      "message": "tempo de execução"
+      "sourceHash": "d5485c7153d1b76f12d2d1c99061a3e05346a7a18df275ddefb9cca20cc42536",
+      "origin": "machine",
+      "message": "Tempo de atividade"
     },
     "pool.use_this_network": {
       "sourceHash": "059e7c40aff2d1f1eb413f6d2bbdeed3e8c039b345200c8d5d61f6edb9f79d0f",
@@ -1156,8 +1179,9 @@
       "message": "{value1}: {value2} aplicado, {value3} falhou -- {value4}"
     },
     "pool.version": {
-      "sourceHash": "ee89fc027fafd653aa0d0b78acd15b2b6eddb1b192d55b7496632a07e9c9b02f",
-      "message": "versão"
+      "sourceHash": "49a18e6766ada523d018b7247f8a7ea0a071f096c81fe2f71c58becba5c57854",
+      "origin": "machine",
+      "message": "Versão"
     },
     "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": {
       "sourceHash": "99b6f3aa7b93cf7f2aa31bd4f1bbb44ed7b8339960d3e6088ae6a6d442e0a8aa",
@@ -1179,81 +1203,252 @@
       "sourceHash": "3ce444e94389458f031101ae0bde100d3b959b679d87f20e1496fa7251b25820",
       "message": "Controle de Grupos Yuruna"
     },
-    "pool.host_refresh_body_invalid": {
-      "sourceHash": "3f3aa2484e799376937ee893eabba2cd6fc993362516285276a8e7a362c29c7f",
-      "message": "A solicitação de atualização deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung ({detail})."
+    "pool.host_repair_body_invalid": {
+      "sourceHash": "27048042b4b7086a14c2e87ca3f2a8a76736a3a2dbbd09f1f01826a454af2a7e",
+      "message": "A solicitação de reparo deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung ({detail})."
     },
-    "pool.host_refresh_busy": {
-      "sourceHash": "8a62eae70fb5a652bfc90cde303c74091170d299a16a04293389072c56c87f0b",
-      "message": "O hospedeiro {hostId} já está processando a solicitação de atualização {activeRequestId}; acompanhe essa solicitação em vez de iniciar outra."
+    "pool.host_repair_busy": {
+      "sourceHash": "0ff5c5eeb2e5a44954429cddda7d90fe54d1daa674d747a280f41aab17a78141",
+      "message": "O hospedeiro {hostId} já está processando a solicitação de reparo {activeRequestId}; acompanhe essa solicitação em vez de iniciar outra."
     },
-    "pool.host_refresh_control_proof_unavailable": {
-      "sourceHash": "de3debed8c4e4bebc4c708837d84658235f832a1d0b59293fada43a0dae07cea",
+    "pool.host_repair_control_proof_unavailable": {
+      "sourceHash": "460bb5ae241e6b6cd0c4eca4d860ba655d5c730ae9a62889db90ce018f42d673",
       "message": "Não foi possível obter uma prova de controle para o hospedeiro {hostId} ({detail})."
     },
-    "pool.host_refresh_field_unsupported": {
-      "sourceHash": "e387bf39ee96284bd2f162a825da948934fbb9a61380ab7bd22b87c161b8dfaa",
-      "message": "A solicitação de atualização contém o campo não suportado {field}; as opções de atualização forçada e de parada forçada nunca são aceitas remotamente."
+    "pool.host_repair_field_unsupported": {
+      "sourceHash": "38a3bbb093f0f357186fe7020d0c22c6ef2d29c41ef0554c36f1de72a8a4f4ab",
+      "message": "A solicitação de reparo contém o campo não suportado {field}; as opções de reparo forçado e de parada forçada nunca são aceitas remotamente."
     },
-    "pool.host_refresh_host_address_unknown": {
-      "sourceHash": "d9d8e6df524734e56ca9db66b49b4edb79a68580e2eaac1995767eb510f39239",
+    "pool.host_repair_host_address_unknown": {
+      "sourceHash": "104e3767b3218b7df3b905c0acd721383e9ad9c2f7471b13ec1c3951d5bd952d",
       "message": "O agregador do grupo conhece o hospedeiro {hostId}, mas não tem um endereço para ele."
     },
-    "pool.host_refresh_host_id_invalid": {
-      "sourceHash": "5dc9a87b2c59c2441c514bb916bba7b038d8f8a9eaedd244ca31b333d9ff2372",
+    "pool.host_repair_host_id_invalid": {
+      "sourceHash": "db6ff3526b69dc00b78da4db9612243b774ad58dcb99c1cf4ea1a515dc0c58f0",
       "message": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais."
     },
-    "pool.host_refresh_host_refused": {
-      "sourceHash": "56d33e4c98bb9f50f0973fe020a8ccbbc22243478b347e92df930e6cff593228",
-      "message": "O hospedeiro {hostId} recusou a atualização (HTTP {status}, {hostReason})."
+    "pool.host_repair_host_refused": {
+      "sourceHash": "1d27446eee4231507dd8fb3ba830ac393da2d60cf4ebf9b0fc956f254f16d057",
+      "message": "O hospedeiro {hostId} recusou o reparo (HTTP {status}, {hostReason})."
     },
-    "pool.host_refresh_host_unavailable": {
-      "sourceHash": "b3715157064bdbbc3984f7b3a9cecd76f96a998750a9636495343efedb01104a",
-      "message": "O hospedeiro {hostId} não conseguiu iniciar a atualização (HTTP {status}, {hostReason}); tente novamente com o mesmo id da solicitação {requestId}."
+    "pool.host_repair_host_unavailable": {
+      "sourceHash": "96c4d278b66a48321d6b37996b243830d61e6cb694f09eca6598414dba330290",
+      "message": "O hospedeiro {hostId} não conseguiu iniciar o reparo (HTTP {status}, {hostReason}); tente novamente com o mesmo id da solicitação {requestId}."
     },
-    "pool.host_refresh_host_unknown": {
-      "sourceHash": "d55e36c504cb8632d76ebce0e6d367903d46b272ad93a702473d2b8e60d61c12",
+    "pool.host_repair_host_unknown": {
+      "sourceHash": "7f7f99d0e379a1effbade8f61f900069a23d6afc99c8691fdd50be1150fb104b",
       "message": "O agregador do grupo não conhece o hospedeiro {hostId}."
     },
-    "pool.host_refresh_host_unreachable": {
-      "sourceHash": "4128a6712f97438127c79ab75f402db993056a6e848fbd76264ba9a9dd5c1af1",
+    "pool.host_repair_host_unreachable": {
+      "sourceHash": "2a99a80a1d8d2f33330b7baa748c8ba75eadd7404afad3898256e4defb8697f8",
       "message": "O hospedeiro {hostId} não respondeu; tente novamente com o mesmo id da solicitação {requestId}."
     },
-    "pool.host_refresh_mint_failed": {
-      "sourceHash": "70ecd763090de98e8db26e23fae65769e700301ca9afc8f94083c752dc47460e",
-      "message": "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro {hostId}."
+    "pool.host_repair_mint_failed": {
+      "sourceHash": "bb4eac28afd5edff0afb1d22fb91bc893f47783b281c2b82dd68afc67825e1ed",
+      "message": "Este serviço não conseguiu assinar a solicitação de reparo para o hospedeiro {hostId}."
     },
-    "pool.host_refresh_reply_invalid": {
-      "sourceHash": "c492f29caacd46d1f360fc019be01cd247aa895111294cacd79412ad3b83cfb2",
+    "pool.host_repair_reply_invalid": {
+      "sourceHash": "5be0438d740d879df62774c732b060755d7866a17a6d34e205669ea361c9c438",
       "message": "O hospedeiro {hostId} enviou uma resposta que este serviço não consegue usar ({detail})."
     },
-    "pool.host_refresh_request_closed": {
-      "sourceHash": "e4cd326b077434b338df403e422adc3c2f5524f511cfdcb155ccb72ef8fced7d",
-      "message": "A solicitação {requestId} no hospedeiro {hostId} já terminou ({state}, {verdict}); gere um novo id de solicitação para atualizar novamente."
+    "pool.host_repair_request_closed": {
+      "sourceHash": "1e7495e21e5c07a1d3f357313401ca84ade5285a336858f7f61dcecd4a1b88b7",
+      "message": "A solicitação {requestId} no hospedeiro {hostId} já terminou ({state}, {verdict}); gere um novo id de solicitação para reparar novamente."
     },
-    "pool.host_refresh_request_conflict": {
-      "sourceHash": "822c7a70a98b257c68dbdde9ded1ce8cb49ed1fad5c51521eecfaaf2c668bd2d",
+    "pool.host_repair_request_conflict": {
+      "sourceHash": "eeaef110ea6c5d9d1875da08b3d2c7c9e08681935073895c0af557e7bce2d3eb",
       "message": "A solicitação {requestId} já foi usada com outro nível ou outro teto; reenvie a política original ou gere um novo id de solicitação."
     },
-    "pool.host_refresh_request_id_invalid": {
-      "sourceHash": "64a72781f67a966f531d1d4c7fd5ab5db604be990e12c02672dde4efdc2660fb",
+    "pool.host_repair_request_id_invalid": {
+      "sourceHash": "92f5aa0515e8c3c28966d4e115fa875d3beefa57660b038bae713e8a395d580e",
       "message": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa."
     },
-    "pool.host_refresh_rung_unsupported": {
-      "sourceHash": "4881b6a2f19d5d28ec8b798d39e30244e3b6363b4bc738a2df48be5f55b9007b",
+    "pool.host_repair_rung_unsupported": {
+      "sourceHash": "e896f16e5d5d3e5796113d2e27fa9ab747a63a18965ee591181fa4294113c9f1",
       "message": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker."
     },
-    "pool.host_refresh_signing_unconfigured": {
-      "sourceHash": "087baff37bb2cc3298ad1878c2eb03797a5a2056b41bd3d91848d4ddab966132",
-      "message": "A atualização remota do hospedeiro está desativada: este serviço não possui autoridade de assinatura de atualização ({path})."
+    "pool.host_repair_signing_unconfigured": {
+      "sourceHash": "a3addb68ddb7f2344b4f1bacc4c4df527190ccb27c0298d6f969a24e5960664e",
+      "message": "O reparo remoto do hospedeiro está desativado: este serviço não possui autoridade de assinatura de reparo ({path})."
     },
-    "pool.host_refresh_tier_unsupported": {
-      "sourceHash": "31b81634d2509d6b21e5b2404788fe9097db8d27637fca9b04056354cd32cba0",
+    "pool.host_repair_tier_unsupported": {
+      "sourceHash": "a1adb16b528191b9eb6e1fdaa9b8394c246edbbe6b06df6e3ad6ff23cfb6973f",
       "message": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local."
     },
-    "pool.host_refresh_unavailable": {
-      "sourceHash": "5679edd961ccaff90c4861db201288cd8a090985457b4c7611921c887aa3ff86",
-      "message": "O hospedeiro {hostId} não anuncia suporte à atualização remota ({reason})."
+    "pool.host_repair_unavailable": {
+      "sourceHash": "304dbc3c629bc4fdbc4c531cb691340e9aa2054ab4aef2ff9bfbefbe7c3e7672",
+      "message": "O hospedeiro {hostId} não anuncia suporte ao reparo remoto ({reason})."
+    },
+    "pool.host_update_body_invalid": {
+      "sourceHash": "ba28c957f1e589f48c60a704d18fb9e0acb9a678df0946584f5c5fc8b239bc02",
+      "origin": "machine",
+      "message": "A solicitação de atualização deve ser um único objeto JSON com apenas hostId, requestId, scope, drainSeconds e expectCommit, cada um uma vez ({detail})."
+    },
+    "pool.host_update_field_unsupported": {
+      "sourceHash": "fc99980e00a5bb63febd671861ece31ff02247ab1e1688386dc430939bdf9baf",
+      "origin": "machine",
+      "message": "A solicitação de atualização trouxe o campo não suportado {field}."
+    },
+    "pool.host_update_field_forbidden": {
+      "sourceHash": "718ed9396802361a0e63bbb68dee593ed6995e635606422df158d85715f9564f",
+      "origin": "machine",
+      "message": "A solicitação de atualização trouxe {field}; nenhuma solicitação deste serviço encerra um ciclo em execução. Para encerrar um, execute Invoke-HostUpdate.ps1 -Drain now em um shell no hospedeiro."
+    },
+    "pool.host_update_scope_invalid": {
+      "sourceHash": "0c6890ed2f6a472674769e8f550d0c6dee32fe976619fd1ffa0279e3df2f026c",
+      "origin": "machine",
+      "message": "scope deve ser restart ou full."
+    },
+    "pool.host_update_drain_invalid": {
+      "sourceHash": "c828fece04d00df476514b8a296a221489297665306cc4212d566867817f74ad",
+      "origin": "machine",
+      "message": "drainSeconds deve ser um número inteiro de 60 a 21600."
+    },
+    "pool.host_update_commit_invalid": {
+      "sourceHash": "dd4bec3cac569755aec7387f14db3ddf53b1002c8c79362c5b61f1aef2050089",
+      "origin": "machine",
+      "message": "expectCommit deve ter de 7 a 40 dígitos hexadecimais minúsculos."
+    },
+    "pool.host_update_signing_unconfigured": {
+      "sourceHash": "072393d7c49ac068840abdf72a332e2aa1579e81e5eb523f8233520a60e6d097",
+      "origin": "machine",
+      "message": "A atualização remota de hospedeiro está desativada: este serviço não possui chave de assinatura de atualização ou credencial de operador ({path})."
+    },
+    "pool.host_update_unavailable": {
+      "sourceHash": "74facbaad0fe33d123f4d279d444f16c01a54430d6abb6d0ec9a439cfe8de105",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} não pode aceitar uma atualização remota agora ({reason})."
+    },
+    "pool.host_update_mint_failed": {
+      "sourceHash": "51d442d8ce8f1fa78b9435bdb1b482039fdee7bff22e010d0516bb3d89bd4d78",
+      "origin": "machine",
+      "message": "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro {hostId}."
+    },
+    "pool.host_update_busy": {
+      "sourceHash": "7169e8f6eb0fe54c0a6c1e94c5c3b8c64bee70136e387aab4a85698804a27f39",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} está ocupado com a solicitação {activeRequestId}; acompanhe essa solicitação em vez de iniciar outra."
+    },
+    "pool.host_update_request_conflict": {
+      "sourceHash": "6e8918d70002d078207f3875f9f885bd9ebabacacd63cc9d712069154132b3c6",
+      "origin": "machine",
+      "message": "A solicitação {requestId} já foi usada com outro escopo, limite de drenagem ou commit esperado; reenvie a solicitação original ou inicie uma nova."
+    },
+    "pool.host_update_host_refused": {
+      "sourceHash": "49ae982dfb6b5ac2be356e454983bb75a71b33e5d2562254b77163f39fb00ef8",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} recusou a atualização (HTTP {status}, {hostReason})."
+    },
+    "pool.host_update_host_unavailable": {
+      "sourceHash": "166cdeda3607ffe287544d4c6a862302e3339e7e339b95be01870f71da231cee",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} não conseguiu enfileirar a atualização (HTTP {status}, {hostReason}); tente novamente com o mesmo id de solicitação {requestId}."
+    },
+    "pool.host_update_page_title": {
+      "sourceHash": "257e6b53126719c1645c26c6c7865b19f0b8738290a14a91d12a6ecf5f50db96",
+      "origin": "machine",
+      "message": "Atualizar hospedeiro — Yuruna Pool Control"
+    },
+    "pool.host_update_heading": {
+      "sourceHash": "e4997dcb407b53dddaeb792e8e1f0fa303427eb0a7605e98b65677a3721bbc39",
+      "origin": "machine",
+      "message": "Atualizar hospedeiro"
+    },
+    "pool.host_update_intro": {
+      "sourceHash": "95924f50eff90b3ee095d58586555cdf469691af5f2c8994b09d627ea27486f6",
+      "origin": "machine",
+      "message": "Esta página assina uma atualização para o hospedeiro abaixo e a envia para ele. O hospedeiro espera o ciclo em execução terminar, então para o executor, atualiza seu checkout e inicia o executor de novo; ele desiste após o limite de drenagem sem mudar nada. Nenhuma solicitação desta página encerra um ciclo em execução: para encerrar um, execute o comando mostrado abaixo em um shell no hospedeiro."
+    },
+    "pool.host_update_scope_label": {
+      "sourceHash": "62afec2f410112bd090de058f2ec774c97d623653f58b5a3f97d759a9573bad3",
+      "origin": "machine",
+      "message": "Escopo"
+    },
+    "pool.host_update_drain_label": {
+      "sourceHash": "cd48ad7b33f2fc3c564fe3f4e84e8f91ed03cb21d3570466bff408bdd995893e",
+      "origin": "machine",
+      "message": "Limite de drenagem"
+    },
+    "pool.host_update_commit_label": {
+      "sourceHash": "b10c39d3467f44d362b5005d499e7139aa0fc371d3f3cc8b8e41ac150e7c78f9",
+      "origin": "machine",
+      "message": "Commit esperado"
+    },
+    "pool.host_update_request_label": {
+      "sourceHash": "50d65ff0d39654ca108fa198a023ef791b97db0bb92aea34ed0d8813d6793e83",
+      "origin": "machine",
+      "message": "ID da solicitação"
+    },
+    "pool.host_update_drain_now_label": {
+      "sourceHash": "92c6269f55ee5aa46ce295b52195a1f5c729ace0a520282fadd8083257ec9efa",
+      "origin": "machine",
+      "message": "Para encerrar o ciclo em execução agora"
+    },
+    "pool.host_update_credential_label": {
+      "sourceHash": "30124be1c8b2a6761776e003e9c8980355df53dc32bf65c18bba1f5cd65d897f",
+      "origin": "machine",
+      "message": "Credencial do operador"
+    },
+    "pool.host_update_submit": {
+      "sourceHash": "21a7b5669388251dff501fbab79a1740ab85bbd387442ebd2ff31780c476231b",
+      "origin": "machine",
+      "message": "Enviar a atualização"
+    },
+    "pool.host_update_open_diagnostics": {
+      "sourceHash": "eacfc93271db7ab534e9ced6015882a96a18a313d1582c6399b7364282d7a6f2",
+      "origin": "machine",
+      "message": "Abrir a página Diagnósticos do hospedeiro"
+    },
+    "pool.host_update_scope": {
+      "sourceHash": "6ba9bc1c34a7c9e65eb99ed7325a49cc903bb0602fcabe134b070af182fe652a",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "restart": "Reiniciar o executor no código atual",
+          "full": "Reinstalar dependências e configurações, depois reiniciar",
+          "other": "{scope}"
+        }
+      }
+    },
+    "pool.host_update_drain_value": {
+      "sourceHash": "43d6762592811cae4d12a1b881f9ef73d7b1be4b989ad998acab97fa04ba5569",
+      "origin": "machine",
+      "message": "{seconds} s ({minutes} min)"
+    },
+    "pool.host_update_not_offered": {
+      "sourceHash": "6075130dc0f22194a450b839ecf93a993d161fac9207eb69801b7a1c394c5b64",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} não pode aceitar uma atualização remota agora ({reason})."
+    },
+    "pool.host_update_loading": {
+      "sourceHash": "3c278fc3bbcf83b82e8cd323c51e682f62d4fd9b74a39d6af14db0334092d90a",
+      "origin": "machine",
+      "message": "Lendo o hospedeiro…"
+    },
+    "pool.host_update_credential_missing": {
+      "sourceHash": "9c144b7bf00111579d8cf05ab061f0d68d7dc21d839de796823fb91a59a11309",
+      "origin": "machine",
+      "message": "Informe a credencial do operador."
+    },
+    "pool.host_update_sending": {
+      "sourceHash": "60490eccbf22909be35e2bd296fad69434f45f1ca2ca8e3c41415155a89a6699",
+      "origin": "machine",
+      "message": "Assinando e enviando a atualização…"
+    },
+    "pool.host_update_sent": {
+      "sourceHash": "339a8d93884d0156bd673738ff0dcf96583530bae7760ab458ead1dc7e44d1d1",
+      "origin": "machine",
+      "message": "O hospedeiro {hostId} enfileirou a atualização {requestId}; abrindo a página Diagnósticos dele."
+    },
+    "pool.host_update_completed": {
+      "sourceHash": "f6772a2fd39f2fe11c70551c4f1a5cb9355804858c9e45a7ea2a9f7f3024e8f5",
+      "origin": "machine",
+      "message": "A solicitação {requestId} já terminou no hospedeiro {hostId} ({verdict})."
+    },
+    "pool.host_update_action": {
+      "sourceHash": "683d21f268652edf555bd3ae8583746df16c0e5006d6b4f252bfdf2c5a9100e1",
+      "origin": "machine",
+      "message": "Atualizar hospedeiro"
     },
     "pool.board_live_numbers_unavailable": {
       "sourceHash": "1f20844d68c5c193d166e7a0c448cd3525ef8910cdb3f69e759b8fda636e0768",

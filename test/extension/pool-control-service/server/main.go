@@ -11,6 +11,7 @@ package main
 
 import (
 	"context"
+	"crypto/rsa"
 	"flag"
 	"log"
 	"os"
@@ -25,7 +26,8 @@ import (
 	"pool-control-service/internal/httpsrv"
 	"pool-control-service/internal/state"
 	"yuruna.com/test/extension/extension-sdk/beacon"
-	"yuruna.com/test/extension/extension-sdk/hostrefresh"
+	"yuruna.com/test/extension/extension-sdk/hostrepair"
+	"yuruna.com/test/extension/extension-sdk/hostupdate"
 )
 
 var version = "dev"
@@ -48,8 +50,9 @@ func run() error {
 	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the configuration + refresh status.json")
 	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each configuration operation for POOL_CONTROL_CONFIGURATION_GIT_URL (empty pins the launch flag)")
 	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the internal authentication key accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
-	refreshAuthorityFile := flag.String("refresh-authority-file", config.DefaultRefreshAuthorityFile, "file holding the host refresh signing authority (one yhra1 line, owner-only); missing, malformed or group/world-readable disables remote host refresh")
-	refreshCredentialFile := flag.String("refresh-credential-file", config.DefaultRefreshCredentialFile, "file holding the operator refresh credential (one yhrc1 line, owner-only) required in X-Yuruna-Refresh-Credential; missing, malformed or group/world-readable disables remote host refresh")
+	repairAuthorityFile := flag.String("repair-authority-file", config.DefaultRepairAuthorityFile, "file holding the host repair signing authority (one yrpa1 line, owner-only); missing, malformed or group/world-readable disables remote host repair")
+	operatorCredentialFile := flag.String("operator-credential-file", config.DefaultOperatorCredentialFile, "file holding the operator credential (one yoc1 line, owner-only) required in X-Yuruna-Operator-Credential; missing, malformed or group/world-readable disables remote host repair and remote host update")
+	updateSigningKeyFile := flag.String("update-signing-key-file", config.DefaultUpdateSigningKeyFile, "file holding the host update signing key (one PKCS#8 RSA PEM block of at least 3072 bits, owner-only); missing, malformed or group/world-readable disables remote host update")
 	autoEnroll := flag.Bool("auto-enroll", false, "enable the auto-enrollment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
 	autoEnrollInterval := flag.Duration("auto-enroll-interval", 60*time.Second, "how often the auto-enrollment sweep runs when --auto-enroll is set")
 	scanCIDR := flag.String("scan-cidr", "", "network to sweep for Yuruna hosts, in CIDR notation (empty = the /24 around this service's own address)")
@@ -69,7 +72,8 @@ func run() error {
 	// route into the gate is unavailable, and an operator can still unlock with
 	// the dashboard's lab token.
 	authToken := readTokenFile(*authTokenFile)
-	refreshAuthority, refreshCredential := readRefreshSecrets(*refreshAuthorityFile, *refreshCredentialFile, authToken)
+	repairAuthority, operatorCredential := readRepairSecrets(*repairAuthorityFile, *operatorCredentialFile, authToken)
+	updateSigningKey := readUpdateSigningKey(*updateSigningKeyFile, operatorCredential)
 
 	runner := &configuration.Runner{Pwsh: *pwshPath, RepoDir: *repoDir, ConfigurationGitUrl: *configurationGitURL, ConfigPath: *configPath}
 	store := state.New(*stateDir, time.Now())
@@ -78,7 +82,8 @@ func run() error {
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
 		AggregatorURL: *aggregatorURL, HostID: *hostID, ConfigurationGitURL: *configurationGitURL,
 		AuthToken: authToken, AuthTokenFile: *authTokenFile,
-		RefreshAuthority: refreshAuthority, RefreshCredential: refreshCredential, RefreshAuthorityFile: *refreshAuthorityFile,
+		RepairAuthority: repairAuthority, OperatorCredential: operatorCredential, RepairAuthorityFile: *repairAuthorityFile,
+		UpdateSigningKey: updateSigningKey, UpdateSigningKeyFile: *updateSigningKeyFile,
 		ScanCIDR: *scanCIDR, ScanPort: *scanPort, ScanInterval: *scanInterval, ScanTTL: *scanTTL,
 		Language: *language, AllowPseudoLocale: *allowPseudoLocale,
 	})
@@ -171,18 +176,36 @@ func readTokenFile(path string) string {
 	return token
 }
 
-// readRefreshSecrets loads the refresh signing authority and the operator
-// refresh credential, and logs whether remote host refresh is enabled. The
-// rules live in httpsrv.LoadRefreshSecrets; the log line names files and tags,
+// readRepairSecrets loads the repair signing authority and the
+// operator credential, and logs whether remote host repair is enabled. The
+// rules live in httpsrv.LoadRepairSecrets; the log line names files and tags,
 // never secret material.
-func readRefreshSecrets(authorityFile, credentialFile, legacyToken string) ([]byte, string) {
-	authority, credential, err := httpsrv.LoadRefreshSecrets(authorityFile, credentialFile, legacyToken)
+func readRepairSecrets(authorityFile, credentialFile, legacyToken string) ([]byte, string) {
+	authority, credential, err := httpsrv.LoadRepairSecrets(authorityFile, credentialFile, legacyToken)
 	if err != nil {
-		log.Printf("pool-control-service: remote host refresh disabled: %v", err)
+		log.Printf("pool-control-service: remote host repair disabled: %v", err)
 		return nil, ""
 	}
-	log.Printf("pool-control-service: remote host refresh enabled (authority tag %s)", hostrefresh.AuthorityTag(authority))
+	log.Printf("pool-control-service: remote host repair enabled (authority tag %s)", hostrepair.AuthorityTag(authority))
 	return authority, credential
+}
+
+// readUpdateSigningKey loads the host update signing key and logs whether
+// remote host update is enabled. The operator credential is read with the
+// repair secrets: without it the update route stays closed, and the log says
+// so. The log line names the file and the public key tag, never key material.
+func readUpdateSigningKey(path, operatorCredential string) *rsa.PrivateKey {
+	key, err := hostupdate.LoadSigningKeyFile(path)
+	if err != nil {
+		log.Printf("pool-control-service: remote host update disabled: %v", err)
+		return nil
+	}
+	if operatorCredential == "" {
+		log.Printf("pool-control-service: remote host update disabled: no usable operator credential (key tag %s)", hostupdate.KeyTag(&key.PublicKey))
+		return key
+	}
+	log.Printf("pool-control-service: remote host update enabled (key tag %s)", hostupdate.KeyTag(&key.PublicKey))
+	return key
 }
 
 // uiPort extracts the port from an addr like "0.0.0.0:80" for the beacon's

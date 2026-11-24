@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 429cc804-7b62-2db1-9091-f5ab5410d797
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,8 +128,8 @@
     'status.api_forbidden_not_served' = 'Forbidden (not a served file)'
     'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = 'forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP'
     'status.api_guest_channel_key_absent' = 'this host holds no guest-channel key yet; it is created when the host first renders a guest seed'
-    'status.api_host_refresh_authorization_refused' = @(
-        'refresh authorization refused ('
+    'status.api_host_repair_authorization_refused' = @(
+        'repair authorization refused ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -137,8 +137,8 @@
         }
         ')'
     )
-    'status.api_host_refresh_busy' = 'another host operation is in progress'
-    'status.api_host_refresh_request_closed' = @(
+    'status.api_host_repair_busy' = 'another host operation is in progress'
+    'status.api_host_repair_request_closed' = @(
         'this request id is already closed ('
         @{
             'arg' = 'state'
@@ -147,15 +147,36 @@
         }
         ')'
     )
-    'status.api_host_refresh_request_conflict' = 'this request id was already used with different settings'
-    'status.api_host_refresh_unavailable' = @(
-        'host refresh is not available on this host ('
+    'status.api_host_repair_request_conflict' = 'this request id was already used with different settings'
+    'status.api_host_repair_unavailable' = @(
+        'host repair is not available on this host ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
         ')'
+    )
+    'status.api_host_update_authorization_refused' = @(
+        'host update authorization refused ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
+    'status.api_host_update_busy' = 'a host update is in progress on this host'
+    'status.api_host_update_controller_absent' = 'no host controller is running on this host; nothing was queued'
+    'status.api_host_update_proof_missing' = 'a host update from another machine needs an update proof from pool-control; nothing was queued'
+    'status.api_host_update_scope_unavailable' = @(
+        'the host controller does not run the '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' scope; nothing was queued'
     )
     'status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0' = 'internal authentication key not configured on this host'
     'status.api_internal_error' = 'the request failed on the host; see server.err'
@@ -334,8 +355,8 @@
     'status.config' = 'Config'
     'status.config_field_alwaysredownload' = 'alwaysRedownload'
     'status.config_field_armwindowhours' = 'armWindowHours'
-    'status.config_field_autorefreshafterstalls' = 'autoRefreshAfterStalls'
     'status.config_field_autoremediation' = 'autoRemediation'
+    'status.config_field_autorepairafterstalls' = 'autoRepairAfterStalls'
     'status.config_field_autoseed' = 'autoSeed'
     'status.config_field_bootdelayseconds' = 'bootDelaySeconds'
     'status.config_field_cachingproxyip' = 'cachingProxyIp'
@@ -445,7 +466,7 @@
         }
         ')'
     )
-    'status.control_host_token_missing' = 'This host holds no lab token yet.'
+    'status.control_host_token_missing' = 'This host holds no internal authentication key yet.'
     'status.control_instructions' = @(
         'This host accepts control only from a browser on the host itself ('
         @{
@@ -453,7 +474,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '), or one opened through the Yuruna hosts dashboard link (which grants a short-lived token). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run '
+        '), or one opened through the Yuruna hosts dashboard link (which grants a short-lived control proof). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run '
         @{
             'arg' = 'command'
             'type' = 'detail'
@@ -461,7 +482,7 @@
         }
         " with the code from the dashboard`’s Lab token tile."
     )
-    'status.control_proof_expired' = "This page`’s control token has expired (they last 15 minutes)."
+    'status.control_proof_expired' = "This page`’s control proof has expired (proofs last 15 minutes)."
     'status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b' = 'Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.'
     'status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_' = @(
         'Control proof expires in '
@@ -472,12 +493,12 @@
         }
         's -- save soon, or re-open this host from the dashboard link for a fresh one.'
     )
-    'status.control_proof_invalid' = "This page`’s control token does not verify here — this host`’s stored lab token likely differs from the lab`’s current one, so re-enroll."
-    'status.control_proof_missing' = 'This page was opened without a control token, so none was sent.'
+    'status.control_proof_invalid' = "This page`’s control proof does not verify here — this host`’s internal authentication key likely differs from the lab`’s current one, so re-enroll with a Lab token."
+    'status.control_proof_missing' = 'This page was opened without a control proof, so none was sent.'
     'status.control_refused' = 'Control refused.'
     'status.control_routes' = 'control-route setup'
     'status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80' = @(
-        'This host has no lab-auth-token, so remote control is loopback-only. Open this page as '
+        'This host has no internal authentication key, so remote control is loopback-only. Open this page as '
         @{
             'arg' = 'address'
             'type' = 'token'
@@ -730,11 +751,11 @@
         }
         ' MB'
     )
-    'status.git_source_mirror_confirmed' = 'mirror.origin'
-    'status.git_source_mirror_fresh' = 'mirror.fresh'
-    'status.git_source_mirror_stale' = 'mirror.stale'
-    'status.git_source_not_applicable' = 'not.applicable'
-    'status.git_source_origin_direct' = 'remote.origin'
+    'status.git_source_mirror_confirmed' = 'mirror'
+    'status.git_source_mirror_fresh' = 'mirror fresh'
+    'status.git_source_mirror_stale' = 'mirror stale'
+    'status.git_source_not_applicable' = 'not applicable'
+    'status.git_source_origin_direct' = 'remote'
     'status.guest_not_found' = @(
         @{
             'arg' = 'guest'
@@ -798,24 +819,24 @@
             )
         }
     }
-    'status.host_refresh_action_dispose_obligations' = 'Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.'
-    'status.host_refresh_action_elevate' = 'Next step: the repair needs administrator rights; run it on the host from an elevated session.'
-    'status.host_refresh_action_grant_automation' = 'Next step: allow this host''s automation access to UTM, then refresh again.'
-    'status.host_refresh_action_gui_session' = 'Next step: sign in to a desktop session on the host, then refresh again.'
-    'status.host_refresh_action_install_client' = 'Next step: install the hypervisor''s command-line client on the host, then refresh again.'
-    'status.host_refresh_action_resume_request' = 'Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.'
-    'status.host_refresh_action_start_runner' = 'Next step: start the runner on the host; no recorded launch could be reused to restart it.'
-    'status.host_refresh_authorization_refused' = @(
-        'This refresh needs a refresh proof that this page does not have ('
+    'status.host_repair_action_dispose_obligations' = 'Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.'
+    'status.host_repair_action_elevate' = 'Next step: the repair needs administrator rights; run it on the host from an elevated session.'
+    'status.host_repair_action_grant_automation' = 'Next step: allow this host''s automation access to UTM, then repair again.'
+    'status.host_repair_action_gui_session' = 'Next step: sign in to a desktop session on the host, then repair again.'
+    'status.host_repair_action_install_client' = 'Next step: install the hypervisor''s command-line client on the host, then repair again.'
+    'status.host_repair_action_resume_request' = 'Next step: resume this request on the host with pwsh test/lab/Invoke-HostRepair.ps1 -Resume.'
+    'status.host_repair_action_start_runner' = 'Next step: start the runner on the host; no recorded launch could be reused to restart it.'
+    'status.host_repair_authorization_refused' = @(
+        'This repair needs a repair proof that this page does not have ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '). Use the status page on the host itself, or the pool-control refresh action.'
+        '). Use the status page on the host itself, or the pool-control repair action.'
     )
-    'status.host_refresh_busy' = @(
-        'Another host refresh ('
+    'status.host_repair_busy' = @(
+        'Another host repair ('
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -823,8 +844,8 @@
         }
         ') is in progress; showing its progress.'
     )
-    'status.host_refresh_check_host' = 'On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state.'
-    'status.host_refresh_closed' = @(
+    'status.host_repair_check_host' = 'On the host, run pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf to see the current state.'
+    'status.host_repair_closed' = @(
         'Request '
         @{
             'arg' = 'requestId'
@@ -837,10 +858,10 @@
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '); start a new refresh.'
+        '); start a new repair.'
     )
-    'status.host_refresh_confirm' = @(
-        'Refresh this host, up to the '
+    'status.host_repair_confirm' = @(
+        'Repair this host, up to the '
         @{
             'arg' = 'ceiling'
             'type' = 'identifier'
@@ -854,18 +875,9 @@
         }
         ' minutes.'
     )
-    'status.host_refresh_conflict' = @(
-        'Request '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'external'
-        }
-        ' was already sent with different settings; start a new refresh.'
-    )
-    'status.host_refresh_launcher_failed' = 'The host could not start the refresh worker. The request is kept; select Retry to start it again.'
-    'status.host_refresh_lost' = @(
-        'Refresh '
+    'status.host_repair_launcher_failed' = 'The host could not start the repair worker. The request is kept; select Retry to start it again.'
+    'status.host_repair_lost' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -877,11 +889,11 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one.'
+        ' seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Repair host to start a new one.'
     )
-    'status.host_refresh_note' = 'Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.'
-    'status.host_refresh_progress' = @(
-        'Refresh '
+    'status.host_repair_note' = 'Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.'
+    'status.host_repair_progress' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -913,19 +925,11 @@
         }
         ' seconds left.'
     )
-    'status.host_refresh_recovery_pending' = 'Services or the runner still need restoring. Retry resumes the same request.'
-    'status.host_refresh_rejected' = @(
-        'The host rejected the refresh request: '
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'status.host_refresh_remote_viewer' = 'This page is open from another machine, so it can watch a host refresh but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRefresh.ps1.'
-    'status.host_refresh_retry' = 'Retry'
-    'status.host_refresh_stale' = @(
-        'Refresh '
+    'status.host_repair_recovery_pending' = 'Services or the runner still need restoring. Retry resumes the same request.'
+    'status.host_repair_remote_viewer' = 'This page is open from another machine, so it can watch a host repair but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRepair.ps1.'
+    'status.host_repair_retry' = 'Retry'
+    'status.host_repair_stale' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -939,12 +943,11 @@
         }
         ' seconds. The worker may have stopped; check the host before starting another repair.'
     )
-    'status.host_refresh_start' = 'Refresh host'
-    'status.host_refresh_start_cycle_busy' = 'A start-cycle request is in progress; try again when it finishes.'
-    'status.host_refresh_submitting' = 'Sending the refresh request...'
-    'status.host_refresh_title' = 'Host refresh'
-    'status.host_refresh_unavailable' = @(
-        'Host refresh is not available on this host ('
+    'status.host_repair_start' = 'Repair host'
+    'status.host_repair_start_cycle_busy' = 'A start-cycle request is in progress; try again when it finishes.'
+    'status.host_repair_title' = 'Host repair'
+    'status.host_repair_unavailable' = @(
+        'Host repair is not available on this host ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -952,8 +955,8 @@
         }
         ').'
     )
-    'status.host_refresh_verdict_abandoned' = @(
-        'Refresh '
+    'status.host_repair_verdict_abandoned' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -961,8 +964,8 @@
         }
         ' was abandoned after repeated attempts; its recovery record is kept on the host.'
     )
-    'status.host_refresh_verdict_already_healthy' = @(
-        'Refresh '
+    'status.host_repair_verdict_already_healthy' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -970,8 +973,8 @@
         }
         ' finished: the host was already healthy, so nothing was changed.'
     )
-    'status.host_refresh_verdict_failed' = @(
-        'Refresh '
+    'status.host_repair_verdict_failed' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -985,8 +988,8 @@
         }
         ').'
     )
-    'status.host_refresh_verdict_partial' = @(
-        'Refresh '
+    'status.host_repair_verdict_partial' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1000,8 +1003,8 @@
         }
         '); some services or the runner still need attention.'
     )
-    'status.host_refresh_verdict_refused' = @(
-        'Refresh '
+    'status.host_repair_verdict_refused' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1015,8 +1018,8 @@
         }
         ').'
     )
-    'status.host_refresh_verdict_repaired' = @(
-        'Refresh '
+    'status.host_repair_verdict_repaired' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1024,8 +1027,8 @@
         }
         ' finished: the host was repaired and the runner is ready.'
     )
-    'status.host_refresh_verdict_still_unresponsive' = @(
-        'Refresh '
+    'status.host_repair_verdict_still_unresponsive' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1033,8 +1036,8 @@
         }
         ' ended: the hypervisor still does not respond.'
     )
-    'status.host_refresh_verdict_unknown' = @(
-        'Refresh '
+    'status.host_repair_verdict_unknown' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1048,8 +1051,8 @@
         }
         ').'
     )
-    'status.host_refresh_waiting' = @(
-        'Refresh '
+    'status.host_repair_waiting' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1057,8 +1060,8 @@
         }
         ' was accepted; waiting for the worker''s first report.'
     )
-    'status.host_refresh_waiting_long' = @(
-        'Refresh '
+    'status.host_repair_waiting_long' = @(
+        'Repair '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1072,6 +1075,543 @@
         }
         ' seconds. The worker may have failed to start; check the host.'
     )
+    'status.host_request_conflict' = @(
+        'Request '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' was already sent with different settings; start a new request.'
+    )
+    'status.host_request_rejected' = @(
+        'The host rejected the request: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'status.host_request_submitting' = 'Sending the request...'
+    'status.host_update_action' = @{
+        'kind' = 'select'
+        'selector' = 'action'
+        'variants' = @{
+            'act_at_host' = 'Next step: check the host and act there.'
+            'end_one_shot' = 'Next step: end the one-shot session on the host, then press again.'
+            'other' = @(
+                'Next step: '
+                @{
+                    'arg' = 'action'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '.'
+            )
+            'provision_elevation' = 'Next step: give the runner its sudo rule on the host, then press again.'
+            'provision_elevation_macos' = @(
+                'Next step: on the host, run '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' from a terminal of the desktop session and answer its prompts; it installs the sudoers entry host updates use. Then press again.'
+            )
+            'read_remarks' = 'Next step: read the remarks.'
+            'reboot_host' = 'Next step: restart Windows on the host, then start the runner.'
+            'release' = @(
+                'Next step: to end it, run on the host: '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'release_diagnostic_hold' = 'Next step: release the VM kept for diagnosis, then press again.'
+            'repair_checkout' = 'Next step: repair the checkout on the host; the host keeps trying.'
+            'retry_or_drain_now' = @(
+                'Next step: press again, or end the cycle now on the host: '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'start_runner' = 'Next step: start the runner on the host.'
+            'stop_runner_by_hand' = 'Next step: stop the runner on the host by hand.'
+        }
+    }
+    'status.host_update_blocks' = @(
+        'A host update ('
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') is in progress; try again when it finishes.'
+    )
+    'status.host_update_busy' = @{
+        'kind' = 'select'
+        'selector' = 'kind'
+        'variants' = @{
+            'host_repair' = @(
+                'A host repair ('
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ') is in progress; try again when it finishes.'
+            )
+            'host_update' = @(
+                'Another host update ('
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ') is in progress; showing its progress.'
+            )
+            'other' = 'A start-cycle request is in progress; try again when it finishes.'
+        }
+    }
+    'status.host_update_confirm' = @(
+        'Update host ('
+        @{
+            'arg' = 'scope'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        ')? The runner stops when the running cycle ends and restarts on current code; the update gives up after '
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' minutes. To end the cycle now instead, run on the host: '
+        @{
+            'arg' = 'command'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'status.host_update_console' = @{
+        'kind' = 'select'
+        'selector' = 'console'
+        'variants' = @{
+            'none' = 'The runner started without a console.'
+            'other' = @(
+                'The runner''s console: '
+                @{
+                    'arg' = 'console'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '.'
+            )
+            'tmux' = @(
+                'To open the runner''s console, run on the host: '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'window' = 'The runner''s console is a window of its own on the desktop of the test account: open it at the machine, or over a remote desktop connection to that session.'
+        }
+    }
+    'status.host_update_countdown' = @(
+        'The status service is restarting; expected back in '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' seconds.'
+    )
+    'status.host_update_cycle_time' = @(
+        'The running cycle has run '
+        @{
+            'arg' = 'elapsed'
+            'type' = 'duration'
+            'trust' = 'internal'
+        }
+        '; recent cycles took about '
+        @{
+            'arg' = 'median'
+            'type' = 'duration'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'status.host_update_debt' = @(
+        'Still owed on the host: '
+        @{
+            'arg' = 'actions'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'status.host_update_first_cycle' = @{
+        'kind' = 'select'
+        'selector' = 'result'
+        'variants' = @{
+            'fail' = 'The first cycle after the update failed.'
+            'other' = 'Waiting for the first cycle after the update.'
+            'pass' = 'The first cycle after the update passed.'
+        }
+    }
+    'status.host_update_lost' = @(
+        'Host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': the host no longer reports it, so its outcome is unknown here; check the host.'
+    )
+    'status.host_update_note' = @(
+        'Updates this host''s code and restarts the runner when the running cycle ends, giving up after '
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' minutes. To end the cycle now, run on the host: '
+        @{
+            'arg' = 'command'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'status.host_update_progress' = @(
+        'Host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': phase '
+        @{
+            'arg' = 'index'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' of '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'phase'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '), bounded at '
+        @{
+            'arg' = 'bound'
+            'type' = 'duration'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'status.host_update_queued' = @(
+        'Host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' is queued; it starts when the running cycle ends.'
+    )
+    'status.host_update_remarks' = @(
+        'Remarks: '
+        @{
+            'arg' = 'remarks'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'status.host_update_remote_hint' = @(
+        'Update host opens pool-control at '
+        @{
+            'arg' = 'url'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        ', which signs the request and brings you back here.'
+    )
+    'status.host_update_scope' = @{
+        'kind' = 'select'
+        'selector' = 'scope'
+        'variants' = @{
+            'full' = 'Reinstall dependencies and settings, then restart'
+            'other' = @(
+                @{
+                    'arg' = 'scope'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+            )
+            'restart' = 'Restart the runner on current code'
+        }
+    }
+    'status.host_update_stale' = @(
+        'Host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ': no report for '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds; check the host.'
+    )
+    'status.host_update_start' = 'Update host'
+    'status.host_update_title' = 'Host update'
+    'status.host_update_unavailable' = @{
+        'kind' = 'select'
+        'selector' = 'reason'
+        'variants' = @{
+            'controller_absent' = @(
+                'No host controller runs on this host. To set one up, run on the host: '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'controller_absent_gate' = @(
+                'A host update holds this host''s runner and no host controller is running. Run '
+                @{
+                    'arg' = 'runner'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' once more from a terminal of the desktop session and leave a runner that is running alone: that start stops at the runner gate and starts the controller, which continues the update.'
+            )
+            'controller_absent_macos' = @(
+                'No host controller runs on this host. On macOS the runner''s start starts it: run '
+                @{
+                    'arg' = 'runner'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' from a terminal of the desktop session, or stop a running runner after its cycle and start it again that way. On a host never set up for host updates, run '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' first.'
+            )
+            'host_type' = 'Host updates are not yet available on this host type.'
+            'journal_unreadable' = 'The host cannot read its operation journal; check the host.'
+            'listener_dependency_missing' = 'The status service could not load what host updates need; restart it on the host.'
+            'other' = @(
+                'Host updates are not available on this host ('
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                ').'
+            )
+            'remote' = @(
+                'From another machine this page can only watch a host update; until '
+                @{
+                    'arg' = 'file'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' is installed on the host, press Update host there.'
+            )
+            'scope_unavailable' = 'This host cannot run the chosen scope now.'
+            'session_unusable' = @(
+                'The host controller''s session cannot start a working runner: it is not the desktop session, or a privacy grant is missing there. On the host, end the session yuruna-controller with '
+                @{
+                    'arg' = 'tmux'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' (under screen, quit the yuruna-controller session that '
+                @{
+                    'arg' = 'screen'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' lists), stop a running runner after its cycle, and start the runner again from a terminal of the desktop session that holds the grants.'
+            )
+        }
+    }
+    'status.host_update_verdict' = @{
+        'kind' = 'select'
+        'selector' = 'verdict'
+        'variants' = @{
+            'drain_timeout' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' gave up: the running cycle outlasted the wait. Nothing changed.'
+            )
+            'failed_restored' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' did not complete ('
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '); the host was restored.'
+            )
+            'other' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' ended with an outcome this page does not recognize ('
+                @{
+                    'arg' = 'verdict'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                ').'
+            )
+            'reboot_required' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' finished, but Windows must restart before the hypervisor can run, so the runner was not started.'
+            )
+            'recovering' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ': the runner is not running yet; the host keeps trying ('
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                ').'
+            )
+            'recovering_without_controller' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ': the runner is not running yet ('
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '), and no host controller is running to try again.'
+            )
+            'refused' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' was refused; nothing changed ('
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                ').'
+            )
+            'released' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' was released on the host.'
+            )
+            'stop_failed' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ': the runner could not be stopped, so nothing was started.'
+            )
+            'superseded' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' was taken over by '
+                @{
+                    'arg' = 'supersededBy'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                '.'
+            )
+            'updated' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' finished; the runner runs current code.'
+            )
+            'updated_not_started' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' finished; the runner was stopped before it, so it was not started.'
+            )
+            'updated_with_remarks' = @(
+                'Host update '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' finished with remarks; the runner runs current code.'
+            )
+        }
+    }
     'status.host_value1' = @(
         'Host: '
         @{
@@ -1100,7 +1640,7 @@
         }
     )
     'status.lab_hold_unspecified' = 'Lab hold -- waiting for a lab service'
-    'status.latest_cycle' = 'Latest Cycle'
+    'status.latest_cycle' = 'Latest cycle'
     'status.latest_runs' = @{
         'kind' = 'plural'
         'selector' = 'count'
@@ -1323,7 +1863,7 @@
     'status.pill_new_vm_resource' = 'New VM'
     'status.pill_start_guestos' = 'Start OS'
     'status.pill_start_guestworkload' = 'Workload'
-    'status.preflight_failed' = 'PREFLIGHT FAILED'
+    'status.preflight_failed' = 'Preflight failed'
     'status.process_environment_value_the_status_service_inherited_at_startup' = 'Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.'
     'status.quarantine_pinned' = @(
         'Quarantined after repeated same-class failures (skipped until a new commit; pinned at '
@@ -1340,7 +1880,7 @@
     'status.recalculate' = 'Recalculate'
     'status.recalculating' = 'Recalculating…'
     'status.recalculating_perf_aggregates' = 'Recalculating perf aggregates…'
-    'status.recent_cycles' = 'Recent Cycles'
+    'status.recent_cycles' = 'Recent cycles'
     'status.refresh' = 'Refresh'
     'status.results_folder' = @(
         'Open results folder for '
@@ -1496,8 +2036,8 @@
         }
         ', restart the VM, then resume the sequence'
     )
-    'status.start_cycle_blocked_by_refresh' = @(
-        'A host refresh ('
+    'status.start_cycle_blocked_by_repair' = @(
+        'A host repair ('
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1587,7 +2127,7 @@
     'status.testing_caching_proxy_service_from_host' = 'Testing caching-proxy service from host…'
     'status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this' = 'The archive is built from server logs only and downloaded to this machine. No data from this browsing session is included.'
     'status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li' = 'The control proof expired. Re-open this host from the dashboard link to get a fresh one.'
-    'status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif' = 'The control proof was rejected. It may have been minted with a different lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.'
+    'status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif' = 'The control proof was rejected. It may have been minted with a different internal authentication key than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.'
     'status.the_host_could_not_load_its_control_proof_verifier_check_the_stat' = 'The host could not load its control-proof verifier; check the status service log.'
     'status.the_share_sheet_expired_while_the_host_packed_the_folder' = 'The share sheet expired while the host packed the folder. '
     'status.this_browser_could_not_attach_the_file_to_a_message_itself' = 'This browser could not attach the file to a message itself. '
@@ -1769,5 +2309,5 @@
     )
     'status.working' = 'Working...'
     'status.yuruna_host_status' = 'Yuruna host status'
-    'status.yuruna_status' = 'Yuruna Status'
+    'status.yuruna_status' = 'Yuruna status'
 }

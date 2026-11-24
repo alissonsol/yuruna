@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f2943e-7155-4ed8-aedb-db7d6166f795
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,7 +169,9 @@ Describe 'Tesseract child environment and complete capture' {
         Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Global -Force -DisableNameChecking
         Import-Module $modulePath -Global -Force -DisableNameChecking
         function Invoke-OcrFixture {
-            param([string]$FilePath, [string]$ImagePath, [switch]$WordBoxes)
+            param([string]$FilePath, [string]$ImagePath, [switch]$WordBoxes, [int]$TimeoutSeconds)
+            # TimeoutSeconds is forwarded only when bound, so the other cases
+            # still see the native call's own default.
             & (Get-Module Test.Tesseract) { param($Parameters) Invoke-TesseractNative @Parameters } $PSBoundParameters
         }
     }
@@ -213,6 +215,22 @@ Describe 'Tesseract child environment and complete capture' {
             $script:CapturedEnvironment.Count | Should -Be $expectedOverrides
             [Environment]::GetEnvironmentVariable('OMP_THREAD_LIMIT') | Should -Be $inheritedLimit
             [Environment]::GetEnvironmentVariable('OMP_NUM_THREADS') | Should -Be $inheritedThreads
+        }
+        It 'passes a caller timeout to the bounded call' {
+            $null = Invoke-OcrFixture -FilePath 'tesseract' -ImagePath 'image.png' -TimeoutSeconds 7
+            $script:CapturedTimeout | Should -Be 7
+        }
+        It 'forwards a caller timeout to the native call' {
+            $image = Join-Path $TestDrive 'timeout-probe.png'
+            Set-Content -LiteralPath $image -Value 'probe'
+            Mock Find-Tesseract -ModuleName Test.Tesseract { 'tesseract' }
+            Mock Invoke-TesseractNative -ModuleName Test.Tesseract {
+                $script:NativeTimeout = $TimeoutSeconds
+                @{ ExitCode = 0; StdOut = ''; StdErr = '' }
+            }
+            $script:NativeTimeout = $null
+            $null = Get-TesseractWordBox -ImagePath $image -TimeoutSeconds 7
+            $script:NativeTimeout | Should -Be 7
         }
         It 'passes literal image arguments and requests TSV exactly once' {
             $null = Invoke-OcrFixture -FilePath 'tesseract' -ImagePath "image [1]; `u{fc}.png" -WordBoxes
@@ -263,7 +281,7 @@ if ($env:YURUNA_OCR_FIXTURE_FAIL -eq 'yes') { exit 9 }
 if ($args.Count -eq 4) {
     if ($args[3] -ne 'tsv') { exit 19 }
     [Console]::Out.Write("level`tpage_num`tblock_num`tpar_num`tline_num`tword_num`tleft`ttop`twidth`theight`tconf`ttext`r`n")
-    [Console]::Out.Write("5`t1`t1`t1`t1`t1`t13`t17`t23`t29`t95`tCaf`u{e9}`r`n")
+    [Console]::Out.Write("5`t1`t2`t3`t4`t5`t13`t17`t23`t29`t95`tCaf`u{e9}`r`n")
 } else {
     [Console]::Out.Write("Caf`u{e9}`t`u{6771}`u{4eac}`r`nsecond line`r`n`r`n")
 }
@@ -303,6 +321,11 @@ if ($args.Count -eq 4) {
         $boxes[0].w | Should -Be 23
         $boxes[0].h | Should -Be 29
         $boxes[0].conf | Should -Be 95
+        # Distinct values, so a swapped column cannot pass.
+        $boxes[0].block | Should -Be 2
+        $boxes[0].par | Should -Be 3
+        $boxes[0].line | Should -Be 4
+        $boxes[0].word | Should -Be 5
     }
     It 'retains native stderr and exit code with EAP Stop in <Function>' -ForEach @(
         @{ Function = 'Invoke-TesseractOcr' }, @{ Function = 'Get-TesseractWordBox' }

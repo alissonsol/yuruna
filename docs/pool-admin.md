@@ -421,7 +421,7 @@ so the UI and the command line cannot diverge.
   hosts' own projects* when its members run their own. A card also flags hosts
   that cannot read the pool's project (below). The board changes nothing.
 - **Pools** (`/pools`) &mdash; create a pool (mints its stable `poolGuid`), drive
-  every member's **Pool Status** (below), set the pool's **Framework / Project**
+  every member's **Pool status** (below), set the pool's **Framework / Project**
   repositories (below), add/remove hosts (a host
   belongs to at most one pool), delete an empty pool.
 - **Hosts** (`/hosts`) &mdash; every host the aggregator knows *and* every host
@@ -429,7 +429,7 @@ so the UI and the command line cannot diverge.
   auto-enrolled &mdash; or never registered at all &mdash; is visible along with
   the reason. Columns: **Host ID** (links to that host's status page),
   **Hostname**, **Type** (the host type without its `host.` prefix, e.g.
-  `ubuntu.kvm`), **Memory**, **Cores**, **Total Storage** and **Free Storage**
+  `ubuntu.kvm`), **Memory**, **Cores**, **Total storage** and **Free storage**
   (each host's own report of its hardware, read from its status service),
   **Control** (the wire value: `ready` / `none` / `mismatch` /
   `skew`), **Framework** and **Project** (below), **Runner** (the commit the
@@ -544,9 +544,9 @@ has not caught up yet.
 
 <a id="4207d71a-0010"></a>
 
-### Pool Status — pausing and continuing every member at once
+### Pool status — pausing and continuing every member at once
 
-The **Pool Status** column on `/pools` is the Pause/Continue buttons of every
+The **Pool status** column on `/pools` is the Pause/Continue buttons of every
 member's own status page, driven from one place. It offers exactly what a single
 host offers:
 
@@ -597,16 +597,16 @@ HMAC byte for byte identically, which is what a shared golden test vector
 pins.
 
 Members are driven individually and reported individually: `2 applied, 1 failed
--- 42ab12cd (the host holds no lab token ...)`. A host that was never enrolled, is
-powered off, or holds a different Lab token fails on its own without costing the
-others their change. Every fan-out is written to the audit log with how much of
-it landed.
+-- 42ab12cd (the host holds no internal authentication key ...)`. A host that was never
+enrolled, is powered off, or holds a different internal authentication key fails on
+its own without costing the others their change. Every fan-out is written to the
+audit log with how much of it landed.
 
 <a id="4207d71a-0024"></a>
 
 ### Framework / Project -- which repositories each pool runs
 
-The **Framework / Project** column on `/pools`, right after **Pool Status**, is
+The **Framework / Project** column on `/pools`, right after **Pool status**, is
 where a pool's framework and project repositories are set. Saving it runs the
 same `Set-PoolRepository.ps1` as [Step 4](#4207d71a-0007), so each member picks
 the change up at the start of its next cycle, with no restart. A new pool
@@ -665,10 +665,10 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
 
   | Auth | Routes |
   |---|---|
-  | open (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control` |
+  | open (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control`, `/api/host/update` (the confirmation page's read: it signs and sends nothing) |
   | open (POST) | `/api/login`, `/api/unlock-proof` -- the two ways INTO the gate |
   | lab-token | `/api/pool` (POST, DELETE), `/api/pool/configured-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/adopt-rekey`, `/api/pool/repositories`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/hosts/history` (GET) |
-  | lab-token **and** refresh credential | `/api/host/refresh` (POST) -- see [Remote host refresh](#remote-host-refresh) |
+  | lab-token **and** operator credential | `/api/host/repair` (POST) -- see [Remote host repair](#remote-host-repair); `/api/host/update` (POST) -- see [Remote host update](#remote-host-update) |
 
   Reads are open on the trusted LAN so a wall display needs no credential;
   everything that rewrites pool configuration goes through `gate.Require`.
@@ -691,7 +691,7 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   answers the open read routes for 15 seconds, callers that arrive while it
   runs share it, and every other CLI invalidates it; at most four CLIs run at
   once.
-- **Drives the members' own control routes** for Pool Status
+- **Drives the members' own control routes** for Pool status
   (`/api/pool/host-control`): the one thing here that acts on other machines
   rather than on the configuration store. Membership comes from configuration and addresses
   from the aggregator, because the aggregator's notion of a pool is a label a
@@ -776,45 +776,45 @@ they give up.
 
 <a id="4207d71a-001f"></a>
 
-### Remote host refresh
+### Remote host repair
 
 A host whose hypervisor or test runner has wedged can be asked to repair
 itself from here, one host at a time: reclaim a stalled runner, start a stopped
 hypervisor service, or restart a hung one where that host supports it -- the
-**restart** tier of the host's own refresh ladder, never package or settings
-changes. It is the same repair `test/lab/Invoke-HostRefresh.ps1` runs on the
+**restart** tier of the host's own repair ladder, never package or settings
+changes. It is the same repair `test/lab/Invoke-HostRepair.ps1` runs on the
 host; this service only authorizes and delivers the request. Pool-wide control
-(`/api/pool/host-control` and its MCP tool) never refreshes: it refuses the
+(`/api/pool/host-control` and its MCP tool) never repairs: it refuses the
 action before any call leaves this service.
 
-Remote refresh is **off until provisioned**, and stays off for a host unless
+Remote repair is **off until provisioned**, and stays off for a host unless
 all of these hold:
 
-- this service holds both refresh secrets (below);
+- this service holds both of its remote-repair secrets (below);
 - the host has installed its own verifier key;
-- the host runs on a platform that qualifies for remote refresh -- today
+- the host runs on a platform that qualifies for remote repair -- today
   Ubuntu KVM only; macOS and Windows hosts report `unqualified`;
-- the host's status service advertises refresh as available, and the pool
-  aggregator read that advertisement recently (the host's `refresh` object on
+- the host's status service advertises repair as available, and the pool
+  aggregator read that advertisement recently (the host's `repair` object on
   the Hosts page and in `/api/hosts`).
 
 <a id="4207d71a-0020"></a>
 
 #### The three secrets
 
-Remote refresh uses secrets of its own. The Lab token, a lab session cookie and
+Remote repair uses secrets of its own. The Lab token, a lab session cookie and
 the internal authentication key never authorize it: the lab key is reachable
 from the dashboard's enrollment code, and a lab session from a public control
 proof.
 
 | Secret | Form | Where it lives |
 |---|---|---|
-| Signing authority | one line `yhra1.<key>` | the operator's machine, and this service's `/etc/yuruna/host-refresh/authority.key` (`-refresh-authority-file`) |
-| Operator credential | one line `yhrc1.<key>` | the operator or automation, and this service's `/etc/yuruna/host-refresh/operator.credential` (`-refresh-credential-file`) |
-| Host verifier key | one line `yhrk1.<hostId>.<key>` | each host's `$HOME/.yuruna/host-refresh/remote-verifier.key` |
+| Signing authority | one line `yrpa1.<key>` | the operator's machine, and this service's `/etc/yuruna/host-repair/authority.key` (`-repair-authority-file`) |
+| Operator credential | one line `yoc1.<key>` | the operator or automation, and this service's `/etc/yuruna/host-repair/operator.credential` (`-operator-credential-file`) |
+| Host verifier key | one line `yrpk1.<hostId>.<key>` | each host's `$HOME/.yuruna/host-repair/remote-verifier.key` |
 
 Every file must be readable by its owner only (`chmod 600`); a file that is
-missing, malformed or readable by others disables remote refresh with one log
+missing, malformed or readable by others disables remote repair with one log
 line that names the file and never its content. The service also refuses an
 authority or credential equal to the internal authentication key, and a
 credential equal to the authority. Each host key is derived from the authority
@@ -825,25 +825,25 @@ can sign nothing for another host.
 
 #### Provisioning
 
-`test/lab/Set-HostRefreshCredential.ps1` creates and moves the secrets and
+`test/lab/Set-HostRepairCredential.ps1` creates and moves the secrets and
 prompts for nothing. Tags in its output are non-secret names you can compare;
 the secrets themselves never reach the output.
 
 ```powershell
 # 1. On the operator's machine: create the authority and the credential.
-pwsh test/lab/Set-HostRefreshCredential.ps1 -NewAuthority
+pwsh test/lab/Set-HostRepairCredential.ps1 -NewAuthority
 # Copy authority.key and operator.credential from the printed directory to the
-# pool-control VM's /etc/yuruna/host-refresh/, owner-only, then restart the service.
+# pool-control VM's /etc/yuruna/host-repair/, owner-only, then restart the service.
 
 # 2. Still on the operator's machine: write one host's key.
-pwsh test/lab/Set-HostRefreshCredential.ps1 -ExportHostKey -HostId <hostId> -OutputPath ./<hostId>.key
+pwsh test/lab/Set-HostRepairCredential.ps1 -ExportHostKey -HostId <hostId> -OutputPath ./<hostId>.key
 
 # 3. On that host, after moving the file there privately: install it, then delete the file.
-pwsh test/lab/Set-HostRefreshCredential.ps1 -InstallHostKey -KeyPath ./<hostId>.key
+pwsh test/lab/Set-HostRepairCredential.ps1 -InstallHostKey -KeyPath ./<hostId>.key
 
 # Status of this host's key and of the local authority; withdraw a host.
-pwsh test/lab/Set-HostRefreshCredential.ps1
-pwsh test/lab/Set-HostRefreshCredential.ps1 -RemoveHostKey
+pwsh test/lab/Set-HostRepairCredential.ps1
+pwsh test/lab/Set-HostRepairCredential.ps1 -RemoveHostKey
 ```
 
 A host that is also the authority machine can skip the transport:
@@ -855,19 +855,37 @@ reports that it wrote `authority.key` but not `operator.credential`, run
 it without creating anything, even on a host that has no private state
 directory yet.
 
+**Secrets provisioned before 2026.11.23.** Earlier releases named this operation host
+refresh, and the Config page labeled its control Refresh host (now Repair host, on the
+Diagnostics page beside Update host, which starts a host update). The rename is a clean
+break: no old flag, header or key prefix is accepted. A running runner pulls the framework
+at every cycle, so stop every runner (or run it with `-NoGitPull`) before this release
+reaches the branch the hosts pull; otherwise a cycle can move the private root while the
+old listener and controller still run, and the leftover `host-refresh` directory then has
+to be removed by hand (`migration-conflict`). The authority, the credential and every host
+key are created again with `Set-HostRepairCredential.ps1 -NewAuthority -Rotate` (the old
+authority moved with the private root, or still sits in its `-AuthorityDirectory`, and no
+longer reads), then exported and installed on each host as above; the new files go to
+`/etc/yuruna/host-repair/`; then remove `/etc/yuruna/host-refresh/`. Rebuild or restart
+the pool-control VM on the new code, and drop any hand-added `-refresh-authority-file` or
+`-refresh-credential-file` flag: the service refuses to start on a flag it does not know.
+Rename `config.testCycle.autoRefreshAfterStalls` to `autoRepairAfterStalls` in any pool
+configuration that sets it; until then each runner warns, names both keys, and keeps the
+host's own value.
+
 <a id="4207d71a-0022"></a>
 
-#### Asking a host to refresh
+#### Asking a host to repair itself
 
 ```bash
-curl -s -X POST http://<pool-control>/api/host/refresh \
+curl -s -X POST http://<pool-control>/api/host/repair \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $(cat internal-auth.key)" \
-  -H "X-Yuruna-Refresh-Credential: $(cat operator.credential)" \
+  -H "X-Yuruna-Operator-Credential: $(cat operator.credential)" \
   -d '{"hostId":"<hostId>","requestId":"<uuid>","tier":"restart","maxRung":"start-if-stopped"}'
 ```
 
-The request needs the ordinary write credential **and** the refresh credential
+The request needs the ordinary write credential **and** the operator credential
 in its own header. The body is exactly `hostId`, `requestId` (a lowercase UUID
 the caller generates once and reuses on every retry), `tier` (`restart`) and
 optionally `maxRung` (`probe`, `reclaim`, `start-if-stopped`,
@@ -876,9 +894,9 @@ lowers it to what it can execute). Any other key -- every spelling of force or
 hard-stop included -- is refused.
 
 This service checks the host's advertised capability, obtains the host's
-ordinary control proof, signs a refresh proof bound to that host, request id,
+ordinary control proof, signs a repair proof bound to that host, request id,
 tier and ceiling that expires in two minutes, and sends both to the host's
-`/control/host-refresh`. A transport failure is resent once with the identical
+`/control/host-repair`. A transport failure is resent once with the identical
 request. Replies:
 
 | Status | Meaning |
@@ -886,26 +904,121 @@ request. Replies:
 | 202 | accepted: `action` is `spawned` or `already_claimed`; poll `stateUrl` |
 | 200 | this request id already completed: `replay`, `verdict`, `state` |
 | 400 / 413 | the body was refused (`code` names why) |
-| 401 / 429 / 503 | a credential is missing or wrong, the source is throttled, or remote refresh is not provisioned (`reason` is `refresh_credential_required`, `refresh_auth_throttled` or `refresh_auth_unconfigured`; a missing authority is `pool.host_refresh_signing_unconfigured`) |
-| 404 / 409 | the host is unknown, has no address, does not advertise remote refresh (`hostReason`), is busy with `activeRequestId`, or already used this request id differently or to completion |
-| 502 | the host refused (`hostStatus`, `hostReason`, e.g. `refresh_proof_expired` when the clocks differ by more than a minute) or answered unusably |
+| 401 / 429 / 503 | a credential is missing or wrong, the source is throttled, or remote repair is not provisioned (`reason` is `operator_credential_required`, `operator_auth_throttled` or `operator_auth_unconfigured`; a missing authority is `pool.host_repair_signing_unconfigured`) |
+| 404 / 409 | the host is unknown, has no address, does not advertise remote repair (`hostReason`), is busy with `activeRequestId`, or already used this request id differently or to completion |
+| 502 | the host refused (`hostStatus`, `hostReason`, e.g. `repair_proof_expired` when the clocks differ by more than a minute) or answered unusably |
 | 503 / 504 | the host could not start or did not answer; `retryable` is true -- retry with the same request id |
 
-The MCP tool `pool_control_refresh_host` takes the same four arguments and is
+The MCP tool `pool_control_repair_host` takes the same four arguments and is
 listed only while both secrets are provisioned. It is gated exactly like the
 route: the MCP request needs the ordinary write credential and the
-`X-Yuruna-Refresh-Credential` header, so a client that can send only
+`X-Yuruna-Operator-Credential` header, so a client that can send only
 `Authorization` cannot use it.
 
-Every request is written to the audit log as action `host-refresh` with the
+Every request is written to the audit log as action `host-repair` with the
 host, request id, tier, ceiling, outcome and the host's status and reason --
 never a credential, key or proof -- and every refused credential as
-`refresh-credential` with its source address.
+`operator-credential` with its source address.
 
 Pool-control serves plain HTTP, so the credential and the proofs cross the LAN
 in the clear, as the lab's other credentials do. A proof is bound to one host
 and one request and expires in two minutes, and resending it only repeats the
 same request; the credential lives until you rotate it.
+
+<a id="4207d71a-0027"></a>
+
+### Remote host update
+
+A **host update** stops a host's runner after its running cycle, brings its checkout
+current and starts the runner again (scope `restart`), or also re-runs the installer and
+`Enable-TestAutomation` first (scope `full`). The host's own controller does the work (see
+[POST /control/host-update](control-routes.md#post-controlhost-update)); this service
+only signs the request and carries it there, so an operator on any machine can ask.
+
+It needs, besides the operator credential of [Remote host repair](#remote-host-repair):
+
+| What | Form | Where it lives |
+|---|---|---|
+| Update signing key | one PKCS#8 RSA PEM block of 3072 bits | the operator's machine, and this service's `/etc/yuruna/host-repair/update-signing.key` (`-update-signing-key-file`) |
+| Pool-control record | pool-control's base URL and the signing key's public half | each host's `$HOME/.yuruna/host-repair/pool-control.record` |
+
+The host keeps no secret for this: it verifies the signature with a public key, so no host
+type is barred by where a secret could be kept. What it relies on is that only its own
+account can replace the record. The key file must be readable by its owner only; a key
+that is missing, malformed, smaller than 3072 bits or readable by others disables remote
+host update with one log line that names the file.
+
+```powershell
+# 1. On the operator's machine: create the key. The output ends with the
+#    command each host runs, carrying the public key line.
+pwsh test/lab/Set-HostRepairCredential.ps1 -NewUpdateSigningKey
+# Copy update-signing.key to the pool-control VM's /etc/yuruna/host-repair/,
+# owner-only, then restart the service.
+
+# 2. On each host: install the record. The URL is where its Diagnostics page sends
+#    a press made from another machine.
+pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl http://<pool-control> -PublicKey yupk1.<...>
+
+# Status; withdraw a host.
+pwsh test/lab/Set-HostRepairCredential.ps1
+pwsh test/lab/Set-HostRepairCredential.ps1 -RemovePoolControlRecord
+```
+
+A host that is also the operator's machine can use `-AuthorityDirectory <dir>` in place of
+`-PublicKey`. Installing over an existing record prints each value it replaces as
+`previous -> new` before it writes. `-NewUpdateSigningKey -Rotate` replaces the key; every
+record must then be installed again with the new public key.
+
+**From a host's Diagnostics page.** On another machine, **Update host** opens this service's
+confirmation page, `GET /host/update?host=<hostId>&scope=<scope>`, at the address the
+host's record names. The page shows the host by id, address and type and every field it
+will sign, mints the request id, and asks for the operator credential; nothing is signed
+or sent before that. After the host queues the update, the page returns to the host's
+Diagnostics page with the request id in `#yhu=`, where the page follows it. The Hosts page
+offers the same page from each host's row while this service can sign. The confirmation
+page refuses to be framed.
+
+**From the API.** `POST /api/host/update` takes the same two gates as the repair route:
+
+```bash
+curl -s -X POST http://<pool-control>/api/host/update \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $(cat internal-auth.key)" \
+  -H "X-Yuruna-Operator-Credential: $(cat operator.credential)" \
+  -d '{"hostId":"<hostId>","requestId":"<uuid>","scope":"restart"}'
+```
+
+The body is exactly `hostId`, `requestId` (a lowercase UUID the caller generates once and
+reuses on every retry), and optionally `scope` (`restart`, the default, or `full`),
+`drainSeconds` (a JSON integer from 60 to 21600, default 7200: how long the update waits for
+the running cycle before it gives up with nothing changed) and `expectCommit` (7 to 40
+lowercase hex digits the checkout must reach). A key that names `drain` in any other
+spelling is refused with `pool.host_update_field_forbidden`: no request this service sends
+ends a running cycle. To end one, run `pwsh test/lab/Invoke-HostUpdate.ps1 -Drain now` in a
+shell on the host.
+
+This service first reads the host's own `GET /control/control-status`, and sends nothing
+unless the host's `update` object is `available`, lists the scope and reports `remote:
+provisioned`. It then obtains the host's ordinary control proof, signs a `yup1` proof over
+the host, request id, scope, drain bound and expected commit that expires in two minutes,
+and sends both to the host's `/control/host-update`. A transport failure is resent once with
+the identical request. Replies:
+
+| Status | Meaning |
+|---|---|
+| 202 | queued: `action` is `queued`, `already_queued` or `already_claimed`; poll `stateUrl`, or open `diagnosticsUrl`, the host's Diagnostics page following this request |
+| 200 | this request id already ended: `replay`, `verdict`, `state` |
+| 400 / 413 | the body was refused (`code` names why) |
+| 401 / 429 / 503 | a credential is missing or wrong, the source is throttled, or remote update is not provisioned (`pool.host_update_signing_unconfigured`) |
+| 404 / 409 | the host is unknown, has no address, cannot take a remote update now (`pool.host_update_unavailable` with `hostReason`, such as `controller_absent`, `update_remote_unprovisioned` or `scope_unavailable`), is busy with `activeRequestId`, or already used this request id differently |
+| 502 | the host refused (`hostStatus`, `hostReason`, e.g. `update_proof_expired` when the clocks differ by more than a minute) or answered unusably |
+| 503 / 504 | the host could not queue it or did not answer; `retryable` is true -- retry with the same request id |
+
+The MCP tool `pool_control_update_host` takes the same arguments, has no drain input, and
+is listed only while the signing key and the operator credential are both provisioned; it
+is gated like the route. Every request is written to the audit log as action
+`host-update` with the host, request id, scope, drain bound, expected commit, outcome and
+the host's status and reason -- never a credential, key or proof.
 
 <a id="4207d71a-0013"></a>
 
@@ -1253,6 +1366,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

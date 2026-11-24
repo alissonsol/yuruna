@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e9ac75-3fda-482e-9c3e-944aff26fe2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,7 +65,7 @@
 .PARAMETER RequireReferenceCredential
     Do not accept a networkStorage vault entry the reference host did not supply.
     Without it, an entry already present here survives when nothing can be
-    fetched -- right for a host refreshing its config, wrong for one converting
+    fetched -- right for a host repairing its config, wrong for one converting
     away from standalone, where that entry is the password this host minted for a
     share it used to serve itself. Passed by test/pool/Convert-ToPoolWorker.ps1, which
     fails the conversion on an unconverged user.

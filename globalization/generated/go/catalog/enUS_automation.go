@@ -5137,6 +5137,50 @@ const DataenUSautomation = `{
       "trust": "external"
     }
   ],
+  "automation.private_state_migration_conflict": [
+    "Both ",
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    " and ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    " exist, so the private state root is refused and nothing was merged, moved or created. Keep the directory that holds this host's state, move the other one aside, and run again."
+  ],
+  "automation.private_state_migration_lock_held": [
+    "The earlier private state root ",
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    " was not moved: ",
+    {
+      "arg": "lockFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " is held by another process, such as an old runner, status listener or host controller. Stop that process and start again."
+  ],
+  "automation.private_state_moved": [
+    "Moved private host state: ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "automation.retry_already_applied": [
     {
       "arg": "label",

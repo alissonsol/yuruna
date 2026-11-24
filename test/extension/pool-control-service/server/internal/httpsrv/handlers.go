@@ -61,13 +61,17 @@ func (s *Server) routes() http.Handler {
 	// Pool-wide control drives the members' live switches and releases a stored
 	// pool pause on Continue. Both operations take the ordinary write gate.
 	mux.HandleFunc("POST /api/pool/host-control", s.gate.Require(s.handleHostControlApply))
-	// Per-host refresh takes BOTH gates, in this order: the ordinary write gate,
-	// then the refresh credential in its own header. A lab session or the
+	// Per-host repair takes BOTH gates, in this order: the ordinary write gate,
+	// then the operator credential in its own header. A lab session or the
 	// internal authentication key alone is refused by the second, because the
 	// lab key is reachable from the enrollment code and a session from a
 	// public legacy proof. Registered even when unprovisioned, so the answer is
 	// a named 503 rather than a 404 that reads like an old build.
-	mux.HandleFunc("POST /api/host/refresh", s.gate.Require(s.refreshGate.Require(s.handleHostRefresh)))
+	mux.HandleFunc("POST /api/host/repair", s.gate.Require(s.operatorGate.Require(s.handleHostRepair)))
+	// Per-host update takes the same two gates as the repair. Its read half
+	// signs and sends nothing: it is what the confirmation page renders from.
+	mux.HandleFunc("POST /api/host/update", s.gate.Require(s.operatorGate.Require(s.handleHostUpdate)))
+	mux.HandleFunc("GET /api/host/update", s.handleHostUpdatePrepare)
 	mux.HandleFunc("POST /api/pool/host", s.gate.Require(s.handleAddHost))
 	mux.HandleFunc("DELETE /api/pool/host", s.gate.Require(s.handleRemoveHost))
 	mux.HandleFunc("POST /api/pool/move-host", s.gate.Require(s.handleMoveHost))
@@ -97,6 +101,9 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /scan", s.servePage("scan.html"))
 	mux.HandleFunc("GET /diagnostics", s.servePage("diagnostics.html"))
 	mux.HandleFunc("GET /hosts", s.servePage("hosts.html"))
+	// The host update confirmation page, where a Diagnostics page on another
+	// machine sends its operator.
+	mux.HandleFunc("GET /host/update", s.serveHostUpdatePage())
 	mux.HandleFunc("GET /{$}", s.servePage("board.html"))
 	// Negotiation wraps everything so one request resolves its language once.
 	// A page and the API calls it then makes must not each decide separately:

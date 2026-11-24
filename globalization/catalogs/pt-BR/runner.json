@@ -15,6 +15,10 @@
       "sourceHash": "09b1dd67cd409cdf44458eb072bee871b6590426666cf45beaf0244417b75b5e",
       "message": "Fazer backup da configuração em {backupPath}"
     },
+    "runner.config_naming_change": {
+      "sourceHash": "4057a0c5f5e39ae58a815e4e45918825fdbaef3be5ca464caf1bf95ff2f26004",
+      "message": "{configPath}: {old}: {previous} -> {new}: {current} (arquivo anterior mantido como {backupPath})"
+    },
     "runner.fetch_context_rejected": {
       "sourceHash": "4d72d0fd8e41a1db46ac72b1b63d68a05b1022aab9c11f7c03567b39bd7cf298",
       "message": "Contexto de busca rejeitado antes da execução no convidado ({reason}); detalhe: {detail}."
@@ -53,7 +57,7 @@
       "message": "Recuperar com: git -C '{repoRoot}' checkout --theirs . ; git -C '{repoRoot}' reset --hard '{upstreamReference}' (edições locais permanecem na lista git stash)."
     },
     "runner.guest_channel_key_unreadable": {
-      "sourceHash": "ea9526e818272d4e87a0a2d906893886b05146c1d800fbd805c06c0101ae0fb3",
+      "sourceHash": "ceaf00861b3b609ca12969dda4e44153442d42c44aeb6e6a76f944c89e3bc586",
       "message": "A chave do canal de convidados em {path} não tem 64 caracteres hexadecimais minúsculos, portanto os convidados não conseguem verificar este host. Restaure o arquivo ou remova-o e recrie os convidados para criar uma nova chave."
     },
     "runner.guest_folder_missing": {
@@ -585,7 +589,7 @@
       "message": "* {count} serviço local VM(s) são DELETADOS juntamente com seus discos: {join}"
     },
     "runner.operator_0d2117a74cbfa3ca": {
-      "sourceHash": "1886687ac3096653dc56cb8010a182cb1d9264cfc35269bcc56ef2a71168ed6c",
+      "sourceHash": "95d5700107d4de1384ebeb5aef64807b74c6e837259ee8caade15d8f05ac5f8f",
       "message": "Tipo de máquina: {hostType}"
     },
     "runner.operator_0d2bb1e23a0f67d7": {
@@ -1073,8 +1077,8 @@
       "message": "ERRO [{guestKey} / GetImage]: {errorMessage}"
     },
     "runner.operator_173d23fb320278cc": {
-      "sourceHash": "77b6c652c2c8de03740500aa3521ed618724446add68089691e4ece946ce11c4",
-      "message": "requireSnapshot: snapshot '{requiredSnapshotId}' no host -- executando cadeia de linha de base completa (caminho frio; VM será renomeado para '{requiredSnapshotId}' no saveDiskSnapshot)."
+      "sourceHash": "473f56336ef5fcc4e5662a1fa7d43f057a33a95e82b301108590bb03b5c85b6d",
+      "message": "requireSnapshot: snapshot '{requiredSnapshotId}' no host -- executando a cadeia de recursos completa (caminho frio; VM será renomeado para '{requiredSnapshotId}' no saveDiskSnapshot)."
     },
     "runner.operator_17689903bb502dcb": {
       "sourceHash": "213e667174df81697cc10731c5c538e00dbf64842f6aacc1e3ec120823326269",
@@ -1181,8 +1185,8 @@
       "message": "virsh não encontrado no PATH -- os pacotes libvirt/QEMU não estão instalados. Executar install/ubuntu.kvm.sh, ou: sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86"
     },
     "runner.operator_1a5944a737ed4e90": {
-      "sourceHash": "8d101c090d00198aef721d7608c2cb4b79ecb389ca41a87ed631797f5bd8ff4e",
-      "message": "Atualizar a máquina {report}"
+      "sourceHash": "5eb51e6275e69cd640963024b9fca31de0706eefc6e7d1dd2ef0c265dbc5cf31",
+      "message": "  Reparo do hospedeiro {report}"
     },
     "runner.operator_1a6b347dfa6f5220": {
       "sourceHash": "88343f5aa02b2385f30523b2c3d98ea8e1e243b032cc13362b5109fa892a42a5",
@@ -1557,7 +1561,7 @@
       "message": "Pasta de visita não encontrada para '{guestKey}' no {hostType}: {folder}"
     },
     "runner.operator_24aa5f00a8cd0037": {
-      "sourceHash": "8db63d1f74d71b138e181fa2e52bc0c4aeae0b34bf1380b5c9e8ffb14499ee27",
+      "sourceHash": "b504381f4ab8b7eeaf820d94df467bc2db372bc03203dfc821309148684ea33b",
       "message": "nenhuma supervisão automática verificada do corredor/status-service através de uma reinicialização do host"
     },
     "runner.operator_24ae709675586267": {
@@ -1745,7 +1749,7 @@
       "message": "_snippets.yml erro de processamento: {message}"
     },
     "runner.operator_28f2c58cec967f94": {
-      "sourceHash": "7f20c9d1690c4173b3a8823391c2bf98961f9abcccc33e9339bb272dab022906",
+      "sourceHash": "74c4b18f27373650220ac1159c51230a3d7f465f39255228b65b8a07cf3891b8",
       "message": "requer testes de daemon-layout e guest-preservation passando em um host suportado; ainda não qualificado"
     },
     "runner.operator_2911629c58691e3f": {
@@ -1761,8 +1765,8 @@
       "message": "host.windows.hyper-v requer elevação. Re-run Start-TestRunner.ps1 como Administrador."
     },
     "runner.operator_292bf0f1ef450037": {
-      "sourceHash": "0613460a85195baa4c7402e274ee51c74db4612b2dda27f865589fd6731a9583",
-      "message": "Invoke-HostRefresh: o hipervisor está respondendo; o corredor está morto ou ausente. A execução 1 (reclamação) não é implementada nesta fatia -- inicia-a manualmente: pwsh test/Start-TestRunner.ps1"
+      "sourceHash": "b0870c98be7a0fdd942e4c3377afb1c396241a4f1a00f750b1b5e8d42200bddf",
+      "message": "Invoke-HostRepair: o hipervisor está respondendo; o corredor está morto ou ausente. A execução 1 (reclamação) não é implementada nesta fatia -- inicia-a manualmente: pwsh test/Start-TestRunner.ps1"
     },
     "runner.operator_29607e704f43acdc": {
       "sourceHash": "752e554e932690c75b831ff6fde7b75af75dadb2b12a5a599a5042532f0f9490",
@@ -2069,8 +2073,8 @@
       "message": "{label}: Erro de processamento YAML no {yamlFull} -- {message}"
     },
     "runner.operator_2fb31966478fca46": {
-      "sourceHash": "b8f9f40f91d3ea3d7944abcb4bb4beac3182b40d0d02b3e4a28b0e64d1aa018b",
-      "message": "Invoke-HostRefresh: não foi possível resolver/segurar a raiz de estado de atualização da máquina privada ($HOME/.yuruna/host-refresh). Recusando-se a prosseguir sem uma raiz privada durável, somente para o proprietário."
+      "sourceHash": "996a0a505b13917cd975b9b5884fc89af0df830fa28ceff7c799189ae29955a2",
+      "message": "Invoke-HostRepair: não foi possível resolver/proteger a raiz de estado privada do reparo do hospedeiro ($HOME/.yuruna/host-repair). Recusando-se a prosseguir sem uma raiz privada durável, somente para o proprietário."
     },
     "runner.operator_2fce8fc42e5b8f1f": {
       "sourceHash": "087b343c4b565a4dc49f57cd38da3a379c45440dd36d56562846ccc663c071a5",
@@ -2549,8 +2553,8 @@
       "message": "Ciclo falhou. Veja {dIR} para o diário de bordo por ciclo."
     },
     "runner.operator_3d35ece66aa84b79": {
-      "sourceHash": "a89f515363fe9852df22cb84c5f0646a5aea9e544470473d3c8c5b684990a760",
-      "message": "Chave de visita (da linha de base): {guestKey}"
+      "sourceHash": "4b0fee2a49211bca70bc63d92bfd3a44d3145707e2795524df29406534a003c1",
+      "message": "Chave de visita (da cadeia de recursos): {guestKey}"
     },
     "runner.operator_3d585575d8816432": {
       "sourceHash": "c5ffe3aa8272cdda8b71ca2035e77372965dd07c7f051fbd21ed02b5fcd38cb2",
@@ -2813,7 +2817,7 @@
       "message": "networkRelease: Lançamento convidado do Windows ainda não implementado (TODO windows.11) -- pulando para '{guest}'."
     },
     "runner.operator_43e526c4ec3b14eb": {
-      "sourceHash": "cf48d384370b61d54c4a8f6f273d5ebaacf39d81500814d2d3584241a730c19e",
+      "sourceHash": "8a5c61ef9f8ec3703e77916e6efd8a1eedc46a485c47c83dd8abc244bcff4497",
       "message": "Enable-TestAutomation atinge as operações a secção 1 proíbe (diálogos de consentimento Grant-assist e PSGallery instala não fechado no modo não-interactivo); ainda não está seguro sem assistência"
     },
     "runner.operator_43e66f1b323df1ce": {
@@ -2969,8 +2973,8 @@
       "message": "Configurações do sistema > Privacidade e segurança > Automação"
     },
     "runner.operator_47371277eaeea492": {
-      "sourceHash": "f9dc1a5fc96a3e3b3d78f3f0cc7f2e0886bae0d2a22e55f94aec7b31015857a8",
-      "message": "Não foi possível iniciar o salto do servidor de estado: {message}"
+      "sourceHash": "71b66d28ef5897fb0e57a70bbe44fb32a6a6dc75178ef02e39cdae449c75fc1b",
+      "message": "Não foi possível iniciar o salto do serviço de status: {message}"
     },
     "runner.operator_47513825bfb62345": {
       "sourceHash": "9f30fb0563bdacf2df94f563a5ce04259a4d1924402720a9cf14cbaba35c0cf5",
@@ -3377,7 +3381,7 @@
       "message": "E se: mapear '{account}' para aboveKey '{vaultKey}' e armazenar sua senha."
     },
     "runner.operator_507f379237cefeeb": {
-      "sourceHash": "c62362cffed86c847e422c735e9dde6ead74b62cf9c7f826b1171f47d41a502d",
+      "sourceHash": "9a9a8daf8c0b0790702c0f5177f92b2e9e902f6b6bc599f34f3fa8e4d82bc941",
       "message": "Execução: não foi possível determinar"
     },
     "runner.operator_5080fa98b3c9b51c": {
@@ -3829,7 +3833,7 @@
       "message": "networkStorage stash: servidor SMB '{stashSrv}:445' não está acessível agora -- tudo bem se o NAS estiver intencionalmente offline; caso contrário, verifique stashStorageNetworkPath / firewall / VPN."
     },
     "runner.operator_5b278ab6be06e98e": {
-      "sourceHash": "48f1f53ca2d0f4358890b750e3f225ab45f93fce2eb7b81d99d0ecc5651549d5",
+      "sourceHash": "54f8de1e19795592dd133b6bb282a5665d6d70723d9bf1d364b154b5faf16dce",
       "message": "Estado da sonda: {state} ({reason}, {elapsedMs} ms)"
     },
     "runner.operator_5b2ab60cf43c713c": {
@@ -4201,7 +4205,7 @@
       "message": "Save-GuestDiagnostic: '{rung}' rung atingiu o {matches}s per-ssh-command cap (definido em $script:SaveGuestDiagnosticPerCommandTimeoutSegundos no topo do Test.Diagnostic.psm1)."
     },
     "runner.operator_62623b0d8a914893": {
-      "sourceHash": "5773bb502d1f01201880e71a1f0481b063ad7f6d427e9f7d9b613d9d2a99c9c2",
+      "sourceHash": "04f11e30655f5b15e77ab10125b6a6fb7eb96595319e839319a02d4b7a9a856f",
       "message": "requer um caminho de lançamento/sessão testado, evidência capturada de recuperação de convidados e exclusão de corredor validado em um host macOS real; ainda não qualificado"
     },
     "runner.operator_627006c4c8c7c0a8": {
@@ -4381,8 +4385,8 @@
       "message": "{base} Veja o link e o caminho da renovação, não na identidade DHCP."
     },
     "runner.operator_677303e3823afe8d": {
-      "sourceHash": "3fe5234a645e3e7e94543ccb8c6f46002a0224f14025114aac354a329700cc46",
-      "message": "'testCycle.autoRefreshAfterStalls' não está definido -- padrão para 0 (atualização automática da máquina desabilitada)."
+      "sourceHash": "c78dfef72bb2ded75c2b5dd9058cf990b02bb77911f74b8e0afac97675b68b65",
+      "message": "'testCycle.autoRepairAfterStalls' não está definido -- padrão para 0 (reparo automático do hospedeiro desabilitado)."
     },
     "runner.operator_67a649b2f9792d49": {
       "sourceHash": "b44710eae58f90162952379310f28caa288709c4a1813d9f8b29cf8ed5d639ca",
@@ -4657,8 +4661,8 @@
       "message": "Causa comum: o cache VM está pronto, mas lula está reiniciando -- um cache recentemente reconstruído faz isso uma vez enquanto o provisionamento aplica sua configuração ssl-bump."
     },
     "runner.operator_6eca51811f4cfdd3": {
-      "sourceHash": "0f960581e4cb803caf5108fe183f868d8ea0180760d5f056f208e7f829f35954",
-      "message": "Invoke-HostRefresh: outro reparo já mantém o bloqueio vitalício ({reason}). Recusando-se a correr ao lado dele."
+      "sourceHash": "0785a57adc15ed00f528967294373bb98ff1461abfa1d9b2b8b730fb86d5c401",
+      "message": "Invoke-HostRepair: outra operação do hospedeiro já mantém o bloqueio vitalício ({reason}). Recusando-se a executar em paralelo."
     },
     "runner.operator_6f45c80f05654384": {
       "sourceHash": "e9e3df1a0d7f869ba31c02e3c6ef4c518019cf46fc6369bd409129a367fda0b0",
@@ -4997,7 +5001,7 @@
       "message": "== Fonte =="
     },
     "runner.operator_7747dc14e2089beb": {
-      "sourceHash": "c26238d8c9d39936d8727ce710cf9e76bc0a372ac86a6a0730be281365ffcfbe",
+      "sourceHash": "bf6bcf691f4d6806c321f0745e97dbb748218518977a5103bc6596e4e40ad444",
       "message": "a receita de configurações ainda não obedece aos limites da seção 1"
     },
     "runner.operator_775ac9694d358236": {
@@ -5297,8 +5301,8 @@
       "message": "Associação: não foi possível abrir o repositório de configuração ({configurationGitUrl}): {error}. Os registros do NAS foram removidos; as associações NÃO foram alteradas."
     },
     "runner.operator_7d74f75db443e9e2": {
-      "sourceHash": "3c9cdc59540d9aee5a3e886c9c65938a803d998e8c7ee6a4cc7c92b15d59d643",
-      "message": "O salto do servidor de estado ainda está em execução após o {bounceTimeoutSeconds}s; ficou sozinho (matando-o iria derrubar o servidor com ele). Transcrição: {logPath}. O token é armazenado e produz efeito no ciclo seguinte."
+      "sourceHash": "a571b57c3dc6baee74aa0df1b5058a273384ea202ea0a8833aa918dcc412f1f0",
+      "message": "O salto do serviço de status ainda está em execução após {bounceTimeoutSeconds}s; foi deixado como está (encerrá-lo derrubaria o serviço junto). Transcrição: {logPath}. O token é armazenado e produz efeito no ciclo seguinte."
     },
     "runner.operator_7d810c19cbdcdd72": {
       "sourceHash": "c9d35d83d44c92a5f9fd33c96992bd5fedb6ad5a5aff6c13da1e7d098f8f24d7",
@@ -5345,7 +5349,7 @@
       "message": "Nenhuma URL de repositório de configuração. Passe -ConfigurationGitUrl ou defina pool.configurationGitUrl em test.config.yml."
     },
     "runner.operator_7dd6240c15d45471": {
-      "sourceHash": "3a0506f91fd5b5d835622e0dd48a35a7b9213b89d03962b4e73cb02cfd4a68e3",
+      "sourceHash": "5440f059f79cba65a7e9004c82b201527bc5d968a44339bf471d76666cc6c9ee",
       "message": "requer compatibilidade com o bootstrap e portas de recuperação de pacotes assinadas/auto-suficientes da secção 9; ainda não construídas"
     },
     "runner.operator_7def89dc77aaa4db": {
@@ -5397,8 +5401,8 @@
       "message": "Definir o estado do passo aninhado '{status}'"
     },
     "runner.operator_7f5c0d3fa4f8cdf8": {
-      "sourceHash": "057f2c4d9b3191a43d1f600659e8a7acfa68746d8390054c63e120e038e766f2",
-      "message": "O salto do servidor de estado terminou {exitCode} (transcript: {logPath}); o token é armazenado e produz efeito no ciclo seguinte."
+      "sourceHash": "5ced4eb911bdbdaf5af5383f6d70aba3540d5b2415ab62611b7d4cd83d47200f",
+      "message": "O salto do serviço de status terminou {exitCode} (transcript: {logPath}); o token é armazenado e produz efeito no ciclo seguinte."
     },
     "runner.operator_7f72e9572bce0b62": {
       "sourceHash": "2a04f0f393b521a50d56c9a55031f1e81d8cc8c5e86948deb5df63ed940aa370",
@@ -5793,8 +5797,8 @@
       "message": "cofre da máquina ({logical})"
     },
     "runner.operator_88f502760b28fd59": {
-      "sourceHash": "eecf8f6c1b49c2ae42a760cdde93edc3315a46dbe47f5801e847db0594f478d0",
-      "message": "Invoke-HostRefresh: a sonda do hipervisor é {state} ({reason}). Nenhuma etapa acima de 0 é tentada por esta fatia."
+      "sourceHash": "4cae47cd644915fd79509a22c69daa5516959de1b7f9a4ffef97ea5a9a5cf736",
+      "message": "Invoke-HostRepair: a sonda do hipervisor é {state} ({reason}). Nenhuma etapa acima de 0 é tentada por esta fatia."
     },
     "runner.operator_88f8f80282f86157": {
       "sourceHash": "12c7f442ac0788b24e3d12fcd8f8733cab6d0acdd86c32c8ba20e540aceee2e1",
@@ -5989,8 +5993,8 @@
       "message": "a ação da máquina '{name}' terminou {exit}: {detail}"
     },
     "runner.hypervisor_control_unresponsive": {
-      "sourceHash": "b5f2ec70194e82421f3e78f0a136a0ab08380fffb0c05e592743c785a0e72083",
-      "message": "O canal de controle do hipervisor nesta máquina responde a consultas de estado, mas não atende mais às solicitações de ciclo de vida (sondagem {state}/{reason}; verbo de ciclo de vida: {lifecycle}). O ciclo para antes de construir qualquer coisa, porque cada início e parada de VM esperaria até o fim do seu tempo limite. Reinicie o aplicativo do hipervisor nesta máquina (no macOS, encerre o UTM.app na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e então retome o executor."
+      "sourceHash": "853301c96c3b337008ca77daff0a17bebc32801519af601030db6553fc10ac73",
+      "message": "O canal de controle do hipervisor nesta máquina responde a consultas de estado, mas não atende mais às solicitações de ciclo de vida (sondagem {state}/{reason}; verbo de ciclo de vida: {lifecycle}). O ciclo para antes de construir qualquer coisa, porque cada início e parada de VM esperaria até o fim do seu tempo limite. Reinicie o aplicativo do hipervisor nesta máquina (no macOS, encerre o UTM.app na sessão da área de trabalho ou execute test/lab/Invoke-HostRepair.ps1) e então retome o executor."
     },
     "runner.operator_8da15c4079305665": {
       "sourceHash": "14e9a0a5d3e5397c33edbedd8998d73d81945848abc7e1c86306057a24118e65",
@@ -6085,7 +6089,7 @@
       "message": "Não foi possível garantir uma visualização virtual para '{hostType}'; a captura de tela/OCR sem cabeça pode falhar. Veja docs/host-hyperv.md."
     },
     "runner.operator_8f85b3fcba9cd85d": {
-      "sourceHash": "a935fd468bcbd126dce19ecf9cf3b4dd62c68d333dd1def56da22c62ade0eb1f",
+      "sourceHash": "ecaa708385044bf1bf8f31598bee68ac3137a0925cf29ccfce3a86e2a5e9b712",
       "message": "Escada de apoio:"
     },
     "runner.operator_8f8e308c2610f013": {
@@ -7025,8 +7029,8 @@
       "message": "re-executar a configuração da rede host para que '{netplanPath}' seja regenerado com 'dhcp-identifier: mac', então: sudo netplan aplicar"
     },
     "runner.operator_a6cceb1dcf23a282": {
-      "sourceHash": "53df16ab6f4ce9696928e2bda3223eb86f63625dfc9082486465d1ed2b5088f5",
-      "message": "Invoke-HostRefresh: pedido recusado ({reason}); um pedido existente é {state}."
+      "sourceHash": "ae837ab4e3cbe088c1324aac2b628c9fff51bcf100c71e095d10fe44b0840a10",
+      "message": "Invoke-HostRepair: pedido recusado ({reason}); um pedido existente é {state}."
     },
     "runner.operator_a6d14fb704d40904": {
       "sourceHash": "d1e0dbd473ff53079ab6969e313a2be4990f41985524b729bb191262ec08ce6a",
@@ -7285,8 +7289,8 @@
       "message": "Não foi possível processar a sequência de orquestração '{orchestrationName}': {message}"
     },
     "runner.operator_ae404c37892f11d1": {
-      "sourceHash": "c285d8c0766d4969e5259dc0ea8b0563e66692380a8fb1723f9b6277207c91cb",
-      "message": "Gravar o diário de requisição da máquina"
+      "sourceHash": "a474ba49b5db672f28041d12245b8ad96e8dda04599b1b854d071f2e6ef5810f",
+      "message": "Gravar o diário de solicitações das operações do hospedeiro"
     },
     "runner.operator_ae4e8052943a33cd": {
       "sourceHash": "9c61f993a329af93403469dc537e76ebf40812f408770f275f7c0a04edc98d31",
@@ -7555,6 +7559,16 @@
     "runner.operator_b4842fc06ed557e0": {
       "sourceHash": "aee39e4094f0363b20efdd91aedf481956399ec4de3704430572a7baa7fa6319",
       "message": "status/extensão/autenticação/users.yml faltando -- será iniciado do modelo no primeiro ciclo. Para personalizar mapeamentos corporativos antes disso, cópia: {usersTemplate} -> {usersPath}"
+    },
+    "runner.auth_state_users_restarted": {
+      "sourceHash": "d3d5b43956c49d7d2a591991de98d7c77b641cd4f6b3685662f196054e9dfe1e",
+      "origin": "machine",
+      "message": "Não foi possível ler users.yml como um mapeamento ({problem}): {usersPath}. Seus bytes foram movidos para {backupPath} e um novo users.yml foi copiado do modelo; informe novamente os mapeamentos corporativos e as chaves do cofre a partir da cópia movida."
+    },
+    "runner.auth_state_vault_restarted": {
+      "sourceHash": "45a7136e7a102c27c553df5f942695accfbefe79bc33978c6d14e1c1773e4be0",
+      "origin": "machine",
+      "message": "Não foi possível ler vault.yml como um mapeamento ({problem}): {vaultPath}. Seus bytes foram movidos para {backupPath} e o cofre começa vazio; cada senha que ele guardava precisa ser definida novamente com Set-Password (veja docs/test-config.md)."
     },
     "runner.operator_b489eb84ebf27ffb": {
       "sourceHash": "1bd1a9076cf196ff25f2bb81ea7a8253d253898b3db33fdb8910211625d892bf",
@@ -8165,7 +8179,7 @@
       "message": "e utilizável, e a cópia de Yuruna ainda bate."
     },
     "runner.operator_c3450b84a855bad6": {
-      "sourceHash": "b5b58b7909fdd90dd7edb7d03d5ace492d327f54b3206cfdd9f6b6e27d7d4c44",
+      "sourceHash": "6c9af6fd575239b0fea5ddbc65a7ec0788cc746dc865ae3e80f9855bdcc2ec7e",
       "message": "requer uma receita modular-daemon validada (virtqemud et al.); ainda não construída"
     },
     "runner.operator_c35b2e556a3ef075": {
@@ -8205,7 +8219,7 @@
       "message": "template compromissado antes da entrada ser adicionada. O template"
     },
     "runner.operator_c3f2e879d98b84de": {
-      "sourceHash": "2946e97d69110a84e9330e8ae6b71af4bfd5f722600414a558da25a98d82a685",
+      "sourceHash": "2a17238dd96da8c9f324ce81312003257386322f6a9b1576dc16a5bf10ffa9f0",
       "message": "chamadas nativas ainda não qualificadas e limitadas para elevação sem acompanhamento"
     },
     "runner.operator_c3f47c04f41d8b32": {
@@ -8857,7 +8871,7 @@
       "message": "poolStorage setup: não foi possível recarregar a nova configuração; pulando mount + recuperar."
     },
     "runner.operator_d38c137cc75cebe4": {
-      "sourceHash": "76d9db9c85cd65f7b49070d179e9885158551f70ffed6175d5489574f74909e8",
+      "sourceHash": "ae233bd843ace483bf281aa3657bea99b660fbe57202d826e5ea242b005b4ccf",
       "message": "não disponível nesta plataforma"
     },
     "runner.operator_d3aad2200f7522cb": {
@@ -9189,7 +9203,7 @@
       "message": "Obtendo alterações remotas em: {repoRoot} (tentativa {attempt}/{totalAttempts})"
     },
     "runner.operator_dcc1cf1dcee82cd5": {
-      "sourceHash": "13c2a242bdcebc7f60b0882f6300227b6d24e958abc568ede16af8f1a01b5724",
+      "sourceHash": "eeca6e3dbd7f8b3473d4bc5f1b40d6cbde5c089231fc0e91182a1cf0604f3e75",
       "message": "requer uma receita separada de recuperação de provedores testada em uma máquina suportada; ainda não construída"
     },
     "runner.operator_dccef796140b31b9": {
@@ -9297,8 +9311,8 @@
       "message": "o serviço de status não está servindo /yuruna-archive.tar.gz em :{port}"
     },
     "runner.operator_dfd19c97aaa9ff6e": {
-      "sourceHash": "86ba60e521fa307179c4d211628de99dd82e095923ef1e8ad84731af2eb146d6",
-      "message": "Invoke-HostRefresh: hipervisor responsivo e um corredor está presente -- no-op verificado."
+      "sourceHash": "32d9d96d9544a9d5301d00ccacd1300e7ef3675dd24f07064575feef2720b73c",
+      "message": "Invoke-HostRepair: hipervisor responsivo e um corredor está presente -- no-op verificado."
     },
     "runner.operator_dfd80a749d4fee8f": {
       "sourceHash": "ca36b17602e7fa949f1dc4ec87427177c457d7ec8882e47d70be3dc8eedd4c8b",
@@ -10289,7 +10303,7 @@
       "message": "Desactivar o bloqueio da inactividade da máquina..."
     },
     "runner.operator_f669f22210b44d93": {
-      "sourceHash": "176488f7062b64feaf7c03a397eb221d21556cc05ea97f76f1f6ad42790369a2",
+      "sourceHash": "b119f445c5fd9cf795b705f21e4d40e79455211e69aa148f99ba626b2ff66dad",
       "message": "indisponível por padrão; requer uma etiqueta/domínio/proprietário específicos para a versão do sistema operacional verificada com testes de garantia"
     },
     "runner.operator_f67e91959f7d5ea3": {
@@ -10357,8 +10371,8 @@
       "message": "substituir pelo endereço que respondeu ({address})"
     },
     "runner.operator_f89ff497e73a195c": {
-      "sourceHash": "df6696c91b56cbdc3a34dbfec16afd061eb7fb447d1294133de8b8b572889d1e",
-      "message": "requireSnapshot: snapshot '{requiredSnapshotId}' presente em VM persistente '{requiredSnapshotId}' -- pulando a cadeia basal (caminho quente)."
+      "sourceHash": "f5143f7a9965fcc3be4b85b604d474e3381488534e356493e02efb138d1a06ef",
+      "message": "requireSnapshot: snapshot '{requiredSnapshotId}' presente em VM persistente '{requiredSnapshotId}' -- pulando a cadeia de recursos (caminho quente)."
     },
     "runner.operator_f8a43d6f86299328": {
       "sourceHash": "3b74355a40df03121a09d303544488ba47a9fb158719b42a666948e912fd9acd",
@@ -10657,8 +10671,8 @@
       "message": "Windows.Media.Ocr está instalado em cada máquina do Windows, mas:"
     },
     "runner.operator_fffaa1debcc46863": {
-      "sourceHash": "fe8aff9c3372f01010ee581a943cf53ba0bf28fb261ded3ca300a332453b2fa9",
-      "message": "'testCycle.autoRefreshAfterStalls' é {arasVal} -- deve ser 0 (desativado) ou um inteiro positivo."
+      "sourceHash": "18112944115fe8aa199024123fa5b6a767dcd14352f3c4e497d56eec7288e5ec",
+      "message": "'testCycle.autoRepairAfterStalls' é {arasVal} -- deve ser 0 (desativado) ou um inteiro positivo."
     },
     "runner.outer_attempt_failed": {
       "sourceHash": "67c5a5bd41904537a222690cf0edd9f7d034c9d1663e289ba7b81270a99c9b04",
@@ -10757,49 +10771,94 @@
       "sourceHash": "4ea33fc426f7f9cf195eef456eea8af25562350956d873f45723000737033aa5",
       "message": "Substituir um registro crítico privado"
     },
-    "runner.host_refresh_auth_action_create_authority": {
-      "sourceHash": "7ef4c0e7d9b4f789a0bf1f861d5be92beb70a97db50c4e982631b5c726c3b3b6",
-      "message": "Criar a autoridade de assinatura de atualização e a credencial do operador"
+    "runner.host_repair_auth_action_create_authority": {
+      "sourceHash": "fbf5447eade10b24883629b70c9b34eb66ebc08bc8fcd95f23ecc371cff6ed9b",
+      "message": "Criar a autoridade de assinatura de reparo e a credencial do operador"
     },
-    "runner.host_refresh_auth_action_export_host_key": {
-      "sourceHash": "fccf12f55f32f08b138acbc97b210ca8cec15af302d9fb2f05332b350a626499",
-      "message": "Gravar a chave de verificação de atualização do hospedeiro {hostId}"
+    "runner.host_repair_auth_action_export_host_key": {
+      "sourceHash": "e19554f8addee0bbaa9f02c822ad5ae233996e9a0d9475bef32a8fc5cd3f593f",
+      "message": "Gravar a chave de verificação de reparo do hospedeiro {hostId}"
     },
-    "runner.host_refresh_auth_action_install_host_key": {
-      "sourceHash": "d869538cfa4357a19e7b765291c7d9b51828f593ac1de3f2d956c37a5b0a23c9",
-      "message": "Instalar a chave de verificação de atualização do hospedeiro {hostId}"
+    "runner.host_repair_auth_action_install_host_key": {
+      "sourceHash": "4b44acf52d77d13dfee502648d48dae65ad907851458e0d5e685adbb27dec969",
+      "message": "Instalar a chave de verificação de reparo do hospedeiro {hostId}"
     },
-    "runner.host_refresh_auth_action_remove_host_key": {
-      "sourceHash": "1c4cc75d88be8b60cf660e958ca01afa96fbf5182df43b6ee1f45d95f8c4852f",
-      "message": "Remover a chave de verificação de atualização"
+    "runner.host_repair_auth_action_remove_host_key": {
+      "sourceHash": "a27c1474424a85d69160491f797feb9862e5571b56b9bce4cf3eac3ba1ffad6a",
+      "message": "Remover a chave de verificação de reparo"
     },
-    "runner.host_refresh_credential_authority_created": {
-      "sourceHash": "892ece19abfb3a92872c2709585d81932732baf7fd30cc0316c5a043f1842e91",
-      "message": "Set-HostRefreshCredential: uma autoridade de assinatura de atualização (tag {authorityTag}) e uma credencial do operador (tag {credentialTag}) foram criadas em {path}. Copie authority.key e operator.credential para /etc/yuruna/host-refresh/ no serviço pool-control, com permissões exclusivas do proprietário; nunca os copie para um hospedeiro do grupo."
+    "runner.host_repair_credential_authority_created": {
+      "sourceHash": "baca3829eedbdfa93055b95691101e187fc7c5895737b057724aac55896a3e43",
+      "message": "Set-HostRepairCredential: uma autoridade de assinatura de reparo (tag {authorityTag}) e uma credencial do operador (tag {credentialTag}) foram criadas em {path}. Copie authority.key e operator.credential para /etc/yuruna/host-repair/ no serviço pool-control, com permissões exclusivas do proprietário; nunca os copie para um hospedeiro do grupo."
     },
-    "runner.host_refresh_credential_authority_exists": {
-      "sourceHash": "87e8861007bb54c6d8bd16d52089247f2f59c226f15a14d2aae2f372edb7bac5",
-      "message": "Set-HostRefreshCredential: já existe uma autoridade de atualização em {path}; passe -Rotate para substituí-la, o que invalida todas as chaves de hospedeiro instaladas."
+    "runner.host_repair_credential_authority_exists": {
+      "sourceHash": "2b729a31517e4b8453844ecfa59163e3bbf982e553691465aa3883d786ced9da",
+      "message": "Set-HostRepairCredential: já existe uma autoridade de reparo em {path}; passe -Rotate para substituí-la, o que invalida todas as chaves de hospedeiro instaladas."
     },
-    "runner.host_refresh_credential_host_key_exported": {
-      "sourceHash": "0d49528e3613629379324f5d7b9d19ba1ba11370cd8a31dc640c8fbc7513069c",
-      "message": "Set-HostRefreshCredential: a chave de atualização do hospedeiro {hostId} (tag {keyTag}) foi gravada em {path}. Transfira-a para esse hospedeiro por um canal privado, execute este script lá com -InstallHostKey -KeyPath e, em seguida, exclua o arquivo."
+    "runner.host_repair_credential_host_key_exported": {
+      "sourceHash": "3290aa7a1d504c0594d4ea44354c0b7acbb79d012f3dc248d307058bd475b601",
+      "message": "Set-HostRepairCredential: a chave de verificação de reparo do hospedeiro {hostId} (tag {keyTag}) foi gravada em {path}. Transfira-a para esse hospedeiro por um canal privado, execute este script lá com -InstallHostKey -KeyPath e, em seguida, exclua o arquivo."
     },
-    "runner.host_refresh_credential_host_key_installed": {
-      "sourceHash": "110c57414984346abaa5b245db023dfd1c0b411be22e617f4793f745768ed105",
-      "message": "Set-HostRefreshCredential: a chave de atualização deste hospedeiro {hostId} (tag {keyTag}) foi instalada; agora as solicitações de atualização remota assinadas pela autoridade correspondente podem ser verificadas aqui."
+    "runner.host_repair_credential_host_key_installed": {
+      "sourceHash": "8cc43d4bc7d89659d66992776edcfc1f072b36510ef101099c8fd99c2f9be2ab",
+      "message": "Set-HostRepairCredential: a chave de verificação de reparo deste hospedeiro ({hostId}, tag {keyTag}) foi instalada; agora as solicitações de reparo remoto assinadas pela autoridade correspondente podem ser verificadas aqui."
     },
-    "runner.host_refresh_credential_host_key_removed": {
-      "sourceHash": "1dad20c8cfd15aea8f4aae00a0122c48ea7240476874a30ecfcf7ae163be1d22",
-      "message": "Set-HostRefreshCredential: a chave de atualização foi removida; agora este hospedeiro recusa toda solicitação de atualização que não venha do loopback."
+    "runner.host_repair_credential_host_key_removed": {
+      "sourceHash": "6543748d35b85ffc053870255e848f2c54315628c2d5b54f6b64eda769fd2304",
+      "message": "Set-HostRepairCredential: a chave de verificação de reparo deste hospedeiro foi removida; agora este hospedeiro recusa toda solicitação de reparo que não venha do loopback."
     },
-    "runner.host_refresh_credential_output_exists": {
-      "sourceHash": "9718c218e0dc995400f05a20d41a0fefd84d82c7433aeaa98a7725fe854a99b7",
-      "message": "Set-HostRefreshCredential: {path} já existe; escolha outro -OutputPath ou exclua o arquivo primeiro."
+    "runner.host_repair_credential_output_exists": {
+      "sourceHash": "49a0f7cb10e128edb48c3b19c8213b601e0042735dd320c75941228d0a2bff03",
+      "message": "Set-HostRepairCredential: {path} já existe; escolha outro -OutputPath ou exclua o arquivo primeiro."
     },
-    "runner.host_refresh_credential_status": {
-      "sourceHash": "cb8c3328afa66283f93796f8e84b5fdd5d5908f99df564dbf9009def6886c503",
-      "message": "Set-HostRefreshCredential: hospedeiro {hostId}: chave de atualização remota {state} ({reason}); autoridade {authorityState}."
+    "runner.host_repair_credential_status": {
+      "sourceHash": "a72661c4c187d021f37808384aade4b8ee2da20f7cf0cfd5c51647bd3540830c",
+      "message": "Set-HostRepairCredential: hospedeiro {hostId}: chave de verificação de reparo {state} ({reason}); autoridade {authorityState}."
+    },
+    "runner.host_update_credential_status": {
+      "sourceHash": "e6e48808f6944b792b304587e22f564e2690119e2f4aa85dd30ced5c1a283a3f",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential: registro do pool-control {state} ({reason}; pool-control {poolControl}, tag da chave {keyTag}); chave de assinatura de atualização {signingKeyState}."
+    },
+    "runner.host_update_credential_signing_key_created": {
+      "sourceHash": "b8ef9fb2ecd66b1accb9ac0eb3f49cffd098697def7be07ef58003de0aed27bb",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential: criou uma chave de assinatura de atualização de hospedeiro (tag {keyTag}) em {path}. Copie-a para /etc/yuruna/host-repair/update-signing.key do serviço pool-control com permissões somente do proprietário; nunca a copie para um hospedeiro do grupo. Em cada hospedeiro do grupo, execute: pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl <pool-control URL> -PublicKey {publicKey}"
+    },
+    "runner.host_update_credential_signing_key_exists": {
+      "sourceHash": "f6be5f42cf7b39a67da9c1be7cb8c6d8143c61a7e8cc378eb2a7615e77fdcc85",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential: já existe uma chave de assinatura de atualização de hospedeiro em {path}; passe -Rotate para substituí-la, depois do que o registro do pool-control de cada hospedeiro deve ser instalado novamente."
+    },
+    "runner.host_update_credential_record_installed": {
+      "sourceHash": "f9efc0f220e1dddd4eae895389486b6aba08980b67310dba81ebd544509e8f7f",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential: registro do pool-control deste hospedeiro instalado (pool-control {poolControl}, tag da chave {keyTag}); atualizações de hospedeiro assinadas por essa chave agora podem ser verificadas aqui, e a página Diagnósticos deste hospedeiro envia para lá um acionamento remoto."
+    },
+    "runner.host_update_credential_record_value_replaced": {
+      "sourceHash": "0e19c971c759563358eeeda30f0a5a5472d07a211492735196674daaf5aabce5",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential: registro do pool-control {key}: {previous} -> {current}. Esta linha guarda o valor anterior; instale-o novamente com -InstallPoolControlRecord se a mudança não foi intencional."
+    },
+    "runner.host_update_credential_record_removed": {
+      "sourceHash": "79441a68a553337242adf5240076e1f75e0771faa6a4fa9913f30800465dd8dc",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential: registro do pool-control deste hospedeiro removido; este hospedeiro agora recusa toda atualização de hospedeiro vinda de outra máquina."
+    },
+    "runner.host_update_auth_action_create_signing_key": {
+      "sourceHash": "a782705c248a7a96443a64f2824800fa345ea4bcefb4631fde50cfc1cd4f1ae0",
+      "origin": "machine",
+      "message": "Criar a chave de assinatura de atualização de hospedeiro"
+    },
+    "runner.host_update_auth_action_install_record": {
+      "sourceHash": "6f477b967b5de62875fe9387bdfa2d9d914a3b6f35e8a73801d753548f32338c",
+      "origin": "machine",
+      "message": "Instalar o registro do pool-control para {poolControl}"
+    },
+    "runner.host_update_auth_action_remove_record": {
+      "sourceHash": "9665d5f72a94b91a4ed2d5c402c68f939eef9ea49bd90d5120d40cb725824366",
+      "origin": "machine",
+      "message": "Remover o registro do pool-control"
     },
     "runner.mac_dock_reload_deferred": {
       "sourceHash": "5a056428da7527acf83e4847b4af0172a7727b0097553885d8c8df944da1e821",
@@ -10826,8 +10885,8 @@
       "message": "Write-OuterLog: YURUNA_RUNTIME_DIR não está definido, portanto o outer.log não pode ser localizado; esta linha e as seguintes não serão gravadas nele: {message}"
     },
     "runner.boot_recovery_preserved_controls": {
-      "sourceHash": "a641900f3f6d83251042f9608e88e23a3b0bbc889b80f7f0479d5dd3321359ac",
-      "message": "A recuperação na inicialização (preservação do refresh) manteve {count} arquivos de controle do operador e {pidCount} registros do runner que não pôde provar que estavam obsoletos."
+      "sourceHash": "a1a10b20057532658088e356bd9c78a3b1ff26b2a01f7788cacda59b9003acef",
+      "message": "A recuperação na inicialização (preservação da transferência) manteve {count} arquivos de controle do operador e {pidCount} registros do runner que não pôde provar que estavam obsoletos."
     },
     "runner.cycle_record_clear_action": {
       "sourceHash": "c1e8daf542fa1fcc0b7244278cc4ef2f641562706a3e835c15dc4c7f2682037a",
@@ -10857,585 +10916,794 @@
       "sourceHash": "2ab0a4247e8e2f2dee55719758cde26fbbf942d23055548a38d868d52e3b3b16",
       "message": "[relatório truncado em {chars} caracteres]"
     },
-    "runner.host_refresh_action_dispose_obligations": {
-      "sourceHash": "a5b940e570ac9db84b56266eaa696cce6117ca6d263e66e2b31ddbe555d057af",
-      "message": "Próximo passo: após verificar cada item manualmente, registre-o com: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation {obligations}"
+    "runner.host_repair_action_dispose_obligations": {
+      "sourceHash": "dda2589b3415feb865a22421e57162f877aa6ffca52ec678635da4cbb9aa5b84",
+      "origin": "machine",
+      "message": "Próxima etapa: após verificar cada item manualmente, registre-o com: pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation {obligations}"
     },
-    "runner.host_refresh_action_elevate": {
-      "sourceHash": "3b7e872dd64520508b26d798bd7290ca522f3112efb76031d608dd5db5985653",
-      "message": "Próximo passo: conceda a esta conta o privilégio exigido pelo nível {rung} (o comando exato aparece acima, quando aplicável) e execute o refresh novamente."
+    "runner.host_repair_action_elevate": {
+      "sourceHash": "b6bb01e8c5aa68537a5b7a9fea245fe139ad95276a7bd38063761d42bf8dc7e8",
+      "origin": "machine",
+      "message": "Próxima etapa: conceda a esta conta o privilégio exigido pelo nível {rung} (o comando exato aparece acima, quando aplicável) e execute o reparo novamente."
     },
-    "runner.host_refresh_action_grant_automation": {
-      "sourceHash": "edec65cfda849f5c66fc46df86bfcfab8d9800e0cf374fa0a61a8ddc7023f0b6",
-      "message": "Próximo passo: permita o acesso de Automação ao UTM para o aplicativo que executa este shell e execute o refresh novamente."
+    "runner.host_repair_action_grant_automation": {
+      "sourceHash": "94f5321d87d77fdac592d331f1e3db6da66b096c0fa287c3d9a79f72b3977fd1",
+      "origin": "machine",
+      "message": "Próxima etapa: permita o acesso de Automação ao UTM para o aplicativo que executa este shell e execute o reparo novamente."
     },
-    "runner.host_refresh_action_gui_session": {
-      "sourceHash": "842056b3fb4c522bdfe0dbe12baa747592af4c33e681159377c74200b1dc5d9e",
-      "message": "Próximo passo: execute o refresh na sessão de desktop conectada; esta sessão só pode observar."
+    "runner.host_repair_action_gui_session": {
+      "sourceHash": "dd95c4cec3937dcbec307a69c0afa45c70832e437ea150d0cfd7bf372dca5129",
+      "origin": "machine",
+      "message": "Próxima etapa: execute o reparo na sessão de desktop conectada; esta sessão só pode observar."
     },
-    "runner.host_refresh_action_install_client": {
-      "sourceHash": "4500b0c18da686a50aa636cdabede1098b4da3114e3a5c19e7deee5655195d1f",
-      "message": "Próximo passo: restaure o cliente de linha de comando do hipervisor ({client}); o refresh não o reinstala."
+    "runner.host_repair_action_install_client": {
+      "sourceHash": "c5411a4587848c3f829fddcb4c15cbef5bdd805665ac5b6b1d40f96327eb8836",
+      "origin": "machine",
+      "message": "Próxima etapa: restaure o cliente de linha de comando do hipervisor ({client}); o reparo não o reinstala."
     },
-    "runner.host_refresh_action_resume_request": {
-      "sourceHash": "ee5b0926f188b0840f9ff7407bc41d86bbb42234b5b5029309470f0ffaa1465f",
-      "message": "Próximo passo: retome a solicitação pendente com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume"
+    "runner.host_repair_action_resume_request": {
+      "sourceHash": "9c1b4b119786005f1952049bc5100a95d1bdb56c523f6550f96ef87f7e6965a6",
+      "origin": "machine",
+      "message": "Próxima etapa: retome a solicitação pendente com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume"
     },
-    "runner.host_refresh_action_start_runner": {
-      "sourceHash": "9eac04ab6f0519353874c4945bd6d2c50e9a128b85536376b9774df6c32cb01b",
-      "message": "Próximo passo: inicie o runner manualmente: pwsh test/Start-TestRunner.ps1"
+    "runner.host_repair_action_start_runner": {
+      "sourceHash": "6a51f51c4093eae39bb8ecd63b269faa953d5343d1c9699b23467e5ceb5b8c0b",
+      "origin": "machine",
+      "message": "Próxima etapa: inicie o executor manualmente: pwsh test/Start-TestRunner.ps1"
     },
-    "runner.host_refresh_auto_action_admit": {
-      "sourceHash": "7cf16b6bb72ec9f76a64b4c9c3e194efe22ff4242bf294c7805bd9cccab5eb85",
-      "message": "Admitir uma solicitação automática de refresh do hospedeiro para a geração de ciclo {generation}"
+    "runner.host_repair_auto_action_admit": {
+      "sourceHash": "392cbfd5228564ea774bc615e032b6badea28494fbd501b94f4bf6a56317e8e0",
+      "message": "Admitir uma solicitação automática de reparo do hospedeiro para a geração de ciclo {generation}"
     },
-    "runner.host_refresh_auto_action_consume_evidence": {
-      "sourceHash": "eb5db5739f69892db87c8c3b52ad4137fabac665e1bde4095737e0cebd5e3f94",
-      "message": "Consumir o arquivo de evidências do refresh do hospedeiro"
+    "runner.host_repair_auto_action_consume_evidence": {
+      "sourceHash": "789a7fb60832c276aba14e876892adefd6dfb2e1282a727a883e7c7f025081f1",
+      "message": "Consumir o arquivo de evidências do reparo do hospedeiro"
     },
-    "runner.host_refresh_auto_action_decide": {
-      "sourceHash": "4e590ee1c3fc6417f586742733c19a48b03df95c40a65ca3cd6f7ab2682897ce",
-      "message": "Decidir se deve executar um refresh automático do hospedeiro após o ciclo externo {cycle}"
+    "runner.host_repair_auto_action_decide": {
+      "sourceHash": "3b59b5ad62cbe622c9720c6d0830452a60f5e6ec464d4383787336c40cadcc01",
+      "message": "Decidir se deve executar um reparo automático do hospedeiro após o ciclo externo {cycle}"
     },
-    "runner.host_refresh_auto_action_record_outcome": {
-      "sourceHash": "69a68b841a765ad114796428c88e7d04b27fc764a50b73f9dbcc02b63468825f",
-      "message": "Registrar o resultado {verdict} do refresh automático do hospedeiro"
+    "runner.host_repair_auto_action_record_outcome": {
+      "sourceHash": "ac8ce229caa0d11657c8b1da8901335040a6df242a6919fdd776572dec3c5c8d",
+      "message": "Registrar o resultado {verdict} do reparo automático do hospedeiro"
     },
-    "runner.host_refresh_auto_action_reserve": {
-      "sourceHash": "5c261ec29d2e693b791f29a37005436b00600a364cc501a7fa29ae77245c78ce",
-      "message": "Reservar a tentativa de refresh automático do hospedeiro para o dia UTC {utcDay}"
+    "runner.host_repair_auto_action_reserve": {
+      "sourceHash": "a61636482cb330062b9e8e6a9182ebb282e66d9a54ea3013140890cd9a43ddbb",
+      "message": "Reservar a tentativa de reparo automático do hospedeiro para o dia UTC {utcDay}"
     },
-    "runner.host_refresh_auto_action_run_worker": {
-      "sourceHash": "743a298b5f20d1dac2a598db92a279e7f852060f2eac3ac4d75f0723f89d1614",
-      "message": "Executar o worker de refresh do hospedeiro para a solicitação {requestId}"
+    "runner.host_repair_auto_action_run_worker": {
+      "sourceHash": "4510bb1bc97d8f6ffd0f1707e19d21866b66cb132a405aecf7987be458fbcdc7",
+      "message": "Executar o worker de reparo do hospedeiro para a solicitação {requestId}"
     },
-    "runner.host_refresh_auto_action_update_streak": {
-      "sourceHash": "2ce4a1354cff61bf7b5a751b7fa19c2cdaa3b582f3aad30c83db1eee695b873d",
-      "message": "Definir a contagem de evidências do refresh do hospedeiro como {streak}"
+    "runner.host_repair_auto_action_update_streak": {
+      "sourceHash": "719ad3637caf41a0892e18f17d9885d3ed8291b07d06ae91def0ae2eb36801aa",
+      "message": "Definir a contagem de evidências do reparo do hospedeiro como {streak}"
     },
-    "runner.host_refresh_auto_action_withdraw": {
-      "sourceHash": "6b5a654288b362e1016bb6325d1ea31431139385fbc217f28420452c9eaff37f",
-      "message": "Retirar a solicitação automática de refresh do hospedeiro na fila {requestId}"
+    "runner.host_repair_auto_action_withdraw": {
+      "sourceHash": "c84ca5a35bee01bce972b24b9206017d69c5b61fe85a6697687c9525dc1d9d60",
+      "message": "Retirar a solicitação automática de reparo do hospedeiro na fila {requestId}"
     },
-    "runner.host_refresh_auto_action_write_evidence": {
-      "sourceHash": "0fb2c416dbc5d8ff2bcbaa4b6649ceba07903ea9da601c1bedf910f3bce430b2",
-      "message": "Registrar evidências de refresh do hospedeiro para a geração de ciclo {generation}"
+    "runner.host_repair_auto_action_write_evidence": {
+      "sourceHash": "204a7053ba23b9175badbf3a7a7ad904746d2691a1a298c4ec93ffcc654c771a",
+      "message": "Registrar evidências de reparo do hospedeiro para a geração de ciclo {generation}"
     },
-    "runner.host_refresh_auto_dependency_missing": {
-      "sourceHash": "a51e80467c1da38df99624b66004f21829abe4640579487fcd71eef08f40b230",
-      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro está indisponível: não foi possível carregar {command} de {module}."
+    "runner.host_repair_auto_dependency_missing": {
+      "sourceHash": "1461028a89c03570f5c72850335d664c50f1adaae06fb36153215b7bbe50ae18",
+      "message": "[ciclo externo {cycle}] o reparo automático do hospedeiro está indisponível: não foi possível carregar {command} de {module}."
     },
-    "runner.host_refresh_auto_error": {
-      "sourceHash": "381ab3e7807ceed5c8d0912358f4a08f243a4b0166d404e723a4b801f840774e",
-      "message": "[ciclo externo {cycle}] a decisão de refresh automático do hospedeiro falhou ({message}); o runner continua sem ela."
+    "runner.host_repair_auto_error": {
+      "sourceHash": "d18d6aee503c3d2760fb19d316671f8b9820e0e5b58fcd32d5e918ad99c56d21",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a decisão de reparo automático do hospedeiro falhou ({message}); o executor continua sem ela."
     },
-    "runner.host_refresh_auto_evidence_counted": {
-      "sourceHash": "cff85a8735705746fac2de1d24dc8f083e0a59501f08d606678d1f1495131488",
-      "message": "[ciclo externo {cycle}] evidência de refresh do hospedeiro: {phase} detectou um timeout de controle do hipervisor ({streak} de {threshold} ciclos)."
+    "runner.host_repair_auto_evidence_counted": {
+      "sourceHash": "637e217ce77f1f4190018ddc636b99abdbe640c6740dde7c876a9ae5e6c37ebc",
+      "message": "[ciclo externo {cycle}] evidência de reparo do hospedeiro: {phase} detectou um timeout de controle do hipervisor ({streak} de {threshold} ciclos)."
     },
-    "runner.host_refresh_auto_evidence_reset": {
-      "sourceHash": "b16935c7e23362a27122faf17dc7b2692d28f2dbd703293d570476b563b6b36b",
-      "message": "[ciclo externo {cycle}] evidências de refresh do hospedeiro limpas: o hipervisor respondeu durante {phase}."
+    "runner.host_repair_auto_evidence_reset": {
+      "sourceHash": "a397481988eb2e71cadf307f76da620f8ab2f2d4f8069edeea6f6c84b1b5fef1",
+      "message": "[ciclo externo {cycle}] evidências de reparo do hospedeiro limpas: o hipervisor respondeu durante {phase}."
     },
-    "runner.host_refresh_auto_finished": {
-      "sourceHash": "1de5d8ed8447db383e7fe5bd45c6af3b261c4b330379cda8d98333b4917c5940",
-      "message": "[ciclo externo {cycle}] refresh automático do hospedeiro {requestId} concluído: {verdict}."
+    "runner.host_repair_auto_finished": {
+      "sourceHash": "0957ef52cf7d8319db7e541ccbefc8f7fc55393be630a719b143e01445730bb8",
+      "message": "[ciclo externo {cycle}] reparo automático do hospedeiro {requestId} concluído: {verdict}."
     },
-    "runner.host_refresh_auto_knob_invalid": {
-      "sourceHash": "a468a1d1ee82f021f8e1eb08f3fcbb7726d7296c91a9466ccb4a4db0d1439e4a",
-      "message": "testCycle.autoRefreshAfterStalls é '{value}', que não é um número inteiro não negativo; o refresh automático do hospedeiro permanece desativado."
+    "runner.host_repair_auto_knob_invalid": {
+      "sourceHash": "958fb14294712da9750cac48de05540234847de72b0aad229fe3c66c611c73fd",
+      "message": "testCycle.autoRepairAfterStalls é '{value}', que não é um número inteiro não negativo; o reparo automático do hospedeiro permanece desativado."
     },
-    "runner.host_refresh_auto_operator_action": {
-      "sourceHash": "52d9a72cb7cea23a9aead5031b2ef6f62da6bec51e201074a194c8df9377d125",
-      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro {requestId} terminou {verdict}; nenhuma nova tentativa automática começa antes do dia UTC {nextUtcDay}. Verifique o hospedeiro; enquanto esta solicitação estiver aberta, conclua-a com test/lab/Invoke-HostRefresh.ps1 -Resume; caso contrário, execute test/lab/Invoke-HostRefresh.ps1."
+    "runner.host_repair_auto_pool_key_retired": {
+      "sourceHash": "532de9fa97ed7c58eba9e8d5b711f40bff2ed2464abcfd46eeb3464cbf79778a",
+      "message": "A configuração do grupo define a chave aposentada config.testCycle.autoRefreshAfterStalls ({value}); ela não é mais lida. Defina config.testCycle.autoRepairAfterStalls no repositório do grupo em vez dela."
     },
-    "runner.host_refresh_auto_pause_skipped": {
-      "sourceHash": "a2163bc2dbc6d5b566739ca4786b1ee401a56a26385dbc443eedaf51f3e50cef",
-      "message": "[ciclo externo {cycle}] o refresh automático reparou o hospedeiro; o próximo ciclo começa sem a pausa de falha."
+    "runner.host_repair_auto_operator_action": {
+      "sourceHash": "7b7f8d8828ec47bf641e00543d4a2d9061a0f5ba889c0903a9c4f73a869767d2",
+      "message": "[ciclo externo {cycle}] o reparo automático do hospedeiro {requestId} terminou {verdict}; nenhuma nova tentativa automática começa antes do dia UTC {nextUtcDay}. Verifique o hospedeiro; enquanto esta solicitação estiver aberta, conclua-a com test/lab/Invoke-HostRepair.ps1 -Resume; caso contrário, execute test/lab/Invoke-HostRepair.ps1."
     },
-    "runner.host_refresh_auto_queued_revoked": {
-      "sourceHash": "b95c4e6fe4cf16707186b14b306b224f528ccf2ade5fe5cb1c00119156816c44",
-      "message": "[ciclo externo {cycle}] a solicitação automática de refresh do hospedeiro na fila {requestId} foi retirada porque o grupo está sendo drenado."
+    "runner.host_repair_auto_pause_skipped": {
+      "sourceHash": "98ecf8d376979f253a9eeba1caa2f6140399c504b9a6df11a7a9c3534c10c4a1",
+      "message": "[ciclo externo {cycle}] o reparo automático corrigiu o hospedeiro; o próximo ciclo começa sem a pausa de falha."
     },
-    "runner.host_refresh_auto_refused": {
-      "sourceHash": "edbe2f5475343be7d8c3e150af4aeb87cebbb7b54eab81f1e11411f0536cd375",
-      "message": "[ciclo externo {cycle}] refresh automático do hospedeiro não iniciado: {reason}."
+    "runner.host_repair_auto_queued_revoked": {
+      "sourceHash": "f3c7be39135f2c127e631a429585d8b71c08152cfb627a87ca732927925a7f84",
+      "message": "[ciclo externo {cycle}] a solicitação automática de reparo do hospedeiro na fila {requestId} foi retirada porque o grupo está sendo drenado."
     },
-    "runner.host_refresh_auto_resume_caller_changed": {
-      "sourceHash": "3b26d82c2e1f97e7cec71a9f63781d02c05f7bbb55e4fdf28f900a61a35837b3",
-      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro {requestId} foi iniciado para um processo anterior do runner, então este runner não o retoma. Conclua-o com test/lab/Invoke-HostRefresh.ps1 -Resume ou libere o que ele mantém com test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
+    "runner.host_repair_auto_refused": {
+      "sourceHash": "b847ecc9a53b75408644129c32475ec9026d6c583abe9cf111e5a37d22619cdb",
+      "message": "[ciclo externo {cycle}] reparo automático do hospedeiro não iniciado: {reason}."
     },
-    "runner.host_refresh_auto_resume_disabled": {
-      "sourceHash": "5de02be85431055832c1d22abb107ece57de148f5138d4751b3423d477fc94e8",
-      "message": "[ciclo externo {cycle}] o refresh automático do hospedeiro {requestId} não é retomado enquanto autoRefreshAfterStalls for 0. Uma solicitação não reivindicada expira sozinha; conclua uma já iniciada com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "runner.host_repair_auto_resume_caller_changed": {
+      "sourceHash": "cba3929560145fe3051d2829f778cf60f9335e69acbaac82c9ec498358ec6799",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o reparo automático do hospedeiro {requestId} foi iniciado para um processo anterior do executor, então este executor não o retoma. Conclua-o com test/lab/Invoke-HostRepair.ps1 -Resume ou libere o que ele mantém com test/lab/Invoke-HostRepair.ps1 -DisposeObligation."
     },
-    "runner.host_refresh_auto_resuming": {
-      "sourceHash": "ef58c9cd4068f93d04ebf34bf9e96c4e53922a0d8d5da7ef8270210a14cc427b",
-      "message": "[ciclo externo {cycle}] retomando o refresh automático do hospedeiro {requestId}, tentativa {attempt} de {maxAttempts}: apenas restaurando serviços, sem nova desmontagem."
+    "runner.host_repair_auto_resume_disabled": {
+      "sourceHash": "a73378700e3be47068b6d99c5a631e1489f7ef9fc6720b1b9ed8869172e44c58",
+      "message": "[ciclo externo {cycle}] o reparo automático do hospedeiro {requestId} não é retomado enquanto autoRepairAfterStalls for 0. Uma solicitação não reivindicada expira sozinha; conclua uma já iniciada com test/lab/Invoke-HostRepair.ps1 -Resume."
     },
-    "runner.host_refresh_auto_starting": {
-      "sourceHash": "c723764666456303fa03071e132d8ead2f827cb7e9fc0423bdd3b80dddbde1f6",
-      "message": "[ciclo externo {cycle}] refresh automático do hospedeiro {requestId} iniciando após {streak} ciclos de timeouts de controle do hipervisor (limite {maxRung}); o hipervisor pode ser reiniciado, e os serviços afetados são restaurados depois."
+    "runner.host_repair_auto_resuming": {
+      "sourceHash": "33ded00b600a6fd9eef2c78db581fdaedb6a6792c7848f2ef2b0db71a2d6c4a8",
+      "message": "[ciclo externo {cycle}] retomando o reparo automático do hospedeiro {requestId}, tentativa {attempt} de {maxAttempts}: apenas restaurando serviços, sem nova desmontagem."
     },
-    "runner.host_refresh_auto_threshold_raised": {
-      "sourceHash": "ce7c3750fa1a67ed0e7c0626d75176d9d422f7fad258df2ca7dafa74a8f335a7",
-      "message": "'testCycle.autoRefreshAfterStalls' é 1; o runner precisa do timeout em pelo menos dois ciclos e o trata como 2."
+    "runner.host_repair_auto_starting": {
+      "sourceHash": "bdd6afe1196cfb32d030e71c60e256914c5e6b624d855eac746145fb136e052c",
+      "message": "[ciclo externo {cycle}] reparo automático do hospedeiro {requestId} iniciando após {streak} ciclos de timeouts de controle do hipervisor (limite {maxRung}); o hipervisor pode ser reiniciado, e os serviços afetados são restaurados depois."
     },
-    "runner.host_refresh_auto_unavailable": {
-      "sourceHash": "447638b9ad0a3153ccf3c7fa6b6bf3ba58aa18ccbd6136dba1cf5e870616fb3a",
-      "message": "[ciclo externo {cycle}] a atualização automática do hospedeiro está configurada, mas não está disponível neste hospedeiro ({reason}); o executor registra a evidência e não age sobre ela. Execute test/lab/Invoke-HostRefresh.ps1 localmente se o hipervisor precisar de reparo."
+    "runner.host_repair_auto_threshold_raised": {
+      "sourceHash": "a54f226a73b8467961ac37818880b5818748ee2d4eeb7b013b851c75517274f0",
+      "origin": "machine",
+      "message": "'testCycle.autoRepairAfterStalls' é 1; o executor precisa do timeout em pelo menos dois ciclos e o trata como 2."
     },
-    "runner.host_refresh_auto_unavailable_on_host": {
-      "sourceHash": "14148fe1fa91dde3dcedc1ce40bf565e53c04443fb879ec0c3bf907c564e06a8",
-      "message": "'testCycle.autoRefreshAfterStalls' é {value}, mas a atualização automática do hospedeiro não está disponível neste hospedeiro ({reason}); o executor registra a evidência e não age sobre ela."
+    "runner.host_repair_auto_unavailable": {
+      "sourceHash": "116dca0a48de53e52b0f6652ed30915603eb94aa6050aad461c588370f1cfadc",
+      "message": "[ciclo externo {cycle}] o reparo automático do hospedeiro está configurado, mas não está disponível neste hospedeiro ({reason}); o executor registra a evidência e não age sobre ela. Execute test/lab/Invoke-HostRepair.ps1 localmente se o hipervisor precisar de reparo."
     },
-    "runner.host_refresh_auto_value_not_integer": {
-      "sourceHash": "237db8e7e0175aadc36d26e935b8c5d5a9d671af7c25d7a035e49cc9abefb6bf",
-      "message": "'testCycle.autoRefreshAfterStalls' é '{value}' -- não é um número inteiro; o executor o trata como 0 (atualização automática do hospedeiro desativada)."
+    "runner.host_repair_auto_unavailable_on_host": {
+      "sourceHash": "fb7d8ea467f0f3f4988378084729f29c349eaeb1f9ec6a86fed7fb94a7f19fc1",
+      "message": "'testCycle.autoRepairAfterStalls' é {value}, mas o reparo automático do hospedeiro não está disponível neste hospedeiro ({reason}); o executor registra a evidência e não age sobre ela."
     },
-    "runner.host_refresh_auto_verdict_mismatch": {
-      "sourceHash": "3e15b385058ee79d8b0b61d3de67628b5d0ab8d9af76768dfa2e6b4db49362cd",
-      "message": "[ciclo externo {cycle}] a atualização automática do hospedeiro {requestId} não deixou resultado correspondente ({reason}); tratando-a como falha."
+    "runner.host_repair_auto_value_not_integer": {
+      "sourceHash": "275201a91f577e0b37a762dbe662389b69afc56a0c6a3f16971a2d6d3a5a58d6",
+      "message": "'testCycle.autoRepairAfterStalls' é '{value}' -- não é um número inteiro; o executor o trata como 0 (reparo automático do hospedeiro desativado)."
     },
-    "runner.host_refresh_auto_waiting_on_worker": {
-      "sourceHash": "bfa479002741a81e8ddbd9957e1c5317e1c6bf9e6434b227847b3a0da104b6e8",
-      "message": "Encerramento solicitado; aguardando o worker de atualização do hospedeiro da solicitação automática {requestId} terminar (no máximo mais {seconds} segundos)."
+    "runner.host_repair_auto_verdict_mismatch": {
+      "sourceHash": "55e558de4848c41eec6c1afa2ffb1b15eef81cb712c83a96265b867ee55bf984",
+      "message": "[ciclo externo {cycle}] o reparo automático do hospedeiro {requestId} não deixou resultado correspondente ({reason}); tratando-o como falha."
     },
-    "runner.host_refresh_auto_worker_launch_failed": {
-      "sourceHash": "9481936a90805dfdb0c5d14f63aec9dab6e6f0e2ea9d949e327c401a89e9d704",
-      "message": "Não foi possível iniciar o worker de atualização do hospedeiro da solicitação automática {requestId}: {message}."
+    "runner.host_repair_auto_waiting_on_worker": {
+      "sourceHash": "a19ea00b9c5c333a8a6946d631108fca6f73db2c77458dcc4e363403f55de83c",
+      "message": "Encerramento solicitado; aguardando o worker de reparo do hospedeiro da solicitação automática {requestId} terminar (no máximo mais {seconds} segundos)."
     },
-    "runner.host_refresh_auto_worker_timeout": {
-      "sourceHash": "bbb715c5cdad9a7451c457939a402cfe9b63de47dff6cf7711478498e708ea66",
-      "message": "O worker de atualização do hospedeiro da solicitação automática {requestId} excedeu {seconds} segundos e foi interrompido; a solicitação continua aberta. O executor pode retomá-la, ou conclua-a com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "runner.host_repair_auto_worker_launch_failed": {
+      "sourceHash": "8c399ee04d17312368a3cf9a769858726594016bbe2e721c8dd2c3ecf568fc94",
+      "message": "Não foi possível iniciar o worker de reparo do hospedeiro da solicitação automática {requestId}: {message}."
     },
-    "runner.host_refresh_command_missing": {
-      "sourceHash": "263c70f5f771924e7a13b85d164600677581c3e7058aec9c7f6c03b9fd0ee4f6",
-      "message": "Invoke-HostRefresh: o comando obrigatório {command} ({module}) não está disponível após carregar o conjunto de módulos de atualização; recusando."
+    "runner.host_repair_auto_worker_timeout": {
+      "sourceHash": "713d4e520bee0e3eb666f61514f3b0aeb3757bdcb88bdb13c9ab28d39ccff79a",
+      "message": "O worker de reparo do hospedeiro da solicitação automática {requestId} excedeu {seconds} segundos e foi interrompido; a solicitação continua aberta. O executor pode retomá-la, ou conclua-a com test/lab/Invoke-HostRepair.ps1 -Resume."
     },
-    "runner.host_refresh_config_ambiguous": {
-      "sourceHash": "ff67b16186d1d1fdd23539c7ba7a298527621f0aabb920731f5aadc4cd597155",
-      "message": "Invoke-HostRefresh: {count} snapshots de configuração em {runtimeDir} indicam arquivos de origem diferentes; use -ConfigPath para escolher um."
+    "runner.host_repair_command_missing": {
+      "sourceHash": "f6493c1d363aa298456a6b06c8d34cd8f09f1fea91f547d57e3a10a0fb580264",
+      "message": "Invoke-HostRepair: o comando obrigatório {command} ({module}) não está disponível após carregar o conjunto de módulos de reparo; recusando."
     },
-    "runner.host_refresh_config_conflict": {
-      "sourceHash": "0ddcecc1ebbf08360bbdf58324572e39c019bc2a2a450cc963bc109e7b0acfc4",
-      "message": "Invoke-HostRefresh: -ConfigPath {configPath} difere da configuração registrada do executor {recordedPath}; recusando em vez de reiniciar o executor com outro arquivo."
+    "runner.host_repair_config_ambiguous": {
+      "sourceHash": "da72917791d6eb0fad4c53156d992474a5da397a0e1595bcacdd707d385708f8",
+      "message": "Invoke-HostRepair: {count} snapshots de configuração em {runtimeDir} indicam arquivos de origem diferentes; use -ConfigPath para escolher um."
     },
-    "runner.host_refresh_config_missing": {
-      "sourceHash": "6915cc18942541259a29371ca8e2e2b9f5287db3234146cec55c2426ad8bde4b",
-      "message": "Invoke-HostRefresh: a configuração registrada para este runtime ({configPath}) não existe; use -ConfigPath."
+    "runner.host_repair_config_conflict": {
+      "sourceHash": "57be5232cc35ae7eacf1e8e84b30e6956ae44c3b9235e0bb6c1fa26bcd500509",
+      "message": "Invoke-HostRepair: -ConfigPath {configPath} difere da configuração registrada do executor {recordedPath}; recusando em vez de reiniciar o executor com outro arquivo."
     },
-    "runner.host_refresh_convergence_skipped": {
-      "sourceHash": "ff8bb42968671b6841647377a4f419869784226d85298f7c1ffe6b50c1384c7b",
-      "message": "Invoke-HostRefresh: a sondagem final indica {state} ({reason}); os serviços e o executor não foram retomados."
+    "runner.host_repair_config_missing": {
+      "sourceHash": "52157548c998af97275987927d1403c0fc47d7128578731a4a4a467156f77578",
+      "message": "Invoke-HostRepair: a configuração registrada para este runtime ({configPath}) não existe; use -ConfigPath."
     },
-    "runner.host_refresh_deadline_exhausted": {
-      "sourceHash": "076d20106747f138cc0dc87195fb91d9c3e6ba738440cd930621a3a22c152689",
-      "message": "Invoke-HostRefresh: o tempo disponível se esgotou durante {phase}; o trabalho não concluído foi registrado como pendente."
+    "runner.host_repair_convergence_skipped": {
+      "sourceHash": "36eee5fc9a1e1af6b2c42dc34631a7f7d67e1b5a128a00dd4ea734b28fc0331f",
+      "message": "Invoke-HostRepair: a sondagem final indica {state} ({reason}); os serviços e o executor não foram retomados."
     },
-    "runner.host_refresh_disruption_warning": {
-      "sourceHash": "5772cd8e8ed6295f5c67e399d5349e6fc62c6101718eca7a2cea27b93af2b1f3",
-      "message": "Invoke-HostRefresh: reiniciar o aplicativo do hipervisor pode suspender convidados em execução; uma parada forçada, permitida apenas com -AllowHardStop, pode desligá-los de forma não limpa."
+    "runner.host_repair_deadline_exhausted": {
+      "sourceHash": "c65066fc309083d8d5918657c12a7107a920470e544f2266727b4cc562de87bc",
+      "message": "Invoke-HostRepair: o tempo disponível se esgotou durante {phase}; o trabalho não concluído foi registrado como pendente."
     },
-    "runner.host_refresh_evidence_write_failed": {
-      "sourceHash": "bc36feced9b8767e30f1ce1dc9501536787c5aabdd7e3a278a23356a939cfb48",
-      "message": "Não foi possível registrar a evidência de atualização do hospedeiro deste ciclo ({reason}); a atualização automática do hospedeiro não a contabilizará."
+    "runner.host_repair_disruption_warning": {
+      "sourceHash": "86f0132f1e67bca1e30738d38178dfede7fbe8bd235d8779641a5d4b3829f920",
+      "message": "Invoke-HostRepair: reiniciar o aplicativo do hipervisor pode suspender convidados em execução; uma parada forçada, permitida apenas com -AllowHardStop, pode desligá-los de forma não limpa."
     },
-    "runner.host_refresh_hung_hypervisor_manual_hyperv": {
-      "sourceHash": "d0f883d700be2047f7ef7bd3d0b63d4b9bdf75e6db03fff878a8e68797b09322",
-      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie o serviço de gerenciamento do Hyper-V em um console elevado (Restart-Service vmms) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
+    "runner.host_repair_evidence_write_failed": {
+      "sourceHash": "2deb7e3b1505731ee33a38a0966e055b816ccde102bc210711695512e52d7554",
+      "message": "Não foi possível registrar a evidência de reparo do hospedeiro deste ciclo ({reason}); o reparo automático do hospedeiro não a contabilizará."
     },
-    "runner.host_refresh_hung_hypervisor_manual_kvm": {
-      "sourceHash": "ec779be2fc6140bc1745e56047085014ee51fda9634cc2fff36644c4b0a3abcf",
-      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie os daemons do libvirt (sudo systemctl restart libvirtd) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
+    "runner.host_repair_hung_hypervisor_manual_hyperv": {
+      "sourceHash": "b38d280083d5b4cae92935d2dd68a2ef50ff22804bbe221f07da7d4c1f85ab22",
+      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie o serviço de gerenciamento do Hyper-V em um console elevado (Restart-Service vmms) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
     },
-    "runner.host_refresh_hung_hypervisor_manual_utm": {
-      "sourceHash": "b62363d5ef3d6b25b7f4fb44a216c8fd6c41528161c124fe89ace2172b51e69a",
-      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Feche e reabra o UTM na sessão de desktop conectada ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
+    "runner.host_repair_hung_hypervisor_manual_kvm": {
+      "sourceHash": "6c0c8b05fe099deee0474cd491b1eee8b508d7149b6cd1f62d913540b43598a7",
+      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie os daemons do libvirt (sudo systemctl restart libvirtd) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
     },
-    "runner.host_refresh_identity_refused": {
-      "sourceHash": "303d0b942cd0597006c24c2486e537855d4dfe86e615175773cb7603ab4e3f5d",
-      "message": "Invoke-HostRefresh: recusando executar como {identity} ({reason}); execute com a conta proprietária de {runtimeDir}."
+    "runner.host_repair_hung_hypervisor_manual_utm": {
+      "sourceHash": "ecf786b4773ea63263ca1c90880ed072f09523561ea72514e8544054ed76914a",
+      "message": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Feche e reabra o UTM na sessão de desktop conectada ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas."
     },
-    "runner.host_refresh_launcher_wait_timeout": {
-      "sourceHash": "dc16b873290149a51e530c8a4a6d07c5aab286eb7a3d2c33357b7a5c9c36412a",
-      "message": "Invoke-HostRefresh: o processo iniciador {launcherPid} ainda está em execução após {waitedSeconds} s; a solicitação {requestId} continua na fila para nova tentativa."
+    "runner.host_repair_identity_refused": {
+      "sourceHash": "7650e177e6f176c4410857b604665654faa2bb1fac6855db62641bb8b5f6a16e",
+      "message": "Invoke-HostRepair: recusando executar como {identity} ({reason}); execute com a conta proprietária de {runtimeDir}."
     },
-    "runner.host_refresh_lock_busy": {
-      "sourceHash": "cf2d590b61147d8ff7da29c3475ade27959e6b9921bb76ad5699c3b351529850",
-      "message": "Invoke-HostRefresh: outro reparo detém o bloqueio vitalício ({reason}); recusando executar em paralelo."
+    "runner.host_repair_launcher_wait_timeout": {
+      "sourceHash": "6bc77caf14002103023fc50d3bfebf3fc2d1b61a29e0e06fd2f36e64407ed813",
+      "message": "Invoke-HostRepair: o processo iniciador {launcherPid} ainda está em execução após {waitedSeconds} s; a solicitação {requestId} continua na fila para nova tentativa."
     },
-    "runner.host_refresh_manual_command": {
-      "sourceHash": "233e97455e11721f440ef83c6927af059d5c206f8200df66acad46256c138209",
-      "message": "Invoke-HostRefresh: execute manualmente ou permita-o sem solicitação de senha: sudo {command}"
+    "runner.host_repair_lock_busy": {
+      "sourceHash": "b4e0df77be6589d89e77326aa18ed763c9b386317d5917173b8f08442831ca89",
+      "message": "Invoke-HostRepair: outra operação do hospedeiro detém o bloqueio vitalício ({reason}); recusando executar em paralelo."
     },
-    "runner.host_refresh_obligation_disposed": {
-      "sourceHash": "bf8b4737f29cdbcd15248935f7b0f07a4d9efb3edfa14016c4032060dae4a6b9",
-      "message": "Invoke-HostRefresh: {obligation} da solicitação {requestId} registrada como tratada por {actor}."
+    "runner.host_repair_manual_command": {
+      "sourceHash": "a4468a4a9a0d213624f1e31bc499addbf12390454a5a66c4151954a5a9560dbc",
+      "message": "Invoke-HostRepair: execute manualmente ou permita-o sem solicitação de senha: sudo {command}"
     },
-    "runner.host_refresh_obligation_unknown": {
-      "sourceHash": "9e3f51514cbae6943a8ab13f38d5ee33f3cb5a5be24d0822695cf1f073293cad",
-      "message": "Invoke-HostRefresh: {obligation} não é um item pendente da solicitação {requestId}."
+    "runner.host_repair_obligation_disposed": {
+      "sourceHash": "332707e112a5a73ce073639b15974fa2e60df8c0e14cfdc4772cff74d1f3e5a8",
+      "message": "Invoke-HostRepair: {obligation} da solicitação {requestId} registrada como tratada por {actor}."
     },
-    "runner.host_refresh_oneshot_active": {
-      "sourceHash": "8411856250a87ac59a28a29781c3cabdf9966430215c1c72eba151d5c6b93c30",
-      "message": "Invoke-HostRefresh: uma execução única (PID {pid}, concessão {leasePath}) está usando este runtime; nenhuma etapa de reparo é executada enquanto ela detiver a concessão."
+    "runner.host_repair_obligation_unknown": {
+      "sourceHash": "66d2cf9bdac8a259fe3992a324512906570c3d898193082ed7cc3cb6123abd7e",
+      "message": "Invoke-HostRepair: {obligation} não é um item pendente da solicitação {requestId}."
     },
-    "runner.host_refresh_oneshot_unconfirmed": {
-      "sourceHash": "f583920a1c72990d9c961ea058b65f8e20e0e8fa7181f3688631cbb55c0758a5",
-      "message": "Invoke-HostRefresh: a concessão de execução única {leasePath} indica o PID {pid}, cuja identidade não pode ser confirmada ({reason}); reparando mesmo assim."
+    "runner.host_repair_oneshot_active": {
+      "sourceHash": "4b70cbd424e68dbe6b862cc5a04659a461be7f0211715a92a175a52211521dc6",
+      "message": "Invoke-HostRepair: uma execução única (PID {pid}, concessão {leasePath}) está usando este runtime; nenhuma etapa de reparo é executada enquanto ela detiver a concessão."
     },
-    "runner.host_refresh_operator_instruction": {
-      "sourceHash": "d100fae791851766cd671f838d6fc7a1b18554e434c19e91d7da75d5d29d8d8f",
+    "runner.host_repair_oneshot_unconfirmed": {
+      "sourceHash": "a6ed9f84eb0b8f93e2f88d6451fc2b52129a4b69d2a050780d866b99403ba76d",
+      "message": "Invoke-HostRepair: a concessão de execução única {leasePath} indica o PID {pid}, cuja identidade não pode ser confirmada ({reason}); reparando mesmo assim."
+    },
+    "runner.host_repair_operator_instruction": {
+      "sourceHash": "d6da6915406df6aa20c438dacc755e1af12130b143307205bfbfb2c2f3306957",
       "message": "  Solução: {instruction}"
     },
-    "runner.host_refresh_preview_group_relaunch": {
-      "sourceHash": "a453fd8a9b85d01b4acb79f218ebd1d5994768b0219054f99abdfacbfdc60090",
+    "runner.host_repair_other_kind": {
+      "sourceHash": "03ea39b6c9d6898d1a4b52b0b350020bc42d4f4bd62c134ca88b792a49b71e67",
+      "origin": "machine",
+      "message": "Invoke-HostRepair: a solicitação {requestId} é uma atualização do hospedeiro, não um reparo; o controlador dela a continua. Para encerrá-la neste hospedeiro, execute: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}"
+    },
+    "runner.host_update_busy": {
+      "sourceHash": "68ada74802a2d91d9f252a70fce1014d754528eb9f78090f380a015ec78b50fb",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: nada foi enfileirado; uma operação {activeKind} ocupa o hospedeiro ({activeRequestId}). Aguarde o término dela ou encerre o ciclo em execução no console do executor."
+    },
+    "runner.host_update_controller_absent": {
+      "sourceHash": "61f7f170e0c4ac009457f9bde5f748861d4ee3611681f034e7f938e6b5b50355",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: nenhum controlador do hospedeiro está em execução neste hospedeiro (trava {lockState}); nada foi enfileirado."
+    },
+    "runner.host_update_queued": {
+      "sourceHash": "b4d417492c896d0028b113327ac5407e8940f2dccaf1e18edac602943c6e0019",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: a atualização do hospedeiro {requestId} está na fila (escopo {scope}, drenagem {drain}). Progresso: {stateFile}. O console do executor, depois que ele iniciar: {attach}"
+    },
+    "runner.host_update_refused": {
+      "sourceHash": "6c0a7e29199e72599d4738175acc0767714e7bc32b86dc4e99c0342124d938dc",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: a atualização do hospedeiro {requestId} não foi enfileirada ({decision}: {reason})."
+    },
+    "runner.host_update_release_controller_running": {
+      "sourceHash": "5ac515e03d8ad05ca2ad1c1670f24cb6f6bf499aaee029fb71ae37e6f78ea0d8",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: a atualização do hospedeiro {requestId} está em andamento sob o controlador do hospedeiro (pid {pid}); ela só pode ser liberada enquanto estiver em recuperação ou quando nenhum controlador estiver em execução. Aguarde o veredito."
+    },
+    "runner.host_update_release_marked": {
+      "sourceHash": "83c30f8d3e42a873625f5d133900cdec773ed60e30c614fa921e58dd44b4455a",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: a atualização do hospedeiro {requestId} está marcada para liberação; o controlador do hospedeiro a libera após a tentativa atual."
+    },
+    "runner.host_update_release_refused": {
+      "sourceHash": "dd0d09eee7b741fec35e7abcf2fad75cab1f2c02eb641b23ac1224a65b0df1aa",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: a atualização do hospedeiro {requestId} não pode ser liberada ({reason})."
+    },
+    "runner.host_update_released": {
+      "sourceHash": "aa91e54b98ab7e55879d72f43fe9be90a2f1ef97f3eb18c772c9573f135cfa18",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: a atualização do hospedeiro {requestId} terminou como {verdict}; ainda a resolver: {debt}. Um início normal do executor volta a funcionar."
+    },
+    "runner.host_update_scope_unavailable": {
+      "sourceHash": "b72c350f1c188b1f9e8a6728be6920e1a346d383cd731e60e86f0431c0cd8b31",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: o controlador do hospedeiro executa {scopes}, não {scope}; nada foi enfileirado."
+    },
+    "runner.host_update_takeover": {
+      "sourceHash": "d87cd0d4e21371892e22c0bb84d1b2d155fa4c0f44e770231a569e638464aa1c",
+      "origin": "machine",
+      "message": "Invoke-HostUpdate: ela assume a atualização do hospedeiro {supersededId}, que estava em recuperação."
+    },
+    "runner.host_update_unexpected_error": {
+      "sourceHash": "bb03e015a5e2e39fc52b0b77ff17a40282b474da3685a8f7e7246579d22744bd",
+      "message": "Invoke-HostUpdate: erro inesperado durante {phase}: {message}"
+    },
+    "runner.host_update_gate_controller_running": {
+      "sourceHash": "b6b7ef283be9cd22faa3034cecb71c1a24f3da670b8251782f268fea1ed6a750",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} retém o executor deste hospedeiro; o controlador do hospedeiro a continua e inicia o executor ele mesmo. O console dele: {attach}"
+    },
+    "runner.host_update_gate_controller_absent_macos": {
+      "sourceHash": "b743accbeb9337a4fcbd2fda6a3e6224d2257d4c6a2de70b811264cb5ff19e68",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} retém o executor deste hospedeiro e nenhum controlador do hospedeiro está em execução. {result} Inicie o executor em um terminal da sessão da área de trabalho para iniciar o controlador, que continua a atualização; ou encerre a atualização com: {release}"
+    },
+    "runner.host_update_gate_controller_restarting_macos": {
+      "sourceHash": "713c2a6c6c11b7404fb69979f38391f5bf5996fe761678588aed93dbf9d8f7db",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} retém o executor deste hospedeiro, e o controlador do hospedeiro que esta inicialização encontrou está entre duas execuções: o shim na sessão dele o inicia de novo em instantes, e ele continua a atualização e inicia o próprio executor. Para encerrar a atualização, execute: {release}"
+    },
+    "runner.host_update_gate_controller_unknown_macos": {
+      "sourceHash": "a8791c9c09847f053febbeef13c2a2cb71ff82d8348a31d62fc37f1067439b72",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} retém o executor deste hospedeiro. A etapa do controlador do hospedeiro desta inicialização encontrou um controlador em execução ou iniciou um, mas a trava do controlador não pode ser lida agora, então não se sabe se um controlador continua a atualização. Se nenhum continuar, inicie o executor em um terminal da sessão da área de trabalho para iniciar o controlador; ou encerre a atualização com: {release}"
+    },
+    "runner.host_controller_start_not_deployed": {
+      "sourceHash": "e1d4d6eafe80541a243c94aafc7679739ccde7f2c11a7b3edd295296de3577e9",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: não implantado neste hospedeiro; execute Enable-TestAutomation para implantá-lo. Nenhum controlador foi iniciado."
+    },
+    "runner.host_controller_start_not_desktop_session": {
+      "sourceHash": "a48ac80126cf411f424fdfd40ad03cc323255fc92bb6961f83aa222f7139beda",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: não iniciado, porque este início do executor não está na sessão da área de trabalho (um login por SSH ou uma sessão em segundo plano). Inicie o executor em um terminal da sessão da área de trabalho para iniciá-lo."
+    },
+    "runner.host_controller_start_running": {
+      "sourceHash": "14e916f93dac78ce3ddb885a3ae3f9f8dc3a7a693c74420dbd44f697e746d7ec",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: em execução."
+    },
+    "runner.host_controller_start_lock_unreadable": {
+      "sourceHash": "a28e4d087d2faaffafa5bc5b38371e883210d34f59fa0531963d22c80970da08",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: a trava dele não pode ser lida, então não se arrisca um segundo controlador; nenhum foi iniciado."
+    },
+    "runner.host_controller_start_no_multiplexer": {
+      "sourceHash": "60fd46acb4dad73143f9863ab6a299754a801856eb3e5e385b989d00faaeb0c9",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: nem tmux nem screen foram encontrados, então nenhum controlador foi iniciado; o executor inicia sem um."
+    },
+    "runner.host_controller_start_session_exists": {
+      "sourceHash": "fc4acc8188c857410523e62bb811382a2dde954dbf72c3e187c6ff85cf9bb43b",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: a sessão {multiplexer} yuruna-controller dele já existe; o shim dela inicia o controlador. Para lê-la: {attach}"
+    },
+    "runner.host_controller_start_session_unknown": {
+      "sourceHash": "642be92f4bc13e8a302e45790ec3c09149e7806ce07fecc330b48c0953256626",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: não foi possível saber se a sessão yuruna-controller existe, então nenhuma foi iniciada."
+    },
+    "runner.host_controller_start_started": {
+      "sourceHash": "ae1e0c016487ec40122ccd60d6648259f14570b16ab92fb48c66469b4d65ee18",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: iniciado na sessão {multiplexer} yuruna-controller dele. Para lê-la: {attach}"
+    },
+    "runner.host_controller_start_not_held": {
+      "sourceHash": "94ec2f0c7a40e84b2685de291208962f0df2618df5886769d0d6cb159a153d7d",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: a sessão {multiplexer} yuruna-controller foi criada, mas nenhum controlador obteve a trava em 10 s. Para lê-la: {attach}"
+    },
+    "runner.host_controller_start_start_failed": {
+      "sourceHash": "42ba7da80ac5b28379e6b162f0083169bf0c1e068357d59c15c78679774536be",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: não foi possível criar a sessão {multiplexer} yuruna-controller; nenhum controlador foi iniciado."
+    },
+    "runner.host_controller_start_error": {
+      "sourceHash": "173413c9572873638324c0593c8cd44ca10a0ea847a2506cf8bf1055f18044c0",
+      "origin": "machine",
+      "message": "Controlador do hospedeiro: a etapa de início falhou ({message}); nenhum controlador foi iniciado."
+    },
+    "runner.host_controller_session_action": {
+      "sourceHash": "3db60bd0cbe45a2f08b25befbf70d562f2ec7ad018cc766a797bab309e76e98a",
+      "origin": "machine",
+      "message": "Encerrar a sessão yuruna-controller do controlador do hospedeiro"
+    },
+    "runner.host_update_access_entry_action": {
+      "sourceHash": "9ae5684fd9f30b4dfb6d2d3fbe633979eb3f2f5be41c0d5b96fdd57751245984",
+      "origin": "machine",
+      "message": "Instalar ou remover a entrada do sudoers que permite ao controlador do hospedeiro gravar sua regra temporária do sudo"
+    },
+    "runner.host_update_elevated_work_action": {
+      "sourceHash": "4e8db50b4d9cb4ce91c37f30cc7d6608cce13a0a991da5be34655576c516fb1c",
+      "origin": "machine",
+      "message": "Encerrar os processos da fase de instalação ou de habilitação de uma atualização do hospedeiro, incluindo os que são executados como root"
+    },
+    "runner.host_update_console_window": {
+      "sourceHash": "4632afb4d1d01d9ac79245ad6d201dcc39ce056ebdc29b2a120f129106b9c144",
+      "origin": "machine",
+      "message": "uma janela de console própria na área de trabalho da conta de teste, na máquina ou por uma conexão de área de trabalho remota a essa sessão"
+    },
+    "runner.host_update_elevation_action": {
+      "sourceHash": "e6f9e1c33fb3b8d39aff18afa2c6b2beddf9778b4673e3910fdd2c08a0c7f521",
+      "origin": "machine",
+      "message": "Alterar a regra temporária do sudo, uma unidade transitória ou uma cópia do instalador de uma atualização do hospedeiro"
+    },
+    "runner.host_update_gate_controller_absent": {
+      "sourceHash": "7bf914c7a50b61a0de5bc02b0afb52c3dc77a0dbd44858af2c9dbec2caeea119",
+      "origin": "machine",
+      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} retém o executor deste hospedeiro e nenhum controlador do hospedeiro está em execução; o serviço do sistema dele inicia um em poucos segundos para continuar a atualização. Para encerrar a atualização em vez disso, execute: {release}"
+    },
+    "runner.host_repair_preview_group_relaunch": {
+      "sourceHash": "2f6be91c9ad0a7caac9bddf5bd999d1217069e69bd7dd8122747971b1196d15d",
       "message": "  Uma execução real primeiro reiniciaria sob o grupo libvirt ({reason})."
     },
-    "runner.host_refresh_preview_notice": {
-      "sourceHash": "d73f8a45364b13fbdb97151d7c03b9d18ff1c18691b800813820f04db0c7f456",
+    "runner.host_repair_preview_notice": {
+      "sourceHash": "7eb70cedd62b878afc06b54f85b00445489beec402ad159b6dc221eea28f9d43",
       "message": "  Apenas prévia: nada foi bloqueado, gravado, sinalizado ou iniciado."
     },
-    "runner.host_refresh_preview_would_consider": {
-      "sourceHash": "85406c481d2f840d2391adce1e447839d35f62c94052f8d59abbc6eb5c5ae800",
+    "runner.host_repair_preview_would_consider": {
+      "sourceHash": "b772f600cde5143ddf32045efb316051f82b5be9ae155dd19366c99bf422a73c",
       "message": "  Degraus que uma execução real consideraria, em ordem: {rungs}"
     },
-    "runner.host_refresh_private_root_unavailable": {
-      "sourceHash": "63393a8aec54c55b797dc083e654a3f1285a1eea3313f9dc3a73607c2ba2f2fe",
-      "message": "Invoke-HostRefresh: não foi possível proteger a raiz de estado privada em $HOME/.yuruna/host-refresh ({reason}); recusando sem uma raiz privada restrita ao proprietário."
+    "runner.host_repair_private_root_unavailable": {
+      "sourceHash": "83e527a2e7f9df6d03092e7341ff07d56e954363502eb36b307911f943577358",
+      "message": "Invoke-HostRepair: não foi possível proteger a raiz de estado privada em $HOME/.yuruna/host-repair ({reason}); recusando sem uma raiz privada restrita ao proprietário."
     },
-    "runner.host_refresh_progress_degraded": {
-      "sourceHash": "a730963668cf8894dd4da8aa919103d5331e6de0641db7ca4fda5db0b9ac9f36",
-      "message": "Invoke-HostRefresh: não foi possível publicar o progresso; o reparo continuou e o diário privado continua sendo a referência."
+    "runner.host_repair_progress_degraded": {
+      "sourceHash": "f9264f8bbc240d551bbf84fd5463f56f4adb3beeec0d90ac5c28d47471bcaf37",
+      "message": "Invoke-HostRepair: não foi possível publicar o progresso; o reparo continuou e o diário privado continua sendo a referência."
     },
-    "runner.host_refresh_protocol_mismatch": {
-      "sourceHash": "0f4d14277cf94756e7031de4ee3634d429f997f485bcc36447437f354c03317b",
-      "message": "Invoke-HostRefresh: {path} declara o protocolo '{found}'; este ponto de entrada implementa '{expected}'."
+    "runner.host_repair_protocol_mismatch": {
+      "sourceHash": "20b019cc564ff6d52e2b9151a393110afc5a295bbe1e4b39400bf1fdfb8948d4",
+      "message": "Invoke-HostRepair: {path} declara o protocolo '{found}'; este ponto de entrada implementa '{expected}'."
     },
-    "runner.host_refresh_refused": {
-      "sourceHash": "ad2867a8ad49eb4bb039eda3f0ed7240619a9ad59119985dd12263450890bdef",
-      "message": "Invoke-HostRefresh: recusado antes de qualquer alteração ({reason})."
+    "runner.host_repair_refused": {
+      "sourceHash": "79d23000296bd67f8e6cab0e81ac5594d010362fab88604870b57d7aab2503c4",
+      "message": "Invoke-HostRepair: recusado antes de qualquer alteração ({reason})."
     },
-    "runner.host_refresh_request_refused": {
-      "sourceHash": "e34fa4f6b3fcd3f2fa73338e880a98276cdaea8af83792dae7ef522de773b7a6",
-      "message": "Invoke-HostRefresh: solicitação {requestId} recusada ({reason}); a solicitação não resolvida {activeRequestId} está em {state}."
+    "runner.host_repair_request_refused": {
+      "sourceHash": "28e06914b160232668877770fa8b049bb34897081865ebc14e947d3c599430a2",
+      "message": "Invoke-HostRepair: solicitação {requestId} recusada ({reason}); a solicitação não resolvida {activeRequestId} está em {state}."
     },
-    "runner.host_refresh_resume_none": {
-      "sourceHash": "4164759aebb9c513a66aed66c374a26f8bf12b6c2b853fc2bb7230a630ea2c30",
-      "message": "Invoke-HostRefresh: não há solicitação não resolvida para retomar."
+    "runner.host_repair_resume_none": {
+      "sourceHash": "8c6df29439b687962fd4c917e07d12b019c81e125b36916643044a42835b332c",
+      "message": "Invoke-HostRepair: não há solicitação não resolvida para retomar."
     },
-    "runner.host_refresh_resume_started": {
-      "sourceHash": "4656e01273917c681f227b18145bd890b0ee9d0ab770d44bcb1f43dd64a5371a",
-      "message": "Invoke-HostRefresh: retomando a solicitação {requestId}, tentativa {attempt} ({mode})."
+    "runner.host_repair_resume_started": {
+      "sourceHash": "9b059d8edff753bfd72af98269ea1f4f2e41e8b21a540568973cb2ce38c30a49",
+      "message": "Invoke-HostRepair: retomando a solicitação {requestId}, tentativa {attempt} ({mode})."
     },
-    "runner.host_refresh_rung_finished": {
-      "sourceHash": "e68f7fa790882e9e13f14f0ea7c97a4406f4b50e6899d13c33c9c80759e27559",
-      "message": "Invoke-HostRefresh: degrau {name} {outcome}; a sondagem do hipervisor agora indica {state} ({reason})."
+    "runner.host_repair_rung_finished": {
+      "sourceHash": "1a296c16d39ec5722af2b70a0db12019cde87877641d6fc11008fc86f4537859",
+      "message": "Invoke-HostRepair: degrau {name} {outcome}; a sondagem do hipervisor agora indica {state} ({reason})."
     },
-    "runner.host_refresh_rung_reason_broker_recipe_missing": {
-      "sourceHash": "6a953257c41c710643c080676ca54c7a6d1b7787608324410728edbb8569001a",
+    "runner.host_repair_rung_reason_broker_recipe_missing": {
+      "sourceHash": "1f5e3681e49040381c5b13531046359ba63905d8507919248293286d4992cf6b",
       "message": "requer uma receita verificada de rótulo, domínio e proprietário específica da versão do SO, com testes colaterais"
     },
-    "runner.host_refresh_rung_reason_daemon_layout_unqualified": {
-      "sourceHash": "1e3eb74cfd6586e09f9f12673f42861a312e2fdd2fc97885a28e8895e2a440df",
+    "runner.host_repair_rung_reason_daemon_layout_unqualified": {
+      "sourceHash": "89a3f90794445a18fe511c81f1e3b23a2f9e9644dc79b33f09c5d9f75bdd6532",
       "message": "requer testes de layout de daemons e de preservação de convidados aprovados em um hospedeiro suportado"
     },
-    "runner.host_refresh_rung_reason_gui_launch_unqualified": {
-      "sourceHash": "55ef781e1c1c122b87b9dd3b20f954ab7d72fa1bdc7153ddd8a0c9f7c29fedf9",
+    "runner.host_repair_rung_reason_gui_launch_unqualified": {
+      "sourceHash": "6c8f8aead7fc94d64c04251f45196c9a85f5d5181f45a37355dd8d3366083c4f",
       "message": "iniciar o UTM requer uma verificação de ausência do mesmo usuário e um caminho de inicialização da GUI que não foram qualificados em um hospedeiro macOS real"
     },
-    "runner.host_refresh_rung_reason_lock_unqualified": {
-      "sourceHash": "6f07948b3987573f9921c1d9efce10f8a299827f3b49861a2f8c455600f4aff3",
+    "runner.host_repair_rung_reason_lock_unqualified": {
+      "sourceHash": "30265c8627280728278ddc0a5bfb80270507acce23bdbb7c97e973aadb93cf68",
       "message": "a exclusão do bloqueio de reparo não foi demonstrada nesta plataforma"
     },
-    "runner.host_refresh_rung_reason_modular_daemon_recipe_missing": {
-      "sourceHash": "09b9bcdd37762cc95944a4e84f6e26f83a602284adb8362fb5528288629de726",
+    "runner.host_repair_rung_reason_modular_daemon_recipe_missing": {
+      "sourceHash": "630d434d6e018d251d589252811292fb193321e560a311f207195f7e31f19a0f",
       "message": "requer uma receita validada para os daemons modulares do libvirt"
     },
-    "runner.host_refresh_rung_reason_no_reboot_supervision": {
-      "sourceHash": "7de6e692d8aa7beadb0c987d6385e50259b227a1112aa9066391ef6d30cd1f75",
+    "runner.host_repair_rung_reason_no_reboot_supervision": {
+      "sourceHash": "4b18680d5a9cb18f98d7198594ea3c227db9ec39480846f97b9917898291c8dc",
       "message": "não existe supervisão verificada do executor e do status-service durante uma reinicialização do hospedeiro"
     },
-    "runner.host_refresh_rung_reason_not_implemented": {
-      "sourceHash": "19f8277a2b99a079785a4a46d9ee8af5cf5cc2c04f2490b2bcc1fd039dfb6d8c",
+    "runner.host_repair_rung_reason_not_implemented": {
+      "sourceHash": "954c558021f8e1596d6ea2e8e17fb8002945d3fb6b25fe8c26e501a823412ab9",
       "message": "não há executor para este degrau neste checkout"
     },
-    "runner.host_refresh_rung_reason_package_recovery_unqualified": {
-      "sourceHash": "61c83a080b1b3c5a853578b43135f015152a104702acbf8d1d1d1914d3dc40e9",
+    "runner.host_repair_rung_reason_package_recovery_unqualified": {
+      "sourceHash": "c770b49e740569677150978004eeb9e3711bf134ff2a123d8bea33539a50694b",
       "message": "requer um bootstrap assinado autossuficiente e um procedimento testado de recuperação de pacotes"
     },
-    "runner.host_refresh_rung_reason_provider_recipe_missing": {
-      "sourceHash": "aecd4e46604e223f3988f37bb7a1f753f49b6534cdb07694a3708dc41bf998f2",
+    "runner.host_repair_rung_reason_provider_recipe_missing": {
+      "sourceHash": "c90f36886979fe2e5a4724980fa68e5367e6f92140642b719ff2398d2f17b0f0",
       "message": "requer uma receita separada de recuperação do provedor testada em um hospedeiro suportado"
     },
-    "runner.host_refresh_rung_reason_runner_restart_unqualified": {
-      "sourceHash": "244c7704db8d4620af6dc85941bce21b05ef774f61d556bf9358a97dfed173a6",
+    "runner.host_repair_rung_reason_runner_restart_unqualified": {
+      "sourceHash": "6e7359576377c18cac63eb4a523ca7bc1be169451e60fbce1ec6af6b2a95e6ac",
       "message": "a recuperação do executor e a reinicialização verificada não foram qualificadas em um hospedeiro real desta plataforma"
     },
-    "runner.host_refresh_rung_reason_settings_recipe_unsafe": {
-      "sourceHash": "00d34d48b5014f3c81973345d586d869569e1955f10e309b21c26cdb316de7cd",
+    "runner.host_repair_rung_reason_settings_recipe_unsafe": {
+      "sourceHash": "3d447f9fd594c070ef0d27bc9cc8fabd36f8a78168b496b7d8e3d08cd824457c",
       "message": "a receita de configurações ainda chega a diálogos de consentimento, instalações de pacotes ou chamadas nativas sem limite que um reparo não assistido não deve executar"
     },
-    "runner.host_refresh_rung_reason_unsupported_on_platform": {
-      "sourceHash": "f87b61a78b252a9184555fc78deb456f342928f0d92e9437ab46e0af6db487d2",
+    "runner.host_repair_rung_reason_unsupported_on_platform": {
+      "sourceHash": "84f251bc8036c52ac82a9a61cb21086db93f50af82a5cbeb71e9ed5611eed85f",
       "message": "não oferecido nesta plataforma"
     },
-    "runner.host_refresh_rung_reason_utm_restart_unqualified": {
-      "sourceHash": "134179700aa76de7783bfc336b23b1077d7fb15d3ae49f14fcc371cab2606f60",
+    "runner.host_repair_rung_reason_utm_restart_unqualified": {
+      "sourceHash": "2e1a3a70d914c527235d380dc9bf74d16f3ab190934c074b4bc55b2ee17716f3",
       "message": "reiniciar o UTM requer um caminho de inicialização e de sessão testado, evidência capturada de recuperação de convidados, exclusão do executor e a política de encerramento gracioso, validados em um hospedeiro macOS real"
     },
-    "runner.host_refresh_rung_reason_vmms_start_unqualified": {
-      "sourceHash": "ec4611e6e050fd9bdb467cb222f8a7db546699522f07f3ccfc44f2b61fc5bf4f",
+    "runner.host_repair_rung_reason_vmms_start_unqualified": {
+      "sourceHash": "487d5576d386856553404b162baadc66b567f7ed359ee0f16e0d3e2ee810709d",
       "message": "iniciar um serviço vmms parado está implementado, mas não foi qualificado em um hospedeiro Windows Hyper-V real"
     },
-    "runner.host_refresh_rung_started": {
-      "sourceHash": "b8d4489d3ec2e35dbad8f929bf2ea65c7b9706b34be00e5c90a925baf04e118e",
-      "message": "Invoke-HostRefresh: degrau {name} iniciado; restam {remainingSeconds} s do orçamento de reparo."
+    "runner.host_repair_rung_started": {
+      "sourceHash": "f3065710a8735de2e1d5d078ebab0df8fb3f42d5d422bf1e203a8a61e3266da7",
+      "message": "Invoke-HostRepair: degrau {name} iniciado; restam {remainingSeconds} s do orçamento de reparo."
     },
-    "runner.host_refresh_runner_not_ready": {
-      "sourceHash": "94f6972822af15a2e2079e6ba9dc355cfc3d312276ff0790f3f40ed748ae58da",
-      "message": "Invoke-HostRefresh: o executor reiniciado não confirmou que está pronto ({reason})."
+    "runner.host_repair_runner_not_ready": {
+      "sourceHash": "7ccea713c7257d3ad1be66732bf05df0509f0f0a427f991110382af4088502e9",
+      "message": "Invoke-HostRepair: o executor reiniciado não confirmou que está pronto ({reason})."
     },
-    "runner.host_refresh_runtime_missing": {
-      "sourceHash": "b84686efd9657649b6f694ca8d8408e1d69413e482805bb9814f0770667ddd97",
-      "message": "Invoke-HostRefresh: o diretório de runtime {runtimeDir} não existe; defina YURUNA_RUNTIME_DIR como o diretório de runtime do executor."
+    "runner.host_repair_runtime_missing": {
+      "sourceHash": "893946d5438d2e74559cf093692d71321b7f655938f9330e84286f46d18bb4d5",
+      "message": "Invoke-HostRepair: o diretório de runtime {runtimeDir} não existe; defina YURUNA_RUNTIME_DIR como o diretório de runtime do executor."
     },
-    "runner.host_refresh_runtime_owner_mismatch": {
-      "sourceHash": "10035fdb44e2290d71a3e192cdc38ac51de66731d0af743912361c3b4bdfd25f",
-      "message": "Invoke-HostRefresh: o estado de atualização desta conta está registrado para o runtime {registeredRuntimeDir}, não para {runtimeDir}; há suporte a um único runtime proprietário por conta."
+    "runner.host_repair_runtime_owner_mismatch": {
+      "sourceHash": "25c718d62ee3362ba2601ff07091f080e51b07e84a3012c4f2b330ce0be31dc6",
+      "message": "Invoke-HostRepair: o estado de reparo desta conta está registrado para o runtime {registeredRuntimeDir}, não para {runtimeDir}; há suporte a um único runtime proprietário por conta."
     },
-    "runner.host_refresh_service_unverified": {
-      "sourceHash": "c11e7e8c9595f31ae7ad3b37ad22d37c8b36a6b031350f66ea8a3292bf857e91",
-      "message": "Invoke-HostRefresh: o serviço {key} não foi verificado após o reparo ({outcome})."
+    "runner.host_repair_service_unverified": {
+      "sourceHash": "b0166fb180d2c74ad2127cccaff0c4a3356051f22fe44a504ff88d0ec33999a1",
+      "message": "Invoke-HostRepair: o serviço {key} não foi verificado após o reparo ({outcome})."
     },
-    "runner.host_refresh_session_passive": {
-      "sourceHash": "542e8ec69295bcf9851762f401eb11940441a9230e5b2aded78835d6ac04a076",
-      "message": "Invoke-HostRefresh: o tipo de sessão é {sessionKind}; as etapas que exigem a sessão da área de trabalho são ignoradas."
+    "runner.host_repair_session_passive": {
+      "sourceHash": "0535dad3ecd4d6331161de3a90cb20bfc09460e9ee13db0882cd4e01ce53bf22",
+      "message": "Invoke-HostRepair: o tipo de sessão é {sessionKind}; as etapas que exigem a sessão da área de trabalho são ignoradas."
     },
-    "runner.host_refresh_should_process_admission": {
-      "sourceHash": "39433e21c3b05ae11c18a9bdaac69038c2be6af04f17752237772cdc5c617bca",
-      "message": "Registrar a admissão da atualização do hospedeiro"
+    "runner.host_operation_should_process_admission": {
+      "sourceHash": "77531e66e76389213bd912dfb63ae2245698229c053a22852f67071cc03091fd",
+      "message": "Registrar a admissão da operação do hospedeiro"
     },
-    "runner.host_refresh_should_process_listener": {
-      "sourceHash": "665d26856d674398823f79435233292760cf4998d591ea5ad8d6b1d0e1f35fc6",
-      "message": "Iniciar o listener de status em modo seguro para atualização"
+    "runner.host_operation_should_process_listener": {
+      "sourceHash": "847bd320eba0dd5f5516ab367c843b2fe6b8db022fc53f915b85e5303142b56e",
+      "message": "Iniciar o listener de status em modo não destrutivo"
     },
-    "runner.host_refresh_should_process_publish": {
-      "sourceHash": "9d930961c50efac3db567fcabdc698f47c7f998537bc59dc6a6a19c46bf490a2",
-      "message": "Publicar o progresso da atualização do hospedeiro"
+    "runner.host_repair_should_process_publish": {
+      "sourceHash": "7e01aa23205bac58e8a4adb439dfc57a58b95d0f59f5b0bf18ff0fd82c47b1b8",
+      "message": "Publicar o progresso do reparo do hospedeiro"
     },
-    "runner.host_refresh_should_process_run": {
-      "sourceHash": "43f6f88e8d6debcf28178c60b80defea7b878d3a29b00e4eb517d5da818d85b7",
-      "message": "Executar a solicitação de atualização do hospedeiro {requestId}"
+    "runner.host_repair_should_process_run": {
+      "sourceHash": "33d4d265d515c7116fc468c3d56fc2e1ff80a28081086e2500b0764c0e4a5c5c",
+      "message": "Executar a solicitação de reparo do hospedeiro {requestId}"
     },
-    "runner.host_refresh_summary_active_request": {
-      "sourceHash": "60594e8d22cfa24d2f9db2cb7c831d94742868f9752f382f6c85a8836f8ccbba",
+    "runner.host_repair_summary_active_request": {
+      "sourceHash": "1f1e5b865f8f42973eed4d171767db727840a76d546a52b64e8224863cacaefe",
       "message": "  Solicitação pendente: {requestId} ({state}, tentativa {attempt})"
     },
-    "runner.host_refresh_summary_context": {
-      "sourceHash": "9a19b6fab2b354cee9a175e9c7a1c8d7469821446438e1ed7b1cb56d2c0bd04c",
+    "runner.host_repair_summary_context": {
+      "sourceHash": "b96d1760125db19698640c42b5e4bbca10be48c7bb49cf5c679f20af4bf40904",
       "message": "  Runtime:          {runtimeDir} (configuração {configPath}, de {configSource})"
     },
-    "runner.host_refresh_summary_header": {
-      "sourceHash": "e2d88c5bd00700d82a3566b522dc784f7fb0a7bdec291afb068cfbfe8cd3ab9d",
-      "message": "Atualização do hospedeiro ({mode}) em {hostType}"
+    "runner.host_repair_summary_header": {
+      "sourceHash": "01f9baacb7bdda21ee8e7206970ca3619a19ae73072ef9bace524ca97f7e673f",
+      "message": "Reparo do hospedeiro ({mode}) em {hostType}"
     },
-    "runner.host_refresh_summary_ladder": {
-      "sourceHash": "4fb4da2c20d5c995248652bcf3ab1681343fee468469ecfcd1ffe62c33eeffc2",
+    "runner.host_repair_summary_ladder": {
+      "sourceHash": "ce31bd7fa7ae557bcb6379e42f6cfcc5b663581a01e250a49be5655aa9059f53",
       "message": "  Escada de reparo, limite {ceiling}:"
     },
-    "runner.host_refresh_summary_obligation": {
-      "sourceHash": "2d004b86650e57768e4504946faef9577091c4e3c4dfd4ad06ec31fc3e4361ef",
+    "runner.host_repair_summary_obligation": {
+      "sourceHash": "95fa6cea58b3086293cbc9bb4f361ad8523adb783287f7197d63cc75a13d64e2",
       "message": "  Pendente:         {obligation}"
     },
-    "runner.host_refresh_summary_probe": {
-      "sourceHash": "32cf8aa617231e39369cf56c284ee35d67d6a4d0a4db08f4a6522cae5a09eb82",
+    "runner.host_repair_summary_probe": {
+      "sourceHash": "6a96540f619cd992088cb2bc75b51f8689b122b6901f1ed34c4cfe51fae0a48c",
       "message": "  Sonda do hipervisor: {state} ({reason}, {elapsedMs} ms)"
     },
-    "runner.host_refresh_summary_rung_above_ceiling": {
-      "sourceHash": "406a5ed53db6d71bd91c88000af2c5171230c5af86b9788691b30afc39662e2f",
+    "runner.host_repair_summary_rung_above_ceiling": {
+      "sourceHash": "514a63f4aeacb514204075d127e74fccf2b2e35da8f2aef0f61e24f52e4e15bf",
       "message": "    [{order}] {name}: acima do limite solicitado"
     },
-    "runner.host_refresh_summary_rung_available": {
-      "sourceHash": "6edb8bc9a5c30544eeddbe2a93d7d9a681779ec1747a12671c30fcf316667d77",
+    "runner.host_repair_summary_rung_available": {
+      "sourceHash": "925947815caedf9ee76efa10155f0faaae370c8195ff14998dcddff393f75d5e",
       "message": "    [{order}] {name}: disponível"
     },
-    "runner.host_refresh_summary_rung_result": {
-      "sourceHash": "96c79885ad845f54a0240500e68a366f4942e2805fecaea2bd8f65424a99145d",
+    "runner.host_repair_summary_rung_result": {
+      "sourceHash": "b061116f3129793f725d46d914aaaf525ada6cb6a96dfa7a9f27c78e1f7780ea",
       "message": "    [{order}] {name}: {outcome} ({reason})"
     },
-    "runner.host_refresh_summary_rung_unavailable": {
-      "sourceHash": "d35754abeed9bed2b4cf0ad964662671a72dfb9049153b12f95ef9c92da286bc",
+    "runner.host_repair_summary_rung_unavailable": {
+      "sourceHash": "6e06fcd07ce5a87182261f63a8b3c9b4ece527c9fd536d1b4ea295818b637cd3",
       "message": "    [{order}] {name}: indisponível, {reason}"
     },
-    "runner.host_refresh_summary_runner": {
-      "sourceHash": "4c557dad180443b317d14e3623ebe0e887d9007c895a30a86cbc2dbd5a1b1fed",
-      "message": "  Runner:           {status}"
+    "runner.host_repair_summary_runner": {
+      "sourceHash": "4e0ef4ecdde0bc0a9d45313911c19ac156eef681848d1a586ce72025186c4705",
+      "origin": "machine",
+      "message": "  Executor:         {status}"
     },
-    "runner.host_refresh_summary_verdict": {
-      "sourceHash": "dcd9f38156a4262cafaf61622098317a722ac5d059bac2cc22044b078048d3d9",
+    "runner.host_repair_summary_verdict": {
+      "sourceHash": "f1b55820b18cbc45ea6c503f76c996cdce387be35209dcce282a067efe2a721c",
       "message": "  Veredito:         {verdict} (solicitação {requestId}, tentativa {attempt}, estado {state})"
     },
-    "runner.host_refresh_unexpected_error": {
-      "sourceHash": "94d09456b0b3864e5210a4b78f9ac122d67cb19a0cb2f0e7ca89d6537ce075ee",
-      "message": "Invoke-HostRefresh: erro inesperado durante {phase}: {message}"
+    "runner.host_repair_unexpected_error": {
+      "sourceHash": "ff7dcc2a7e4326c7b31f3693e815b17bac5f595d71017c4eb533b26dd17e9fdd",
+      "message": "Invoke-HostRepair: erro inesperado durante {phase}: {message}"
     },
-    "runner.host_refresh_verified_noop": {
-      "sourceHash": "cf7e8b1631341749e2da4e31194d9a4c777b6868b3f69a7fe37ce1c8130d8622",
-      "message": "Invoke-HostRefresh: o hipervisor respondeu e o runner está íntegro; nada foi alterado."
+    "runner.host_repair_verified_noop": {
+      "sourceHash": "6960090d55a04cffe863da1cef7be8521045470ba871f5692b63bcd3b1fe1163",
+      "origin": "machine",
+      "message": "Invoke-HostRepair: o hipervisor respondeu e o executor está íntegro; nada foi alterado."
     },
     "runner.launch_record_complete_action": {
       "sourceHash": "fbe3c2e4b05d5477d5bb61142a9cfa4e2f0412798b9f22a50d956378f39a5a84",
-      "message": "Marcar o registro de inicialização do runner como encerrado"
+      "origin": "machine",
+      "message": "Marcar o registro de inicialização do executor como encerrado"
     },
     "runner.launch_record_write_action": {
       "sourceHash": "70dd6eeead64e41bad10cb9d12710cac4318f3f34e86dfd806ae33fb2018f133",
-      "message": "Gravar o registro de inicialização do runner"
+      "origin": "machine",
+      "message": "Gravar o registro de inicialização do executor"
     },
-    "runner.no_other_runner_refresh_active": {
-      "sourceHash": "749f1bf7a93cd65a95e87fbfbe42ae4256ae736e94bc0ca143e3a33051cc5b90",
-      "message": "{callerName}: a atualização do hospedeiro {requestId} mantém o runner deste hospedeiro (portão {state}); a inicialização foi recusada. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "runner.no_other_runner_gate_held": {
+      "sourceHash": "765f0d21838be52b87c7142d8b4b92f229062ce1cec27fc7c8a9f8634e7eb12a",
+      "origin": "machine",
+      "message": "{callerName}: a operação do hospedeiro {requestId} mantém o executor deste hospedeiro (portão {state}); a inicialização foi recusada. Aguarde a conclusão ou, para um reparo do hospedeiro, retome-o com test/lab/Invoke-HostRepair.ps1 -Resume."
     },
     "runner.process_start_record_write_action": {
       "sourceHash": "38ad99f0faeb022b56cb9afbc42686d22c672b0a0fedf301fcc01ac0a12dee1f",
       "message": "Gravar um registro de hora de início do processo"
     },
     "runner.readiness_ack_remove_action": {
-      "sourceHash": "1718255d2e26c9c03dd081a4b6281e7412d4c6540257ac1d2ec78f44737902c8",
-      "message": "Remover uma confirmação de prontidão de atualização obsoleta"
+      "sourceHash": "1072b49f45d89cd74970bb19aa6f2fe5d875be4a86c615bab62e8095121884c8",
+      "message": "Remover uma confirmação de prontidão da transferência obsoleta"
     },
     "runner.readiness_ack_write_action": {
-      "sourceHash": "6250660c115ef92bdb310f2ff3bbce17fdb5ed0a2b56cd296e55a1f1fb1b8238",
-      "message": "Gravar a confirmação de prontidão da atualização"
+      "sourceHash": "b67a05d55cff93db4962108c31cd5fd0ca265645101dfd24d8c80837697700e3",
+      "message": "Gravar a confirmação de prontidão da transferência"
     },
-    "runner.refresh_barrier_held": {
-      "sourceHash": "046dd2bf8c1e9fa320c5660bb5a1968c46717cd0e391b1925078a5f95fa1d51b",
-      "message": "Retomado após a atualização do hospedeiro {requestId}: retido por {controls}. Libere-os na página de status; nenhuma VM é criada ou alterada até lá."
+    "runner.handoff_barrier_held": {
+      "sourceHash": "1f20eec2220a1b60ef2a5d483a46d9d139c8f8497976dfb870fdf5d420fb5c8a",
+      "message": "Retomado após a operação do hospedeiro {requestId}: retido por {controls}. Libere-os na página de status; nenhuma VM é criada ou alterada até lá."
     },
-    "runner.refresh_barrier_released": {
-      "sourceHash": "6a6cf1e6ebc4ce0a1a100fee8f685c2efed5418fdb1060c80dafc8cb68527b21",
+    "runner.handoff_barrier_released": {
+      "sourceHash": "021cf3e553e9efff049fd8464c7076518cdd58854014b1017bde4608fe5aab53",
       "message": "Controles retidos liberados após {seconds} s; o ciclo retomado continua."
     },
-    "runner.refresh_capability_unverified_macos": {
-      "sourceHash": "749e459065bea57e158d1dceed9a08e91e1033a2ba4e7dcc4d53f921ade39054",
-      "message": "A recuperação e a reinicialização do runner ainda não são qualificadas no macOS: a tabela de processos do ps e a execução desanexada são testadas apenas com fixtures."
+    "runner.host_repair_capability_unverified_macos": {
+      "sourceHash": "c1831b5040bf0953308c717e972e6b37b2eb7dedf017400526b69f721511d6a2",
+      "origin": "machine",
+      "message": "A recuperação e a reinicialização do executor ainda não são qualificadas no macOS: a tabela de processos do ps e a execução desanexada são testadas apenas com fixtures."
     },
-    "runner.refresh_capability_unverified_windows": {
-      "sourceHash": "fcc312e61513fad512e294d7e5f2084533c54794b8b5e2408c395110a56f8967",
-      "message": "A recuperação e a reinicialização do runner ainda não são qualificadas no Windows: a tabela de processos CIM, o encerramento de processo único e o salto de reatribuição de pai são testados apenas com fixtures."
+    "runner.host_repair_capability_unverified_windows": {
+      "sourceHash": "95faa993090342e3f14485451cbc2d082a7489e5a2c94cf1c13a9467e6f44ff5",
+      "origin": "machine",
+      "message": "A recuperação e a reinicialização do executor ainda não são qualificadas no Windows: a tabela de processos CIM, o encerramento de processo único e o salto de reatribuição de pai são testados apenas com fixtures."
     },
-    "runner.refresh_cycle_held": {
-      "sourceHash": "73a41ff49ea8edc22ba479d6c6fa25c53750b4bdae25eeca2f2bff25e17ac674",
-      "message": "[ciclo externo {cycle}] o interno parou em {site} porque uma atualização do hospedeiro retém este hospedeiro; nada foi alterado."
+    "runner.runner_gate_cycle_held": {
+      "sourceHash": "ea6262f70d9339a4bad40d189a5ab94145d8d269d914bcadcd4474e3dc8e59bf",
+      "message": "[ciclo externo {cycle}] o interno parou em {site} porque uma operação do hospedeiro retém este hospedeiro; nada foi alterado."
     },
-    "runner.refresh_gate_blocks_start": {
-      "sourceHash": "116f88b87f4a26bffc55a5a72f839e8bdf2f7210c5567036c98bd52d81792a7f",
-      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} retém o runner deste hospedeiro (portão {state}); um segundo runner não será iniciado. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "runner.runner_gate_blocks_start": {
+      "sourceHash": "7dbdfcc95e8fb77bd2468f33e35b86aebb40825ffa356c5f079f53a6900100b4",
+      "origin": "machine",
+      "message": "Start-TestRunner: a operação do hospedeiro {requestId} retém o executor deste hospedeiro (portão {state}); um segundo executor não será iniciado. Aguarde a conclusão ou, para um reparo do hospedeiro, retome-o com test/lab/Invoke-HostRepair.ps1 -Resume."
     },
-    "runner.refresh_gate_hold": {
-      "sourceHash": "6c6c52840dcf9f4a39ab0b689e6b49801048178dc17e4bf10762ba4466afa5ac",
-      "message": "[ciclo externo {cycle}] a atualização do hospedeiro {requestId} retém o runner (portão {state}); nenhum ciclo inicia até a liberação."
+    "runner.runner_gate_hold": {
+      "sourceHash": "73d8bb5854757729492e6baab86474afb11c2219979e90e3719e47e7bf02321e",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a operação do hospedeiro {requestId} retém o executor (portão {state}); nenhum ciclo inicia até a liberação."
     },
-    "runner.refresh_gate_orphaned": {
-      "sourceHash": "8df9d965a5964ffa7251e1ef894f5dbd6ebbab2b7d569864c7e8fda1d4665396",
-      "message": "[ciclo externo {cycle}] a atualização do hospedeiro {requestId} deixou o runner retido (portão {state}) e seu worker não está mais em execução. Execute test/lab/Invoke-HostRefresh.ps1 -Resume para concluir a recuperação."
+    "runner.runner_gate_orphaned": {
+      "sourceHash": "f323b478812f4536f5483f5ad5e94e98cd98857309ebf49903e8be4e357510bb",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a operação do hospedeiro {requestId} deixou o executor retido (portão {state}) e seu worker não está mais em execução. Para um reparo do hospedeiro, execute test/lab/Invoke-HostRepair.ps1 -Resume para concluir a recuperação."
     },
-    "runner.refresh_gate_released": {
-      "sourceHash": "8948f8995104e120ffc6b47b9daf1d5e1268e3baebee8836ae409bade828a675",
-      "message": "[ciclo externo {cycle}] o portão de atualização do hospedeiro liberou o runner; os ciclos são retomados."
+    "runner.runner_gate_released": {
+      "sourceHash": "6b575201601c4071ab68d9267b939a3e18cd1e36131bc2d02a06032c4b01a44e",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] o portão do executor liberou o executor; os ciclos são retomados."
     },
-    "runner.refresh_gate_status_ensure_failed": {
-      "sourceHash": "c76a02fb744af2f0e7cbe0561314fa97357f9f40c31c515689b7d4f4a3ea97f3",
+    "runner.runner_gate_status_ensure_failed": {
+      "sourceHash": "0fa8d850795ca5bd581257f7c3deeedc0f691a6f2af2d392d57ee55116bca054",
       "message": "Start-TestRunner: não foi possível iniciar o status-service enquanto o portão retém: {message}"
     },
-    "runner.refresh_gate_status_ensured": {
-      "sourceHash": "ad018593fe728b9fbe51e904f36639753a91b2cf11b46159e72f0455d3eacc59",
-      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} não tem worker ativo; o status-service foi iniciado na porta {port} para que seu painel possa mostrar e retomar a solicitação não resolvida. O início do runner continua recusado até que a solicitação seja resolvida."
+    "runner.runner_gate_status_ensured": {
+      "sourceHash": "1e83d873aba24d7f6b13ee38372c0f79e0c72b18c3674336334dc4f55759ed58",
+      "origin": "machine",
+      "message": "Start-TestRunner: a operação do hospedeiro {requestId} não tem worker ativo; o status-service foi iniciado na porta {port} para que seu painel possa mostrar e retomar a solicitação não resolvida. O início do executor continua recusado até que a solicitação seja resolvida."
     },
-    "runner.refresh_gate_unreadable": {
-      "sourceHash": "66a416c9396bfbcf7a1780fa9415735f23af29722e9489863b6188151a89b797",
-      "message": "[ciclo externo {cycle}] não foi possível ler o registro do portão de atualização do hospedeiro ({reason}); o runner permanece retido até que test/lab/Invoke-HostRefresh.ps1 -Resume o resolva."
+    "runner.runner_gate_unreadable": {
+      "sourceHash": "30eba443f67c9b69768314ef99dae5f1151b2348c3cc4c452879fcf658e7530d",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] não foi possível ler o registro do portão do executor ({reason}); o executor permanece retido até que test/lab/Invoke-HostRepair.ps1 -Resume o resolva."
     },
-    "runner.refresh_gate_write_action": {
-      "sourceHash": "18db445e514e4865306dcc504d42185bd0ef11ea812c86f1cd4effe09d522ce9",
-      "message": "Gravar o portão do runner da atualização do hospedeiro ({state})"
+    "runner.runner_gate_write_action": {
+      "sourceHash": "70662a31ec6f903499fac07d62002281e828f536be39938eec08080133eafab1",
+      "origin": "machine",
+      "message": "Gravar o portão do executor ({state})"
     },
-    "runner.refresh_handoff_complete": {
-      "sourceHash": "b14ede397ccdd5ef195a65a659ec669414ff05878aa139f01f2cadb1eb79a7df",
-      "message": "[ciclo externo {cycle}] prontidão verificada para a atualização do hospedeiro {requestId}; saindo do portão de atualização."
+    "runner.handoff_complete": {
+      "sourceHash": "4e7a698df471b8d4d360bca9b4ebd168d2951b6a98d42d7378f311dd3c674e84",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] prontidão verificada para a operação do hospedeiro {requestId}; saindo do portão do executor."
     },
-    "runner.refresh_handoff_complete_action": {
-      "sourceHash": "6df2056f8df7e49463f6b8c59d0780c222b035508fff53d9a6ac22eef044e464",
-      "message": "Concluir uma transferência do runner na atualização do hospedeiro ({verdict})"
+    "runner.handoff_complete_action": {
+      "sourceHash": "adef69a98a465fa895607b0b5d9cd5d5cbbc740d14387b8ff745574e3fb14906",
+      "origin": "machine",
+      "message": "Concluir uma transferência do executor ({verdict})"
     },
-    "runner.refresh_handoff_issue_action": {
-      "sourceHash": "337464c92507132b82d007019ca339c36b6f09500d1bf9c4e43b6e5ab42508d6",
-      "message": "Emitir um token de transferência do runner na atualização do hospedeiro ({purpose})"
+    "runner.handoff_issue_action": {
+      "sourceHash": "0bc96550f29075eed3da2bf7831a473ef219f86c135ecceb16e92938109b1dbd",
+      "origin": "machine",
+      "message": "Emitir um token de transferência do executor ({purpose})"
     },
-    "runner.refresh_handoff_unverified": {
-      "sourceHash": "a919c245b7dfc05807e1ca6dce6436f6e88ae86ebb698b317a9575ee38878805",
-      "message": "[ciclo externo {cycle}] não foi possível verificar a prontidão para a atualização do hospedeiro {requestId} ({reason}); o runner permanece retido."
+    "runner.handoff_unverified": {
+      "sourceHash": "c59fe8b28a3a8ff0c289eb1a142c07c4380ac2eda4a4ba4d9692363902291e79",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] não foi possível verificar a prontidão para a operação do hospedeiro {requestId} ({reason}); o executor permanece retido."
     },
-    "runner.refresh_launch_record_skipped": {
-      "sourceHash": "97291210f9ccda4d9268996632e7ca6b1752468a9f2f547ed1f5c0f577e72f1d",
-      "message": "Start-TestRunner: o registro de inicialização do runner não foi gravado ({reason}); uma atualização do hospedeiro não pode reiniciar este runner e pede ao operador que o inicie."
+    "runner.launch_record_skipped": {
+      "sourceHash": "54eca888998cdb9543b87ba749b17574f6ba36e3857eaac73b6c031646cf9985",
+      "origin": "machine",
+      "message": "Start-TestRunner: o registro de inicialização do executor não foi gravado ({reason}); um reparo ou uma atualização do hospedeiro não pode reiniciar este executor e pede ao operador que o inicie."
     },
-    "runner.refresh_preflight_cycle": {
-      "sourceHash": "f4022ad51eafc665e53c6c47b1c569f122d98bb1b5a99f460012fe8b6d97cc76",
-      "message": "[ciclo externo {cycle}] apenas verificação prévia da atualização: sem git pull, alteração de VM ou varredura de controles neste ciclo."
+    "runner.handoff_preflight_cycle": {
+      "sourceHash": "8aee5204ea38dd9c0903d05f0e142dffc41faa2f5a295516954a78240f1ad901",
+      "message": "[ciclo externo {cycle}] apenas verificação prévia da transferência: sem git pull, alteração de VM ou varredura de controles neste ciclo."
     },
-    "runner.refresh_preflight_failed": {
-      "sourceHash": "d532f91aad6a31ae7bed6a792575f3979f6000bab69e52d1b3999d7ec5052ce9",
-      "message": "A verificação prévia da atualização falhou ({reason}); nada foi alterado e o runner permanece retido."
+    "runner.handoff_preflight_failed": {
+      "sourceHash": "72a0c7c4f994f05952ff1a281c3f364819a41ea15004bef71607d4d9611f929e",
+      "origin": "machine",
+      "message": "A verificação prévia da transferência falhou ({reason}); nada foi alterado e o executor permanece retido."
     },
-    "runner.refresh_preflight_ready": {
-      "sourceHash": "3aaa6cd01b67d3324c2fca53100687e06be0edc44164ed2b1f48b14f21dc52e7",
-      "message": "Verificação prévia da atualização pronta para a solicitação {requestId}; aguardando o worker de atualização liberar o runner."
+    "runner.handoff_preflight_ready": {
+      "sourceHash": "c8ab05bce9827b29390b36f90f85320a0f90fa2366133055ce6d4c437cf05015",
+      "origin": "machine",
+      "message": "Verificação prévia da transferência pronta para a solicitação {requestId}; aguardando a operação do hospedeiro liberar o executor."
     },
-    "runner.refresh_preflight_released": {
-      "sourceHash": "22acac4dd4e5b608b8f3e8bf1b1514d3949e6c7f24055ee530c37c437f040f54",
-      "message": "Verificação prévia da atualização encerrada ({outcome}); saindo para que o runner possa continuar."
+    "runner.handoff_preflight_released": {
+      "sourceHash": "fbba39a3db20b9f05cebe43b38c4243b7142c69ca4594d7870ab074629f5865e",
+      "origin": "machine",
+      "message": "Verificação prévia da transferência encerrada ({outcome}); saindo para que o executor possa continuar."
     },
-    "runner.refresh_preflight_result": {
-      "sourceHash": "21e1e2c543c270e28f38cfeae1d2d93e9889322d24238808da9251ec952b5bb2",
-      "message": "[ciclo externo {cycle}] o ciclo de verificação prévia da atualização terminou com código de saída {exitCode}."
+    "runner.handoff_preflight_result": {
+      "sourceHash": "81e0249ac42baa60f32a84c34b0e8ccb05cfd77a4279a46c66fee3643578c5d6",
+      "message": "[ciclo externo {cycle}] o ciclo de verificação prévia da transferência terminou com código de saída {exitCode}."
     },
-    "runner.refresh_resume_action": {
-      "sourceHash": "205ae5fa14a58a78570cf771d1d0c90527e77beb326e62c8f655734503ffd700",
-      "message": "Reiniciar o runner após uma atualização do hospedeiro"
+    "runner.handoff_resume_action": {
+      "sourceHash": "f34a5896dc94a504f9cbd5e058a97fba6215488cd14ed6906b3481bf19b5f4f5",
+      "origin": "machine",
+      "message": "Reiniciar o executor após uma operação do hospedeiro"
     },
-    "runner.refresh_resume_record_refused": {
-      "sourceHash": "c46163fd37c09c6390b05fa9571018d21b3e65a44fb6dd879bdad0358ae9b9b0",
-      "message": "Start-TestRunner: {pidFile} está {state}; uma retomada de atualização nunca assume nem exclui um registro de runner ativo ou desconhecido."
+    "runner.handoff_resume_record_refused": {
+      "sourceHash": "201e0ea8f2958744486795d9adeaaa431d8ed365c4d33615d871badf41fb7d79",
+      "origin": "machine",
+      "message": "Start-TestRunner: {pidFile} está {state}; uma retomada após transferência nunca assume nem exclui um registro de executor ativo ou desconhecido."
     },
-    "runner.refresh_resume_started": {
-      "sourceHash": "ce65d52e81a5f6c5913aabea94d00382f9992f8bdfd7ab9862a660471c6c15b2",
-      "message": "Start-TestRunner: retomando após a atualização do hospedeiro {requestId}; pausas, retenções e solicitações de reinício do operador são preservadas."
+    "runner.handoff_resume_started": {
+      "sourceHash": "80b09aec02d20337651e5d1ab8c5045c829ebd0dde83743635f65658ed417844",
+      "message": "Start-TestRunner: retomando após a operação do hospedeiro {requestId}; pausas, retenções e solicitações de reinício do operador são preservadas."
     },
-    "runner.refresh_resume_switch_pair": {
-      "sourceHash": "cec1bbf4cbc0769555d17fa8294bc006109ee5e7f0b166d8452f8b3186497904",
-      "message": "Start-TestRunner: -RefreshResume e -RefreshHandoffToken devem ser informados juntos; não iniciando."
+    "runner.handoff_resume_switch_pair": {
+      "sourceHash": "2a9f5e3644e8c0becb23ac3473dba236096527173701f1a0a3aa238e5293dfdc",
+      "message": "Start-TestRunner: -HandoffResume e -HandoffToken devem ser informados juntos; não iniciando."
     },
-    "runner.refresh_resume_token_refused": {
-      "sourceHash": "516bf4d6ef26d2b21f62bf9a4b7a7dc884f4864765e48c135cd013ca5aaf0431",
-      "message": "Start-TestRunner: a transferência da atualização foi recusada ({reason}); não iniciando."
+    "runner.handoff_resume_token_refused": {
+      "sourceHash": "0cbea496d46e3d75fef32cf68b8b89388d51b97ce50c9348884d8bda065be188",
+      "origin": "machine",
+      "message": "Start-TestRunner: a transferência do executor foi recusada ({reason}); não iniciando."
     },
-    "runner.refresh_site_gated": {
-      "sourceHash": "18397e0114c985bd7ae7be63221704b0d73e1ccfeecf446bf90c183f17669570",
-      "message": "Ciclo encerrado antes de {site}: a atualização do hospedeiro {requestId} retém este hospedeiro (portão {state}). Nada foi alterado; o runner aguarda a atualização."
+    "runner.private_state_migration_blocked": {
+      "sourceHash": "472ad9c1d4a3179337e0aa089ded3e739354f244ba76e1b940153acf04bc7f59",
+      "message": "Start-TestRunner: a raiz de estado privada não pôde ser movida do seu local anterior host-refresh ({reason}); não iniciando. Pare o runner, o ouvinte de status e o controlador de hospedeiro antigos e inicie o runner novamente. Consulte https://yuruna.link/42f909ad-0022"
     },
-    "runner.refresh_status_ensure_orphaned": {
-      "sourceHash": "74450959460dac475ed385451c4b0c4e988a49325f816ce0ad60abdf246ab116",
-      "message": "[ciclo externo {cycle}] a atualização do hospedeiro {requestId} retém o runner (portão {state}) e seu worker não está mais em execução; garantindo novamente o status-service para que seu painel possa mostrar e retomar a solicitação não resolvida."
+    "runner.runner_gate_site_held": {
+      "sourceHash": "2a74b94060047d3be95f479477fc7d32c8329b340c31f0b40d8fdfa32acbfff0",
+      "origin": "machine",
+      "message": "Ciclo encerrado antes de {site}: a operação do hospedeiro {requestId} retém este hospedeiro (portão {state}). Nada foi alterado; o executor aguarda a conclusão dela."
     },
-    "runner.refresh_status_ensure_skipped": {
-      "sourceHash": "f6cf77a5a4e0f12d6e25ba8a955f38017750097e14e1a0f8631bb7d08b9f7da3",
-      "message": "[ciclo externo {cycle}] nova garantia do status-service ignorada: uma atualização do hospedeiro retém este hospedeiro."
+    "runner.runner_gate_status_ensure_orphaned": {
+      "sourceHash": "daa109b84a04055081cc40cb45cbb0967b62fa72fdd56ab2a14cf3dd299ddef8",
+      "origin": "machine",
+      "message": "[ciclo externo {cycle}] a operação do hospedeiro {requestId} retém o executor (portão {state}) e seu worker não está mais em execução; garantindo novamente o status-service para que seu painel possa mostrar e retomar a solicitação não resolvida."
     },
-    "runner.refresh_trigger_call_failed": {
-      "sourceHash": "6df094d41354942764fa9588986c11802a01f582925e5b9c9e9b64d6ad87509a",
-      "message": "A chamada automática de atualização do hospedeiro em {site} falhou e foi ignorada: {message}"
+    "runner.runner_gate_status_ensure_skipped": {
+      "sourceHash": "5e71f4fc3f35d0590f2108f89bf06a4e5dacbd48a071486658e32ecbde0cae5f",
+      "message": "[ciclo externo {cycle}] nova garantia do status-service ignorada: uma operação do hospedeiro retém este hospedeiro."
+    },
+    "runner.host_repair_trigger_call_failed": {
+      "sourceHash": "8eadea4f6c81ec95228215592e8d51851cb901d52747c7df1c88bd07a6256838",
+      "message": "A chamada automática de reparo do hospedeiro em {site} falhou e foi ignorada: {message}"
     },
     "runner.runner_process_signal_action": {
       "sourceHash": "606fc3df1e0763b74a5717cdcc831a7a45796ddea877e3de5c49ad05d3a21856",
@@ -11458,11 +11726,11 @@
       "message": "Sondar os endpoints do serviço e mesclar os resultados no censo de serviços"
     },
     "runner.service_census_unreadable": {
-      "sourceHash": "97d79eb105019457f5789846a82652481b382b1f265b308c804d1abe39b0f328",
+      "sourceHash": "fd7055ae0890bf94f90f42b0ca24454beeea3062fb322e86b8eca3e59b36d27a",
       "message": "{script}: não foi possível ler agora o censo de serviços em {path} ({reason}); nada foi alterado. Tente novamente; se continuar falhando, verifique as permissões do arquivo e o disco."
     },
     "runner.service_census_unusable": {
-      "sourceHash": "13964587d8680828a1db8b99ac35ef4aaaf48a1740742ce560a895d6bf03a902",
+      "sourceHash": "22e47c252210dc030146ec5341df62e7267cde3e1afb1055eae16619882093d7",
       "message": "{script}: não foi possível usar o censo de serviços em {path} ({reason}); os scripts de início e parada de serviço recusam até que seja reparado ou movido. Nada foi alterado."
     },
     "runner.service_census_update_should_process": {
@@ -11514,7 +11782,7 @@
       "message": "Registrar o resultado da operação {operation} do serviço '{key}'"
     },
     "runner.service_operation_lock_unavailable": {
-      "sourceHash": "decdb06a871917b10d902d7d924d2ec9612b8d994d6d6024eeaa6e19b0da59ab",
+      "sourceHash": "c91e48a9ca86196a8497d05b3a5f2a6a45675e3baca2b215b170141f5eddc4c7",
       "message": "{script}: não foi possível obter o bloqueio de operação do serviço '{key}' ({reason}); nada foi alterado. Verifique se {path} permite gravação, tem espaço livre e pertence a este usuário; depois tente novamente."
     },
     "runner.service_operation_refused": {
@@ -11570,11 +11838,11 @@
       "message": "não foi possível ler as solicitações de início e parada ({reason}); não iniciado"
     },
     "runner.service_restore_lock_unavailable": {
-      "sourceHash": "c35be61dcaa5d48ba6f0fdab7944d911c07f77cbf29b3e93637fcc5ce9f00dda",
+      "sourceHash": "a4a981a1e5555905f111bae52198377a47142a9962711d57b63f924d734935e9",
       "message": "não foi possível obter o bloqueio da operação em {path} ({reason}); não iniciado"
     },
     "runner.service_restore_lock_unavailable_report": {
-      "sourceHash": "c0f5092cbb3d33554ab47b0ec1a9fd7e85de7904d21944383126352e4a9c8dbc",
+      "sourceHash": "b1d0c47231358b850590e72dc5e39ece7458fb55924c224615d7541ceed71bed",
       "message": "{displayName}: a VM '{vmName}' não foi iniciada: {message}."
     },
     "runner.service_restore_no_address": {
@@ -11614,7 +11882,7 @@
       "message": "Início de ciclo {operationId}: {result} (executor: {action})."
     },
     "runner.start_cycle_worker_refused": {
-      "sourceHash": "664c69baa595252cd8a63860d3d3b3f7d3e75463027a0ca87560101773e2034a",
+      "sourceHash": "fa863d789a269da85d319791ec95f78169a99468230cbdaf2f0be305ce49163e",
       "message": "Início de ciclo {operationId}: nada foi alterado ({reason})."
     },
     "runner.start_cycle_worker_runner_unknown": {
@@ -11646,36 +11914,36 @@
       "message": "Serviço de status (PID {processId}): concessão de atividade {verdict} ({reason}, {seconds} s)."
     },
     "runner.status_listener_replaced": {
-      "sourceHash": "c2126e7c53285beba9a188a0e75eb833bd4f8d6af3fca293d850cc7f437ba675",
+      "sourceHash": "99212a8d4599e274663683701f5ea8230722e0c392d9881cf9648e919d3303de",
       "message": "Start-StatusService: parando o serviço de status travado (PID {processId}, {state} há {seconds} s em '{route}') e iniciando um novo."
     },
     "runner.status_listener_replace_in_cycle": {
-      "sourceHash": "7aebd68d212b57a7feb61890823a84456c4b2cc75c9aa6d8898eb1780daaa537",
+      "sourceHash": "5d2c78cf10036d4463f777f97c4b8b56fae4ddf91990881c21ec0880e079e799",
       "message": "Sinalizador de endereço do hospedeiro: o serviço de status (PID {processId}) não responde e sua concessão indicou travamento ({state} há {seconds} s em '{route}'); o início de substituição terminou com {exitCode}."
     },
-    "runner.status_refresh_safe_existing_ready": {
-      "sourceHash": "0500a2998344eddf69482c836c14eee7f143de32568976547378517e590d9f0f",
-      "message": "O status service de PID {processId} já responde na porta {port}; o início seguro para atualização o manteve em execução."
+    "runner.status_non_destructive_existing_ready": {
+      "sourceHash": "6fd5ec75e2b8d5ca39bdaf97e31bdd8f71ad66cc4b86d6e26101451716155a64",
+      "message": "O status service de PID {processId} já responde na porta {port}; o início não destrutivo o manteve em execução."
     },
-    "runner.status_refresh_safe_not_ready": {
-      "sourceHash": "ed3ca34af79ae689b3dfb90ea2f3195cac7ffc62ef68d8e33c39133c3db43a6b",
+    "runner.status_non_destructive_not_ready": {
+      "sourceHash": "73953eec44a058b122c27cc52b33df0b40c151d050ab94f1c475004e2e8fae1b",
       "message": "O status service foi iniciado com PID {processId}, mas não respondeu em {seconds} segundos; ele foi mantido em execução."
     },
-    "runner.status_refresh_safe_partial": {
-      "sourceHash": "f62f65334212ce561a07105575e169499569ff285b3c5d3643c422a851781140",
-      "message": "O início seguro para atualização do status service na porta {port} não alterou nada: {outcome} ({reason})."
+    "runner.status_non_destructive_partial": {
+      "sourceHash": "1a125c129955ee1669da46be6c1f5d69a8e388ccd9f385a4f6b52b13894767d1",
+      "message": "O início não destrutivo do status service na porta {port} não alterou nada: {outcome} ({reason})."
     },
-    "runner.status_refresh_safe_refused": {
-      "sourceHash": "ed5b11fcea97c77ef89948ec25bd83f2e774c57626d92567a0b7a449118dc51e",
-      "message": "Start-StatusService.ps1 -RefreshSafe recusado: {reason}."
+    "runner.status_non_destructive_refused": {
+      "sourceHash": "ed47606e8c54d6f9170302b821be66362ec14529d58bfd2a312dd501097084f1",
+      "message": "Start-StatusService.ps1 -NonDestructive recusado: {reason}."
     },
-    "runner.status_refresh_safe_result_unwritable": {
-      "sourceHash": "1d8d08e698d02e8ef08e5df391d5621654e9ffde75595d55bb407639bc1f5902",
-      "message": "O início seguro para atualização não pôde gravar seu registro de resultado em {path}."
+    "runner.status_non_destructive_result_unwritable": {
+      "sourceHash": "143f795e833eb4a30c6dc23aeea3bb95597daf3101f848ff6a1930c429a878c9",
+      "message": "O início não destrutivo não pôde gravar seu registro de resultado em {path}."
     },
-    "runner.status_refresh_safe_started": {
-      "sourceHash": "28c0f46e560fe3e5c150b7541c1a06b77ed7f560718240e2f165d6cbc09dcc08",
-      "message": "O status service foi iniciado com PID {processId} na porta {port} (início seguro para atualização)."
+    "runner.status_non_destructive_started": {
+      "sourceHash": "be3879af31806d6ab823b85a55bc24026873822e28e7b26b4d9f358d36747819",
+      "message": "O status service foi iniciado com PID {processId} na porta {port} (início não destrutivo)."
     },
     "runner.status_worker_directory_prepare_action": {
       "sourceHash": "5fbb67f2da7ab44be5de0950d5fbff65c42f5e8afbf64b02105926ad9b9280ac",
@@ -11770,7 +12038,7 @@
       "message": "Recusando o início de um ciclo: o hospedeiro não pôde comprovar que nenhuma outra VM está em execução ({reason} após {probes} leitura(s): {detail}). Dois ciclos no mesmo conjunto de VMs corrompem um ao outro, portanto o executor não fará suposições; ele tentará novamente na próxima iteração. Verifique as ferramentas de linha de comando do hipervisor e o inventário de VMs neste hospedeiro."
     },
     "runner.warm_resume_declined_unverified": {
-      "sourceHash": "4859df008e6296519886fc7f3bc5995c8c2b422b5533221f34eb050e665b5606",
+      "sourceHash": "3c7220af25c4d59ddb231847376aef621bc3bb9e566fe8954a6718771f6dbc2d",
       "message": "  WARM-RESUME recusado: '{resumeSequence}' falhou na etapa {resumeFromStep} ({failureClass}) e não foi possível comprovar que sua repetição é segura (motivo: {reason}). A falha original permanece."
     },
     "runner.recovery_applied": {
@@ -11894,7 +12162,7 @@
       "message": "[ciclo externo {cycle}] o processo de ciclo {id} atingiu testCycle.maxCycleSeconds ({ceilingSeconds} s) e foi encerrado com sua árvore de processos."
     },
     "runner.bump_ca_unreadable": {
-      "sourceHash": "59b6601d75de5dd7e0cf4d908ede8b3b7e02693272b77115c7cf1d00e0840c31",
+      "sourceHash": "7e2f3622b9a8f79918c663dc802e5aaf5d7874f73ca424115204fa7379b08232",
       "message": "A CA do proxy de cache guardada em {path} não pode ser lida; nenhuma CA é incluída na semente até que seja reparada ou removida."
     },
     "runner.bump_ca_create_action": {
@@ -12018,24 +12286,25 @@
       "message": "A revisão qualificada do anel {revision} não está no histórico do upstream do framework que este host acompanha; o framework permanece em {current}."
     },
     "runner.project_cycle_not_run": {
-      "sourceHash": "399864ad299651e0b811dee9978498d4332a144aebc1fe5fc0edd1f0a4093519",
-      "message": "  Ciclo NÃO EXECUTADO ({outcome}): um pool drenado ou pausado, uma atualização do host ou Ctrl+C o reteve antes de um veredito."
+      "sourceHash": "85df15e0e549a5d283b63835622799b4ac16ab8d7c998c7bab7cc102673ac005",
+      "message": "  Ciclo NÃO EXECUTADO ({outcome}): um pool drenado ou pausado, uma operação do hospedeiro ou Ctrl+C o reteve antes de um veredito."
     },
     "runner.project_cycle_degraded": {
       "sourceHash": "446f0e0f1e7cea59e565034f16b229e31d32f7be903923a86089d21d4b55daf9",
       "message": "  Ciclo DEGRADADO: nada falhou, mas um convidado planejado foi pulado. Veja {dIR} para o diário de bordo por ciclo."
     },
-    "runner.refresh_gate_boot_resume": {
-      "sourceHash": "47724f1cf71d5c02a31a2fead7c83f7608ca42c97045a14400e0039c9219fdfc",
-      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} ficou inacabada em uma inicialização anterior; retomando-a uma vez com test/lab/Invoke-HostRefresh.ps1 -Resume (pid {pid}). Este início continua recusado; a atualização inicia o runner quando terminar, e seus erros vão para {stdErrPath}."
+    "runner.host_repair_boot_resume": {
+      "sourceHash": "8e58178afa45d24e5000f9d0aedc2a7e43ba5782eca3608c202b74464443424e",
+      "origin": "machine",
+      "message": "Start-TestRunner: o reparo do hospedeiro {requestId} ficou inacabado em uma inicialização anterior; retomando-o uma vez com test/lab/Invoke-HostRepair.ps1 -Resume (pid {pid}). Este início continua recusado; o reparo inicia o executor quando terminar, e seus erros vão para {stdErrPath}."
     },
-    "runner.refresh_gate_boot_resume_tried": {
-      "sourceHash": "8aaf2839f9d8d1f8599a0b6c80968f28324b05a6bd81ce1cbb7d562e1180711d",
-      "message": "Start-TestRunner: a atualização do hospedeiro {requestId}, inacabada desde uma inicialização anterior, já foi retomada uma vez nesta inicialização; retome-a novamente com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "runner.host_repair_boot_resume_tried": {
+      "sourceHash": "dfdb5c7b31b31deee9265cfa72057d415d8d00a5c266fdce9aa6304b19ffc00c",
+      "message": "Start-TestRunner: o reparo do hospedeiro {requestId}, inacabado desde uma inicialização anterior, já foi retomado uma vez nesta inicialização; retome-o novamente com test/lab/Invoke-HostRepair.ps1 -Resume."
     },
-    "runner.refresh_gate_boot_resume_failed": {
-      "sourceHash": "aa9764587388bed7ece04a0fbb705501ab615012d424565797b266bc9ee6bf63",
-      "message": "Start-TestRunner: a atualização do hospedeiro {requestId} ficou inacabada em uma inicialização anterior, e retomá-la falhou ({reason}); retome-a com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "runner.host_repair_boot_resume_failed": {
+      "sourceHash": "3cd06027f5a0e86ce59d7208f264d152c2f8cdf78fe37394e11a7c9084d075c2",
+      "message": "Start-TestRunner: o reparo do hospedeiro {requestId} ficou inacabado em uma inicialização anterior, e retomá-lo falhou ({reason}); retome-o com test/lab/Invoke-HostRepair.ps1 -Resume."
     },
     "runner.ocr_known_answer_failed": {
       "sourceHash": "ab40de4ef1839a98f7c4b9d40114f0fafe11108381538ae9cfd47cb6c5d83448",
@@ -12120,6 +12389,676 @@
     "runner.wait_ended_on_display_stall": {
       "sourceHash": "944ffb9accfc3705f301600d1828648de475ed31a6a7c00106c00c78904240e6",
       "message": "A espera pelo texto '{patternLabel}' terminou após ~{waited}s de {timeoutSeconds}s: o driver de vídeo {driver} do convidado relatou no seu console serial {reports} expirações de troca de página em {spanSeconds}s enquanto o console ficou inalterado por {unchangedSeconds}s, então a tela não mostrará o texto nesta inicialização e a nova tentativa pode reiniciar o convidado a frio"
+    },
+    "runner.step_form_invalid": {
+      "sourceHash": "4cfa465d8596129d56f4e178e4fce51aa8871f4ecc94974051eff8e7cf1b34f3",
+      "origin": "machine",
+      "message": "O passo em {location} deve ter exatamente um de 'step', 'action' e 'snippet'; ele tem: {found}."
+    },
+    "runner.step_sentence_invalid": {
+      "sourceHash": "138e7c40e508f36d61fcaabbdb9c821c4a14d72333732a39575a6b19ef9e52e2",
+      "origin": "machine",
+      "message": "O passo de sentença em {location} não é válido ({reason}): {detail}. Um passo de sentença recebe 'step' como texto e, opcionalmente, 'on' (screen ou page), 'timeoutSeconds' (um número inteiro de 1 ou mais), 'description' e, junto com ela, 'descriptionLocalized'."
+    },
+    "runner.step_phrase_malformed": {
+      "sourceHash": "7d94d399b11ef9f7d83fc65be7100f7a6988a9cd6697eac766026042722cf7c2",
+      "origin": "machine",
+      "message": "A sentença em {location} não pode ser lida ({reason}) no caractere {position}. Feche cada aspa e cada expressão de variável, e duplique uma aspa para escrevê-la dentro de um valor entre aspas."
+    },
+    "runner.step_phrase_no_library": {
+      "sourceHash": "406becdcf514ed8ea84ef77cdf370e3ea840c331d01fd25530b5755e84dd7aac",
+      "origin": "machine",
+      "message": "A sentença em {location} não pode ser resolvida: nenhuma biblioteca de frases foi encontrada. A biblioteca do framework é test/sequences/_phrases.yml."
+    },
+    "runner.step_phrase_no_match": {
+      "sourceHash": "e9790da255f4f6c97a1215b86b26ac8a754e0253d602fe5310884fe207cf52bf",
+      "origin": "machine",
+      "message": "Nenhuma frase corresponde à sentença em {location}, lida como: {shape}. Sentenças mais próximas: {nearest}. Um valor que contém espaços deve estar entre aspas."
+    },
+    "runner.step_phrase_surface_missing": {
+      "sourceHash": "18691e7985320f3b3d6c285e758d5c2773cbf45cd4068f3c38f3288204f1ba76",
+      "origin": "machine",
+      "message": "A sentença '{sentence}' em {location} não tem passos para a superfície '{surface}'. Ela está definida para: {surfaces}."
+    },
+    "runner.step_phrase_slot_empty": {
+      "sourceHash": "b864fac64548f0493077df8b26633b27d08fa189a6a3b1d2222a8a1b87e073c9",
+      "origin": "machine",
+      "message": "O valor de <{slot}> de '{sentence}' em {location} está vazio. Informe um valor."
+    },
+    "runner.step_phrase_slot_not_integer": {
+      "sourceHash": "75d6c937a1d21be8d44271747fa036291166ad967d51e9ef71ad3aac378fb3a4",
+      "origin": "machine",
+      "message": "O valor de <{slot}> de '{sentence}' em {location} deve ser um número inteiro de 0 a 999999999, escrito sem aspas e sem zero à esquerda. Uma expressão de variável não é aceita ali."
+    },
+    "runner.step_phrase_slot_not_key": {
+      "sourceHash": "1f37ecf50eb0a17095d653baec7a5fafab0dbde2ddab7c5120594968310406ff",
+      "origin": "machine",
+      "message": "O valor de <{slot}> de '{sentence}' em {location} deve ser um destes nomes de tecla, escrito sem aspas: {keyNames}. Uma expressão de variável não é aceita ali."
+    },
+    "runner.step_phrase_timeout_unused": {
+      "sourceHash": "e363681942062d2edaecf50e2a4aae30f34fd153ba1dd15a8d3a546b0bd71877",
+      "origin": "machine",
+      "message": "timeoutSeconds está definido na sentença '{sentence}' em {location}, e nenhum dos seus passos aceita um tempo limite. Remova-o."
+    },
+    "runner.step_phrase_file_unreadable": {
+      "sourceHash": "308ee92b0381c797aefe202fed4e49f2b35ba99e8787ca27cbc92ac8f196c05a",
+      "origin": "machine",
+      "message": "{file} não pode ser lido: {message}. Passos de sentença não podem ser resolvidos sem ele."
+    },
+    "runner.step_phrase_library_invalid": {
+      "sourceHash": "3119a7581b9e6996ebf4c5cdf6915e515ab46fcc97aa08106925b45807acf5ae",
+      "origin": "machine",
+      "message": "A biblioteca de frases {file} não é válida ({reason}) em '{phrase}': {detail}."
+    },
+    "runner.step_phrase_template_invalid": {
+      "sourceHash": "20bb8f1a10667110c3abd0396a735ae455f838051664ae35d98f1b0b4f4aa66a",
+      "origin": "machine",
+      "message": "O passo {index} da frase '{phrase}' para a superfície '{surface}' em {file} não é um passo '{action}' válido. Seus campos são definidos em test/schemas/sequence.schema.yml; a ação exige: {required}."
+    },
+    "runner.step_phrase_duplicate_id": {
+      "sourceHash": "6e05d48c2b7e189e7fc97af0840461c1b19165e42d94f61a52fc8ba73a77fb82",
+      "origin": "machine",
+      "message": "A frase '{phrase}' está definida em {first} e novamente em {second}. Um id de frase é definido uma única vez; uma biblioteca acrescenta frases e nunca redefine uma."
+    },
+    "runner.step_phrase_overlap": {
+      "sourceHash": "443d1f4c6b1f8f60768400625a680f3ec771148b6b017ed34398e0ec116603b2",
+      "origin": "machine",
+      "message": "As frases '{firstPhrase}' ('{firstSentence}', {firstFile}) e '{secondPhrase}' ('{secondSentence}', {secondFile}) podem corresponder à mesma sentença. Uma sentença tem um único significado; altere ou remova uma delas."
+    },
+    "runner.phrase_library_valid": {
+      "sourceHash": "2093d2b99f854ddf090552932f5f0e69d6c3aa43aafc4f99bb43a70a6dc96587",
+      "origin": "machine",
+      "message": "_phrases.yml: {count} frase(s) em {path}."
+    },
+    "runner.phrase_library_invalid": {
+      "sourceHash": "2971817cadec5fe29c85b08a2a51a293e9a9048feed414bc5428fcd2f36db95b",
+      "origin": "machine",
+      "message": "_phrases.yml: {message}"
+    },
+    "runner.tapon_argument_invalid": {
+      "sourceHash": "34d1000628a5dab85c4be97b452f4c3f1e48437fd909e00109303d93a73d7280",
+      "origin": "machine",
+      "message": "O tapOn não pode ser executado: {field} é '{value}'. Use um destes: {allowed}."
+    },
+    "runner.tapon_label_unusable": {
+      "sourceHash": "29be6b99aa29af536857c903c1c07d446661bbc91f20b0661b8f809bb3b90ed5",
+      "origin": "machine",
+      "message": "O tapOn não pode ser executado: o rótulo '{label}' não tem letra nem dígito para procurar com match: {match}."
+    },
+    "runner.tapon_label_ambiguous": {
+      "sourceHash": "c9493ebdddd8f4f193ebdd9aeb7bde9431b4084d06b0fa3ad952334f8484bb36",
+      "origin": "machine",
+      "message": "tapOn: '{label}' aparece {count} vezes na tela: {candidates}. Adicione nth ao passo para escolher um deles."
+    },
+    "runner.tapon_second_look_failed": {
+      "sourceHash": "5ec5554b37ae36b304a6d76dedea079345f581c332c26ea985ba4e939ca2d981",
+      "origin": "machine",
+      "message": "tapOn: a segunda leitura de uma cópia ampliada ao dobro do quadro falhou ({detail}). Este passo lê apenas o quadro como foi capturado."
+    },
+    "runner.tapon_click_kind_unsupported": {
+      "sourceHash": "b84ecaf3ee993edeb5385500574b4183bc947fb1e73f1aa8457c2140070ccab9",
+      "origin": "machine",
+      "message": "tapOn: o hospedeiro '{hostType}' não consegue enviar um clique {click}."
+    },
+    "runner.capability_gate_ocr_engine_missing": {
+      "sourceHash": "e6a96654ff5461527e0f3a475b85ab0a456980c359d57be54e117a322e804873",
+      "origin": "machine",
+      "message": "  As sequências localizam texto com mecanismos de OCR que este hospedeiro não tem:"
+    },
+    "runner.capability_gate_ocr_engine_step": {
+      "sourceHash": "ad1595215f8fa1f324044387a43c0281010e7348d5434d09427ab6defcb62281",
+      "origin": "machine",
+      "message": "        {sequence}, etapa {step}: {action}"
+    },
+    "runner.capability_gate_ocr_engine_remedy": {
+      "sourceHash": "3252617a4ec3b4239dd30b6c9850794bb83c98f1b45698f431585e09c4689082",
+      "origin": "machine",
+      "message": "  Instale neste hospedeiro o mecanismo ausente ou retire dos YAMLs de sequência do ciclo as etapas que precisam dele."
+    },
+    "runner.kvm_pointer_no_device": {
+      "sourceHash": "38725aba6b474e00c04b19ae2fb77de96e25c8913b4d9953fb18cd48baeee001",
+      "origin": "machine",
+      "message": "Ponteiro KVM em '{vmName}': o convidado não tem dispositivo de ponteiro absoluto (QEMU: {detail}). Nada foi enviado; adicione um tablet USB ao domínio."
+    },
+    "runner.kvm_pointer_event": {
+      "sourceHash": "198ef922ae28a3da3a78881fc0268e1f403f6712e49b6885c916e88d2d0ebe43",
+      "origin": "machine",
+      "message": "Ponteiro KVM em '{vmName}' ({stage}): {detail}"
+    },
+    "runner.kvm_pointer_button_held": {
+      "sourceHash": "4ed38fc8f984e2e5d9c045b382744bbb3403de4c4603b6d69bd20e1c2560ac78",
+      "origin": "machine",
+      "message": "Ponteiro KVM em '{vmName}': o botão {button} foi pressionado e não foi possível confirmar sua liberação; ele ainda pode estar pressionado no convidado."
+    },
+    "runner.mcp_workload_session_start": {
+      "sourceHash": "1a88a4e3f9c8173cf3418cbf0d2c3039462a6bb6ae01d1a453890bdc01609ee5",
+      "origin": "machine",
+      "message": "Anexe uma sessão de carga de trabalho a uma VM em execução. Obrigatórios: guestKey e vmName. Opcionais: sequence, uma sequência de convidado cuja cadeia de recursos fornece as variáveis e cujas bibliotecas de frases estão em vigor, e variables, no máximo 64 valores aplicados sobre elas. Um início que ultrapassa o orçamento de resposta continua em execução e responde workload_session_starting; chame de novo com a mesma entrada para ler o resultado. O resultado lista as outras VMs em execução em otherRunningVms."
+    },
+    "runner.mcp_workload_session_end": {
+      "sourceHash": "b02f1896cace072deb0258413be0cdcf7e5a9f8dd4dd29e61235764004e3b48a",
+      "origin": "machine",
+      "message": "Encerre a sessão: interrompa uma operação em execução, feche o ciclo proprietário, libere a concessão do runtime e encerre o worker. A VM continua em execução. Sem sessão, responde ended false."
+    },
+    "runner.mcp_workload_snapshot": {
+      "sourceHash": "55f74516c943fcc2144f7482e752da3ea8faacc762e170b714328bb33c076738",
+      "origin": "machine",
+      "message": "Leia o que uma superfície mostra agora. Obrigatório: surface (screen ou page). Opcionais: find, que filtra a visão retornada, e image, que também retorna o quadro da tela. Cada entrada traz uma referência como s14, válida apenas até o próximo instantâneo ou passo nessa superfície."
+    },
+    "runner.mcp_workload_phrases": {
+      "sourceHash": "dfd3acd965e5a03bb7b5ed691e043ed7bfb7db1bec1482f140a3f4d855948aed",
+      "origin": "machine",
+      "message": "Liste as sentenças em vigor, cada uma com seu id, superfícies, slots e nível. Opcional: search, que filtra a lista. Responde antes de existir uma sessão, a partir da biblioteca do framework."
+    },
+    "runner.mcp_workload_suggest_step": {
+      "sourceHash": "6ee04e7655600367719386aeaaae573ab0f51f09829818f2665c25a242e548f5",
+      "origin": "machine",
+      "message": "Sugira um passo para uma entrada do instantâneo atual. Obrigatório: ref, uma referência como s14. Retorna as sentenças que miram exatamente essa entrada, ou uma primitiva tapOn com nth quando nenhuma sentença a distingue."
+    },
+    "runner.mcp_workload_step": {
+      "sourceHash": "edef70f234a9bee931ef4a8ee55ba0f25597fcb1981dffda49a37e20584a5f6c",
+      "origin": "machine",
+      "message": "Execute uma sentença como um passo. Execute com operationId e os campos de execução step e intent, opcionalmente on e timeoutSeconds (1 a 7200). Consulte com operationId sozinho; cancele com operationId e cancel true. Uma chamada responde dentro do orçamento de resposta, e uma operação mais longa continua em execução. O mesmo id com a mesma entrada nunca roda duas vezes. Um cliente que abandona uma requisição não cancela a operação. Um cancelamento tem efeito antes da próxima primitiva e não interrompe uma que esteja em execução."
+    },
+    "runner.mcp_workload_action": {
+      "sourceHash": "747d4e25d156880c0957f8633a4d8ade338fe83e2b66e83ec7b160062dcb4953",
+      "origin": "machine",
+      "message": "Execute um verbo registrado, para o que nenhuma sentença cobre. Execute com operationId e os campos de execução action, fields e intent. Consulte com operationId sozinho; cancele com operationId e cancel true. Uma chamada responde dentro do orçamento de resposta, e uma operação mais longa continua em execução. O mesmo id com a mesma entrada nunca roda duas vezes. Um cliente que abandona uma requisição não cancela a operação. Um cancelamento tem efeito antes da próxima primitiva e não interrompe uma que esteja em execução."
+    },
+    "runner.mcp_workload_run_sequence": {
+      "sourceHash": "b8e022aa7a1dd4b8647e510117bf15fe46268c690afed348bfd68a2f868cc7b7",
+      "origin": "machine",
+      "message": "Reexecute os passos próprios da sequência nomeada na VM anexada por meio de Debug-TestSequence.ps1 em um processo filho. Execute com operationId e o campo de execução sequence, opcionalmente timeoutSeconds (60 a 43200). Consulte com operationId sozinho; cancele com operationId e cancel true. Uma chamada responde dentro do orçamento de resposta, e uma operação mais longa continua em execução. O mesmo id com a mesma entrada nunca roda duas vezes. Um cliente que abandona uma requisição não cancela a operação. Antes do primeiro passo, a reexecução para todas as outras VMs em execução no hospedeiro, exceto as VMs de serviço, como faz qualquer execução de Debug-TestSequence.ps1; o resultado de workload_session_start as lista em otherRunningVms."
+    },
+    "runner.mcp_workload_journal": {
+      "sourceHash": "0fed83c1681d25bcc5ba4be50516e21e6ca91569b4a226ec164863716dab7c80",
+      "origin": "machine",
+      "message": "Leia o diário: os passos que tiveram sucesso até agora, em YAML, um resumo de cada operação e as mudanças de estado que o YAML não carrega."
+    },
+    "runner.mcp_workload_save_sequence": {
+      "sourceHash": "5468f23d28aa07ad03a5f673a1cf02b9b74d83c0cc6ec0ae39bc1166afb610da",
+      "origin": "machine",
+      "message": "Salve o diário como um novo arquivo de sequência. O arquivo é gravado na pasta test/sequences do framework, e um arquivo existente nunca é substituído. Obrigatórios: name, description e resource, a lista de sequências após as quais ela roda. Opcional: componentSteps, quantos passos iniciais se tornam passos de componente."
+    },
+    "runner.mcp_workload_failure": {
+      "sourceHash": "3dd00505ce745c59b5bcaa55bc16b3fa8cf3ec9259e6135a247ea3ff757a9e9d",
+      "origin": "machine",
+      "message": "Leia a última falha da sessão como uma visão filtrada: a classe, o passo, a sentença, o detalhe da causa e os caminhos de evidência que ela pode mostrar."
+    },
+    "runner.mcp_workload_invalid_request": {
+      "sourceHash": "2778a829b73afa91997864730e0a90f78d3584474bbc4092a49d3d52d51782e2",
+      "origin": "machine",
+      "message": "A requisição não é uma requisição JSON-RPC válida."
+    },
+    "runner.mcp_workload_request_too_large": {
+      "sourceHash": "dd31a1cbcb8a208949bd66e890f58731e2c2e7c577a68d2a1c37197def268bb6",
+      "origin": "machine",
+      "message": "A requisição tem mais de {limit} caracteres."
+    },
+    "runner.mcp_workload_invalid_arguments": {
+      "sourceHash": "f589c7c04eb1ba4be0a7bfc59e91a89cf6270eda83917f5041dbfbcbb81c59a3",
+      "origin": "machine",
+      "message": "Os argumentos de {name} não são válidos: {detail}"
+    },
+    "runner.mcp_workload_run_form_incomplete": {
+      "sourceHash": "603901b1fcd41563920cf5a260ce7838dd8af9624a1a9171c8b8a310f9fdf428",
+      "origin": "machine",
+      "message": "Uma chamada que executa uma operação também precisa de: {fields}"
+    },
+    "runner.mcp_workload_cancel_with_run_fields": {
+      "sourceHash": "f9f05d5029a7972e3bcfb780d3d222816f325bc5034347ba87f489bd49122c43",
+      "origin": "machine",
+      "message": "Um cancelamento recebe somente operationId; remova os campos de execução."
+    },
+    "runner.mcp_workload_instructions": {
+      "sourceHash": "95b5b32488d99f853d472f825d299f254f924437a7edc7b0f16a1d9af7ae5ae3",
+      "origin": "machine",
+      "message": "1. Observe antes de agir. Chame workload_snapshot para a superfície antes de escolher um passo e escolha a partir do que ele mostra. Uma referência como s14 ou p7 vale apenas até o próximo instantâneo ou passo nessa superfície.\n2. Diga como uma sentença. Encontre a sentença com workload_phrases ou workload_suggest_step e execute-a com workload_step. Use workload_action apenas para o que nenhuma sentença cobre.\n3. Dê a cada passo o seu motivo. intent é uma linha em inglês simples para quem lerá o teste depois; ela se torna a descrição do passo. Não contém senha, token ou outro valor secreto, nem referência a variável.\n4. Nunca digite um segredo. Onde uma senha for necessária, escreva a referência, por exemplo {reference}. Um literal em uma posição secreta é recusado.\n5. Um passo por vez, nunca duas vezes. Escolha um novo operationId para cada novo passo. Quando uma chamada responder workload_still_waiting, chame a mesma ferramenta de novo apenas com esse id. Não envie um passo de novo porque a resposta demorou ou se perdeu.\n6. Pare e pergunte à pessoa quando um resultado disser que o efeito é incerto, quando dois elementos corresponderem e nada na página os distinguir, quando um passo apagaria dados ou desligaria o convidado, quando a tela mostrar uma credencial, ou quando o produto não mostrar mais o que o teste espera.\n7. Termine nesta ordem: workload_journal, workload_save_sequence, workload_run_sequence, workload_session_end."
+    },
+    "runner.workload_no_session": {
+      "sourceHash": "5a68bd243d435a149baf8d757077aaa5a0d2b8f65943692c11184d04e41cd05f",
+      "origin": "machine",
+      "message": "Nenhuma sessão de carga de trabalho está anexada. Inicie uma com workload_session_start."
+    },
+    "runner.workload_session_active": {
+      "sourceHash": "2891a120015d7e997171223933450dcac2efe9af5c34a3ce4399220b55b77285",
+      "origin": "machine",
+      "message": "Uma sessão com outra entrada está anexada à VM '{vmName}'. Encerre-a primeiro com workload_session_end."
+    },
+    "runner.workload_session_starting": {
+      "sourceHash": "3825bed1e55cc5fc44979ccfd139726411c818cb704622eb9a69835da04a75f5",
+      "origin": "machine",
+      "message": "A sessão ainda está iniciando. Chame workload_session_start de novo com a mesma entrada para ler o resultado."
+    },
+    "runner.workload_busy": {
+      "sourceHash": "3971e2ed7c1a325f1806bf4662052bc17de9fd5a21bc00552fb9c5813bdad121",
+      "origin": "machine",
+      "message": "A operação '{operationId}' ainda está em execução. Consulte-a ou cancele-a antes de iniciar outra."
+    },
+    "runner.workload_queue_full": {
+      "sourceHash": "cef3d4656ead4003a6b51e33a0bca83f2316118d6d07039e29082c8778a01b9c",
+      "origin": "machine",
+      "message": "Dezesseis chamadas já aguardam o worker. Chame de novo depois que uma delas for respondida."
+    },
+    "runner.workload_operation_conflict": {
+      "sourceHash": "0e9285503624f7d7d37a08081f460a5bb70656a1e3e1b8fafcbc6bd25c3d26ad",
+      "origin": "machine",
+      "message": "O id de operação '{operationId}' já foi usado por outra ferramenta ou com outra entrada. Escolha um novo operationId para um novo passo."
+    },
+    "runner.workload_operation_unknown": {
+      "sourceHash": "fc0b9b92f5542de00e429aecf3e5c3ba476292462a075f9088e844952c918748",
+      "origin": "machine",
+      "message": "Nenhuma operação desta sessão tem o id '{operationId}'."
+    },
+    "runner.workload_still_waiting": {
+      "sourceHash": "d671ee361c5ccad7dd02be3824ddb609a35eed97c3d2703e0106d1fb0d990530",
+      "origin": "machine",
+      "message": "A operação '{operationId}' ainda está em execução. Chame a mesma ferramenta de novo apenas com este operationId para ler o resultado."
+    },
+    "runner.workload_not_dispatched": {
+      "sourceHash": "81d6fa462060c8ca0c533feedbe1efe2eb09408cdb074451e51efdc73a45b0c6",
+      "origin": "machine",
+      "message": "A operação '{operationId}' terminou antes de ser enviada ao worker; nada foi executado."
+    },
+    "runner.workload_call_timeout": {
+      "sourceHash": "6fe19a645afbede8cbea98993cf452eb47bff99b485add71dd045245cd46a3c3",
+      "origin": "machine",
+      "message": "O worker da sessão não respondeu em {seconds} segundos."
+    },
+    "runner.workload_worker_start_failed": {
+      "sourceHash": "96b7f46d1d5a231e5c85a36f68cf7b35901e0baff503c540cd5da8a863f060fd",
+      "origin": "machine",
+      "message": "O worker da sessão não iniciou ou não se anexou: {detail}"
+    },
+    "runner.workload_worker_lost": {
+      "sourceHash": "8f2ec58b8311d0e2251e29ab9022d8efa69f3a73bc150848c0f92bbbfca82ee3",
+      "origin": "machine",
+      "message": "O worker da sessão terminou enquanto mantinha a sessão, então a sessão acabou. Inicie uma nova."
+    },
+    "runner.workload_surface_unsupported": {
+      "sourceHash": "bd2e241eb921d12d513fcdc67e238cee2b9442a70424fe4a88dbd8f8ff02858d",
+      "origin": "machine",
+      "message": "Este worker não oferece a superfície '{surface}'. Ele oferece: {surfaces}"
+    },
+    "runner.workload_stale_reference": {
+      "sourceHash": "f9038c8a0da9fd5d67b0a633779426bc655f173ef2fc33af32b948f3d2efbfc2",
+      "origin": "machine",
+      "message": "A referência '{reference}' não está no instantâneo atual. Tire um novo instantâneo e escolha a partir dele."
+    },
+    "runner.workload_capture_failed": {
+      "sourceHash": "4cb75384923d692dc4922b91dbe4d9ed45690ab20807dfdcbbe6eca195521640",
+      "origin": "machine",
+      "message": "Não foi possível capturar o quadro da tela."
+    },
+    "runner.workload_internal_error": {
+      "sourceHash": "f153fd2829628b560ea67777e89a9bcfa71866b86a2d8c1374e00600d10cde36",
+      "origin": "machine",
+      "message": "O worker da sessão não conseguiu concluir a requisição: {detail}"
+    },
+    "runner.workload_verb_unregistered": {
+      "sourceHash": "fba639c8476cf349c106617a6ce0eff3792f192fc7d1edd26aa7db5cfb5eb72c",
+      "origin": "machine",
+      "message": "'{action}' não é um verbo registrado."
+    },
+    "runner.workload_verb_alias": {
+      "sourceHash": "6e73b2d21380605147f0581f926a775c3107b1751fa80aa7d3a8aa0d82bd9d4b",
+      "origin": "machine",
+      "message": "'{action}' é outra grafia de '{canonical}'. Use '{canonical}'."
+    },
+    "runner.workload_verb_denied_vm_state": {
+      "sourceHash": "faa6506afa65a0c4252e06842f5820216d07fa9c07fb29140d3fbf28ab62e6f7",
+      "origin": "machine",
+      "message": "'{action}' altera o estado de energia ou o nome da VM. Em vez disso, execute uma sequência com workload_run_sequence."
+    },
+    "runner.workload_verb_denied_operator_hold": {
+      "sourceHash": "e4dc9c4788ad2896601bc513b60077851f260d72f0a6bc994e5eefcff479e1b4",
+      "origin": "machine",
+      "message": "'{action}' aguarda um operador e não pode ser executado em uma sessão de carga de trabalho."
+    },
+    "runner.workload_verb_denied_composite": {
+      "sourceHash": "8cd1ed6f291308bee2e943ce8530f607937e2dd109c498f26c1637aed2e7d5ec",
+      "origin": "machine",
+      "message": "'{action}' envolve outros passos. Adicione-o à sequência salva manualmente."
+    },
+    "runner.workload_verb_denied_unclassified": {
+      "sourceHash": "4f0dbf4cf0deff97ab6d0f5dacbc514602ef724d0982a942e13273c1357eec4f",
+      "origin": "machine",
+      "message": "'{action}' não declara classe de reexecução e não pode ser executado em uma sessão de carga de trabalho."
+    },
+    "runner.workload_field_reserved": {
+      "sourceHash": "260e3cdc8f6d26770632be5c8b3d832d43ca09650c90178fa62426efe494e4ce",
+      "origin": "machine",
+      "message": "O campo '{field}' é definido pela sessão e não pode ser fornecido."
+    },
+    "runner.workload_field_missing": {
+      "sourceHash": "0d0b4ce26a3af2621ad749ab1570e0497d4c7ae1f9c5f5d3150db9553788a0f1",
+      "origin": "machine",
+      "message": "O verbo '{action}' exige o campo '{field}'."
+    },
+    "runner.workload_field_invalid": {
+      "sourceHash": "29932385f34e3e3e0eee17d8e9ab7235f3a05c6da19a767e4588f8d1ada5e6a1",
+      "origin": "machine",
+      "message": "O campo '{field}' do verbo '{action}' não corresponde ao esquema de sequência: {detail}"
+    },
+    "runner.workload_field_undeclared": {
+      "sourceHash": "e55310b7451bb49aa3c0b7d81cd4e12b5e7683ec5c502783d2182f23089a3d26",
+      "origin": "machine",
+      "message": "O campo '{field}' não está declarado para o verbo '{action}' no esquema de sequência; o manipulador pode ignorá-lo."
+    },
+    "runner.workload_variable_reserved": {
+      "sourceHash": "f4e9a4698d24220469d89b16087aedb58f757aaf1bc3176b01c59b6da79552fd",
+      "origin": "machine",
+      "message": "A variável '{name}' é definida pela sessão e não pode ser fornecida."
+    },
+    "runner.workload_variables_failed": {
+      "sourceHash": "562d047965d9bf53de1e080d8af439a5bbfa4cd5bb9530a85c0c50291059a5b0",
+      "origin": "machine",
+      "message": "Não foi possível resolver as variáveis da sessão: {detail}"
+    },
+    "runner.workload_mask_failed": {
+      "sourceHash": "6bc5907c83c6e3a87a2b50c8e450e7b71d8d18a69825b083615af93707dd0ddf",
+      "origin": "machine",
+      "message": "O front-end não confirmou os valores a ocultar."
+    },
+    "runner.workload_intent_invalid": {
+      "sourceHash": "00b20ac60f634311b0c91f6f5cd86e9b1a2c7ccc7f6ff25d1ab227ac69ac2b7c",
+      "origin": "machine",
+      "message": "O intent deve ser uma linha de 1 a 200 caracteres e não deve conter um token de variável."
+    },
+    "runner.workload_secret_literal": {
+      "sourceHash": "82c709e7636f09b9760cb82c57468e7a0be768e52916bc8d8dfab710668c85a4",
+      "origin": "machine",
+      "message": "A requisição contém um valor que esta sessão mantém como segredo. Refira-se a ele por meio da sua variável."
+    },
+    "runner.workload_secret_reference_required": {
+      "sourceHash": "a5a1bef73e0608ca781d022fde141aa7cb82327b5c2bbb7ce0bcc2fd185fa0bf",
+      "origin": "machine",
+      "message": "O campo '{field}' carrega um segredo e deve se referir a ele por meio de uma variável ou de uma expressão de extensão."
+    },
+    "runner.workload_secret_variable_unknown": {
+      "sourceHash": "1eaac52969579cabf6ab83fed2d6481f9fd7ba8876bb6202cfd34e4a0e46ab58",
+      "origin": "machine",
+      "message": "O campo '{field}' se refere à variável '{name}', que esta sessão não define."
+    },
+    "runner.workload_secret_too_short": {
+      "sourceHash": "04350479fa606b075ae6d454fcac13cb16d5c234e825dccb95e4fda1c917b31b",
+      "origin": "machine",
+      "message": "A variável '{name}' contém um segredo com menos de {minimum} caracteres, que a sessão não consegue mascarar."
+    },
+    "runner.workload_step_unresolved": {
+      "sourceHash": "956aebe76118d20e828adca8b9bab97d27a5cb280f77ad53409198b122b9c209",
+      "origin": "machine",
+      "message": "A sentença não foi resolvida: {detail}"
+    },
+    "runner.workload_step_too_large": {
+      "sourceHash": "4c9fccd32d03b4d1236ce92201f994942e10cd845844e01391828ba0e5cd9716",
+      "origin": "machine",
+      "message": "O passo é maior que {maximum} caracteres."
+    },
+    "runner.workload_yaml_mismatch": {
+      "sourceHash": "d65868a908c3b5d9034b102553ebf59ad7182d27f59b2f8e45ebce402ab14bba",
+      "origin": "machine",
+      "message": "O passo não pode ser escrito como YAML que seja lido de volta sem alterações, por isso não foi executado."
+    },
+    "runner.workload_step_failed": {
+      "sourceHash": "64f690bb36f9bc76db2cd6b22c3ba2600f313172dd171a159d03bec05ca26040",
+      "origin": "machine",
+      "message": "A primitiva {index} de {total} ({action}) falhou: {label}"
+    },
+    "runner.workload_operation_canceled": {
+      "sourceHash": "31bdbd2093c43498641ff6cf956da6ef56d742ef3dd8af8ee6702bd2412c3e67",
+      "origin": "machine",
+      "message": "A operação foi cancelada após {completed} de {total} primitivas."
+    },
+    "runner.workload_secret_filter_failed": {
+      "sourceHash": "6bf838a28ea25751b3d170914d893becbbd780c8ca16fbc9671e041c08624c71",
+      "origin": "machine",
+      "message": "A resposta foi retida: depois da filtragem de segredos, ela ainda continha um ou não podia mais ser lida."
+    },
+    "runner.workload_mask_unconfirmed": {
+      "sourceHash": "0880508b745c84c9bf50af5244834c39fb7d49df6521a310b10b4e9ffe834b71",
+      "origin": "machine",
+      "message": "O front-end não confirmou os valores a ocultar; os logs do worker podem mostrá-los."
+    },
+    "runner.workload_journal_write_failed": {
+      "sourceHash": "c65612c9b5ddbe5c0b5eb8d0d14c72bce1a083c8c60b5fb002506d3386116979",
+      "origin": "machine",
+      "message": "Não foi possível gravar o arquivo do diário; a entrada foi mantida na memória: {detail}"
+    },
+    "runner.workload_argument_invalid": {
+      "sourceHash": "4c65092544ae84459f708f1c1a8136598b5fea4e8800042cec3ce57a0a8e1fb9",
+      "origin": "machine",
+      "message": "{tool}: o argumento '{name}' deve corresponder a {pattern}."
+    },
+    "runner.workload_host_unsupported": {
+      "sourceHash": "99a0b88149de80c13b32dafded08d18eb40ffe04521eefbbd0c3648c67ba3005",
+      "origin": "machine",
+      "message": "{tool}: esta plataforma não tem driver de hospedeiro."
+    },
+    "runner.workload_guest_unknown": {
+      "sourceHash": "7770120a1efe44c0d798c4ca62b9ce3e320467599416451f3396a891629ec783",
+      "origin": "machine",
+      "message": "{tool}: o convidado '{guestKey}' não tem pasta para {hostType} ({folder})."
+    },
+    "runner.workload_elevation_required": {
+      "sourceHash": "1d9bca8a6654fc089ea6a235b51879d71b33ac9a99734565e784c81a051e8862",
+      "origin": "machine",
+      "message": "{tool}: {hostType} controla VMs somente a partir de um processo elevado. Inicie o cliente MCP com privilégios elevados."
+    },
+    "runner.workload_libvirt_group_missing": {
+      "sourceHash": "aa4c06047a2499ddaf15bc9c1f19e4b110696792aa7d12b5ef7d04045bd8256e",
+      "origin": "machine",
+      "message": "{tool}: este processo não possui o grupo libvirt. Inicie o cliente MCP a partir de uma sessão em que 'id -nG' liste libvirt, ou envolva o comando do servidor em 'sg libvirt -c'."
+    },
+    "runner.workload_config_unreadable": {
+      "sourceHash": "80bcddc3363bd8eb6dcd20c090ffbac75676579b86d3defe0e278bc64ea6a66e",
+      "origin": "machine",
+      "message": "{tool}: não foi possível ler a configuração {configPath}."
+    },
+    "runner.workload_host_driver_failed": {
+      "sourceHash": "a1e26fcece84bc1f62369a6bcbe4050833b9e278e96c6fff12c4f7b316b3e893",
+      "origin": "machine",
+      "message": "{tool}: o driver do hospedeiro não foi carregado: {message}"
+    },
+    "runner.workload_host_not_ready": {
+      "sourceHash": "71db1fe9f463a64f851c5a953fe4b8bbb43416f83fe045794b1d5b55ce6b6988",
+      "origin": "machine",
+      "message": "{tool}: o hospedeiro não está pronto para controlar um convidado (condição {condition}): {detail}"
+    },
+    "runner.workload_runtime_owned": {
+      "sourceHash": "fa76ca617db0ed63b3e909e7d184e747be72b0098149c3d3a29d6e189e2ebf18",
+      "origin": "machine",
+      "message": "{tool}: outra execução é dona deste runtime: {detail}"
+    },
+    "runner.workload_lease_incomplete": {
+      "sourceHash": "c17c34b9518da87563210e30c8c83b0b4882c7bff920c7cee1a4638dd5202329",
+      "origin": "machine",
+      "message": "{tool}: a concessão {leasePath} foi gravada sem o seu registro de início e foi liberada. Chame de novo."
+    },
+    "runner.workload_vm_absent": {
+      "sourceHash": "36921d22e828c060c53451e6cba25409512023bc170a4bcd17500eac2a42fbce",
+      "origin": "machine",
+      "message": "{tool}: a VM '{vmName}' não existe neste hospedeiro. Crie-a e inicie-a com test/Debug-TestSequence.ps1 e depois anexe."
+    },
+    "runner.workload_vm_stopped": {
+      "sourceHash": "96797690fc82894112bc20e945876a74cce8dddf530fe84e479ff9adb9d32063",
+      "origin": "machine",
+      "message": "{tool}: a VM '{vmName}' não está em execução. Inicie-a com test/Debug-TestSequence.ps1 e depois anexe."
+    },
+    "runner.workload_vm_unknown": {
+      "sourceHash": "58e3c08c34facd95e5e7dbad0827bc33b4376b367d4ddec6c341a9d5a8aadea3",
+      "origin": "machine",
+      "message": "{tool}: o hipervisor não informou o estado da VM '{vmName}'. Nada foi alterado."
+    },
+    "runner.workload_sequence_not_found": {
+      "sourceHash": "4fa3d6cad4f3d7c8a7bd023e4f2ee3a4f6f8e10c3b6aa98ec8ddb9b1fec2e6c1",
+      "origin": "machine",
+      "message": "{tool}: a sequência '{sequence}' não foi encontrada. Locais pesquisados: {list}"
+    },
+    "runner.workload_sequence_not_guest": {
+      "sourceHash": "53a5cbff8aaec15363c3f95fadc5c71845bfa815c98a3f1aa00265e32ea37bfb",
+      "origin": "machine",
+      "message": "{tool}: '{sequence}' não é uma sequência de convidado com uma cadeia de recursos para {osKey}."
+    },
+    "runner.workload_plan_invalid": {
+      "sourceHash": "4e35b85956e59c53eb2cb87fe76bc1f1de4c5896bf9956c6ad553eb0b6a52764",
+      "origin": "machine",
+      "message": "{tool}: não foi possível planejar a cadeia de '{sequence}': {message}"
+    },
+    "runner.workload_start_failed": {
+      "sourceHash": "256b6b5881a41c63047c9ef8bab2108ae691b53ad3ee86ef3dbd88dec4f7b9db",
+      "origin": "machine",
+      "message": "{tool}: a sessão não foi iniciada: {message}"
+    },
+    "runner.workload_session_detached": {
+      "sourceHash": "ff60a16a352da7befafe4c146227bd22040eeea0dff0a3bd02206e1ea0c89e9b",
+      "origin": "machine",
+      "message": "{tool}: a sessão não tem VM em execução ({reason}). Encerre a sessão, suba a VM com test/Debug-TestSequence.ps1 e anexe novamente."
+    },
+    "runner.workload_ownership_lost": {
+      "sourceHash": "91758c73ab2fa771e8e50b6c3730a1fc64035fbec30f5a07410d7c4620dd7e2c",
+      "origin": "machine",
+      "message": "{tool}: esta sessão não é mais dona do runtime ({reason}). Encerre a sessão."
+    },
+    "runner.workload_replay_spawn_failed": {
+      "sourceHash": "dda3a5680d55c25478d8d1c43f3cb7fcc36648efe5931bab2555e2419aec7913",
+      "origin": "machine",
+      "message": "{tool}: o processo de reexecução não foi iniciado: {message}"
+    },
+    "runner.workload_journal_empty": {
+      "sourceHash": "4a334407e4376b0d14c84e98d3dbdf81b6ab6e062cd52bff198049ce80eca1f7",
+      "origin": "machine",
+      "message": "{tool}: o diário não contém nenhum passo bem-sucedido para salvar."
+    },
+    "runner.workload_name_invalid": {
+      "sourceHash": "049ffad6797cb513b0607874a509b2bdf89c4bdd73612a99607e3e40f9992596",
+      "origin": "machine",
+      "message": "{tool}: o nome '{name}' deve corresponder a {pattern}, começar com '{prefix}' e não terminar em .yml, .yaml ou um sufixo de hospedeiro (.ubuntu.kvm, .windows.hyper-v, .macos.utm)."
+    },
+    "runner.workload_name_exists": {
+      "sourceHash": "999ee22947cd44029b6201176fdaa37c0147956c97da496251799372070bb9be",
+      "origin": "machine",
+      "message": "{tool}: já existe um arquivo de sequência para '{name}': {path}. Nada foi gravado."
+    },
+    "runner.workload_folder_outside": {
+      "sourceHash": "7d2f6690a78a90e691e586f9c7756f8bf8a2c806ed89b70bb50699b590a96140",
+      "origin": "machine",
+      "message": "{tool}: {folder} é resolvido fora do checkout do framework ({resolved}). Nada foi gravado."
+    },
+    "runner.workload_split_invalid": {
+      "sourceHash": "d788b46e74b4ead5e49919605b461ae9e266bcbe3ebd285d4aff9fa8a3593102",
+      "origin": "machine",
+      "message": "{tool}: componentSteps {value} deve estar entre 0 e {count}."
+    },
+    "runner.workload_resource_invalid": {
+      "sourceHash": "85652cbdacdc20fa46b28987bde94c73cd4bee96956bfc45f8098c15c4acfa63",
+      "origin": "machine",
+      "message": "{tool}: resource deve conter de 1 a 16 nomes de sequência que correspondam a {pattern}."
+    },
+    "runner.workload_candidate_invalid": {
+      "sourceHash": "c3f5be28723008058c58610c009080c3cf3343b37cc3f86ce285cd7f67ad8f3c",
+      "origin": "machine",
+      "message": "{tool}: a sequência gerada falhou na verificação {check}: {message} Nada foi gravado."
+    },
+    "runner.workload_secret_found": {
+      "sourceHash": "28096e6bb5113da79c0e1db15564cfc0a224334a640ef922fb4cfa0c589e9c45",
+      "origin": "machine",
+      "message": "{tool}: a sequência gerada conteria um segredo resolvido. Use uma referência de variável no passo. Nada foi gravado."
+    },
+    "runner.workload_publish_failed": {
+      "sourceHash": "bfacc7f4b5dbbd986b826ed8da730bf67599d6845e39a570ca988f7fbf640b80",
+      "origin": "machine",
+      "message": "{tool}: não foi possível publicar {path}: {message} Nada foi gravado."
+    },
+    "runner.web_session_opened": {
+      "sourceHash": "8e68984236d498637f6389d9dc09bd5a03522cf48bd1b73d60c6fe6df09e3926",
+      "origin": "machine",
+      "message": "Sessão de navegador {generation} em {vmName}: {browser} na porta {remotePort} do convidado, acessada por 127.0.0.1:{localPort}."
+    },
+    "runner.web_session_open_failed": {
+      "sourceHash": "c289a3106dd853ee3dfa3362401c051b7b150e107862cc5bad084f9eab843f23",
+      "origin": "machine",
+      "message": "Nenhuma sessão de navegador em {vmName}: {code}. {detail}"
+    },
+    "runner.web_session_close_incomplete": {
+      "sourceHash": "113eb17b26ef363f648e33ddedf812c6cec2f8c8decaf5718e4340be1b59c724",
+      "origin": "machine",
+      "message": "A sessão de navegador em {vmName} não foi encerrada de forma limpa ({reason}): {detail}"
+    },
+    "runner.verb_web_open": {
+      "sourceHash": "2a3bcbdf33464fcf97fef8f269931981755a4a554882ab3144c43b528ccfae8c",
+      "origin": "machine",
+      "message": "Abre uma URL na página do navegador do convidado e aguarda o carregamento."
+    },
+    "runner.verb_web_click": {
+      "sourceHash": "cc9e028656883f59b88c457c9bcefe20345b2b550f3312205355a2b346b054ac",
+      "origin": "machine",
+      "message": "Clica no elemento da página encontrado por papel e nome, ou marca uma caixa de seleção."
+    },
+    "runner.verb_web_fill": {
+      "sourceHash": "7fc8112eaa83533831978c34bc78fae633c41dad190e3360d9ab908f6e2b57d7",
+      "origin": "machine",
+      "message": "Substitui o conteúdo de um campo de texto da página."
+    },
+    "runner.verb_web_select": {
+      "sourceHash": "bae62e53a98b2343ae4a629dc71f41148e0fded45b5f4609e0257e21cbaf8bf5",
+      "origin": "machine",
+      "message": "Escolhe uma opção de uma lista de seleção nativa pelo seu rótulo."
+    },
+    "runner.verb_web_press": {
+      "sourceHash": "2d522959709e1d44711042095a1d919171a29103c300b43374936d9f2cc8d03b",
+      "origin": "machine",
+      "message": "Pressiona uma tecla na página."
+    },
+    "runner.verb_web_expect": {
+      "sourceHash": "6bd2be8ecd2e53d47f6a0198e4c58e7d4f9e761da5f9dd188e43e1e9bdce94ab",
+      "origin": "machine",
+      "message": "Aguarda até que um elemento ou um texto esteja na página, ou tenha saído dela."
+    },
+    "runner.verb_web_close": {
+      "sourceHash": "d5df5a97e2d7c8308fe4263f4b8974f96d44a16e3370a1da1c60ffa64fd371e3",
+      "origin": "machine",
+      "message": "Fecha a página do navegador do convidado e a sua conexão."
+    },
+    "runner.workload_no_page": {
+      "sourceHash": "e05422742176a5e186838bef683a530b68fdb583c6cb6bce1930bdb89ecd769c",
+      "origin": "machine",
+      "message": "Nenhuma página está aberta nesta sessão. Execute primeiro a frase 'open page <url>'."
+    },
+    "runner.ssh_wait_rotation_fields_incomplete": {
+      "sourceHash": "7b0dc2e5e297ab5e2caa7bc86cebad44bc8b967f1ad289fc71606394f65d0e55",
+      "origin": "machine",
+      "message": "O sshWaitReady só troca uma senha expirada com currentPassword e newPassword juntos, e esta etapa informa apenas {field}, portanto a etapa falha."
+    },
+    "runner.ssh_password_rotated": {
+      "sourceHash": "78a5f90771f5c07388cba1093411f2bfc2b816ed34e6bb6ffe1ad566904dcb5a",
+      "origin": "machine",
+      "message": "O sshWaitReady trocou por SSH a senha expirada de {user} em {vmName}."
+    },
+    "runner.ssh_password_rotation_failed": {
+      "sourceHash": "5a71f9f6ffcf610817b56b64fa45c6351dd887d3144767e28998a24008535ffc",
+      "origin": "machine",
+      "message": "O sshWaitReady não conseguiu trocar por SSH a senha expirada de {user} em {vmName} ({code}), portanto a etapa falha. Saída do convidado: {detail}"
+    },
+    "runner.ssh_password_still_expired": {
+      "sourceHash": "f294bf9b306a9aca3a1f7cf0dfb00ee85baf881f407b2ae77035db773c524e19",
+      "origin": "machine",
+      "message": "O convidado ainda informa uma senha expirada para {user} em {vmName} depois que o sshWaitReady a trocou, portanto a etapa falha."
+    },
+    "runner.ssh_password_set": {
+      "sourceHash": "17b9a432339da34d2d248bff1da425668e892ec89ec7b58ad117421628b6eb07",
+      "origin": "machine",
+      "message": "O sshWaitReady definiu por SSH a senha de {user} em {vmName}, porque o login não estava expirado."
+    },
+    "runner.ssh_password_set_failed": {
+      "sourceHash": "9cd10eaa2ee4ffbc5b71997ff2af965e16d40dd8c34ad0ce7ce921381d4f86d6",
+      "origin": "machine",
+      "message": "O sshWaitReady não conseguiu definir por SSH a senha de {user} em {vmName} ({code}), portanto a etapa falha e nenhuma etapa posterior grava a nova senha. Saída do convidado: {detail}"
+    },
+    "runner.ssh_host_key_pin_unconfirmed_reset": {
+      "sourceHash": "d0d12ddd815a6a54b11425f2f67ee695e228590d159e2ebf8379cd2735a535cc",
+      "origin": "machine",
+      "message": "A chave de host SSH fixada para '{vmName}' foi registrada durante esta espera e nenhum login foi autenticado com ela, e o convidado em {address} agora apresenta outra chave, como faz um convidado novo quando o servidor SSH do instalador dá lugar ao do sistema instalado. A fixação é esquecida e a espera continua (redefinição {count} de {limit}; chave fixada: {pin})."
     }
   }
 }

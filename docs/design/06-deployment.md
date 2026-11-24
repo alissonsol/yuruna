@@ -19,15 +19,19 @@ flowchart LR
         start-test-runner-ps1["Runner processes"]
         yuruna-host-psm1["Hyper-V KVM UTM"]
         start-status-service-ps1["Status service"]
+        yuruna-host-controller-service["Host controller"]
     end
     subgraph guest["Workload guest VM"]
     end
     operator-host -->|HTTP pages 8080| start-status-service-ps1
     start-test-runner-ps1 -->|local provider calls| yuruna-host-psm1
     yuruna-host-psm1 -->|console and VM state| guest
-    %% optional: SSH sequences, GUI launcher probes, and guest evidence capture.
+    %% optional: SSH sequences, page-step browser tunnels, GUI launcher probes, and guest evidence capture.
     start-test-runner-ps1 -.->|SSH commands, evidence 22| guest
     guest -->|HTTP scripts, uploads 8080| start-status-service-ps1
+    %% optional: a host runs the host controller once Enable-TestAutomation has set it up (on macOS, after a runner start).
+    start-status-service-ps1 -.->|queued update journal| yuruna-host-controller-service
+    yuruna-host-controller-service -.->|stop, update, restart| start-test-runner-ps1
 ```
 
 Sources: [Start-TestRunner](../../test/Start-TestRunner.ps1),
@@ -37,6 +41,9 @@ Sources: [Start-TestRunner](../../test/Start-TestRunner.ps1),
 [host contract](../../host/Yuruna.Host.Contract.psm1),
 [SSH transport](../../test/modules/Test.Ssh.psm1),
 [sequence handlers](../../test/modules/Test.SequenceHandler.psm1),
+[host controller](../../test/modules/Test.HostUpdate.psm1),
+[controller unit](../../host/ubuntu.kvm/host-controller/yuruna-host-controller.service),
+[controller task](../../host/windows.hyper-v/host-controller/yuruna-host-controller.task.xml),
 [Start-StatusService](../../test/service/Start-StatusService.ps1), and
 [fetch-and-execute.sh](../../automation/fetch-and-execute.sh).
 
@@ -44,7 +51,10 @@ The outer, cycle, and inner runners are host processes. The selected driver
 controls the guest through its native hypervisor interface, including console
 input, screenshots, and the VM state used to observe shutdown; Hyper-V also
 captures COM1 through a named pipe, and UTM the guest's UART through a loopback
-TCP port. The status service is another host process,
+TCP port. On KVM, pointer clicks reach the guest as QEMU monitor input events
+through `virsh qemu-monitor-command` on the local libvirt connection; see
+[Test.Transport](../../test/modules/Test.Transport.psm1).
+The status service is another host process,
 serving operator pages, controls, runtime evidence, repository script fetches,
 and bounded guest diagnostic and log uploads. A file under its runtime directory
 is served only when it is one of the allow-listed status records, whichever path
@@ -61,12 +71,45 @@ Sequences selecting SSH connect directly from the runner to the guest. Console
 fetches also use SSH for launcher capability checks, refusal records, payload
 state, and execution evidence when the guest is reachable; the payload itself
 still starts through console input. See [GUI fetch transport](03-data-flows.md#gui-fetch-transport).
+Page steps start a headless browser inside the guest over SSH and reach its
+loopback DevTools port through an SSH tunnel from a host loopback port, so the
+browser adds no network listener; see [Test.WebSession](../../test/modules/Test.WebSession.psm1)
+and [yuruna-web-browser.sh](../../automation/yuruna-web-browser.sh).
 The status service can remain available while tests are idle. A browser can run on this same host;
-the operator frame shows the separate-machine case. Six boxes include all three
+the operator frame shows the separate-machine case. Seven boxes include all four
 host processes/families and the two other network nodes.
+
+On KVM hosts, [Enable-TestAutomation](../../host/ubuntu.kvm/Enable-TestAutomation.ps1)
+registers the system unit `yuruna-host-controller.service`, which runs the host
+controller beside the runner and the status service; on Windows hosts,
+[Enable-TestAutomation](../../host/windows.hyper-v/Enable-TestAutomation.ps1)
+registers the scheduled task `Yuruna Host Controller` for the same purpose; and
+on macOS hosts, [Enable-TestAutomation](../../host/macos.utm/Enable-TestAutomation.ps1)
+only deploys the controller, which an ordinary runner start from the desktop
+session starts in a session of its own. The status service's
+**Update host** control, `POST /control/host-update`, only queues a request in
+the host's private request journal; the controller claims it, stops the runner,
+runs the framework update shown under [Git mirror source endpoints](#git-mirror-source-endpoints)
+(and, for the `full` scope, the checkout's installer unattended, the PowerShell 7
+upgrade on Windows, and Enable-TestAutomation), starts the status service again
+when it is down or wedged, and starts the runner again. The
+route accepts a loopback caller whose `Host` header names `localhost`,
+`127.0.0.1`, or `[::1]` at the listener's port, and any other caller only with a
+`yup1` update proof that pool-control signs and the host verifies with the
+public key in its `pool-control.record`, so a separate operator machine queues
+an update through pool-control; the controller itself reads no network input. Its lock stays under
+`~/.yuruna/host-repair/`, as do its code snapshots and runner console socket
+except on Windows, where the snapshots sit under
+`%ProgramData%\yuruna\host-controller` and the runner gets a console window of
+its own; all of them are outside every served tree; see
+[POST /control/host-update](../control-routes.md#42185271-0014).
 [Start-McpServer](../../test/service/Start-McpServer.ps1) serves the framework's
 MCP tools over the standard input and output of a client-started process, so it
-adds no network endpoint. The caching-proxy, pool-aggregator, pool-control,
+adds no network endpoint.
+[Start-WorkloadMcpServer](../../test/service/Start-WorkloadMcpServer.ps1) serves
+the workload authoring tools the same way; its session worker runs on the
+hypervisor host and drives a running guest through the runner's driver and SSH
+paths. The caching-proxy, pool-aggregator, pool-control,
 download-agent, and stash daemons mount `POST /mcp` on their existing HTTP
 ports; the caching-proxy-parser daemon serves its HTTP API without MCP.
 Sources: [cache routes](../../test/extension/caching-proxy-service/main.go),
@@ -248,7 +291,8 @@ and private IPv4 ranges and refuses `git-receive-pack`. The mirror relay answers
 only in the management daemon's local mode. A NAT-attached cache's port 80
 forwarder carries these paths as well.
 
-Host updates read `repositories.mirror`, whose URL defaults to
+A host's framework update (the pull each cycle runs, and the `update_source` phase of a host
+update) reads `repositories.mirror`, whose URL defaults to
 `http://<caching proxy>`. The default `prefer` mode asks `/git-mirror/v1/resolve`
 for a receipt, verifies it with an enrolled public key, and fetches the selected
 commit from `/git/`. Without an enrolled key or an answering mirror, the host
@@ -315,8 +359,8 @@ flowchart LR
     pool-control-service -->|HTTP scan, control 8080| host
     %% optional: guests ask for a new host address when the saved one stops answering.
     guest -.->|HTTP host lookup 9400| caching-proxy-service
-    %% optional: remote refresh requires configured authority and operator credentials.
-    pool-control-service -.->|signed refresh 8080| host
+    %% optional: remote repair and update require a configured authority or signing key and operator credentials.
+    pool-control-service -.->|signed repair, update 8080| host
     %% optional: windows_exporter on Windows hosts; status-listener memory metrics on Ubuntu and macOS hosts.
     caching-proxy-service -.->|Host metrics 9182/8080| host
 ```
@@ -403,9 +447,18 @@ package; both refuse an unbound proof, which names no target. A service that hol
 no internal authentication key posts the proof to the aggregator's
 `/api/v1/control-proof`, which verifies it and mints nothing.
 
-Pool-control's remote refresh path is optional. Its separate authority and
+Pool-control's remote repair path is optional. Its separate authority and
 operator credential checks are implemented in
-[hostrefresh.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go).
+[hostrepair.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostrepair.go).
+Its `POST /api/host/repair` mints a repair proof bound to one host and request,
+and [hostctl.go](../../test/extension/pool-control-service/server/internal/hostctl/hostctl.go)
+sends it to that host's `POST /control/host-repair`; the status service refuses
+a non-loopback repair without that proof. Pool-control's remote update path is
+optional as well: with the operator credential and an update signing key, its
+`POST /api/host/update` reads the host's `/control/control-status`, signs a
+`yup1` update proof, and sends it with a control proof to that host's
+`POST /control/host-update`; see
+[hostupdate.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostupdate.go).
 The diagram shows one runner host; other pool members repeat that node and its
 links, independently of where the service fleet is hosted.
 
@@ -764,6 +817,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 [Architecture](../architecture.md) | [Design overview](README.md)

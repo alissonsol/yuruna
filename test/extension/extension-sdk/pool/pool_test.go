@@ -354,9 +354,9 @@ func TestHealthzAndGetReachTheAggregator(t *testing.T) {
 	}
 }
 
-// --- REGION: Refresh capability
-// An aggregator that predates the refresh field must never make a host look
-// remotely refreshable: the zero value decodes, normalizes to "never
+// --- REGION: Repair capability
+// An aggregator that predates the repair field must never make a host look
+// remotely repairable: the zero value decodes, normalizes to "never
 // observed", and is not usable.
 func TestAnOldAggregatorPayloadIsNotRemoteUsable(t *testing.T) {
 	agg := newFakeAggregator(t)
@@ -367,52 +367,52 @@ func TestAnOldAggregatorPayloadIsNotRemoteUsable(t *testing.T) {
 		t.Fatalf("Status: %v", err)
 	}
 	for _, h := range s.Hosts {
-		if h.Refresh.RemoteUsable() {
-			t.Errorf("%s: a payload without refresh reads as usable: %+v", h.HostID, h.Refresh)
+		if h.Repair.RemoteUsable() {
+			t.Errorf("%s: a payload without repair reads as usable: %+v", h.HostID, h.Repair)
 		}
-		if h.Refresh != UnobservedRefresh() {
-			t.Errorf("%s: refresh = %+v, want the unobserved value", h.HostID, h.Refresh)
+		if h.Repair != UnobservedRepair() {
+			t.Errorf("%s: repair = %+v, want the unobserved value", h.HostID, h.Repair)
 		}
 	}
 }
 
 // A capability the aggregator did carry survives the decode unchanged, and the
 // Control string keeps its old shape beside it.
-func TestANewPayloadRoundTripsTheRefreshCapability(t *testing.T) {
+func TestANewPayloadRoundTripsTheRepairCapability(t *testing.T) {
 	agg := newFakeAggregator(t)
 	agg.statusBody = `{"pool":"default","hosts":[{"hostId":"aaa","control":"ready",
-	  "refresh":{"protocol":1,"availability":"available","ceiling":"start-if-stopped","remote":"provisioned","state":"idle","observedUnixMs":1900000000000,"ageSeconds":12}}]}`
+	  "repair":{"protocol":1,"availability":"available","ceiling":"start-if-stopped","remote":"provisioned","state":"idle","observedUnixMs":1900000000000,"ageSeconds":12}}]}`
 	c := New(Options{BaseURL: agg.srv.URL, CacheTTL: NoCache})
 	s, err := c.Status(context.Background())
 	if err != nil {
 		t.Fatalf("Status: %v", err)
 	}
 	h, _ := s.Host("aaa")
-	want := HostRefresh{Protocol: 1, Availability: RefreshAvailable, Ceiling: RungStartIfStopped, Remote: RefreshRemoteProvisioned,
-		State: RefreshStateIdle, ObservedUnixMs: 1900000000000, AgeSeconds: 12}
-	if h.Refresh != want {
-		t.Fatalf("refresh = %+v, want %+v", h.Refresh, want)
+	want := HostRepair{Protocol: 1, Availability: RepairAvailable, Ceiling: RungStartIfStopped, Remote: RepairRemoteProvisioned,
+		State: RepairStateIdle, ObservedUnixMs: 1900000000000, AgeSeconds: 12}
+	if h.Repair != want {
+		t.Fatalf("repair = %+v, want %+v", h.Repair, want)
 	}
-	if !h.Refresh.RemoteUsable() {
+	if !h.Repair.RemoteUsable() {
 		t.Fatal("a provisioned, available protocol-1 capability must be usable")
 	}
 	if h.Control != ControlReady {
-		t.Fatalf("control = %q; the refresh field must not disturb the control string", h.Control)
+		t.Fatalf("control = %q; the repair field must not disturb the control string", h.Control)
 	}
-	body, err := json.Marshal(h.Refresh)
+	body, err := json.Marshal(h.Repair)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var back HostRefresh
+	var back HostRepair
 	if err := json.Unmarshal(body, &back); err != nil || back != want {
 		t.Fatalf("re-encode round trip = %+v (%v), want %+v", back, err, want)
 	}
 }
 
-func TestUnobservedRefreshIsUnavailable(t *testing.T) {
-	u := UnobservedRefresh()
-	if u.Availability != RefreshUnavailable || u.Reason != RefreshReasonNeverObserved ||
-		u.Remote != RefreshRemoteUnknown || u.State != RefreshStateUnknown || u.RemoteUsable() {
+func TestUnobservedRepairIsUnavailable(t *testing.T) {
+	u := UnobservedRepair()
+	if u.Availability != RepairUnavailable || u.Reason != RepairReasonNeverObserved ||
+		u.Remote != RepairRemoteUnknown || u.State != RepairStateUnknown || u.RemoteUsable() {
 		t.Fatalf("unobserved = %+v", u)
 	}
 }
@@ -420,10 +420,10 @@ func TestUnobservedRefreshIsUnavailable(t *testing.T) {
 // Every value reaches the pool over unauthenticated reads, so each field is
 // clamped to its vocabulary and any doubt reads as unavailable.
 func TestNormalizedClampsEveryField(t *testing.T) {
-	ok := HostRefresh{Protocol: 1, Availability: RefreshAvailable, Ceiling: RungReclaim, Remote: RefreshRemoteProvisioned, State: RefreshStateIdle}
+	ok := HostRepair{Protocol: 1, Availability: RepairAvailable, Ceiling: RungReclaim, Remote: RepairRemoteProvisioned, State: RepairStateIdle}
 	cases := []struct {
 		name    string
-		in      HostRefresh
+		in      HostRepair
 		avail   string
 		reason  string
 		ceiling string
@@ -431,16 +431,16 @@ func TestNormalizedClampsEveryField(t *testing.T) {
 		state   string
 		usable  bool
 	}{
-		{"valid", ok, RefreshAvailable, "", RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, true},
-		{"protocol 2", with(ok, func(r *HostRefresh) { r.Protocol = 2 }), RefreshUnavailable, RefreshReasonProtocolUnsupported, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
-		{"protocol 0", with(ok, func(r *HostRefresh) { r.Protocol = 0 }), RefreshUnavailable, RefreshReasonProtocolUnsupported, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
-		{"unknown availability", with(ok, func(r *HostRefresh) { r.Availability = "maybe" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
-		{"available without ceiling", with(ok, func(r *HostRefresh) { r.Ceiling = "" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, "", RefreshRemoteProvisioned, RefreshStateIdle, false},
-		{"ceiling not a rung", with(ok, func(r *HostRefresh) { r.Ceiling = "rm -rf" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, "", RefreshRemoteProvisioned, RefreshStateIdle, false},
-		{"reason out of shape", with(ok, func(r *HostRefresh) { r.Availability, r.Reason = RefreshUnavailable, "Has Spaces" }), RefreshUnavailable, RefreshReasonCapabilityMalformed, RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
-		{"remote unknown word", with(ok, func(r *HostRefresh) { r.Remote = "yes" }), RefreshAvailable, "", RungReclaim, RefreshRemoteUnknown, RefreshStateIdle, false},
-		{"state unknown word", with(ok, func(r *HostRefresh) { r.State = "busy" }), RefreshAvailable, "", RungReclaim, RefreshRemoteProvisioned, RefreshStateUnknown, true},
-		{"unavailable keeps its reason", with(ok, func(r *HostRefresh) { r.Availability, r.Reason = RefreshUnavailable, "no_qualified_rung" }), RefreshUnavailable, "no_qualified_rung", RungReclaim, RefreshRemoteProvisioned, RefreshStateIdle, false},
+		{"valid", ok, RepairAvailable, "", RungReclaim, RepairRemoteProvisioned, RepairStateIdle, true},
+		{"protocol 2", with(ok, func(r *HostRepair) { r.Protocol = 2 }), RepairUnavailable, RepairReasonProtocolUnsupported, RungReclaim, RepairRemoteProvisioned, RepairStateIdle, false},
+		{"protocol 0", with(ok, func(r *HostRepair) { r.Protocol = 0 }), RepairUnavailable, RepairReasonProtocolUnsupported, RungReclaim, RepairRemoteProvisioned, RepairStateIdle, false},
+		{"unknown availability", with(ok, func(r *HostRepair) { r.Availability = "maybe" }), RepairUnavailable, RepairReasonCapabilityMalformed, RungReclaim, RepairRemoteProvisioned, RepairStateIdle, false},
+		{"available without ceiling", with(ok, func(r *HostRepair) { r.Ceiling = "" }), RepairUnavailable, RepairReasonCapabilityMalformed, "", RepairRemoteProvisioned, RepairStateIdle, false},
+		{"ceiling not a rung", with(ok, func(r *HostRepair) { r.Ceiling = "rm -rf" }), RepairUnavailable, RepairReasonCapabilityMalformed, "", RepairRemoteProvisioned, RepairStateIdle, false},
+		{"reason out of shape", with(ok, func(r *HostRepair) { r.Availability, r.Reason = RepairUnavailable, "Has Spaces" }), RepairUnavailable, RepairReasonCapabilityMalformed, RungReclaim, RepairRemoteProvisioned, RepairStateIdle, false},
+		{"remote unknown word", with(ok, func(r *HostRepair) { r.Remote = "yes" }), RepairAvailable, "", RungReclaim, RepairRemoteUnknown, RepairStateIdle, false},
+		{"state unknown word", with(ok, func(r *HostRepair) { r.State = "busy" }), RepairAvailable, "", RungReclaim, RepairRemoteProvisioned, RepairStateUnknown, true},
+		{"unavailable keeps its reason", with(ok, func(r *HostRepair) { r.Availability, r.Reason = RepairUnavailable, "no_qualified_rung" }), RepairUnavailable, "no_qualified_rung", RungReclaim, RepairRemoteProvisioned, RepairStateIdle, false},
 	}
 	for _, c := range cases {
 		got := c.in.Normalized()
@@ -451,22 +451,22 @@ func TestNormalizedClampsEveryField(t *testing.T) {
 			t.Errorf("%s: usable = %v, want %v", c.name, got.RemoteUsable(), c.usable)
 		}
 	}
-	neg := with(ok, func(r *HostRefresh) { r.ObservedUnixMs, r.AgeSeconds = -5, -7 }).Normalized()
+	neg := with(ok, func(r *HostRepair) { r.ObservedUnixMs, r.AgeSeconds = -5, -7 }).Normalized()
 	if neg.ObservedUnixMs != 0 || neg.AgeSeconds != 0 {
 		t.Errorf("negative instants must clamp to zero: %+v", neg)
 	}
 }
 
-func with(r HostRefresh, f func(*HostRefresh)) HostRefresh {
+func with(r HostRepair, f func(*HostRepair)) HostRepair {
 	f(&r)
 	return r
 }
 
 // The ladder is eight rungs in Order, the constants spell the same names, and
 // the exported list is a copy nobody can reorder for everyone else.
-func TestRefreshRungNamesAreTheOrderedLadder(t *testing.T) {
+func TestRepairRungNamesAreTheOrderedLadder(t *testing.T) {
 	want := []string{RungProbe, RungReclaim, RungStartIfStopped, RungRestartIfHung, RungRestartBroker, RungReapplySettings, RungReinstall, RungReboot}
-	got := RefreshRungNames()
+	got := RepairRungNames()
 	if len(got) != len(want) {
 		t.Fatalf("%d rungs, want %d", len(got), len(want))
 	}
@@ -474,15 +474,15 @@ func TestRefreshRungNamesAreTheOrderedLadder(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("rung %d = %q, want %q", i, got[i], want[i])
 		}
-		if order, ok := RefreshRungOrder(want[i]); !ok || order != i {
-			t.Fatalf("RefreshRungOrder(%q) = %d,%v, want %d", want[i], order, ok, i)
+		if order, ok := RepairRungOrder(want[i]); !ok || order != i {
+			t.Fatalf("RepairRungOrder(%q) = %d,%v, want %d", want[i], order, ok, i)
 		}
 	}
 	got[0] = "tampered"
-	if RefreshRungNames()[0] != RungProbe {
-		t.Fatal("RefreshRungNames exposed its backing array")
+	if RepairRungNames()[0] != RungProbe {
+		t.Fatal("RepairRungNames exposed its backing array")
 	}
-	if _, ok := RefreshRungOrder("Probe"); ok {
+	if _, ok := RepairRungOrder("Probe"); ok {
 		t.Fatal("rung names are case-sensitive vocabulary")
 	}
 }

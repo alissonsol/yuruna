@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42c7e1a9-5b3d-4f0e-9a6c-2d8f1b7e4a53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -174,9 +174,9 @@ Describe 'Orchestration cycle repository provenance' {
                 Justification = 'Nested test doubles only capture in-memory arguments; they never write status, transcripts, or host state.')]
             [CmdletBinding()]
             param([string]$ProjectUrl, [switch]$Nested, [string]$FrameworkUrl = 'https://github.com/example/framework',
-                [int]$ActionExit = 0, [scriptblock]$Seal, [System.Collections.Generic.List[string]]$Order)
+                [int]$ActionExit = 0, [scriptblock]$Seal, [System.Collections.Generic.List[string]]$Order, [object[]]$GitCommits)
             Invoke-InOrchestrator {
-                param($Root, $Url, $IsNested, $FrameworkSource, $HostActionExit, $BeforeSealBlock, $CallOrder)
+                param($Root, $Url, $IsNested, $FrameworkSource, $HostActionExit, $BeforeSealBlock, $CallOrder, $CycleCommits)
                 # Read by the doubles below through dynamic scope.
                 $null = $HostActionExit, $CallOrder
                 # Boundaries capture the actual owner's payloads while host actions,
@@ -235,6 +235,7 @@ Describe 'Orchestration cycle repository provenance' {
                     $sequence = @{ name = 'suite'; steps = @(@{ action = 'InvokeTestSequence'; sequence = 'host-action' }) }
                     $sealArgument = @{}
                     if ($BeforeSealBlock) { $sealArgument.BeforeSeal = $BeforeSealBlock }
+                    if ($CycleCommits) { $sealArgument.GitCommits = $CycleCommits }
                     $capture.exitCode = Invoke-OrchestrationSequence -Sequence $sequence -SequencePath (Join-Path $Root 'suite.yml') `
                         -RepoRoot $Root -SequencesDir $Root -TestRoot $Root -HostType 'host.ubuntu.kvm' -Config $config -InformationAction SilentlyContinue @sealArgument
                 } finally {
@@ -242,7 +243,7 @@ Describe 'Orchestration cycle repository provenance' {
                     Restore-YurunaTestEnvironment -Saved $savedCache
                 }
                 return $capture
-            } @($script:ProvenanceRoot, $ProjectUrl, [bool]$Nested, $FrameworkUrl, $ActionExit, $Seal, $Order)
+            } @($script:ProvenanceRoot, $ProjectUrl, [bool]$Nested, $FrameworkUrl, $ActionExit, $Seal, $Order, $GitCommits)
         }
     }
 
@@ -323,6 +324,43 @@ Describe 'Orchestration cycle repository provenance' {
         Assert-Equal 0 $actual.exitCode
         Assert-Equal 1 $actual.status.Count 'an in-tree run has only framework provenance'
         Assert-Equal 1 $actual.log.Count
+    }
+
+    # An orchestration cycle reset the status document with plain {sha, repoUrl}
+    # entries, so a host whose plan is an orchestration never showed which
+    # source (mirror or origin) its revisions came from.
+    It 'publishes the source provenance of the commits the runner hands an owner cycle' {
+        $commits = @(
+            [ordered]@{ sha = $script:FrameworkSha; repoUrl = 'https://github.com/example/framework'; source = 'mirror'; verification = 'mirror-stale'; fallbackReason = 'origin-transport-failed' }
+            [ordered]@{ sha = $script:ProjectSha; repoUrl = 'https://github.com/example/project'; source = 'origin'; verification = 'origin-current'; fallbackReason = $null }
+        )
+        $actual = Invoke-ProvenanceFixture -ProjectUrl 'https://github.com/example/project.git' -GitCommits $commits
+        Assert-Equal 0 $actual.exitCode
+        foreach ($payload in @('status', 'log')) {
+            Assert-Equal 2 @($actual[$payload]).Count "$payload carries framework and project"
+            Assert-StringEqual 'mirror' $actual[$payload][0].source "$payload keeps the framework source"
+            Assert-StringEqual 'mirror-stale' $actual[$payload][0].verification "$payload keeps the framework verification"
+            Assert-StringEqual 'origin-transport-failed' $actual[$payload][0].fallbackReason "$payload keeps the fallback reason"
+            Assert-StringEqual 'origin' $actual[$payload][1].source "$payload keeps the project source"
+        }
+        Assert-StringEqual $script:FrameworkSha $actual.primarySha 'the primary log key remains the framework revision'
+        Assert-StringEqual $script:ProjectSha $actual.perf.project
+    }
+
+    It 'records the plain checkout revisions when no commit list is handed over' {
+        $actual = Invoke-ProvenanceFixture -ProjectUrl 'https://github.com/example/project.git'
+        foreach ($payload in @('status', 'log')) {
+            Assert-StringEqual 'sha,repoUrl' (@($actual[$payload][0].Keys) -join ',') "$payload keeps the plain framework entry"
+        }
+    }
+
+    It 'keeps a handed commit list out of the owner''s document when nested' {
+        $commits = @([ordered]@{ sha = $script:FrameworkSha; repoUrl = 'https://github.com/example/framework'; source = 'mirror' })
+        $actual = Invoke-ProvenanceFixture -ProjectUrl 'https://github.com/example/project' -Nested -GitCommits $commits
+        Assert-Equal 0 $actual.exitCode
+        Assert-Equal 0 $actual.reset 'a nested orchestration cannot reset its owner'
+        Assert-Equal 0 @($actual.status).Count 'a nested orchestration cannot replace repository provenance'
+        Assert-Equal 0 @($actual.log).Count 'a nested orchestration cannot open an owner transcript'
     }
 
     It 'leaves parent cycle provenance and ownership unchanged when nested' {

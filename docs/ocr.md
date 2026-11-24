@@ -20,6 +20,13 @@ Provider registry lives in
 | `winrt`        | Windows 10+     | `Windows.Media.Ocr` via a persistent `powershell.exe` (5.1) worker. |
 | `macos-vision` | macOS 10.15+    | Apple Vision via `swift script.swift`, with a `swiftc -O` pre-compile cache. |
 
+`tapOn` locates words with Tesseract alone, whatever providers are enabled,
+because only Tesseract returns word boxes; it declares that engine as an OCR
+engine requirement, so a cycle plan that clicks on a host without Tesseract is
+refused before any VM is built. After a read that finds no label it reads a
+copy of the frame doubled in both directions (see
+[`tapOn`](test-sequences.md#428e4df6-0024)).
+
 <a id="42607283-0003"></a>
 
 ## Per-platform default ordering
@@ -309,6 +316,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

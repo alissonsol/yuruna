@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e3dca5-b895-4c27-bb43-907134f1b511
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,6 +22,9 @@ BeforeDiscovery {
 
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
+    # The private state root and the runner gate resolve under $HOME; a scratch
+    # home keeps this suite and every process it starts off the operator's own.
+    $script:TestHome = Enter-YurunaTestHome
     $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $PSScriptRoot 'Test.FrameworkSource.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
@@ -41,6 +44,8 @@ BeforeAll {
         return ((Invoke-YurunaTestGit -Path $Path -Argument $Arguments) -join "`n").Trim()
     }
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'Every service seed receives immutable host identity through the shared renderer' {
     It 'renders the <Service> host environment with the actual checkout commit' -ForEach @(

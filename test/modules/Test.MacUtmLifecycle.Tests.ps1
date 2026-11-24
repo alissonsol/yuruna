@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421bcd14-05b3-497a-86ea-db4eb3a90148
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -872,7 +872,7 @@ Describe 'Deadline-bound start, resume and power-off (host.macos.utm)' {
         Assert-StringEqual $Reason $r.appleEventReason $Case
         Assert-Equal 2 $r.attempts -Because "$Case stops at the second"
         Assert-Equal 2 @(Get-Call 'utmctl' | Where-Object { $_ -like 'utmctl start*' }).Count -Because "$Case issues no third start"
-        Assert-Match 'Invoke-HostRefresh' $r.errorMessage 'the message names the repair'
+        Assert-Match 'Invoke-HostRepair' $r.errorMessage 'the message names the repair'
     }
 
     It 'Invoke-UtmVMStartWithRetry resets the streak on an answer, even a refusal' {

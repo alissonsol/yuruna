@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b78fbd-8036-4aa8-93eb-161e72bdba4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,11 +48,11 @@
     cannot record a clean cycle it exits with a non-zero code instead of 0, and a
     cycle that produced no result at all is recorded as a failure.
 
-    A host refresh reaches this process through the environment the runner
-    sets around the spawn: a handoff token with YURUNA_REFRESH_PREFLIGHT makes
+    A handoff reaches this process through the environment the runner
+    sets around the spawn: a handoff token with YURUNA_HANDOFF_PREFLIGHT makes
     this a preflight cycle (validated here against the recorded runner, then
-    passed to the inner), YURUNA_REFRESH_BARRIER marks the first ordinary cycle
-    after a refresh. A cycle held by the refresh gate reports refresh-gated and
+    passed to the inner), YURUNA_HANDOFF_BARRIER marks the first ordinary cycle
+    after a handoff. A cycle held by the runner gate reports gate-held and
     changes nothing.
 
     Strict binding: an unknown or misspelled parameter is a binding error.
@@ -165,24 +165,24 @@ foreach ($n in @('YURUNA_CACHING_PROXY_SERVICE_IP','YURUNA_RUNTIME_DIR','YURUNA_
     if ($null -ne $v -and $v -ne '') { $forwardEnvSnapshot[$n] = $v }
 }
 
-# --- REGION: Host-refresh transport
+# --- REGION: Handoff transport
 # A preflight token is honored only after it validates for this process: its
 # parent must be the recorded, live runner. An invalid one is not an ordinary
-# cycle either -- the cycle reports refresh-gated and the runner re-decides.
-$refreshTokenId = [string]$env:YURUNA_REFRESH_HANDOFF_TOKEN
-$refreshPreflightRequested = ($env:YURUNA_REFRESH_PREFLIGHT -eq '1') -and [bool]$refreshTokenId
-$refreshPreflight = $null
-if ($refreshPreflightRequested -and $refreshTokenId -match '^[0-9a-f]{32}$' -and
+# cycle either -- the cycle reports gate-held and the runner re-decides.
+$handoffTokenId = [string]$env:YURUNA_HANDOFF_TOKEN
+$handoffPreflightRequested = ($env:YURUNA_HANDOFF_PREFLIGHT -eq '1') -and [bool]$handoffTokenId
+$handoffPreflight = $null
+if ($handoffPreflightRequested -and $handoffTokenId -match '^[0-9a-f]{32}$' -and
     (Get-Command Test-YurunaRunnerHandoffToken -ErrorAction SilentlyContinue)) {
-    $checked = Test-YurunaRunnerHandoffToken -TokenId $refreshTokenId -Role cycle -RuntimeDir $env:YURUNA_RUNTIME_DIR
-    if ($checked.Valid) { $refreshPreflight = $checked }
+    $checked = Test-YurunaRunnerHandoffToken -TokenId $handoffTokenId -Role cycle -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    if ($checked.Valid) { $handoffPreflight = $checked }
 }
-if (-not $refreshPreflight) {
+if (-not $handoffPreflight) {
     # The inner must never inherit a preflight request this process rejected.
-    Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_HANDOFF_TOKEN' -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_PREFLIGHT' -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_TOKEN' -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_PREFLIGHT' -ErrorAction SilentlyContinue
 }
-$refreshBarrierRequestId = if ($env:YURUNA_REFRESH_BARRIER) { [string]$env:YURUNA_REFRESH_BARRIER } else { $null }
+$handoffBarrierRequestId = if ($env:YURUNA_HANDOFF_BARRIER) { [string]$env:YURUNA_HANDOFF_BARRIER } else { $null }
 
 # --- REGION: Run one cycle
 # See https://yuruna.link/4213a0b3-0013
@@ -197,11 +197,11 @@ $cycleState = @{
     NoGitPull                 = [bool]$NoGitPull
     TestRoot                  = $TestRoot
     CycleGeneration           = if ($CycleGeneration) { $CycleGeneration } else { $null }
-    RefreshPreflightRequested = [bool]$refreshPreflightRequested
-    RefreshPreflightTokenId   = if ($refreshPreflight) { $refreshTokenId } else { $null }
-    RefreshPreflightPurpose   = if ($refreshPreflight) { [string]$refreshPreflight.Purpose } else { $null }
-    RefreshPreflightRequestId = if ($refreshPreflight) { [string]$refreshPreflight.RequestId } else { $null }
-    RefreshBarrierRequestId   = $refreshBarrierRequestId
+    HandoffPreflightRequested = [bool]$handoffPreflightRequested
+    HandoffPreflightTokenId   = if ($handoffPreflight) { $handoffTokenId } else { $null }
+    HandoffPreflightPurpose   = if ($handoffPreflight) { [string]$handoffPreflight.Purpose } else { $null }
+    HandoffPreflightRequestId = if ($handoffPreflight) { [string]$handoffPreflight.RequestId } else { $null }
+    HandoffBarrierRequestId   = $handoffBarrierRequestId
 }
 # The same timing defaults the resident runner uses, from the one table: this
 # process arms the step watchdog, so a copy of its own would be the one that

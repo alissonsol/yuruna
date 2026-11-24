@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42117e6a-8e6c-4f6c-9d1a-2b8f9a0c7d3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test service vm unknown observe-only host-refresh pester
+.TAGS yuruna test service vm unknown observe-only host-repair pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI

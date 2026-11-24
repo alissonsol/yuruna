@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a2e5eb-3669-4a46-8c83-b6e76b040378
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -330,6 +330,7 @@ Describe 'failure capture copies only attributed evidence' {
                 #>
                 param($VMName,$GuestKey,$Command,$TimeoutSeconds)
                 $null=$VMName,$GuestKey,$TimeoutSeconds
+                if ($script:unavailable) { return @{success=$false;exitCode=255;output='Permission denied'} }
                 if ($Command -match 'yuruna-last-fetch-and-execute') {
                     return @{success=$true;exitCode=0;output=$script:log}
                 }
@@ -344,8 +345,9 @@ function Import-Module { [CmdletBinding()] param($Name,[switch]$Force,[switch]$G
 function Get-CycleGuestDataFolder { param($VMName) $null=$VMName; return $script:folder }
 function Get-CycleScreenDir { param($VMName,[switch]$WhatIf) $null=$VMName,$WhatIf; return (Join-Path $script:folder 'screens') }
 function Get-StableCycleBaseName { return 'cycle' }
+function Get-SequenceFailureState { return @{LastFailedStepStartedUtc=$script:failedStepStart} }
 function Save-YurunaHostSampleSnapshot { param($DestinationDirectory,$RuntimeDirectory) $null=$DestinationDirectory,$RuntimeDirectory; return @{Status='unavailable'} }
-function Save-GuestDiagnostic { param($VMName,$GuestKey,$OutputFolder,$Id,$HostSnapshot,$StepInvocationId,$SequenceInvocationId) $null=$VMName,$GuestKey,$OutputFolder,$Id,$HostSnapshot,$StepInvocationId,$SequenceInvocationId; return @{diagnosticOutcome='unavailable'} }
+function Save-GuestDiagnostic { param($VMName,$GuestKey,$OutputFolder,$Id,$HostSnapshot,$StepInvocationId,$SequenceInvocationId) $null=$VMName,$GuestKey,$Id,$HostSnapshot,$StepInvocationId,$SequenceInvocationId; $script:diagnosticCalls++; $script:installerAtDiagnostic=Test-Path -LiteralPath (Join-Path $OutputFolder 'installer-progress.log'); return @{diagnosticOutcome='unavailable'} }
 function Send-CycleEventSafely { param($EventRecord) $script:events += ,$EventRecord }
 function Protect-GuestEvidenceText { param($Text) return $Text.Replace('fixture-secret','[REDACTED]') }
 function Format-YurunaOperatorMessage { param($Key,$Arguments) $null=$Arguments; return $Key }
@@ -429,6 +431,47 @@ function Set-GuestFailureArtifact { param($GuestKey,$RelativeUrl) $null=$GuestKe
             $ev.url | Should -Be 'https://downloads.example.org/pool/tool.tar.gz'
             $ev.httpStatus | Should -Be 504
         }
+    }
+
+    It 'retains installer progress before unavailable SSH: <Name>' -ForEach @(
+        @{Name='current VM snapshot'; SourceVM='vm'; AgeMinutes=1; CycleKnown=$true; Expected=$true}
+        @{Name='another VM'; SourceVM='another'; AgeMinutes=1; CycleKnown=$true; Expected=$false}
+        @{Name='an earlier attempt in this cycle'; SourceVM='vm'; AgeMinutes=15; CycleKnown=$true; Expected=$false}
+        @{Name='a previous cycle'; SourceVM='vm'; AgeMinutes=45; CycleKnown=$true; Expected=$false}
+        @{Name='no uploaded snapshot'; SourceVM=''; AgeMinutes=1; CycleKnown=$true; Expected=$false}
+        @{Name='no current cycle boundary'; SourceVM='vm'; AgeMinutes=1; CycleKnown=$false; Expected=$false}
+    ) {
+        $caseRoot=Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $env:YURUNA_LOG_DIR=Join-Path $caseRoot log
+        $folder=Join-Path $env:YURUNA_LOG_DIR 'cycle/nested/workload/vm'
+        [void][IO.Directory]::CreateDirectory($folder)
+        $now=[datetime]::UtcNow
+        if ($SourceVM) {
+            $source=Join-Path $env:YURUNA_LOG_DIR "installer-progress/$SourceVM/latest.log"
+            [void][IO.Directory]::CreateDirectory((Split-Path -Parent $source))
+            [IO.File]::WriteAllText($source, 'installer process state and curtin log')
+            [IO.File]::SetLastWriteTimeUtc($source, $now.AddMinutes(-$AgeMinutes))
+        }
+        $priorCycle=Save-YurunaTestGlobal -Name '__YurunaCycleStartUtc'
+        try {
+            Set-YurunaTestGlobal -Value @{ __YurunaCycleStartUtc=$(if ($CycleKnown) { $now.AddMinutes(-30).ToString('o') } else { '' }) }
+            & $script:sshFixture { $script:unavailable=$true }
+            $observed=& $script:copyFixture {
+                param($path,$stepStart)
+                $script:folder=$path; $script:failedStepStart=$stepStart
+                $script:diagnosticCalls=0; $script:installerAtDiagnostic=$false
+                $null=Copy-FailureArtifactsToStatusLog -VMName vm -GuestKey guest -RepoRoot $path -ModulesDir $path -LogFile fixture
+                return @{PresentBeforeDiagnostic=$script:installerAtDiagnostic; DiagnosticCalls=$script:diagnosticCalls}
+            } $folder $now.AddMinutes(-10)
+        } finally {
+            & $script:sshFixture { $script:unavailable=$false }
+            Restore-YurunaTestGlobal -Saved $priorCycle
+        }
+        $retained=Join-Path $folder 'installer-progress.log'
+        Test-Path -LiteralPath $retained | Should -Be $Expected
+        $observed.PresentBeforeDiagnostic | Should -Be $Expected
+        $observed.DiagnosticCalls | Should -Be 1 -Because 'missing or stale installer telemetry must not stop the failure diagnostic'
+        if ($Expected) { [IO.File]::ReadAllText($retained) | Should -BeExactly 'installer process state and curtin log' }
     }
 }
 

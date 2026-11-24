@@ -206,20 +206,30 @@ leve em `test/status/extension/authentication/vault.yml`. **Esse arquivo
 é YAML em texto puro por design.** Ele NÃO é um cofre de segredos de
 produção.
 
-O que vai parar nele: senhas por ciclo das contas descartáveis do
-sistema operacional convidado que o harness cria (`yauser1`, `yuuser24`,
-`yt2sqluser`, etc.) em VMs de teste apagadas e reconstruídas a cada
-ciclo. As contas existem apenas dentro da VM de teste; o harness
-rotaciona a senha no primeiro contato via `Set-Password`, armazena tanto
-`password` quanto `previousPassword` para que uma rotação aplicada pela
-metade possa se recuperar, e nunca exporta o valor para fora da máquina
-local.
+O que vai parar nele:
+
+- senhas por ciclo das contas descartáveis do sistema operacional
+  convidado que o harness cria (`yauser1`, `yuuser24`, `yt2sqluser`,
+  etc.) em VMs de teste apagadas e reconstruídas a cada ciclo. As contas
+  existem apenas dentro da VM de teste; o harness rotaciona a senha no
+  primeiro contato via `Set-Password` e nunca exporta o valor para fora
+  da máquina local;
+- as senhas de administrador das VMs de serviço
+  (`caching-proxy-service-admin`, `pool-control-service-admin`,
+  `stash-admin`, `download-agent-service-admin` e o administrador do
+  Grafana da VM de cache) e a senha da conta de armazenamento
+  (`networkUser`);
+- a chave de autenticação interna (`internal-auth-key`);
+- os opcionais `dockerhub-token` e `github-mirror-token`, e a
+  `github-mirror-signing-key` do dono do proxy.
+
+Cada gravação guarda o valor que substitui como `previousPassword`, para
+que uma rotação aplicada pela metade possa se recuperar.
 
 O que nunca vai parar nele: credenciais de provedores de nuvem
 (`aws configure` / `az login` / `gcloud auth ...` mantêm seus próprios
-arquivos, veja as seções acima), chaves de API, tokens de registro,
-chaves de host SSH (essas ficam em `test/status/ssh/`) ou qualquer
-credencial pessoal do operador.
+arquivos, veja as seções acima) e chaves de host SSH (essas ficam em
+`test/status/ssh/`).
 
 Limite de confiança:
 
@@ -294,6 +304,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.11.16
+Última revisão: 2026.11.23
 
 Voltar para [Yuruna](../../README.md)

@@ -48,7 +48,7 @@ current sources:
 | --- | --- |
 | Provisioning | OS bootstrappers in [install/](../../install/), [setup.ps1](../../install/setup.ps1), [Yuruna.HostSetup](../../automation/Yuruna.HostSetup.psm1), host commands in [test/lab/](../../test/lab/), pool administration in [test/pool/](../../test/pool/), and service VM launchers in [test/service/](../../test/service/). |
 | Deploy engine | [Set-Resource](../../automation/Set-Resource.ps1), [Set-Component](../../automation/Set-Component.ps1), [Set-Workload](../../automation/Set-Workload.ps1), their phase modules, validators, and [Invoke-Clear](../../automation/Invoke-Clear.ps1). |
-| Test harness | [Start-TestRunner](../../test/Start-TestRunner.ps1), supervision and sequence modules in [test/modules/](../../test/modules/), [diagnostic preservation](../../test/modules/Test.DiagnosticPreservation.psm1), [test/sequences/](../../test/sequences/), [test/status/](../../test/status/), pool runtime modules, and [test/extension/](../../test/extension/). |
+| Test harness | [Start-TestRunner](../../test/Start-TestRunner.ps1), supervision and sequence modules in [test/modules/](../../test/modules/), [diagnostic preservation](../../test/modules/Test.DiagnosticPreservation.psm1), [test/sequences/](../../test/sequences/), the [workload MCP server](../../test/service/Start-WorkloadMcpServer.ps1), [test/status/](../../test/status/), pool runtime modules, and [test/extension/](../../test/extension/). |
 | Providers | The shared [host contract](../../host/Yuruna.Host.Contract.psm1), platform drivers in [host/](../../host/), shared [host/modules/](../../host/modules/), cloud-init seeds in [host/vmconfig/](../../host/vmconfig/), and OS scripts in [guest/](../../guest/). |
 | Project data | The companion repository's [layout](https://github.com/alissonsol/yuruna-project/blob/main/README.md), [template](https://github.com/alissonsol/yuruna-project/blob/main/template/README.md), [examples](https://github.com/alissonsol/yuruna-project/blob/main/example/README.md), and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml). |
 | Shared modules | Cross-cutting [automation/](../../automation/) libraries and guest shell helpers, reusable [global/](../../global/) assets, [globalization/](../../globalization/), and [tools/](../../tools/). |
@@ -84,6 +84,12 @@ GitHub releases in [ubuntu.kvm.sh](../../install/ubuntu.kvm.sh), Homebrew in
 [windows.hyper-v.ps1](../../install/windows.hyper-v.ps1), and pinned PowerShell
 Gallery modules in all three; each run ends by reporting the newer versions
 those sources still offer.
+Page steps also cross the host and guest boundary: the harness's
+[web session](../../test/modules/Test.WebSession.psm1) sends the
+[browser launcher](../../automation/yuruna-web-browser.sh) inside its SSH
+command and drives the page through an SSH tunnel to the browser's DevTools
+port, after [ubuntu.browser.sh](../../guest/shared/ubuntu.browser.sh) has
+installed that browser in the guest.
 The runner obtains project data from `repositories.projectUrl`, including
 pool repository assignments, through
 [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1); its runtime
@@ -98,12 +104,24 @@ a host with no verification keys uses no mirror. The mirror runs inside the
 adds no boundary and no external edge.
 
 Related module and extension families remain named aggregates to keep this view
-at seven boxes. Host refresh is implemented by
-[Invoke-HostRefresh](../../test/lab/Invoke-HostRefresh.ps1) and
-[Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1) within the provisioning
+at seven boxes. Host repair is implemented by
+[Invoke-HostRepair](../../test/lab/Invoke-HostRepair.ps1) and
+[Test.HostRepair](../../test/modules/Test.HostRepair.psm1) within the provisioning
 and harness boundaries. Its admission and recovery behavior is shown in
 [Lifecycle](04-lifecycle-state.md). Service placement and network connections are
 shown in [Deployment](06-deployment.md).
+Host update is implemented by
+[Invoke-HostUpdate](../../test/lab/Invoke-HostUpdate.ps1), the host controller
+[Invoke-HostUpdateController](../../test/lab/Invoke-HostUpdateController.ps1), and
+[Test.HostUpdate](../../test/modules/Test.HostUpdate.psm1) within the same two
+boundaries. The controller outlives the runner it stops and starts, and starts
+the status service again when it is down or wedged: on Ubuntu KVM the
+provider's Enable-TestAutomation registers it as a
+[system unit](../../host/ubuntu.kvm/host-controller/yuruna-host-controller.service),
+on Windows as a
+[scheduled task](../../host/windows.hyper-v/host-controller/yuruna-host-controller.task.xml),
+and on macOS an ordinary runner start from the desktop session starts it in a
+session of its own.
 
 The resource directories implement localhost, AWS, and Azure; there is no
 GCP resource directory or companion config/gcp deployment. Google Artifact
@@ -118,6 +136,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 [Architecture](../architecture.md) | [Design overview](README.md)

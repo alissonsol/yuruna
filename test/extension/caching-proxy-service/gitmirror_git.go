@@ -173,6 +173,9 @@ func (g *mirrorGit) command(ctx context.Context, dir string, output io.Writer, a
 	select {
 	case err := <-done:
 		if err != nil {
+			if errors.Is(err, exec.ErrWaitDelay) {
+				diagnostic.Failure = "git-output-wait-expired"
+			}
 			mirrorStopProcess(cmd, true)
 			return stdout.String(), mirrorGitFailure(stderr.String(), err)
 		}

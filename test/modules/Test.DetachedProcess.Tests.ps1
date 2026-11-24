@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 424d0135-9a4f-40da-a735-010d52f5a269
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test detached-launch host-refresh pester
+.TAGS yuruna test detached-launch host-operation pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Start-YurunaDetachedProcess and its helpers: the detached worker shape a
-    host refresh and a restarted runner use.
+    host repair and a restarted runner use.
 .DESCRIPTION
     POSIX launches are real: a stand-in worker in a private directory records
     the arguments it received, its environment and its handshake, so the
@@ -223,6 +223,17 @@ Describe 'Start-YurunaDetachedProcess -- POSIX detach with a real stand-in worke
         Assert-Null $unwritable.FinalPid
     }
 
+    It 'refuses -ConsoleWindow off Windows, launching nothing' {
+        $private = New-PrivateDir
+        $never = Join-Path $script:Work 'never.ps1'
+        [System.IO.File]::WriteAllText($never, "Set-Content -LiteralPath '$(Join-Path $private 'ran.txt')' -Value 'ran'")
+        $r = Start-YurunaDetachedProcess -FilePath $never -WorkingDirectory $script:Work -StdOutPath (Join-Path $private 'o.txt') `
+            -StdErrPath (Join-Path $private 'e.txt') -PrivateDirectory $private -ConsoleWindow -Confirm:$false
+        Assert-False $r.Launched
+        Assert-Equal -Expected 'invalid-argument|ConsoleWindow' -Actual "$($r.Reason)|$($r.Detail)"
+        Start-Sleep -Milliseconds 500
+        Assert-False (Test-Path -LiteralPath (Join-Path $private 'ran.txt')) 'nothing was started'
+    }
     It 'reports launcher-failed when no interpreter resolves, and launches nothing under -WhatIf' {
         $private = New-PrivateDir
         $worker = New-StandInWorker
@@ -327,6 +338,24 @@ Describe 'Invoke-YurunaDetachedHop spec handling (run in a child pwsh)' -Skip:$I
         $final = (Get-Content -LiteralPath (Join-Path $private 'final.txt') -Raw).Trim()
         Assert-Equal -Expected "$($ack.hopPid)|from-spec" -Actual $final -Because 'the worker learns the hop identity and the spec environment'
         Assert-True (Test-Path -LiteralPath (Join-Path $private 'stdin.empty')) 'the empty stdin sentinel was created'
+    }
+    It 'starts a console spec''s worker with nothing redirected' {
+        $private = New-PrivateDir
+        $probe = Join-Path $script:Work 'hop-console.ps1'
+        [System.IO.File]::WriteAllText($probe, "Set-Content -LiteralPath '$(Join-Path $private 'final.txt')' -Value 'ran'")
+        $spec = Join-Path $private 'c.hop.json'
+        [ordered]@{
+            schemaVersion = 1; pwsh = $script:Pwsh; argumentList = @('-NoProfile', '-NonInteractive', '-File', $probe)
+            workingDirectory = $script:Work; environment = @{}; console = $true
+            stdin = (Join-Path $private 'stdin.empty'); stdout = (Join-Path $private 'out.txt'); stderr = (Join-Path $private 'err.txt')
+        } | ConvertTo-Json | Set-Content -LiteralPath $spec -Encoding utf8NoBOM
+        & $script:Pwsh -NoProfile -NonInteractive -Command "Import-Module '$($script:ModulePath)' -DisableNameChecking; exit (Invoke-YurunaDetachedHop -SpecPath '$spec')"
+        Assert-Equal -Expected 0 -Actual $LASTEXITCODE
+        Assert-True (Get-Content -LiteralPath "$spec.ack.json" -Raw | ConvertFrom-Json).launched 'the hop acknowledged the launch'
+        Assert-True (Wait-TestFile -Path (Join-Path $private 'final.txt')) 'the final worker ran'
+        foreach ($stream in @('out.txt', 'err.txt', 'stdin.empty')) {
+            Assert-False (Test-Path -LiteralPath (Join-Path $private $stream)) "$stream was not opened: the console's streams are the worker's"
+        }
     }
     It 'refuses a spec with a relative path and records why' {
         $private = New-PrivateDir

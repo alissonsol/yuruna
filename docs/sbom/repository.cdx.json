@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:12da3861-0343-5335-bd8c-011880422d6d",
+  "serialNumber": "urn:uuid:3b19b609-5c5c-54b2-b09f-ead50cc0958e",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34"
+          "value": "23dbd3482c1e1de022343aee86401e8a6aecfd2fc869c2d5df2dc698e5467eea"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.11.16"
+      "version": "2026.11.23"
     }
   },
   "components": [
@@ -674,7 +674,7 @@
     },
     {
       "type": "library",
-      "bom-ref": "component-1b88164e7e72817e1664",
+      "bom-ref": "component-58b9b93029c7495093c1",
       "name": "modernc.org/sqlite",
       "properties": [
         {
@@ -682,12 +682,12 @@
           "value": "{\"completeness\": \"declared\", \"ecosystem\": \"go\", \"evidence\": [{\"detail\": \"Declared dependency\", \"line\": 15, \"path\": \"test/extension/stash-service/server/go.mod\"}, {\"detail\": \"Recorded Go module content checksum\", \"line\": 67, \"path\": \"test/extension/stash-service/server/go.sum\"}], \"notes\": [\"Go h1 is a canonical directory hash, not an archive checksum.\", \"Transitive Go module selection was not resolved.\", \"go.sum records do not establish selected transitive versions or edges.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "v1.62.0",
-      "purl": "pkg:golang/modernc.org/sqlite@v1.62.0",
+      "version": "v1.63.0",
+      "purl": "pkg:golang/modernc.org/sqlite@v1.63.0",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "80c6828d2335aa997e88e8e25a14752d83f7ceaad80c8fb91982c6b7abde3f68"
+          "content": "0a5c5acea44535fafb5cf1d354b6f2cd3573d8f8d63f3f817c936ed9ef090ccb"
         }
       ]
     },
@@ -1066,7 +1066,6 @@
         "component-08a7725ec86fb430317b",
         "component-15946024bda4ba341768",
         "component-17839e50745f4cc7970b",
-        "component-1b88164e7e72817e1664",
         "component-22cdaecada1415d26fa9",
         "component-280432a44173be6af224",
         "component-332c942aae4f99c9df8b",
@@ -1084,6 +1083,7 @@
         "component-4e2be818662bfa108216",
         "component-54a84111d206a61715b9",
         "component-582446bc32876fcbf5fe",
+        "component-58b9b93029c7495093c1",
         "component-58e59b2a4d9452e4451d",
         "component-5b86315870921f109bf2",
         "component-5f3c88a73f01f726a9af",
@@ -1148,13 +1148,13 @@
       "dependsOn": [
         "component-000139009e3b0ea2cb06",
         "component-17839e50745f4cc7970b",
-        "component-1b88164e7e72817e1664",
         "component-280432a44173be6af224",
         "component-34ce8531c1ad8f3a8b0f",
         "component-4782fea287e117704c70",
         "component-486898713a5776599183",
         "component-4d48944848c55a5f2b53",
         "component-582446bc32876fcbf5fe",
+        "component-58b9b93029c7495093c1",
         "component-58e59b2a4d9452e4451d",
         "component-7909813fb9c6b99a751b",
         "component-8699244ea528baa8914d",

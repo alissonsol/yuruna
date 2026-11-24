@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b0f66e-8f3f-4913-bbbf-f26bbcff321d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -425,7 +425,7 @@ Describe 'the shipped board and Pools pages render each pool''s repositories' {
                 'https://example.test//unsafe' + $end + ' on their next cycle.</p>')) `
             'the save confirmation left the typed project URL outside a bidi isolate'
         Assert-True ($dom -match '<th data-sort="repositories"><button type="button" class="sort"[^>]*>Framework / Project</button></th>\s*<th[^>]*>Actions</th>') `
-            'the Framework / Project column is not the sortable header between Pool Status and Actions'
+            'the Framework / Project column is not the sortable header between Pool status and Actions'
         Assert-True ($dom -match '<input [^>]*class="repo-url"[^>]*data-repo="framework"[^>]*aria-label="Framework URL for pool hostile"') `
             'the framework box does not name its pool'
         Assert-True ($dom -match '<input [^>]*class="repo-url"[^>]*data-repo="project"[^>]*aria-label="Project URL for pool hostile"') `

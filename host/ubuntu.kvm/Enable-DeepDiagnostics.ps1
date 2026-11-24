@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 425cc5e5-e328-424c-b2e0-20ce8ca052ee
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,7 +58,7 @@ param(
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 $ErrorActionPreference = 'Stop'
 
-# --- REGION: Initialize
+# --- REGION: Initialize host setup
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $PSScriptRoot 'modules/Yuruna.Host.DeepDiagnostics.psm1') -Force -DisableNameChecking
 

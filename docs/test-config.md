@@ -558,21 +558,28 @@ have applied. A pool may override the whole block through its `config.testCycle`
 
 <a id="42b11c32-0012"></a>
 
-## testCycle.autoRefreshAfterStalls -- automatic host refresh (default off)
+## testCycle.autoRepairAfterStalls -- automatic host repair (default off)
 
 ```yaml
 testCycle:
-  autoRefreshAfterStalls: 0
+  autoRepairAfterStalls: 0
 ```
 
 The number of completed cycles that must see the hypervisor stop answering
 before the resident runner repairs the host itself, instead of waiting for an
-operator to run `test/lab/Invoke-HostRefresh.ps1`. `0` (the default) is off.
+operator to run `test/lab/Invoke-HostRepair.ps1`. `0` (the default) is off.
 The recommended opt-in is `2`; `1` is treated as `2`, because one timeout is not
 proof of a wedge. A value that is not a whole number of zero or more is read as
 `0`, with a warning after each completed cycle, and `Test-Config.ps1` warns too. A pool's
-`config.testCycle.autoRefreshAfterStalls` wins over this file, including `0`,
+`config.testCycle.autoRepairAfterStalls` wins over this file, including `0`,
 which turns automatic repair off across the pool.
+
+Releases before 2026.11.23 named this key `testCycle.autoRefreshAfterStalls`. It
+is a registered retired key: template reconciliation moves a value kept under
+the old name to the new one and reports it as `previous -> new` before it
+writes the file. A pool override under the old name is not read; each runner
+warns, naming the old key, its value and the new key, until the pool
+repository renames it.
 
 **No platform acts on it yet.** Automatic repair runs only on a platform that has
 passed a native qualification run, and none has: macOS reports
@@ -580,12 +587,12 @@ passed a native qualification run, and none has: macOS reports
 `platform-unqualified`. On those hosts the runner still reads the value and
 counts the evidence below, logs once per runner process that automatic repair
 is not available on this host and why, and `Test-Config.ps1` warns when the value
-is above `0`. Local repair with `Invoke-HostRefresh.ps1` is unaffected.
+is above `0`. Local repair with `Invoke-HostRepair.ps1` is unaffected.
 
 **What counts.** Only a cycle whose outcome is *completed* -- it passed or it
 failed, but it ran -- and only evidence from the service-VM restore sweep at
 cycle start. The inner runner writes that evidence to
-`runtime/runner.refresh-evidence.json`, stamped with the cycle generation the
+`runtime/runner.repair-evidence.json`, stamped with the cycle generation the
 resident runner issued, and the resident runner consumes the file after every
 dispatch, so evidence from one cycle is never counted for another. A cycle
 counts toward the threshold when at least one service VM's state could not be
@@ -600,18 +607,18 @@ answer. It never counts:
 
 A cycle in which the hypervisor answered for any service resets the count to
 zero. The count survives a runner restart; it lives in
-`$HOME/.yuruna/host-refresh/host-refresh.auto-streak.json`.
+`$HOME/.yuruna/host-repair/host-repair.auto-streak.json`.
 
 Counting has two side effects on every host, even with the value at `0` and on a
 platform that cannot act: the first counted timeout creates
-`$HOME/.yuruna/host-refresh/` (owner-only) for the count file, and each cycle that
+`$HOME/.yuruna/host-repair/` (owner-only) for the count file, and each cycle that
 counts one reads the pool configuration again -- with pool sync on, the same bounded
 fetch the cycle start does, rewriting `runtime/pool.state.json` -- so a pool
 override can take effect without waiting for the next cycle.
 
 **What happens at the threshold.** After the cycle that reached it, the resident
 runner re-reads the pool configuration, reserves the day's attempt, and runs
-`test/lab/Invoke-HostRefresh.ps1` itself, synchronously, at the `restart` tier
+`test/lab/Invoke-HostRepair.ps1` itself, synchronously, at the `restart` tier
 with the highest restart-tier rung this host has qualified as the ceiling. A
 paused, draining or unreadable pool means no attempt, and so does pool sync that
 is on but yields no pool record for this host (no configuration pulled or cached, or the
@@ -630,21 +637,21 @@ probe and the runner reported parked.
 
 **Budget.** At most one automatic attempt per UTC day; the day rolls over at
 00:00:00Z. The attempt is reserved in
-`$HOME/.yuruna/host-refresh/host-refresh.auto-budget.record` before the repair
+`$HOME/.yuruna/host-repair/host-repair.auto-budget.record` before the repair
 request exists, and the reservation stands whatever the outcome -- a failed,
 refused or interrupted attempt still uses the day. A clock set back never frees
 a used day: a reservation dated in the future stops automatic repair until the
 clock catches up. A corrupt or unreadable ledger makes automatic repair
-unavailable; inspect it, then delete both `host-refresh.auto-budget.record` and
-`host-refresh.auto-budget.record.prev` to start a new one. An answering
+unavailable; inspect it, then delete both `host-repair.auto-budget.record` and
+`host-repair.auto-budget.record.prev` to start a new one. An answering
 hypervisor resets the count, never the budget.
 
 **After an attempt.** A repair on a failed cycle skips the failure pause, so the
 next cycle starts at once. Any other result keeps the normal backoff and logs an
 operator line naming the verdict and the next UTC day an automatic attempt is
 allowed. While the automatic request is still open, a plain local
-`Invoke-HostRefresh.ps1` run is refused; finish it with
-`Invoke-HostRefresh.ps1 -Resume`, or release what it holds with
+`Invoke-HostRepair.ps1` run is refused; finish it with
+`Invoke-HostRepair.ps1 -Resume`, or release what it holds with
 `-DisposeObligation`.
 
 **Resuming.** An automatic request that is left open -- recovery-pending because
@@ -662,7 +669,7 @@ the new runner leaves the old request to the operator and says so once.
 new automatic attempts and every resume of a request that has not disrupted
 anything yet; the runner says once per request that it leaves it. A request with
 a service still to restore keeps resuming, because that run only restores. To
-stop that too, dispose of its obligations with `Invoke-HostRefresh.ps1
+stop that too, dispose of its obligations with `Invoke-HostRepair.ps1
 -DisposeObligation`. A drain withdraws an automatic request no worker has
 started.
 
@@ -795,6 +802,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

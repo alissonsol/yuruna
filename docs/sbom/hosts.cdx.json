@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:b298b9c5-880b-5ad3-be55-51f056dbd8b2",
+  "serialNumber": "urn:uuid:eb8a9126-a3d7-5889-bdca-7d800d5cd322",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34"
+          "value": "23dbd3482c1e1de022343aee86401e8a6aecfd2fc869c2d5df2dc698e5467eea"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.11.16"
+      "version": "2026.11.23"
     }
   },
   "components": [
@@ -29,7 +29,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=Join-Path; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1371, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=Join-Path; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1499, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -41,7 +41,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=acl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 113, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=acl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 150, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -53,7 +53,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=bridge-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=bridge-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -65,7 +65,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=ca-certificates; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=ca-certificates; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -77,7 +77,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=apt-get install; requested=cifs-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 854, \"path\": \"test/modules/Test.LocalLabStorage.psm1\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cifs-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 113, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"groups\": [\"yuruna:hosts:shared-or-configured\", \"yuruna:hosts:ubuntu-kvm\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=apt-get install; requested=cifs-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 854, \"path\": \"test/modules/Test.LocalLabStorage.psm1\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cifs-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 150, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"groups\": [\"yuruna:hosts:shared-or-configured\", \"yuruna:hosts:ubuntu-kvm\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ]
     },
@@ -88,7 +88,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cloud-image-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cloud-image-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -100,7 +100,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cpu-checker; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=cpu-checker; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -112,7 +112,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=curl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=curl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -124,7 +124,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=dnsmasq-base; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=dnsmasq-base; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -136,7 +136,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gcc; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gcc; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gcc; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gcc; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -148,7 +148,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=genisoimage; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=genisoimage; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -160,7 +160,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gettext; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gettext; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gettext; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gettext; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -172,7 +172,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gh; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2302, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gh; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2427, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -184,7 +184,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -196,7 +196,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -208,7 +208,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpgv; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpgv; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpgv; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=gpgv; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -220,7 +220,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=imagemagick; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=imagemagick; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -232,7 +232,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=jq; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=jq; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -244,7 +244,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libc6-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libc6-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libc6-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libc6-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -256,7 +256,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libcurl4-openssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libcurl4-openssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libcurl4-openssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libcurl4-openssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -268,7 +268,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libexpat1-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libexpat1-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libexpat1-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libexpat1-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -280,7 +280,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libpcre2-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libpcre2-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libpcre2-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libpcre2-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -292,7 +292,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libssl-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -304,7 +304,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libvirt-clients; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 113, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libvirt-clients; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 150, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -316,7 +316,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libvirt-daemon-system; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 113, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=libvirt-daemon-system; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 150, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -328,7 +328,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=make; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=make; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=make; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=make; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -340,7 +340,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=osinfo-db; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=osinfo-db; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -352,7 +352,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=osinfo-db-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=osinfo-db-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -364,7 +364,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=ovmf; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=ovmf; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -376,7 +376,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1239, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1371, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1367, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1499, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -388,7 +388,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=python3; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=python3; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -400,19 +400,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=python3-pip; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
-        }
-      ],
-      "group": "yuruna:hosts:ubuntu-kvm"
-    },
-    {
-      "type": "application",
-      "bom-ref": "component-fb4b5e267509da6ba945",
-      "name": "qemu-efi-aarch64",
-      "properties": [
-        {
-          "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-efi-aarch64; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=python3-pip; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -424,7 +412,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-system-arm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-system-arm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -436,7 +424,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-system-x86; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-system-x86; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -448,7 +436,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=qemu-utils; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -484,7 +472,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=sshpass; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=sshpass; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -496,7 +484,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=swtpm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=swtpm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -508,7 +496,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=swtpm-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=swtpm-tools; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -520,7 +508,19 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=tesseract-ocr; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=tesseract-ocr; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "group": "yuruna:hosts:ubuntu-kvm"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-28dfb4eec4065f3d95c1",
+      "name": "tmux",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=tmux; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -532,7 +532,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=unzip; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=unzip; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -544,7 +544,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virt-manager; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1018, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 113, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virt-manager; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1146, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 150, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -556,7 +556,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virt-viewer; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virt-viewer; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -568,7 +568,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virtinst; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 113, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=virtinst; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=conditional missing-package installation table; version unresolved\", \"line\": 150, \"path\": \"host/ubuntu.kvm/Enable-TestAutomation.ps1\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -580,7 +580,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=wget; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=wget; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -592,7 +592,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=whois; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=whois; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -604,7 +604,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=xwayland; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1010, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=xwayland; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1138, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
@@ -616,27 +616,27 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=zlib1g-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2067, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=zlib1g-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2069, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=zlib1g-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2187, \"path\": \"install/ubuntu.kvm.sh\"}, {\"detail\": \"target=ubuntu-kvm; action=apt-get install; requested=zlib1g-dev; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2189, \"path\": \"install/ubuntu.kvm.sh\"}], \"group\": \"yuruna:hosts:ubuntu-kvm\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:ubuntu-kvm"
     },
     {
       "type": "application",
-      "bom-ref": "component-58ef4bffde4983e8e94f",
+      "bom-ref": "component-2ea442826cd5590396a1",
       "name": "Homebrew/install",
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=macos; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/Homebrew/install/280cbc9adffcbdef15dd1c9d991ef2d1dd7cfc9c/install.sh; installed payload dependencies unresolved\", \"line\": 403, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=macos; action=downloaded provisioning artifact; source=https://raw.githubusercontent.com/Homebrew/install/c9c975046f78e6e6d662deb801bd461ebd6a54ed/install.sh; installed payload dependencies unresolved\", \"line\": 608, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "280cbc9adffcbdef15dd1c9d991ef2d1dd7cfc9c",
+      "version": "c9c975046f78e6e6d662deb801bd461ebd6a54ed",
       "group": "yuruna:hosts:macos",
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "f3e91784ffeda32bc397de7acc1154724cc47522a459c9ac656cca176eeba457"
+          "content": "8fd2f1a5287a7c2e3d7362924c677edcc04c5a0e16448c77132d056bc88cf1ed"
         }
       ]
     },
@@ -647,7 +647,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 158, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.40.2\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 157, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.42.2\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -659,7 +659,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 162, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.93.0\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 161, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.93.0\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -695,7 +695,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 168, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=593.0.0\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 167, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=594.0.0\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -755,7 +755,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 75, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.146.0\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 76, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.146.0\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -779,7 +779,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 105, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=8.18.0\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 104, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=8.18.0\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -803,7 +803,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 81, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.4.4\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 82, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.4.4\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -815,7 +815,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 87, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=24.22.1\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 86, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=24.22.3\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -827,7 +827,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 95, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=11.19.1\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 94, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=11.19.1\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -839,7 +839,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 151, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.56\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 150, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=2.56\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -863,7 +863,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 135, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=10.2.1\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 134, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=10.2.1\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -875,7 +875,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 116, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=5.5.0\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 115, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=5.5.0\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -887,7 +887,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 109, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.25.0\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Host requirement floor; platform applicability and probe are declared in this manifest; not an installed version\", \"line\": 108, \"path\": \"automation/Yuruna.Requirement.yml\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \">=1.25.0\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -899,7 +899,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=gh; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1219, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=gh; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1426, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -911,7 +911,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1211, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1418, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -923,7 +923,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=openssl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1218, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=openssl; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1425, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -935,7 +935,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1214, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1793, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1421, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 2044, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -947,7 +947,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1206, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1413, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -959,7 +959,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=qemu; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1216, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=qemu; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1423, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -971,7 +971,19 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=tesseract; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1215, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=tesseract; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1422, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "group": "yuruna:hosts:macos"
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-2512f3615c15055243ef",
+      "name": "tmux",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=tmux; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1428, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -983,7 +995,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_cask; requested=utm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1230, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew install; requested=utm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1280, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_cask; requested=utm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1448, \"path\": \"install/macos.utm.sh\"}, {\"detail\": \"target=macos; action=brew install; requested=utm; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1502, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -995,7 +1007,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=wget; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1217, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"homebrew\", \"evidence\": [{\"detail\": \"target=macos; action=brew brew_ensure_formula; requested=wget; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1424, \"path\": \"install/macos.utm.sh\"}], \"group\": \"yuruna:hosts:macos\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:macos"
@@ -1007,7 +1019,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=Install-PSScriptAnalyzerIfMissing; version unresolved\", \"line\": 159, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=shared-or-configured; action=Install-PSScriptAnalyzerIfMissing; version unresolved\", \"line\": 160, \"path\": \"automation/Yuruna.HostSetup.psm1\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=Install-PSScriptAnalyzerIfMissing; version unresolved\", \"line\": 160, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=shared-or-configured; action=Install-PSScriptAnalyzerIfMissing; version unresolved\", \"line\": 161, \"path\": \"automation/Yuruna.HostSetup.psm1\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -1031,7 +1043,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=Install-PowershellYamlIfMissing; version unresolved\", \"line\": 157, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=shared-or-configured; action=Install-PowershellYamlIfMissing; version unresolved\", \"line\": 158, \"path\": \"automation/Yuruna.HostSetup.psm1\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=shared-or-configured; action=Install-PowershellYamlIfMissing; version unresolved\", \"line\": 158, \"path\": \"automation/Yuruna.HostSetup.psm1\"}, {\"detail\": \"target=shared-or-configured; action=Install-PowershellYamlIfMissing; version unresolved\", \"line\": 159, \"path\": \"automation/Yuruna.HostSetup.psm1\"}], \"group\": \"yuruna:hosts:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:shared-or-configured"
@@ -1043,7 +1055,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1589, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1359, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1720, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Git.Git; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1488, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:windows"
@@ -1055,7 +1067,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=GitHub.cli; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1599, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=GitHub.cli; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1359, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=GitHub.cli; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1730, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=GitHub.cli; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1488, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:windows"
@@ -1067,7 +1079,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1587, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1359, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 626, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1718, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1488, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Microsoft.PowerShell; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 766, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:windows"
@@ -1079,7 +1091,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Microsoft.WindowsADK; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1590, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Microsoft.WindowsADK; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1359, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Microsoft.WindowsADK; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1721, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Microsoft.WindowsADK; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1488, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:windows"
@@ -1091,7 +1103,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Prometheus.WindowsExporter; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1598, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Prometheus.WindowsExporter; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1359, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=Prometheus.WindowsExporter; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1729, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=Prometheus.WindowsExporter; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1488, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:windows"
@@ -1103,7 +1115,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=SoftwareFreedomConservancy.QEMU; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1591, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=SoftwareFreedomConservancy.QEMU; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1359, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=SoftwareFreedomConservancy.QEMU; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1722, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=SoftwareFreedomConservancy.QEMU; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1488, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:windows"
@@ -1115,7 +1127,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=UB-Mannheim.TesseractOCR; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1592, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=UB-Mannheim.TesseractOCR; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1359, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"winget\", \"evidence\": [{\"detail\": \"target=windows; action=winget Install-WingetPackage; requested=UB-Mannheim.TesseractOCR; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1723, \"path\": \"install/windows.hyper-v.ps1\"}, {\"detail\": \"target=windows; action=winget install; requested=UB-Mannheim.TesseractOCR; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 1488, \"path\": \"install/windows.hyper-v.ps1\"}], \"group\": \"yuruna:hosts:windows\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:hosts:windows"
@@ -1136,8 +1148,11 @@
         "component-1d8744ef1eae4583adf8",
         "component-216b85567ef245f36c4e",
         "component-21caed0f5f09538e99b9",
+        "component-2512f3615c15055243ef",
+        "component-28dfb4eec4065f3d95c1",
         "component-2989682fe7cd7762b1fa",
         "component-2bf35518bbd1a849d403",
+        "component-2ea442826cd5590396a1",
         "component-2fa246ccd8096c978b54",
         "component-3553f60b6067f841fd02",
         "component-371023a2bec8717b74c8",
@@ -1154,7 +1169,6 @@
         "component-55ac7d4748b44eed02e0",
         "component-55be0269bb2cb0118876",
         "component-568c14fb312b6e014b81",
-        "component-58ef4bffde4983e8e94f",
         "component-5d7f351d4f4ce4174984",
         "component-601532ad5d30e53aa394",
         "component-623a79724605de2ddce8",
@@ -1213,7 +1227,6 @@
         "component-f66aece12acf506469ab",
         "component-f7ffc5701054a5c67a23",
         "component-f92deb256ad9b2c4bfa6",
-        "component-fb4b5e267509da6ba945",
         "component-fbebb5d2d33bd0d2072d",
         "component-fd5d09e835c6136da0d9"
       ]

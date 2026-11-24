@@ -599,37 +599,52 @@
       "sourceHash": "8a2e0ccd858f0f497767b60716c2fa690917e68bedadaf47659a7fa2767bc8b5",
       "message": "Erro de análise YAML no {path} na linha {line}:{col}: {message}"
     },
-    "exceptions.host_refresh_auth_authority_missing": {
-      "sourceHash": "06e0f3e3942cb3e21ebf67ad3f211a2fb04bf7bbfd7b80264a05d4739df00f67",
-      "message": "Nenhuma autoridade de atualização foi encontrada em {path}; primeiro, crie uma com -NewAuthority."
+    "exceptions.host_repair_auth_authority_missing": {
+      "sourceHash": "da2c365ba60a2932f1bd8644169d0e9da7e06a6fb4b289a8b776a2354ea8777c",
+      "message": "Nenhuma autoridade de reparo foi encontrada em {path}; primeiro, crie uma com -NewAuthority."
     },
-    "exceptions.host_refresh_auth_host_id_mismatch": {
-      "sourceHash": "aa8d698b738887bf731d1a02d75f7787f909dea3d23a4e89df194aa6a6175e8c",
-      "message": "A chave de atualização foi emitida para o hospedeiro {keyHostId}, mas este hospedeiro é {hostId}; em vez disso, exporte uma chave para este hospedeiro."
+    "exceptions.host_repair_auth_host_id_mismatch": {
+      "sourceHash": "baaa94f721edb5141b95128362cf26ea20211e192fa358a875647111070b9e38",
+      "message": "A chave de verificação de reparo foi emitida para o hospedeiro {keyHostId}, mas este hospedeiro é {hostId}; em vez disso, exporte uma chave para este hospedeiro."
     },
-    "exceptions.host_refresh_auth_host_id_unavailable": {
-      "sourceHash": "8202453678a561e74172ac39b01236289b0e2f2a962f405b963713021405d4bd",
+    "exceptions.host_repair_auth_host_id_unavailable": {
+      "sourceHash": "6cf5af376798662e128ded2aa8bbe35ad3d1355db7428987e69ae921257a0c83",
       "message": "Este hospedeiro ainda não tem um id de hospedeiro ({path} não existe); inicie o executor de testes uma vez para que o arquivo host.uuid seja criado e tente novamente."
     },
-    "exceptions.host_refresh_auth_invalid_claim": {
-      "sourceHash": "82be7179d912fa7cca4516c096e9dde39294fb0eee5a4f91923a26d44ca93411",
-      "message": "O campo {field} da prova de atualização não é válido."
+    "exceptions.host_repair_auth_invalid_claim": {
+      "sourceHash": "6f61ec6b235e2bc5a8a9cfdedb7d2160361ef61fd0b3219074ea72a575fd6ebe",
+      "message": "O campo {field} da prova de reparo não é válido."
     },
-    "exceptions.host_refresh_auth_key_malformed": {
-      "sourceHash": "de30febf4bf45e12a3eac82c8432bd8154da43041a4896a67c7cf809ad074304",
-      "message": "{path} não é um arquivo de chave de atualização (era esperada uma única linha iniciada por {prefix})."
+    "exceptions.host_repair_auth_key_malformed": {
+      "sourceHash": "c963b016b58c98a44dbf3a1496b2d5f86048e13422528478f21911f2fe4e6b82",
+      "message": "{path} não é um arquivo de autoridade ou de chave de verificação de reparo (era esperada uma única linha iniciada por {prefix})."
     },
-    "exceptions.host_refresh_auth_key_permissions_open": {
-      "sourceHash": "3769ca373e8c868d4c0c41c373f616708effcf8e45d14979332da34e281b75d5",
+    "exceptions.host_repair_auth_key_permissions_open": {
+      "sourceHash": "28f7c2058066e5b3e143ef9fdc9fc78c0229e0375382689f933f1459654ce641",
       "message": "{path} pode ser lido por outros usuários; restrinja o acesso ao proprietário (chmod 600) e tente novamente."
     },
-    "exceptions.host_refresh_auth_key_write_failed": {
-      "sourceHash": "85975eebe7584b6a19de0f30dc48d710b65eb92c43954583897f4ab99812ca33",
+    "exceptions.host_repair_auth_key_write_failed": {
+      "sourceHash": "31e435fb3f44db0b0ae2f082059e1e42698c0cf010c654f5ab563a052b9cffe6",
       "message": "Não foi possível gravar {path} com permissões exclusivas do proprietário ({detail})."
     },
-    "exceptions.host_refresh_auth_private_root_unavailable": {
-      "sourceHash": "dc752b9b8460e3c55ea89f9da90d771cd9ef7ff39b801b0815d51f619343857a",
-      "message": "Não foi possível proteger a raiz de estado privada ({reason}); nenhuma chave de atualização foi gravada."
+    "exceptions.host_repair_auth_private_root_unavailable": {
+      "sourceHash": "6a18453b44a31d93b6d1b88025baf0411d0673135a7748309dcad406d79d225b",
+      "message": "Não foi possível proteger a raiz de estado privada ({reason}); nenhum segredo de reparo foi gravado."
+    },
+    "exceptions.host_update_auth_signing_key_unusable": {
+      "sourceHash": "f75e62fc5ef979dc29a705b8e49d2ff601b975165a625bbe1222b69cddac3a20",
+      "origin": "machine",
+      "message": "A chave de assinatura de atualização de hospedeiro {path} não pode ser usada ({reason}); crie uma com -NewUpdateSigningKey."
+    },
+    "exceptions.host_update_auth_url_invalid": {
+      "sourceHash": "74bb384969ead85fa03e43382943c0df3c60cec3645363e3523610e4c1357dad",
+      "origin": "machine",
+      "message": "{url} não é um endereço do pool-control: informe uma URL http ou https absoluta de no máximo 256 bytes, sem nome de usuário, consulta ou fragmento."
+    },
+    "exceptions.host_update_auth_public_key_invalid": {
+      "sourceHash": "349202d6135e290f85934d8b25ce28344a6cd0b0b38c3e555e69a3460ccb4a81",
+      "origin": "machine",
+      "message": "A chave pública do pool-control deve ser a única linha yupk1 que -NewUpdateSigningKey imprimiu, contendo uma chave RSA de pelo menos 3072 bits."
     },
     "exceptions.host_utm_sudo_requires_noninteractive": {
       "sourceHash": "747e47d86d29032e89010398e76a179c41b7b9f3b0302fe7e61c4ac37c436f85",
@@ -647,21 +662,21 @@
       "sourceHash": "33604685bf5c7ee05eceb156bdfb062f4d478dc1b8344ff9b874d296fa567cfb",
       "message": "Invoke-LibvirtGroupReExecIfNeeded: o parâmetro '{name}' contém um valor do tipo '{valueType}' que não pode ser repassado pela reexecução via sg; passe apenas strings, números, switches, booleanos e arrays de strings."
     },
-    "exceptions.host_refresh_auth_authority_incomplete": {
-      "sourceHash": "d93f951744ff863305100b04aefbffee2c2d4dada3bcce64b6e8bd6ca5d32785",
+    "exceptions.host_repair_auth_authority_incomplete": {
+      "sourceHash": "a52b28c3983b891a7826bd685c65456d2e8887e5ed88bc92722e87fb943c72a1",
       "message": "{path} foi gravado, mas {pendingPath} não ({detail}); execute -NewAuthority -Rotate para gravar os dois novamente."
     },
-    "exceptions.host_refresh_auth_key_unusable": {
-      "sourceHash": "dd6fa2ec0c77a473afbf0d1055a337b31a8166dcdd4d032c03d8200159e0fa37",
-      "message": "O arquivo de chave de atualização {path} não pode ser usado ({reason})."
+    "exceptions.host_repair_auth_key_unusable": {
+      "sourceHash": "d9b34441b84e24aeb175f1813dddd32114eedbfce62cd04581be8d9b8c726d42",
+      "message": "O arquivo de autoridade ou de chave de verificação de reparo {path} não pode ser usado ({reason})."
     },
-    "exceptions.host_refresh_relaunch_parameter_unsupported": {
-      "sourceHash": "949c942134148c7e9bfa3d733db2fad947d4ae2a46a1a8e47af995436ffc2b6d",
+    "exceptions.host_repair_relaunch_parameter_unsupported": {
+      "sourceHash": "f1cec3d8cdfd63d246361556bfe6f0c5bcb10cb3b6cb005c8c16bd55ae5ab404",
       "message": "O parâmetro {name} tem o tipo {type}, que não pode atravessar o relançamento do grupo libvirt."
     },
-    "exceptions.host_refresh_worker_argument_invalid": {
-      "sourceHash": "fb319e53414e2b0e3f57232afd5eb6c390d91695351817eac82cf8cd1e0c0db1",
-      "message": "O argumento {name} do worker de host-refresh não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria."
+    "exceptions.host_repair_worker_argument_invalid": {
+      "sourceHash": "3027319318ec97eab029c4fdcca004622afd03b9db861398d8ac6bfb90c313a9",
+      "message": "O argumento {name} do worker de host-repair não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria."
     },
     "exceptions.setup_service_vm_preserved": {
       "sourceHash": "2b3bc1d5e74730071c8dc657ebf4b6b02ff0777199bf16303aeb658825928672",

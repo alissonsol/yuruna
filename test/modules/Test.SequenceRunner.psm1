@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42876323-908f-424a-bc58-2069b325aa64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -447,4 +447,44 @@ function Invoke-TestSequenceChain {
     return @{ ok = $true; finishedVmName = $VMName }
 }
 
-Export-ModuleMember -Function Resolve-TestSequencePlan, Get-FirstExecutedStepAction, Save-ChainFailureArtifact, Invoke-TestSequenceChain
+function Write-SequenceCompletionSidecar {
+    <#
+    .SYNOPSIS
+        Writes the completion record a parent process matches by invocation id.
+    .DESCRIPTION
+        A parent that started Debug-TestSequence.ps1 learns only its exit code;
+        this record also tells it whether a step was reached, why the run
+        failed and which VM name was in effect at the end. Never throws: a
+        missing parent folder or a failed write returns $false.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$InvocationId,
+        [AllowEmptyString()][string]$SequenceName = '',
+        [Parameter(Mandatory)][ValidateSet('pass', 'fail', 'not-run')][string]$Outcome,
+        [AllowEmptyString()][string]$Reason = '',
+        [AllowEmptyString()][string]$FinishedVmName = ''
+    )
+    try {
+        $parent = Split-Path -Parent $Path
+        if ([string]::IsNullOrEmpty($parent) -or -not (Test-Path -LiteralPath $parent -PathType Container)) { return $false }
+        $record = [ordered]@{
+            schema         = 'yuruna.sequence-completion/v1'
+            invocationId   = $InvocationId
+            sequenceName   = $SequenceName
+            outcome        = $Outcome
+            reason         = $Reason
+            finishedVmName = $FinishedVmName
+            completedAtUtc = [DateTime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+        }
+        return (Write-YurunaStateFileJson -Path $Path -InputObject $record -Confirm:$false)
+    } catch {
+        Write-Verbose "The completion record '$Path' was not written: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+Export-ModuleMember -Function Resolve-TestSequencePlan, Get-FirstExecutedStepAction, Save-ChainFailureArtifact, Invoke-TestSequenceChain, `
+    Write-SequenceCompletionSidecar

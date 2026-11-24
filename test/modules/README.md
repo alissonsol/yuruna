@@ -29,8 +29,8 @@ into `$args` while the script runs on its defaults. The inner's argv is built
 from the caller's own bound parameters with
 `Test.InnerSpawn\New-InnerRunnerArgList` -- by the runner and again by the
 cycle process -- so a parameter the caller accepts and the inner does not must
-be excluded there: the runner's host-refresh pair (`-RefreshResume`,
-`-RefreshHandoffToken`) and the cycle's `-Cycle` and `-CycleGeneration` are. A
+be excluded there: the runner's handoff pair (`-HandoffResume`,
+`-HandoffToken`) and the cycle's `-Cycle` and `-CycleGeneration` are. A
 new transport parameter follows the same rule;
 [`Test.RunnerCycleOptionForwarding.Tests.ps1`](Test.RunnerCycleOptionForwarding.Tests.ps1)
 pins the forwarded argv.
@@ -171,6 +171,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../../README.md)

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 427a68b2-7a5f-432f-b773-6b5bb75b5a2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna status service start-cycle worker detached host-refresh
+.TAGS yuruna status service start-cycle worker detached host-operation
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Detached worker behind /control/start-cycle: under the host's lifetime
-    repair lock, clears the operator's pause and lab-hold controls, signals a
+    host-operation lock, clears the operator's pause and lab-hold controls, signals a
     restart, runs the bounded VM cleanup, and then starts or wakes the runner.
 
 .DESCRIPTION
@@ -28,9 +28,9 @@
     button asks for happens here, in the order the page has always relied on,
     and only after two things hold:
 
-      * this worker holds the lifetime lock a host refresh also takes, so a
-        refresh can never capture half-cleared controls, and a start-cycle
-        can never un-pause a runner a refresh is holding parked;
+      * this worker holds the lifetime lock a host repair also takes, so a
+        repair can never capture half-cleared controls, and a start-cycle
+        can never un-pause a runner a host operation is holding parked;
       * the reservation the listener recorded is still this operation's.
 
     A worker that is missing a dependency, cannot take the lock, or cannot
@@ -106,11 +106,11 @@ Use-LogLevelFromEnv
 # fails to load leaves its commands missing, and the dependency check below
 # refuses before any control is touched; failing here instead would end the
 # worker before its finally could release the reservation the listener made
-# for it, and publish nothing. The refresh journal module (the reservation
+# for it, and publish nothing. The host operation journal module (the reservation
 # API) is imported last.
 $script:StartCycleImportFailure = [System.Collections.Generic.List[string]]::new()
 foreach ($moduleRelativePath in @('../../automation/Yuruna.Common.psm1', 'Test.StateFile.psm1', 'Test.SingleFlightLock.psm1',
-        'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1', 'Test.StatusControlRoute.psm1', 'Test.Status.psm1', 'Test.HostRefreshIntent.psm1')) {
+        'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1', 'Test.StatusControlRoute.psm1', 'Test.Status.psm1', 'Test.HostOperationJournal.psm1')) {
     try {
         Import-Module (Join-Path $PSScriptRoot $moduleRelativePath) -Global -Force -DisableNameChecking -ErrorAction Stop
     } catch {
@@ -296,7 +296,7 @@ try {
     # A refusal sets $reason, reports it and throws this message-less
     # sentinel, which the catch below turns into a failed result.
     $refusal = [System.OperationCanceledException]::new()
-    $required = @('Get-YurunaHostRefreshLockPath', 'Confirm-HostRefreshStartCycleReservation', 'Complete-HostRefreshStartCycleReservation',
+    $required = @('Get-YurunaHostOperationLockPath', 'Confirm-StartCycleReservation', 'Complete-StartCycleReservation',
         'Start-YurunaDetachedProcess', 'Enter-YurunaSingleFlightLock', 'Get-YurunaLockRank', 'Exit-YurunaSingleFlightLock',
         'Write-YurunaStateFile', 'Write-YurunaStateFileJson', 'Invoke-BoundedNativeCommand', 'Test-BoundedNativeResultComplete', 'New-YurunaDeadline',
         'Get-StatusWorkerDirectory', 'Get-StartCycleRunnerDecision', 'Get-StartCycleRefusalReason', 'Test-StatusWorkerArgument',
@@ -316,7 +316,7 @@ try {
         throw $refusal
     }
 
-    $lockPath = Get-YurunaHostRefreshLockPath
+    $lockPath = Get-YurunaHostOperationLockPath
     if (-not $lockPath) {
         $reason = 'internal_error'
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.start_cycle_worker_refused' -Arguments @{ operationId = $OperationId; reason = 'lock_path_unavailable' })
@@ -331,7 +331,7 @@ try {
     }
     $selfStart = [long]0
     try { $selfStart = [DateTimeOffset]::new((Get-Process -Id $PID).StartTime).ToUnixTimeMilliseconds() } catch { $selfStart = [long]0 }
-    $confirmation = Confirm-HostRefreshStartCycleReservation -OperationId $OperationId -Generation $Generation -LifetimeLock $lock `
+    $confirmation = Confirm-StartCycleReservation -OperationId $OperationId -Generation $Generation -LifetimeLock $lock `
         -Worker @{ pid = $PID; startTimeUnixMs = $selfStart }
     if (-not $confirmation -or -not $confirmation.Valid) {
         $why = [string]$(if ($confirmation) { $confirmation.Reason } else { '' })
@@ -422,9 +422,9 @@ try {
     $result = 'failed'
     if (-not $reason -or $reason -notin @('lock_busy', 'reservation_lost', 'busy')) { $reason = 'internal_error' }
 } finally {
-    if ($reservationTouched -and (Get-Command -Name 'Complete-HostRefreshStartCycleReservation' -ErrorAction SilentlyContinue)) {
+    if ($reservationTouched -and (Get-Command -Name 'Complete-StartCycleReservation' -ErrorAction SilentlyContinue)) {
         try {
-            $null = Complete-HostRefreshStartCycleReservation -OperationId $OperationId -Generation $Generation
+            $null = Complete-StartCycleReservation -OperationId $OperationId -Generation $Generation
         } catch {
             Write-Verbose "Invoke-StartCycleWorker: the reservation could not be cleared: $($_.Exception.Message)"
         }

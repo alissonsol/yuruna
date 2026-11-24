@@ -267,53 +267,68 @@
       "sourceHash": "9895cbadd5a8556c6c9dd15b5d753ecf18b8f4425875bd4723f6b10e2e9fd909",
       "message": "extension-service基础映像不支持此架构：{machine}"
     },
-    "exceptions.host_refresh_auth_authority_incomplete": {
-      "sourceHash": "d93f951744ff863305100b04aefbffee2c2d4dada3bcce64b6e8bd6ca5d32785",
+    "exceptions.host_repair_auth_authority_incomplete": {
+      "sourceHash": "a52b28c3983b891a7826bd685c65456d2e8887e5ed88bc92722e87fb943c72a1",
       "message": "已写入{path}，但未写入{pendingPath}（{detail}）；请运行-NewAuthority -Rotate以重新写入这两个文件。"
     },
-    "exceptions.host_refresh_auth_authority_missing": {
-      "sourceHash": "06e0f3e3942cb3e21ebf67ad3f211a2fb04bf7bbfd7b80264a05d4739df00f67",
-      "message": "在{path}下找不到刷新签发机构；请先使用-NewAuthority创建。"
+    "exceptions.host_repair_auth_authority_missing": {
+      "sourceHash": "da2c365ba60a2932f1bd8644169d0e9da7e06a6fb4b289a8b776a2354ea8777c",
+      "message": "在{path}下找不到修复签发机构；请先使用-NewAuthority创建。"
     },
-    "exceptions.host_refresh_auth_host_id_mismatch": {
-      "sourceHash": "aa8d698b738887bf731d1a02d75f7787f909dea3d23a4e89df194aa6a6175e8c",
-      "message": "刷新密钥是为宿主机{keyHostId}签发的，但此宿主机为{hostId}；请改为导出适用于此宿主机的密钥。"
+    "exceptions.host_repair_auth_host_id_mismatch": {
+      "sourceHash": "baaa94f721edb5141b95128362cf26ea20211e192fa358a875647111070b9e38",
+      "message": "修复验证密钥是为宿主机{keyHostId}签发的，但此宿主机为{hostId}；请改为导出适用于此宿主机的密钥。"
     },
-    "exceptions.host_refresh_auth_host_id_unavailable": {
-      "sourceHash": "8202453678a561e74172ac39b01236289b0e2f2a962f405b963713021405d4bd",
+    "exceptions.host_repair_auth_host_id_unavailable": {
+      "sourceHash": "6cf5af376798662e128ded2aa8bbe35ad3d1355db7428987e69ae921257a0c83",
       "message": "此宿主机尚无宿主机ID（缺少{path}）；请启动一次运行器以生成host.uuid，然后重试。"
     },
-    "exceptions.host_refresh_auth_invalid_claim": {
-      "sourceHash": "82be7179d912fa7cca4516c096e9dde39294fb0eee5a4f91923a26d44ca93411",
-      "message": "刷新证明字段{field}无效。"
+    "exceptions.host_repair_auth_invalid_claim": {
+      "sourceHash": "6f61ec6b235e2bc5a8a9cfdedb7d2160361ef61fd0b3219074ea72a575fd6ebe",
+      "message": "修复证明字段{field}无效。"
     },
-    "exceptions.host_refresh_auth_key_malformed": {
-      "sourceHash": "de30febf4bf45e12a3eac82c8432bd8154da43041a4896a67c7cf809ad074304",
-      "message": "{path}不是刷新密钥文件（应仅包含以{prefix}开头的一行）。"
+    "exceptions.host_repair_auth_key_malformed": {
+      "sourceHash": "c963b016b58c98a44dbf3a1496b2d5f86048e13422528478f21911f2fe4e6b82",
+      "message": "{path}不是修复签发机构或修复验证密钥文件（应仅包含以{prefix}开头的一行）。"
     },
-    "exceptions.host_refresh_auth_key_permissions_open": {
-      "sourceHash": "3769ca373e8c868d4c0c41c373f616708effcf8e45d14979332da34e281b75d5",
+    "exceptions.host_repair_auth_key_permissions_open": {
+      "sourceHash": "28f7c2058066e5b3e143ef9fdc9fc78c0229e0375382689f933f1459654ce641",
       "message": "其他用户可以读取{path}；请将其权限限制为仅所有者可访问（chmod 600），然后重试。"
     },
-    "exceptions.host_refresh_auth_key_unusable": {
-      "sourceHash": "dd6fa2ec0c77a473afbf0d1055a337b31a8166dcdd4d032c03d8200159e0fa37",
-      "message": "无法使用刷新密钥文件{path}（{reason}）。"
+    "exceptions.host_repair_auth_key_unusable": {
+      "sourceHash": "d9b34441b84e24aeb175f1813dddd32114eedbfce62cd04581be8d9b8c726d42",
+      "message": "无法使用修复签发机构或修复验证密钥文件{path}（{reason}）。"
     },
-    "exceptions.host_refresh_auth_key_write_failed": {
-      "sourceHash": "85975eebe7584b6a19de0f30dc48d710b65eb92c43954583897f4ab99812ca33",
+    "exceptions.host_repair_auth_key_write_failed": {
+      "sourceHash": "31e435fb3f44db0b0ae2f082059e1e42698c0cf010c654f5ab563a052b9cffe6",
       "message": "无法以仅所有者可访问的权限写入{path}（{detail}）。"
     },
-    "exceptions.host_refresh_auth_private_root_unavailable": {
-      "sourceHash": "dc752b9b8460e3c55ea89f9da90d771cd9ef7ff39b801b0815d51f619343857a",
-      "message": "无法保护私有状态根目录（{reason}）；未写入刷新密钥。"
+    "exceptions.host_repair_auth_private_root_unavailable": {
+      "sourceHash": "6a18453b44a31d93b6d1b88025baf0411d0673135a7748309dcad406d79d225b",
+      "message": "无法保护私有状态根目录（{reason}）；未写入修复密钥材料。"
     },
-    "exceptions.host_refresh_relaunch_parameter_unsupported": {
-      "sourceHash": "949c942134148c7e9bfa3d733db2fad947d4ae2a46a1a8e47af995436ffc2b6d",
+    "exceptions.host_update_auth_signing_key_unusable": {
+      "sourceHash": "f75e62fc5ef979dc29a705b8e49d2ff601b975165a625bbe1222b69cddac3a20",
+      "origin": "machine",
+      "message": "无法使用宿主机更新签名密钥{path}（{reason}）；请使用-NewUpdateSigningKey创建一个。"
+    },
+    "exceptions.host_update_auth_url_invalid": {
+      "sourceHash": "74bb384969ead85fa03e43382943c0df3c60cec3645363e3523610e4c1357dad",
+      "origin": "machine",
+      "message": "{url}不是pool-control地址：请提供不超过256字节、不含用户名、查询或片段的绝对http或https URL。"
+    },
+    "exceptions.host_update_auth_public_key_invalid": {
+      "sourceHash": "349202d6135e290f85934d8b25ce28344a6cd0b0b38c3e555e69a3460ccb4a81",
+      "origin": "machine",
+      "message": "pool-control公钥必须是-NewUpdateSigningKey输出的那一行yupk1，且包含至少3072位的RSA密钥。"
+    },
+    "exceptions.host_repair_relaunch_parameter_unsupported": {
+      "sourceHash": "f1cec3d8cdfd63d246361556bfe6f0c5bcb10cb3b6cb005c8c16bd55ae5ab404",
       "message": "参数{name}的类型为{type}，无法在以libvirt组权限重新启动时传递。"
     },
-    "exceptions.host_refresh_worker_argument_invalid": {
-      "sourceHash": "fb319e53414e2b0e3f57232afd5eb6c390d91695351817eac82cf8cd1e0c0db1",
-      "message": "宿主机刷新工作进程的参数{name}与入口脚本的参数不匹配；拒绝启动入口点无法接受的工作进程。"
+    "exceptions.host_repair_worker_argument_invalid": {
+      "sourceHash": "3027319318ec97eab029c4fdcca004622afd03b9db861398d8ac6bfb90c313a9",
+      "message": "宿主机修复工作进程的参数{name}与入口脚本的参数不匹配；拒绝启动入口点无法接受的工作进程。"
     },
     "exceptions.host_utm_sudo_requires_noninteractive": {
       "sourceHash": "747e47d86d29032e89010398e76a179c41b7b9f3b0302fe7e61c4ac37c436f85",

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42c1f2a7-5d3e-4b8a-9e61-7a4f0b2c9d13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test kvm libvirt systemd start-if-stopped force-stop host-refresh pester
+.TAGS yuruna test kvm libvirt systemd start-if-stopped force-stop host-repair pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI

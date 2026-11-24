@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42785eb2-7793-490d-933e-6ced2c275f4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test runner handoff refresh-gate host-refresh pester
+.TAGS yuruna test runner handoff runner-gate host-operation pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    The runner side of a host refresh: the refresh gate, the handoff token,
+    The runner side of a host repair: the runner gate, the handoff token,
     the readiness acknowledgment, the launch record, strict parameter binding
     on the three runner scripts, the held-control barrier and the inner
     cycle's gate sites.
@@ -73,7 +73,7 @@ BeforeAll {
         [CmdletBinding()]
         [OutputType([pscustomobject])]
         param([hashtable]$T, [int]$OwnerPid = $PID)
-        return (Set-YurunaRefreshGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $T.Runtime -ExpectedGeneration '' `
+        return (Set-YurunaRunnerGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $T.Runtime -ExpectedGeneration '' `
             -PrivateRoot $T.Root -OwnerPid $OwnerPid -Confirm:$false)
     }
 
@@ -148,13 +148,13 @@ AfterAll {
     Remove-YurunaTestTempDir $script:Work
 }
 
-Describe 'Refresh gate states (Get-YurunaRefreshGateState)' {
+Describe 'Runner gate states (Get-YurunaRunnerGateState)' {
     It 'is open with no private root and with no gate record' {
         $t = New-TestRoot
-        $absent = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot (Join-Path $t.Root 'missing')
+        $absent = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot (Join-Path $t.Root 'missing')
         Assert-Equal -Expected 'open' -Actual $absent.State
         Assert-Equal -Expected 'no-gate' -Actual $absent.Reason
-        $empty = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $empty = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-True $empty.SpawnAllowed 'no gate record holds nothing'
     }
     It 'holds every spawn while closed or recovery-pending, and opens when released' {
@@ -162,19 +162,19 @@ Describe 'Refresh gate states (Get-YurunaRefreshGateState)' {
         $closed = Close-TestGate -T $t
         Assert-True $closed.Written "closed ($($closed.Reason))"
         Assert-Match -Pattern '^[0-9a-f]{32}$' -Actual $closed.Generation
-        $g = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $g = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-Equal -Expected 'closed' -Actual $g.State
         Assert-False $g.SpawnAllowed 'closed holds spawns'
         Assert-Equal -Expected $script:RequestId -Actual $g.RequestId
-        $allowed = @(Test-YurunaRefreshSpawnAllowed -RuntimeDir $t.Runtime -PrivateRoot $t.Root)
+        $allowed = @(Test-YurunaRunnerSpawnAllowed -RuntimeDir $t.Runtime -PrivateRoot $t.Root)
         Assert-Equal -Expected 1 -Actual $allowed.Count -Because 'exactly one value on the success stream'
         Assert-True ($allowed[0] -is [bool] -and -not $allowed[0]) 'a single $false'
-        $pending = Set-YurunaRefreshGate -State recovery-pending -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
+        $pending = Set-YurunaRunnerGate -State recovery-pending -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
             -ExpectedGeneration $closed.Generation -PrivateRoot $t.Root -Confirm:$false
-        Assert-Equal -Expected 'recovery-pending' -Actual (Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
-        $released = Set-YurunaRefreshGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
+        Assert-Equal -Expected 'recovery-pending' -Actual (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
+        $released = Set-YurunaRunnerGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
             -ExpectedGeneration $pending.Generation -PrivateRoot $t.Root -Confirm:$false
-        $open = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $open = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-Equal -Expected 'open' -Actual $open.State
         Assert-Equal -Expected 'released' -Actual $open.Reason
         Assert-Equal -Expected $released.Generation -Actual $open.Generation
@@ -182,13 +182,13 @@ Describe 'Refresh gate states (Get-YurunaRefreshGateState)' {
     It 'fails closed on an unreadable record and on a newer schema' {
         $t = New-TestRoot
         Set-Content -LiteralPath (Join-Path $t.Root 'runner-gate.record') -Value 'garbage' -Encoding ascii
-        $bad = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $bad = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-Equal -Expected 'unknown' -Actual $bad.State
         Assert-False $bad.SpawnAllowed 'an unreadable gate holds spawns'
         Assert-Equal -Expected 'unreadable' -Actual $bad.Reason
         $t2 = New-TestRoot
         Write-TestGatePayload -T $t2 -Payload @{ schemaVersion = 2; protocolVersion = 1; state = 'released'; generation = 'x' }
-        $newer = Get-YurunaRefreshGateState -RuntimeDir $t2.Runtime -PrivateRoot $t2.Root
+        $newer = Get-YurunaRunnerGateState -RuntimeDir $t2.Runtime -PrivateRoot $t2.Root
         Assert-Equal -Expected 'unsupported-schema' -Actual $newer.Reason
         Assert-False $newer.SpawnAllowed 'a newer schema is never read as open'
     }
@@ -197,38 +197,58 @@ Describe 'Refresh gate states (Get-YurunaRefreshGateState)' {
         $dead = Start-TestProcess -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Milliseconds 500')
         $dead.WaitForExit()
         $null = Close-TestGate -T $t -OwnerPid $dead.Id
-        $g = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $g = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-Equal -Expected 'DeadOrRecycled' -Actual $g.OwnerState
         Assert-True $g.Orphaned 'a closed gate with a dead owner is orphaned'
         $live = Close-TestGate -T (New-TestRoot)
         Assert-True $live.Written 'written'
     }
+    It 'writes role controller only when asked; the default payload is unchanged' {
+        $t = New-TestRoot
+        $closed = Close-TestGate -T $t
+        $record = Read-YurunaCriticalRecord -Path (Join-Path $t.Root 'runner-gate.record') -Kind 'runner-gate'
+        $payload = $record.Payload
+        Assert-Equal -Expected 'attempt,generation,handoff,owner,protocolVersion,reasonCode,reclaimed,requestId,runtimeDir,schemaVersion,state,updatedUtc' `
+            -Actual ((@($payload.Keys) | Sort-Object) -join ',') -Because 'a repair gate keeps its exact shape'
+        Assert-Equal -Expected 'pid,role,startTimeUnixMs' -Actual ((@($payload['owner'].Keys) | Sort-Object) -join ',')
+        Assert-Equal -Expected 'worker' -Actual $payload['owner']['role']
+        Assert-Equal -Expected 1 -Actual $payload['protocolVersion']
+        $controller = Set-YurunaRunnerGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime -ExpectedGeneration $closed.Generation `
+            -PrivateRoot $t.Root -OwnerRole controller -Confirm:$false
+        Assert-True $controller.Written "re-stamped ($($controller.Reason))"
+        $restamped = (Read-YurunaCriticalRecord -Path (Join-Path $t.Root 'runner-gate.record') -Kind 'runner-gate').Payload
+        Assert-Equal -Expected 'controller' -Actual $restamped['owner']['role']
+        Assert-Equal -Expected 1 -Actual $restamped['protocolVersion'] -Because 'the gate protocol is not raised'
+        Assert-Equal -Expected 'controller' -Actual (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).Owner['role']
+        Assert-Throw { Set-YurunaRunnerGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime -ExpectedGeneration $controller.Generation `
+                -PrivateRoot $t.Root -OwnerRole 'resident-outer' -Confirm:$false }
+    }
     It 'refuses a stale generation, writes nothing under -WhatIf, and reports a busy lock held by another process' {
         $t = New-TestRoot
         $closed = Close-TestGate -T $t
-        $stale = Set-YurunaRefreshGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
+        $stale = Set-YurunaRunnerGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
             -ExpectedGeneration ('0' * 32) -PrivateRoot $t.Root -Confirm:$false
         Assert-Equal -Expected 'generation-mismatch' -Actual $stale.Reason
-        $preview = Set-YurunaRefreshGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
+        $preview = Set-YurunaRunnerGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
             -ExpectedGeneration $closed.Generation -PrivateRoot $t.Root -WhatIf
         Assert-Equal -Expected 'preview' -Actual $preview.Reason
-        Assert-Equal -Expected 'closed' -Actual (Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
+        Assert-Equal -Expected 'closed' -Actual (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
         $ready = Join-Path $t.Root 'holder.ready'
         $lockModule = (Join-Path $script:Here 'Test.SingleFlightLock.psm1').Replace("'", "''")
         $holder = Start-TestProcess -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-NonInteractive', '-Command',
             "Import-Module '$lockModule' -DisableNameChecking; `$l = Enter-YurunaSingleFlightLock -Path '$(Join-Path $t.Root 'runner-gate.lock')' -WaitMilliseconds 5000; if (`$l.Held) { Set-Content -LiteralPath '$ready' -Value 1 }; Start-Sleep -Seconds 20")
         Assert-True (Wait-TestCondition { Test-Path -LiteralPath $ready }) 'the holder took the gate lock'
-        $busy = Set-YurunaRefreshGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
+        $busy = Set-YurunaRunnerGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime `
             -ExpectedGeneration $closed.Generation -PrivateRoot $t.Root -Confirm:$false
         Assert-Equal -Expected 'lock-busy' -Actual $busy.Reason
         $holder.Kill($true)
     }
 }
 
-# A power loss in the middle of a refresh left its gate held by an owner that no
+# A power loss in the middle of a host repair left its gate held by an owner that no
 # longer exists; nothing expires a gate by age, so every start refused until an
-# operator ran Invoke-HostRefresh.ps1 -Resume.
-Describe 'A refresh an earlier boot left unfinished' {
+# operator ran Invoke-HostRepair.ps1 -Resume.
+Describe 'A host repair an earlier boot left unfinished' {
     BeforeEach {
         $script:Launches = [System.Collections.Generic.List[object]]::new()
         Mock -ModuleName Test.SingleInstance Start-YurunaDetachedProcess {
@@ -238,58 +258,58 @@ Describe 'A refresh an earlier boot left unfinished' {
         $script:Boot = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
         $script:EarlierBootGate = [pscustomobject]@{
             Orphaned = $true; RequestId = $script:RequestId
-            Owner = @{ pid = 999999; startTimeUnixMs = $script:Boot - 3600000; role = 'refresh-worker' }
+            Owner = @{ pid = 999999; startTimeUnixMs = $script:Boot - 3600000; role = 'repair-worker' }
         }
     }
     It 'resumes it once per boot and request, detached, with the operator''s own remedy' {
         $t = New-TestRoot
-        $first = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
+        $first = Invoke-YurunaRepairBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
         Assert-True $first.Launched "launched ($($first.Reason))"
         Assert-Equal -Expected 4242 -Actual $first.Pid
         Assert-Equal -Expected 1 -Actual $script:Launches.Count
-        Assert-Equal -Expected (Join-Path $script:Work 'test/lab/Invoke-HostRefresh.ps1') -Actual $script:Launches[0].FilePath
+        Assert-Equal -Expected (Join-Path $script:Work 'test/lab/Invoke-HostRepair.ps1') -Actual $script:Launches[0].FilePath
         Assert-Equal -Expected '-Resume' -Actual ($script:Launches[0].ArgumentList -join ' ')
         Assert-Equal -Expected $t.Root -Actual $script:Launches[0].PrivateDirectory -Because 'the worker''s streams stay private'
         $marker = Get-Content -Raw -LiteralPath (Join-Path $t.Root 'boot-resume.json') | ConvertFrom-Json
         Assert-Equal -Expected $script:RequestId -Actual $marker.requestId
-        $again = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 5000) -Confirm:$false
+        $again = Invoke-YurunaRepairBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 5000) -Confirm:$false
         Assert-Equal -Expected 'already-tried' -Actual $again.Reason
         Assert-Equal -Expected 1 -Actual $script:Launches.Count -Because 'a second start in the same boot launches nothing'
-        $nextBoot = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 86400000) -Confirm:$false
+        $nextBoot = Invoke-YurunaRepairBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 86400000) -Confirm:$false
         Assert-True $nextBoot.Launched 'the next boot tries once more'
         $other = $script:EarlierBootGate.PSObject.Copy()
         $other.RequestId = '0f1c2d3e-4a5b-4c6d-8e7f-0a1b2c3d4e5f'
-        Assert-True (Invoke-YurunaRefreshBootResume -Gate $other -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 86400000) -Confirm:$false).Launched 'another request gets its own attempt'
+        Assert-True (Invoke-YurunaRepairBootResume -Gate $other -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs ($script:Boot + 86400000) -Confirm:$false).Launched 'another request gets its own attempt'
     }
     It 'leaves to the operator a gate that is not orphaned, or whose owner died in this boot or has no recorded start' {
         $t = New-TestRoot
         $held = $script:EarlierBootGate.PSObject.Copy(); $held.Orphaned = $false
-        Assert-Equal -Expected 'not-orphaned' -Actual (Invoke-YurunaRefreshBootResume -Gate $held -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
+        Assert-Equal -Expected 'not-orphaned' -Actual (Invoke-YurunaRepairBootResume -Gate $held -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
         # Recorded while alive, so the gate carries its start time, then ended.
         $owner = Start-TestProcess -FilePath $script:Pwsh -ArgumentList @('-NoProfile', '-Command', 'Start-Sleep -Seconds 30')
         $null = Close-TestGate -T $t -OwnerPid $owner.Id
         $owner.Kill($true)
         $owner.WaitForExit()
-        $thisBoot = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $thisBoot = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-True $thisBoot.Orphaned 'fixture sanity: the owner is gone'
         Assert-True ($null -ne $thisBoot.Owner['startTimeUnixMs']) 'fixture sanity: the owner''s start was recorded'
-        Assert-Equal -Expected 'owner-this-boot' -Actual (Invoke-YurunaRefreshBootResume -Gate $thisBoot -RepoRoot $script:Work -PrivateRoot $t.Root -Confirm:$false).Reason
-        $unknown = $script:EarlierBootGate.PSObject.Copy(); $unknown.Owner = @{ pid = 999999; role = 'refresh-worker' }
-        Assert-Equal -Expected 'owner-start-unknown' -Actual (Invoke-YurunaRefreshBootResume -Gate $unknown -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
+        Assert-Equal -Expected 'owner-this-boot' -Actual (Invoke-YurunaRepairBootResume -Gate $thisBoot -RepoRoot $script:Work -PrivateRoot $t.Root -Confirm:$false).Reason
+        $unknown = $script:EarlierBootGate.PSObject.Copy(); $unknown.Owner = @{ pid = 999999; role = 'repair-worker' }
+        Assert-Equal -Expected 'owner-start-unknown' -Actual (Invoke-YurunaRepairBootResume -Gate $unknown -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
         Assert-Equal -Expected 0 -Actual $script:Launches.Count
     }
     It 'does not retry in the same boot when the launch failed, and writes nothing under -WhatIf' {
         $t = New-TestRoot
-        Assert-Equal -Expected 'whatif' -Actual (Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -WhatIf).Reason
+        Assert-Equal -Expected 'whatif' -Actual (Invoke-YurunaRepairBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -WhatIf).Reason
         Assert-False (Test-Path -LiteralPath (Join-Path $t.Root 'boot-resume.json')) 'a preview leaves no marker'
         Mock -ModuleName Test.SingleInstance Start-YurunaDetachedProcess { [pscustomobject]@{ Launched = $false; Reason = 'launcher-failed' } }
-        $failed = Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
+        $failed = Invoke-YurunaRepairBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
         Assert-Equal -Expected 'launch-failed:launcher-failed' -Actual $failed.Reason
-        Assert-Equal -Expected 'already-tried' -Actual (Invoke-YurunaRefreshBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
+        Assert-Equal -Expected 'already-tried' -Actual (Invoke-YurunaRepairBootResume -Gate $script:EarlierBootGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false).Reason
     }
     It 'runs from a refused start only for an orphaned gate, before the start exits' {
         $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Here '../Start-TestRunner.ps1'), [ref]$null, [ref]$null)
-        $call = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-YurunaRefreshBootResume' }, $true))
+        $call = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-YurunaRepairBootResume' }, $true))
         Assert-Equal -Expected 1 -Actual $call.Count -Because 'one boot resume at startup'
         $guard = $call[0].Parent
         while ($guard -and $guard -isnot [System.Management.Automation.Language.IfStatementAst]) { $guard = $guard.Parent }
@@ -299,6 +319,201 @@ Describe 'A refresh an earlier boot left unfinished' {
         Assert-Match -Pattern 'SpawnAllowed' -Actual $refusal.Clauses[0].Item1.Extent.Text
         $exit = @($refusal.Clauses[0].Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }, $true))
         Assert-True ($exit.Count -ge 1 -and $exit[-1].Extent.StartOffset -gt $call[0].Extent.StartOffset) 'the start still refuses after the resume'
+    }
+    It 'answers controller-gate for an orphaned controller gate without a marker or a launch' {
+        $t = New-TestRoot
+        $controllerGate = $script:EarlierBootGate.PSObject.Copy()
+        $controllerGate.Owner = @{ pid = 999999; startTimeUnixMs = $script:Boot - 3600000; role = 'controller' }
+        $answer = Invoke-YurunaRepairBootResume -Gate $controllerGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
+        Assert-Equal -Expected 'controller-gate' -Actual $answer.Reason
+        Assert-False $answer.Launched 'the controller continues its own update'
+        Assert-Equal -Expected 0 -Actual $script:Launches.Count
+        Assert-False (Test-Path -LiteralPath (Join-Path $t.Root 'boot-resume.json')) 'no marker spends this boot''s attempt'
+    }
+    It 'launches the boot resume for a worker gate as before' {
+        $t = New-TestRoot
+        $workerGate = $script:EarlierBootGate.PSObject.Copy()
+        $workerGate.Owner = @{ pid = 999999; startTimeUnixMs = $script:Boot - 3600000; role = 'worker' }
+        $answer = Invoke-YurunaRepairBootResume -Gate $workerGate -RepoRoot $script:Work -PrivateRoot $t.Root -BootEpochMs $script:Boot -Confirm:$false
+        Assert-True $answer.Launched "launched ($($answer.Reason))"
+        Assert-Equal -Expected 1 -Actual $script:Launches.Count
+    }
+    It 'chooses the controller wording by the lock state' {
+        $homeDir = Join-Path $script:Work ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $homeDir -Force
+        Import-Module (Join-Path $script:Here 'Test.HostOperationJournal.psm1') -Force -Global -DisableNameChecking
+        & (Get-Module Test.HostOperationJournal) { param($h) $script:HostOperationHomePath = $h } $homeDir
+        try {
+            $release = "pwsh test/lab/Invoke-HostUpdate.ps1 -Release $($script:RequestId)"
+            # The catalog renderer as the module that prints the line sees it.
+            $render = { param($Key, $Arguments) & (Get-Module Test.HostOperationJournal) { param($k, $a) Format-YurunaOperatorMessage -Key $k -Arguments $a } $Key $Arguments }
+            $absent = & $render 'runner.host_update_gate_controller_absent' @{ requestId = $script:RequestId; release = $release }
+            Assert-Equal -Expected $absent -Actual (Format-HostUpdateGateRefusal -RequestId $script:RequestId) -Because 'no private root reads as no controller'
+            Assert-Equal -Expected $absent -Actual (Format-HostUpdateGateRefusal -RequestId $script:RequestId -LockState free)
+            Assert-False (Test-Path -LiteralPath (Join-Path $homeDir '.yuruna')) 'reading the wording creates no private root'
+            $controllerRoot = Get-HostUpdateControllerRoot
+            $attach = "tmux -S $(Join-Path $controllerRoot 'runner-console.sock') attach"
+            $running = & $render 'runner.host_update_gate_controller_running' @{ requestId = $script:RequestId; attach = $attach }
+            Assert-Equal -Expected $running -Actual (Format-HostUpdateGateRefusal -RequestId $script:RequestId -LockState held)
+            $window = & $render 'runner.host_update_console_window' @{}
+            Assert-Equal -Expected $window -Actual (Get-HostUpdateConsoleHint -Platform Windows) 'on Windows the console is a window, never a tmux socket'
+            Assert-False ($window -match 'tmux') 'the Windows hint names no tmux command'
+        } finally {
+            & (Get-Module Test.HostOperationJournal) { $script:HostOperationHomePath = $null }
+        }
+    }
+    It 'repeats the macOS controller step and names both ways on when no controller holds the lock' {
+        $homeDir = Join-Path $script:Work ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path $homeDir -Force
+        Import-Module (Join-Path $script:Here 'Test.HostOperationJournal.psm1') -Force -Global -DisableNameChecking
+        & (Get-Module Test.HostOperationJournal) { param($h) $script:HostOperationHomePath = $h } $homeDir
+        try {
+            $release = "pwsh test/lab/Invoke-HostUpdate.ps1 -Release $($script:RequestId)"
+            $render = { param($Key, $Arguments) & (Get-Module Test.HostOperationJournal) { param($k, $a) Format-YurunaOperatorMessage -Key $k -Arguments $a } $Key $Arguments }
+            $line = & $render 'runner.host_controller_start_not_desktop_session' @{}
+            $start = [pscustomobject]@{ Result = 'not_desktop_session'; Line = $line; LockState = $null; Multiplexer = $null }
+            $expected = & $render 'runner.host_update_gate_controller_absent_macos' @{ requestId = $script:RequestId; result = $line; release = $release }
+            foreach ($lockState in @('free', 'absent', 'unknown')) {
+                $text = Format-HostUpdateGateRefusal -RequestId $script:RequestId -LockState $lockState -ControllerStart $start
+                Assert-Equal -Expected $expected -Actual $text -Because "lock $lockState"
+            }
+            Assert-True ($expected.Contains($line)) 'the step line is repeated'
+            Assert-True ($expected.Contains($release)) 'the release command is named'
+            Assert-False ($expected -match 'system service') 'macOS has no service that starts a controller'
+            $controllerRoot = Get-HostUpdateControllerRoot
+            $attach = "tmux -S $(Join-Path $controllerRoot 'runner-console.sock') attach"
+            $running = & $render 'runner.host_update_gate_controller_running' @{ requestId = $script:RequestId; attach = $attach }
+            Assert-Equal -Expected $running -Actual (Format-HostUpdateGateRefusal -RequestId $script:RequestId -LockState held -ControllerStart $start) -Because 'a held lock reads as running on macOS too'
+        } finally {
+            & (Get-Module Test.HostOperationJournal) { $script:HostOperationHomePath = $null }
+        }
+    }
+    It 'names the host update instead of the repair when the controller closed the gate' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Here '../Start-TestRunner.ps1'), [ref]$null, [ref]$null)
+        $format = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Format-HostUpdateGateRefusal' }, $true))
+        Assert-Equal -Expected 1 -Actual $format.Count
+        $guard = $format[0].Parent
+        while ($guard -and $guard -isnot [System.Management.Automation.Language.IfStatementAst]) { $guard = $guard.Parent }
+        Assert-Match -Pattern "\['role'\] -ceq 'controller'" -Actual $guard.Clauses[0].Item1.Extent.Text
+        $assigned = $format[0].Parent
+        while ($assigned -and $assigned -isnot [System.Management.Automation.Language.AssignmentStatementAst]) { $assigned = $assigned.Parent }
+        Assert-Equal -Expected '$gateBlocks' -Actual $assigned.Left.Extent.Text
+        $warning = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-Warning' -and
+            $n.CommandElements.Count -eq 2 -and $n.CommandElements[1].Extent.Text -eq '$gateBlocks' }, $true))
+        Assert-Equal -Expected 1 -Actual $warning.Count
+        Assert-True ($guard.Extent.EndOffset -lt $warning[0].Extent.StartOffset) 'the wording is chosen before the refusal is printed'
+    }
+    It 'starts the macOS host controller once, on an ordinary start only, before the gate read, and never ends the start there' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Here '../Start-TestRunner.ps1'), [ref]$null, [ref]$null)
+        $commands = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
+        $start = @($commands | Where-Object { $_.GetCommandName() -eq 'Start-HostUpdateControllerSession' })
+        Assert-Equal -Expected 1 -Actual $start.Count -Because 'one controller start per runner start'
+        $guard = $start[0].Parent
+        while ($guard -and $guard -isnot [System.Management.Automation.Language.IfStatementAst]) { $guard = $guard.Parent }
+        Assert-NotNull $guard 'the step is guarded'
+        $condition = $guard.Clauses[0].Item1.Extent.Text
+        Assert-Match -Pattern '-not \$HandoffResume' -Actual $condition -Because 'a resumed start does not come from the desktop terminal'
+        Assert-Match -Pattern "\(Get-HostType\) -eq 'host\.macos\.utm'" -Actual $condition -Because 'KVM and Windows keep their registered job'
+        Assert-Equal -Expected 1 -Actual $guard.Clauses.Count
+        Assert-Null $guard.ElseClause 'nothing runs on the other hosts'
+        $gateRead = @($commands | Where-Object { $_.GetCommandName() -eq 'Get-YurunaRunnerGateState' })
+        Assert-Equal -Expected 1 -Actual $gateRead.Count
+        Assert-True ($guard.Extent.EndOffset -lt $gateRead[0].Extent.StartOffset) 'the step runs before the gate read, so a refused start still brings the controller'
+        $hostId = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$global:__YurunaHostId' }, $true))
+        Assert-Equal -Expected 1 -Actual $hostId.Count
+        Assert-True ($hostId[0].Extent.EndOffset -lt $guard.Extent.StartOffset) 'the step runs once the host identity is set'
+        $exits = @($guard.FindAll({ param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] -or $n -is [System.Management.Automation.Language.ThrowStatementAst] -or
+                    $n -is [System.Management.Automation.Language.ReturnStatementAst] -or $n -is [System.Management.Automation.Language.BreakStatementAst] }, $true))
+        Assert-Equal -Expected 0 -Actual $exits.Count -Because 'no result of the step ends the start'
+        $try = $start[0].Parent
+        while ($try -and $try -isnot [System.Management.Automation.Language.TryStatementAst]) { $try = $try.Parent }
+        Assert-NotNull $try 'an error in the step is caught'
+        Assert-Equal -Expected 1 -Actual $try.CatchClauses.Count
+        Assert-Equal -Expected 0 -Actual $try.CatchClauses[0].CatchTypes.Count -Because 'every error is caught'
+        $caught = @($try.CatchClauses[0].Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$controllerStart' }, $false))
+        Assert-Equal -Expected 1 -Actual $caught.Count -Because 'an error still leaves a result: $null would give the refusal the KVM and Windows wording'
+        Assert-Match -Pattern "Result\s*=\s*'error'" -Actual $caught[0].Right.Extent.Text
+        Assert-Match -Pattern "Line\s*=.*'runner\.host_controller_start_error'" -Actual $caught[0].Right.Extent.Text
+        $assigned = $start[0].Parent
+        while ($assigned -and $assigned -isnot [System.Management.Automation.Language.AssignmentStatementAst]) { $assigned = $assigned.Parent }
+        Assert-Equal -Expected '$controllerStart' -Actual $assigned.Left.Extent.Text
+        foreach ($printer in @('Write-Information', 'Write-OuterLog')) {
+            $line = @($guard.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $printer -and
+                        $n.CommandElements.Count -ge 2 -and $n.CommandElements[1].Extent.Text -eq '$controllerStart.Line' }.GetNewClosure(), $true))
+            Assert-Equal -Expected 1 -Actual $line.Count -Because "the step's one line goes to $printer once, whatever the result"
+            if ($printer -eq 'Write-Information') {
+                Assert-Match -Pattern '\s-InformationAction\s+Continue\b' -Actual $line[0].Extent.Text -Because 'the runner sets no information preference, so without it the console line is dropped'
+            }
+            Assert-True ($line[0].Extent.StartOffset -gt $try.Extent.EndOffset) "$printer prints after the try, so an error's line is printed too"
+        }
+    }
+    # The region itself, cut from the runner and run in a child pwsh with the
+    # default information preference, so the console line is the one an
+    # operator sees. Each child imports its own stand-in modules; this
+    # process keeps the real ones.
+    It 'prints the controller step''s one line to the console and outer.log when <Case>' -ForEach @(
+        @{ Case = 'its modules cannot be imported'; Modules = 'none'; Result = 'error'; Line = 'runner.host_controller_start_error<' }
+        @{ Case = 'the start throws'; Modules = 'throws'; Result = 'error'; Line = 'runner.host_controller_start_error<stand-in failure>' }
+        @{ Case = 'the start answers'; Modules = 'answers'; Result = 'running'; Line = 'Host controller: stand-in running' }
+    ) {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Here '../Start-TestRunner.ps1'), [ref]$null, [ref]$null)
+        $start = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Start-HostUpdateControllerSession' }, $true))
+        Assert-Equal -Expected 1 -Actual $start.Count
+        $guard = $start[0].Parent
+        while ($guard -and $guard -isnot [System.Management.Automation.Language.IfStatementAst]) { $guard = $guard.Parent }
+        $initial = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$controllerStart' -and
+                    $n.Right.Extent.Text -eq '$null' }, $true))
+        Assert-Equal -Expected 1 -Actual $initial.Count
+        $region = $ast.Extent.Text.Substring($initial[0].Extent.StartOffset, $guard.Extent.EndOffset - $initial[0].Extent.StartOffset)
+        $dir = New-YurunaTestTempDir -Prefix 'yuruna-controller-start-region'
+        try {
+            $moduleDir = Join-Path $dir 'modules'
+            $null = New-Item -ItemType Directory -Path $moduleDir -Force
+            if ($Modules -ne 'none') {
+                [IO.File]::WriteAllText((Join-Path $moduleDir 'Test.HostOperationJournal.psm1'), "# stand-in`n")
+                $body = if ($Modules -eq 'throws') { "throw 'stand-in failure'" } else { "[pscustomobject]@{ Result = 'running'; LockState = 'held'; Multiplexer = `$null; Line = 'Host controller: stand-in running' }" }
+                [IO.File]::WriteAllText((Join-Path $moduleDir 'Test.HostUpdate.psm1'), "function Start-HostUpdateControllerSession { $body }`nExport-ModuleMember -Function Start-HostUpdateControllerSession`n")
+            }
+            $log = Join-Path $dir 'outer.log'
+            $child = Join-Path $dir 'region.ps1'
+            [IO.File]::WriteAllText($child, @"
+`$InformationPreference = 'SilentlyContinue'
+`$HandoffResume = `$false
+`$ModulesDir = '$moduleDir'
+function Get-HostType { 'host.macos.utm' }
+function Format-YurunaOperatorMessage { param([string]`$Key, [hashtable]`$Arguments) "`$Key<`$(`$Arguments['message'])>" }
+function Write-OuterLog { param([AllowEmptyString()][string]`$Message) [IO.File]::AppendAllText('$log', "[`$Message]``n") }
+$region
+'RESULT:' + `$controllerStart.Result
+"@)
+            $r = Invoke-BoundedNativeCommand -FilePath ([Environment]::ProcessPath) -TimeoutSeconds 60 -Environment @{ NO_COLOR = '1' } -ArgumentList @(
+                '-NoLogo', '-NoProfile', '-NonInteractive', '-File', $child)
+            Assert-True ($r.Started -and -not $r.TimedOut) 'the region runs and ends inside its cap'
+            $out = @(([string]$r.StdOut) -split "`r?`n" | Where-Object { $_ })
+            Assert-Equal -Expected "RESULT:$Result" -Actual $out[-1] -Because "the step's result is kept for the refusal: $($r.StdOut) $($r.StdErr)"
+            $printed = @($out | Where-Object { $_.StartsWith($Line) })
+            Assert-Equal -Expected 1 -Actual $printed.Count -Because "the one line reaches the console under the default preference: $($r.StdOut)"
+            $logged = @([IO.File]::ReadAllLines($log) | Where-Object { $_ })
+            Assert-Equal -Expected 1 -Actual $logged.Count -Because 'one line reaches outer.log'
+            Assert-Equal -Expected "[$($printed[0])]" -Actual $logged[0] -Because 'the console and outer.log carry the same line'
+        } finally { Remove-YurunaTestTempDir $dir }
+    }
+    It 'passes the controller step''s result to the refusal of a controller gate' {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Here '../Start-TestRunner.ps1'), [ref]$null, [ref]$null)
+        $format = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Format-HostUpdateGateRefusal' }, $true))
+        Assert-Equal -Expected 1 -Actual $format.Count
+        $elements = @($format[0].CommandElements)
+        $at = -1
+        for ($i = 0; $i -lt $elements.Count; $i++) {
+            if ($elements[$i] -is [System.Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -eq 'ControllerStart') { $at = $i }
+        }
+        Assert-True ($at -gt 0 -and $at + 1 -lt $elements.Count) 'the refusal is given the step''s result'
+        Assert-Equal -Expected '$controllerStart' -Actual $elements[$at + 1].Extent.Text
+        $lockState = @($elements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'LockState' })
+        Assert-Equal -Expected 0 -Actual $lockState.Count -Because 'the lock is read again for the refusal: a controller the step started may hold it by now'
+        $initial = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$controllerStart' -and
+                    $n.Right.Extent.Text -eq '$null' }, $true))
+        Assert-Equal -Expected 1 -Actual $initial.Count -Because 'off macOS the result is $null, which keeps the KVM and Windows wording'
     }
 }
 
@@ -313,13 +528,13 @@ Describe 'Handoff token' {
             -ExpiresInMilliseconds 60000 -ExpectedGeneration $closed.Generation -PrivateRoot $t.Root -Confirm:$false
         Assert-True $token.Issued "issued ($($token.Reason))"
         Assert-Match -Pattern '^[0-9a-f]{32}$' -Actual $token.TokenId
-        $g = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -TokenId $token.TokenId -PrivateRoot $t.Root
+        $g = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -TokenId $token.TokenId -PrivateRoot $t.Root
         Assert-Equal -Expected 'handoff' -Actual $g.State
         Assert-False $g.SpawnAllowed 'a handoff holds ordinary spawns'
         Assert-True $g.PreflightAllowed 'the matching token admits its preflight'
-        Assert-True (Test-YurunaRefreshSpawnAllowed -RuntimeDir $t.Runtime -TokenId $token.TokenId -PrivateRoot $t.Root) 'the preflight site passes'
-        Assert-False (Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -TokenId ('f' * 32) -PrivateRoot $t.Root).PreflightAllowed 'another token does not'
-        Assert-False (Get-YurunaRefreshGateState -RuntimeDir (New-TestRoot).Runtime -TokenId $token.TokenId -PrivateRoot $t.Root).PreflightAllowed 'another runtime does not'
+        Assert-True (Test-YurunaRunnerSpawnAllowed -RuntimeDir $t.Runtime -TokenId $token.TokenId -PrivateRoot $t.Root) 'the preflight site passes'
+        Assert-False (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -TokenId ('f' * 32) -PrivateRoot $t.Root).PreflightAllowed 'another token does not'
+        Assert-False (Get-YurunaRunnerGateState -RuntimeDir (New-TestRoot).Runtime -TokenId $token.TokenId -PrivateRoot $t.Root).PreflightAllowed 'another runtime does not'
         $outer = Test-YurunaRunnerHandoffToken -TokenId $token.TokenId -Role outer -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-True $outer.Valid "outer role ($($outer.Reason))"
         Assert-Equal -Expected 'new-outer' -Actual $outer.Purpose
@@ -344,7 +559,7 @@ Describe 'Handoff token' {
             reasonCode = 'handoff-issued'; updatedUtc = 'x'
         }
         Assert-Equal -Expected 'boot-changed' -Actual (Test-YurunaRunnerHandoffToken -TokenId $token -Role outer -RuntimeDir $t.Runtime -PrivateRoot $t.Root).Reason
-        Assert-False (Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -TokenId $token -PrivateRoot $t.Root).PreflightAllowed 'a stale-boot token admits nothing'
+        Assert-False (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -TokenId $token -PrivateRoot $t.Root).PreflightAllowed 'a stale-boot token admits nothing'
     }
     It 'admits a resident-outer token only for the designated outer, which alone may complete it as such' {
         $t = New-TestRoot
@@ -354,7 +569,7 @@ Describe 'Handoff token' {
             -ExpiresInMilliseconds 60000 -ExpectedGeneration $closed.Generation -DesignatedOuter $me -OnReady recovery-pending -PrivateRoot $t.Root -Confirm:$false
         Assert-True $token.Issued "issued ($($token.Reason))"
         Assert-True (Test-YurunaRunnerHandoffToken -TokenId $token.TokenId -Role outer -RuntimeDir $t.Runtime -PrivateRoot $t.Root).Valid 'the designated outer'
-        $g = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $g = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-Equal -Expected 'AliveOwned' -Actual $g.OwnerState -Because 'the designated outer owns the handoff, so the gate is not orphaned when the worker exits'
         $t2 = New-TestRoot
         $closed2 = Close-TestGate -T $t2
@@ -522,16 +737,48 @@ Describe 'Restarting a runner that dies before acknowledging (stand-in runner sc
         }
         $closed = Close-TestGate -T $t
         $launch = Read-YurunaRunnerLaunchRecord -RuntimeDir $t.Runtime -PrivateRoot $t.Root
-        $r = Invoke-YurunaRunnerRefreshResume -LaunchRecord $launch -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime -RepoRoot $repo `
+        $r = Invoke-YurunaRunnerHandoffResume -LaunchRecord $launch -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime -RepoRoot $repo `
             -ExpectedGateGeneration $closed.Generation -Reclaimed @{} -PrivateDirectory $work -Deadline (New-YurunaDeadline -TotalMilliseconds 90000) `
             -PrivateRoot $t.Root -Confirm:$false
         Assert-Equal -Expected 'launch-failed' -Actual $r.Outcome -Because "reason $($r.Reason)"
         Assert-Equal -Expected 'runner-exited' -Actual $r.Reason
         Assert-Equal -Expected 'recovery-pending' -Actual $r.GateState
-        Assert-Equal -Expected 'recovery-pending' -Actual (Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
+        Assert-Equal -Expected 'recovery-pending' -Actual (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
         $kept = @(Get-ChildItem -LiteralPath $work -Filter 'runner.old-*.err' | ForEach-Object Name | Sort-Object)
         Assert-Equal -Expected 'runner.old-0.err,runner.old-1.err,runner.old-2.err,runner.old-3.err' -Actual ($kept -join ',') -Because 'the four newest old captures stay'
         Assert-True (Test-Path -LiteralPath (Join-Path $work "runner.$($script:RequestId).err")) 'this restart''s own capture exists'
+    }
+}
+
+Describe 'A host update''s start on Windows' {
+    It 'asks the launcher for a console window and reports it with the runner''s pid' {
+        $t = New-TestRoot
+        $repo = Join-Path $script:Work ('repo-' + [guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path (Join-Path $repo 'test') -Force
+        $runnerScript = Join-Path $repo 'test/Start-TestRunner.ps1'
+        $real = Get-YurunaTestFileAst -Path (Join-Path $script:RepoRoot 'test/Start-TestRunner.ps1')
+        [System.IO.File]::WriteAllText($runnerScript, "#requires -version 7`n" + $real.ParamBlock.Extent.Text + "`nexit 1`n")
+        $config = Join-Path $repo 'runner.config.yml'
+        Set-Content -LiteralPath $config -Value 'x: 1' -Encoding utf8NoBOM
+        $written = Write-YurunaRunnerLaunchRecord -ScriptPath $runnerScript -BoundParameters ([ordered]@{}) -ResolvedConfigPath $config `
+            -RuntimeDir $t.Runtime -RepoRoot $repo -WorkingDirectory $repo -ForwardEnvironment @{} -AllowedEnvironmentName @('YURUNA_LOG_LEVEL') `
+            -PrivateRoot $t.Root -Confirm:$false
+        Assert-True $written.Written "launch record ($($written.Reason) $($written.Parameter))"
+        $work = Join-Path $t.Root 'work'
+        $null = New-Item -ItemType Directory -Path $work -Force
+        $script:SeenLaunch = $null
+        Mock -ModuleName Test.SingleInstance Start-YurunaDetachedProcess {
+            $script:SeenLaunch = @{ ConsoleWindow = [bool]$ConsoleWindow; Socket = $ConsoleSocketPath }
+            [pscustomobject]@{ Launched = $false; Reason = 'launcher-failed'; Console = 'window'; ConsoleReason = $null; FinalPid = 4242 }
+        }
+        $closed = Close-TestGate -T $t
+        $r = Invoke-YurunaRunnerHandoffResume -LaunchRecord (Read-YurunaRunnerLaunchRecord -RuntimeDir $t.Runtime -PrivateRoot $t.Root) -RequestId $script:RequestId -Attempt 1 `
+            -RuntimeDir $t.Runtime -RepoRoot $repo -ExpectedGateGeneration $closed.Generation -Reclaimed @{} -PrivateDirectory $work `
+            -Deadline (New-YurunaDeadline -TotalMilliseconds 90000) -PrivateRoot $t.Root -ConsoleWindow -Confirm:$false
+        Assert-True $script:SeenLaunch.ConsoleWindow 'the launcher was asked for a window'
+        Assert-True ([string]::IsNullOrEmpty($script:SeenLaunch.Socket)) 'no tmux socket rides along'
+        Assert-Equal -Expected 'window|4242' -Actual "$($r.Console)|$($r.ConsolePid)"
+        Assert-Equal -Expected 'launch-failed' -Actual $r.Outcome
     }
 }
 
@@ -566,12 +813,12 @@ if ($Role -eq 'cycle') {
     [IO.File]::WriteAllText((Join-Path $fixture.runtime "$stem.pid"), [string]$PID)
     [IO.File]::WriteAllText((Join-Path $fixture.runtime "$stem.start"), [DateTimeOffset]::FromUnixTimeMilliseconds($identity.startTimeUnixMs).UtcDateTime.ToString('o'))
 }
-$admitted = Test-YurunaRunnerHandoffToken -TokenId $RefreshHandoffToken -Role $Role -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private
+$admitted = Test-YurunaRunnerHandoffToken -TokenId $HandoffToken -Role $Role -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private
 if (-not $admitted.Valid) { throw "role $Role refused: $($admitted.Reason)" }
 if ($Role -eq 'inner') {
     $chain = @{}
     foreach ($name in @('outer', 'cycle', 'inner')) { $chain[$name] = Get-Content -LiteralPath (Join-Path $fixture.capture "$name.json") -Raw | ConvertFrom-Json -AsHashtable }
-    $written = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role inner -State ready -Chain $chain -PreservedControl @('control.cycle-pause') -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private -Confirm:$false
+    $written = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role inner -State ready -Chain $chain -PreservedControl @('control.cycle-pause') -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private -Confirm:$false
     if (-not $written) { throw 'readiness acknowledgment was not written' }
     Import-Module (Join-Path $fixture.modules 'Test.RunnerInnerLoop.psm1') -DisableNameChecking
     $null = Wait-YurunaHeldControlBarrier -RuntimeDir $fixture.runtime -StepHeartbeatFile (Join-Path $fixture.runtime 'runner.stepHeartbeat') -ShutdownState @{ Requested = $false } -PollDelay { param([int]$Attempt) $null = $Attempt; 100 }
@@ -579,7 +826,7 @@ if ($Role -eq 'inner') {
 } else {
     $nextRole = if ($Role -eq 'outer') { 'cycle' } else { 'inner' }
     $psi = [Diagnostics.ProcessStartInfo]::new([Environment]::ProcessPath)
-    foreach ($arg in @('-NoProfile', '-NonInteractive', '-File', (Join-Path $PSScriptRoot 'native-chain.ps1'), '-Role', $nextRole, '-RefreshHandoffToken', $RefreshHandoffToken)) { $psi.ArgumentList.Add($arg) }
+    foreach ($arg in @('-NoProfile', '-NonInteractive', '-File', (Join-Path $PSScriptRoot 'native-chain.ps1'), '-Role', $nextRole, '-HandoffToken', $HandoffToken)) { $psi.ArgumentList.Add($arg) }
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $null = [Diagnostics.Process]::Start($psi)
@@ -589,16 +836,16 @@ Start-Sleep -Seconds 120
         $runner = Join-Path $testDir 'Start-TestRunner.ps1'
         $real = Get-YurunaTestFileAst -Path (Join-Path $script:Here '../Start-TestRunner.ps1')
         [IO.File]::WriteAllText($runner, "#requires -version 7`n" + $real.ParamBlock.Extent.Text + "`n`$Role = 'outer'`n" + $body)
-        [IO.File]::WriteAllText((Join-Path $testDir 'native-chain.ps1'), "param([string]`$Role, [string]`$RefreshHandoffToken)`n" + $body)
+        [IO.File]::WriteAllText((Join-Path $testDir 'native-chain.ps1'), "param([string]`$Role, [string]`$HandoffToken)`n" + $body)
         $config = Join-Path $repo 'runner.config.yml'
         [IO.File]::WriteAllText($config, "x: 1`n")
         $record = Write-YurunaRunnerLaunchRecord -ScriptPath $runner -BoundParameters ([ordered]@{}) -ResolvedConfigPath $config -RuntimeDir $paths.Runtime `
             -RepoRoot $repo -WorkingDirectory $repo -ForwardEnvironment @{} -AllowedEnvironmentName @('YURUNA_LOG_LEVEL') -PrivateRoot $paths.Root -Confirm:$false
         Assert-True $record.Written "launch record: $($record.Reason)"
-        $closed = Set-YurunaRefreshGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -ExpectedGeneration '' -PrivateRoot $paths.Root -OwnerPid $PID -Confirm:$false
+        $closed = Set-YurunaRunnerGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -ExpectedGeneration '' -PrivateRoot $paths.Root -OwnerPid $PID -Confirm:$false
         try {
             $launch = Read-YurunaRunnerLaunchRecord -RuntimeDir $paths.Runtime -PrivateRoot $paths.Root
-            $result = Invoke-YurunaRunnerRefreshResume -LaunchRecord $launch -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -RepoRoot $repo `
+            $result = Invoke-YurunaRunnerHandoffResume -LaunchRecord $launch -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -RepoRoot $repo `
                 -ExpectedGateGeneration $closed.Generation -Reclaimed @{} -PrivateDirectory $streams -Deadline (New-YurunaDeadline -TotalMilliseconds 60000) -PrivateRoot $paths.Root -Confirm:$false
             $detail = ''
             if ($result.Outcome -ne 'ready') {
@@ -606,7 +853,7 @@ Start-Sleep -Seconds 120
             }
             Assert-Equal 'ready' $result.Outcome "native detached handoff: $($result.Reason) $detail"
             Assert-Equal 'released' $result.GateState
-            Assert-Equal 'open' (Get-YurunaRefreshGateState -RuntimeDir $paths.Runtime -PrivateRoot $paths.Root).State
+            Assert-Equal 'open' (Get-YurunaRunnerGateState -RuntimeDir $paths.Runtime -PrivateRoot $paths.Root).State
             Assert-Equal 'control.cycle-pause' (@($result.PreservedControls) -join ',')
             Assert-True (Wait-TestCondition { [IO.File]::Exists((Join-Path $paths.Runtime 'runner.stepHeartbeat')) }) 'the resumed inner reached the held-control barrier'
             Start-Sleep -Milliseconds 300
@@ -636,11 +883,11 @@ Describe 'Expired resident-outer handoff (Complete-YurunaRunnerExpiredHandoff)' 
         Start-Sleep -Milliseconds 50
         $preview = Complete-YurunaRunnerExpiredHandoff -PrivateRoot $t.Root -WhatIf
         Assert-Equal -Expected 'preview' -Actual $preview.Reason
-        Assert-Equal -Expected 'handoff' -Actual (Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
+        Assert-Equal -Expected 'handoff' -Actual (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
         $done = Complete-YurunaRunnerExpiredHandoff -PrivateRoot $t.Root -Confirm:$false
         Assert-True $done.Completed "completed ($($done.Reason))"
         Assert-Equal -Expected $script:RequestId -Actual $done.RequestId
-        $g = Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
+        $g = Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root
         Assert-Equal -Expected 'recovery-pending' -Actual $g.State
         Assert-Equal -Expected 'handoff-expired' -Actual $g.ReasonCode
         Assert-Equal -Expected $PID -Actual ([int]$g.Owner['pid']) -Because 'the resident outer stays the owner the resume takes over from'
@@ -651,7 +898,7 @@ Describe 'Expired resident-outer handoff (Complete-YurunaRunnerExpiredHandoff)' 
         $live = New-TestHandoff -T $t -Purpose resident-outer -DesignatedOuter (Get-OwnIdentity)
         Assert-True $live.Issued "issued ($($live.Reason))"
         Assert-Equal -Expected 'token-live' -Actual (Complete-YurunaRunnerExpiredHandoff -PrivateRoot $t.Root -Confirm:$false).Reason
-        Assert-Equal -Expected 'handoff' -Actual (Get-YurunaRefreshGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
+        Assert-Equal -Expected 'handoff' -Actual (Get-YurunaRunnerGateState -RuntimeDir $t.Runtime -PrivateRoot $t.Root).State
         $t2 = New-TestRoot
         $closed2 = Close-TestGate -T $t2
         $null = New-YurunaRunnerHandoffToken -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t2.Runtime -Purpose resident-outer -ExpiresInMilliseconds 1 `
@@ -687,7 +934,7 @@ Describe 'Readiness acknowledgment housekeeping' {
         Assert-True $done.Completed "completed ($($done.Reason))"
         Assert-False (Test-Path -LiteralPath $own) 'completion removes it'
         Set-Content -LiteralPath $stale -Value '{}' -Encoding utf8NoBOM
-        $null = Set-YurunaRefreshGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime -ExpectedGeneration $done.Generation -PrivateRoot $t.Root -Confirm:$false
+        $null = Set-YurunaRunnerGate -State released -RequestId $script:RequestId -Attempt 1 -RuntimeDir $t.Runtime -ExpectedGeneration $done.Generation -PrivateRoot $t.Root -Confirm:$false
         Assert-False (Test-Path -LiteralPath $stale) 'a gate transition removes it'
     }
     It 'drops an acknowledgment whose handoff was completed while it was being written' {
@@ -753,8 +1000,8 @@ Describe 'Runner startup order in resume mode (source)' {
             while ($cursor -and $cursor -isnot [System.Management.Automation.Language.IfStatementAst]) { $cursor = $cursor.Parent }
             if ($cursor) { $cursor.Clauses[0].Item1.Extent.Text } else { '' }
         }
-        $normal = @($calls | Where-Object { (& $conditionOf $_) -eq '-not $RefreshResume' })
-        $resumed = @($calls | Where-Object { (& $conditionOf $_) -eq '$RefreshResume' })
+        $normal = @($calls | Where-Object { (& $conditionOf $_) -eq '-not $HandoffResume' })
+        $resumed = @($calls | Where-Object { (& $conditionOf $_) -eq '$HandoffResume' })
         Assert-Equal -Expected 1 -Actual $normal.Count
         Assert-Equal -Expected 1 -Actual $resumed.Count
         # A refusing start reads runner.pid only to decide whether to record its
@@ -811,10 +1058,10 @@ Describe 'Launch record' {
         }
     }
 
-    It 'round-trips the six options, excluding common and refresh parameters' {
+    It 'round-trips the six options, excluding common and handoff parameters' {
         $t = New-TestRoot
         $bound = [ordered]@{ ConfigPath = 'relative.yml'; NoGitPull = [switch]$true; CycleDelaySeconds = 7; logLevel = 'Debug'
-            Verbose = [switch]$true; RefreshResume = [switch]$true; RefreshHandoffToken = ('a' * 32) }
+            Verbose = [switch]$true; HandoffResume = [switch]$true; HandoffToken = ('a' * 32) }
         $w = Write-TestLaunchRecord -T $t -Bound $bound
         Assert-True $w.Written "written ($($w.Reason) $($w.Parameter))"
         $r = Read-YurunaRunnerLaunchRecord -RuntimeDir $t.Runtime -PrivateRoot $t.Root
@@ -829,7 +1076,7 @@ Describe 'Launch record' {
         Assert-Equal -Expected 'Debug' -Actual $r.Record['environment']['YURUNA_LOG_LEVEL']
         Assert-True (Test-YurunaRunnerLaunchSpec -Record $r -ScriptPath $script:RunnerScript -RequireExistingConfig).Valid 'it validates against the real runner'
         $args2 = @(New-YurunaRunnerResumeArgumentList -Record $r -TokenId ('b' * 32))
-        Assert-Equal -Expected "-ConfigPath|$($script:Config)|-NoGitPull|-CycleDelaySeconds|7|-logLevel|Debug|-RefreshResume|-RefreshHandoffToken|$('b' * 32)" -Actual ($args2 -join '|')
+        Assert-Equal -Expected "-ConfigPath|$($script:Config)|-NoGitPull|-CycleDelaySeconds|7|-logLevel|Debug|-HandoffResume|-HandoffToken|$('b' * 32)" -Actual ($args2 -join '|')
         Assert-True ($args2[0] -is [string]) 'string elements'
     }
     It 'reads bound switches from a real $PSBoundParameters dictionary' {
@@ -929,18 +1176,18 @@ Describe 'Strict binding on the three runner scripts' {
         Assert-True ($r.ExitCode -ne 0) 'the inner refuses'
         Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $t.Runtime -Force).Count
     }
-    It 'refuses half of the refresh transport pair on the runner' {
+    It 'refuses half of the handoff transport pair on the runner' {
         $t = New-TestRoot
-        $r = Invoke-TestScript -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $script:Scripts[0], '-RefreshResume') -Runtime $t.Runtime
+        $r = Invoke-TestScript -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $script:Scripts[0], '-HandoffResume') -Runtime $t.Runtime
         Assert-Equal -Expected 1 -Actual $r.ExitCode
         Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $t.Runtime -Force).Count -Because 'refused before any runtime file'
-        $bad = Invoke-TestScript -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $script:Scripts[0], '-RefreshResume', '-RefreshHandoffToken', 'NOT-HEX') -Runtime $t.Runtime
+        $bad = Invoke-TestScript -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $script:Scripts[0], '-HandoffResume', '-HandoffToken', 'NOT-HEX') -Runtime $t.Runtime
         Assert-True ($bad.ExitCode -ne 0) 'a malformed token is a binding error'
     }
 }
 
-Describe 'Refresh transport through the sg relaunch' -Skip:(-not $IsLinux) {
-    It 'forwards -RefreshResume and -RefreshHandoffToken bound through Invoke-LibvirtGroupReExecIfNeeded' {
+Describe 'Handoff transport through the sg relaunch' -Skip:(-not $IsLinux) {
+    It 'forwards -HandoffResume and -HandoffToken bound through Invoke-LibvirtGroupReExecIfNeeded' {
         $dir = Join-Path $script:Work ('sg-' + [guid]::NewGuid().ToString('N'))
         $bin = Join-Path $dir 'bin'
         $null = New-Item -ItemType Directory -Path $bin -Force
@@ -958,25 +1205,25 @@ Describe 'Refresh transport through the sg relaunch' -Skip:(-not $IsLinux) {
         $modulePath = (Join-Path $script:Here 'Test.HostDetection.psm1').Replace("'", "''")
         Set-Content -LiteralPath $caller -Encoding utf8 -Value @"
 [CmdletBinding()]
-param([switch]`$RefreshResume, [ValidatePattern('^[0-9a-f]{32}$')][string]`$RefreshHandoffToken, [string]`$ConfigPath)
+param([switch]`$HandoffResume, [ValidatePattern('^[0-9a-f]{32}$')][string]`$HandoffToken, [string]`$ConfigPath)
 if (-not `$env:YURUNA_SG_RELAUNCH) {
     Import-Module '$modulePath' -DisableNameChecking
     Invoke-LibvirtGroupReExecIfNeeded -HostType 'host.ubuntu.kvm' -ScriptPath `$PSCommandPath -BoundParameters `$PSBoundParameters
     exit 3
 }
-[IO.File]::WriteAllText('$($record.Replace("'", "''"))', ([ordered]@{ bound = @(`$PSBoundParameters.Keys | Sort-Object); resume = [bool]`$RefreshResume; token = `$RefreshHandoffToken; config = `$ConfigPath } | ConvertTo-Json -Compress))
+[IO.File]::WriteAllText('$($record.Replace("'", "''"))', ([ordered]@{ bound = @(`$PSBoundParameters.Keys | Sort-Object); resume = [bool]`$HandoffResume; token = `$HandoffToken; config = `$ConfigPath } | ConvertTo-Json -Compress))
 exit 7
 "@
         $token = 'ab' * 16
         $r = Invoke-BoundedNativeCommand -FilePath $script:Pwsh -TimeoutSeconds 120 `
             -Environment @{ PATH = "${bin}:$(Split-Path -Parent $script:Pwsh):$($env:PATH)"; USER = [Environment]::UserName } `
-            -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', "& '$($caller.Replace("'", "''"))' -RefreshResume -RefreshHandoffToken '$token' -ConfigPath 'a b.yml'; exit `$LASTEXITCODE")
+            -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', "& '$($caller.Replace("'", "''"))' -HandoffResume -HandoffToken '$token' -ConfigPath 'a b.yml'; exit `$LASTEXITCODE")
         Assert-Equal -Expected 7 -Actual $r.ExitCode -Because (ConvertTo-TestPlainText -Text $r.StdErr)
         $seen = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
         Assert-True $seen.resume 'the switch arrived bound'
         Assert-Equal -Expected $token -Actual $seen.token
         Assert-Equal -Expected 'a b.yml' -Actual $seen.config
-        Assert-Equal -Expected 'ConfigPath,RefreshHandoffToken,RefreshResume' -Actual (@($seen.bound) -join ',')
+        Assert-Equal -Expected 'ConfigPath,HandoffResume,HandoffToken' -Actual (@($seen.bound) -join ',')
     }
 }
 
@@ -1060,22 +1307,22 @@ Describe 'Held-control barrier (Wait-YurunaHeldControlBarrier)' {
 
 Describe 'Preflight inner helpers' {
     BeforeEach {
-        $script:SavedEnv = Save-YurunaTestEnvironment -Name @('YURUNA_REFRESH_PREFLIGHT', 'YURUNA_REFRESH_HANDOFF_TOKEN', 'YURUNA_REFRESH_BARRIER')
+        $script:SavedEnv = Save-YurunaTestEnvironment -Name @('YURUNA_HANDOFF_PREFLIGHT', 'YURUNA_HANDOFF_TOKEN', 'YURUNA_HANDOFF_BARRIER')
         foreach ($name in $script:SavedEnv.Keys) { [Environment]::SetEnvironmentVariable($name, $null) }
     }
     AfterEach {
         Restore-YurunaTestEnvironment -Saved $script:SavedEnv
         Remove-Item function:Test-VirtualizationResponsive, function:global:Initialize-YurunaHost, function:global:Write-RunnerPhase -ErrorAction SilentlyContinue
     }
-    It 'reads the refresh role from the environment' {
-        Assert-Equal -Expected 'normal' -Actual (Get-YurunaRefreshInnerMode -RuntimeDir $script:Work).Mode
-        $env:YURUNA_REFRESH_BARRIER = $script:RequestId
-        $barrier = Get-YurunaRefreshInnerMode -RuntimeDir $script:Work
+    It 'reads the handoff role from the environment' {
+        Assert-Equal -Expected 'normal' -Actual (Get-YurunaHandoffInnerMode -RuntimeDir $script:Work).Mode
+        $env:YURUNA_HANDOFF_BARRIER = $script:RequestId
+        $barrier = Get-YurunaHandoffInnerMode -RuntimeDir $script:Work
         Assert-Equal -Expected 'barrier' -Actual $barrier.Mode
         Assert-Equal -Expected $script:RequestId -Actual $barrier.RequestId
-        $env:YURUNA_REFRESH_PREFLIGHT = '1'
-        $env:YURUNA_REFRESH_HANDOFF_TOKEN = 'not-a-token'
-        $preflight = Get-YurunaRefreshInnerMode -RuntimeDir $script:Work
+        $env:YURUNA_HANDOFF_PREFLIGHT = '1'
+        $env:YURUNA_HANDOFF_TOKEN = 'not-a-token'
+        $preflight = Get-YurunaHandoffInnerMode -RuntimeDir $script:Work
         Assert-Equal -Expected 'preflight' -Actual $preflight.Mode -Because 'an invalid token is still a preflight, which then acknowledges failure'
         Assert-False $preflight.Token.Valid 'the token did not validate'
     }
@@ -1095,7 +1342,7 @@ Describe 'Preflight inner helpers' {
         $invalid = [pscustomobject]@{ Mode = 'preflight'; TokenId = ('a' * 32); RequestId = $null; Purpose = $null; Token = [pscustomobject]@{ Valid = $false } }
         $deadline = New-YurunaDeadline -TotalMilliseconds 30000
         $run = { param($Mode, $Config, $HostType)
-            Invoke-YurunaRefreshPreflight -Mode $Mode -HostType $HostType -RepoRoot $script:RepoRoot -Config $Config `
+            Invoke-YurunaHandoffPreflight -Mode $Mode -HostType $HostType -RepoRoot $script:RepoRoot -Config $Config `
                 -StepHeartbeatFile (Join-Path $t.Runtime 'hb') -Deadline $deadline -RuntimeDir $t.Runtime 6>$null }
         Assert-Equal -Expected 'token-invalid' -Actual (& $run $invalid @{} 'host.ubuntu.kvm').FailureReason
         Assert-Equal -Expected 'config-unreadable' -Actual (& $run $valid $null 'host.ubuntu.kvm').FailureReason
@@ -1117,20 +1364,20 @@ Describe 'Preflight inner helpers' {
     }
     It 'parks a new-outer preflight until released, revoked or expired; a resident-outer preflight does not park' {
         $hb = Join-Path $script:Work 'park.hb'
-        Assert-Equal -Expected 'not-parked' -Actual (Wait-YurunaRefreshRelease -TokenId ('a' * 32) -Purpose 'resident-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false }).Outcome
-        Assert-Equal -Expected 'shutdown' -Actual (Wait-YurunaRefreshRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $true }).Outcome
+        Assert-Equal -Expected 'not-parked' -Actual (Wait-YurunaHandoffRelease -TokenId ('a' * 32) -Purpose 'resident-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false }).Outcome
+        Assert-Equal -Expected 'shutdown' -Actual (Wait-YurunaHandoffRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $true }).Outcome
         $script:GateCalls = 0
-        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRefreshGateState {
+        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRunnerGateState {
             $script:GateCalls++
             if ($script:GateCalls -lt 3) { [pscustomobject]@{ State = 'handoff'; PreflightAllowed = $true; ExpiresTick = [Environment]::TickCount64 + 60000 } }
             else { [pscustomobject]@{ State = 'open'; PreflightAllowed = $false } }
         }
-        Assert-Equal -Expected 'released' -Actual (Wait-YurunaRefreshRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false } -PollMilliseconds 10).Outcome
+        Assert-Equal -Expected 'released' -Actual (Wait-YurunaHandoffRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false } -PollMilliseconds 10).Outcome
         Assert-True (Test-Path -LiteralPath $hb) 'the heartbeat is refreshed while parked'
-        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'recovery-pending'; PreflightAllowed = $false } }
-        Assert-Equal -Expected 'revoked' -Actual (Wait-YurunaRefreshRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false } -PollMilliseconds 10).Outcome
-        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRefreshGateState { [pscustomobject]@{ State = 'handoff'; PreflightAllowed = $false; ExpiresTick = [long]1 } }
-        Assert-Equal -Expected 'expired' -Actual (Wait-YurunaRefreshRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false } -PollMilliseconds 10).Outcome
+        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRunnerGateState { [pscustomobject]@{ State = 'recovery-pending'; PreflightAllowed = $false } }
+        Assert-Equal -Expected 'revoked' -Actual (Wait-YurunaHandoffRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false } -PollMilliseconds 10).Outcome
+        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRunnerGateState { [pscustomobject]@{ State = 'handoff'; PreflightAllowed = $false; ExpiresTick = [long]1 } }
+        Assert-Equal -Expected 'expired' -Actual (Wait-YurunaHandoffRelease -TokenId ('a' * 32) -Purpose 'new-outer' -StepHeartbeatFile $hb -ShutdownState @{ Requested = $false } -PollMilliseconds 10).Outcome
     }
 }
 
@@ -1169,42 +1416,42 @@ Describe 'Inner cycle gate sites' {
         Remove-Variable __innerCalls -Scope Global -ErrorAction SilentlyContinue
     }
     It 'ends the cycle at its start, before any host work, while the gate holds; counters untouched' {
-        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $false; RequestId = 'r-1'; State = 'closed' } }
+        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRunnerGateState { [pscustomobject]@{ SpawnAllowed = $false; RequestId = 'r-1'; State = 'closed' } }
         $state = New-InnerState -Runtime $script:T.Runtime
         Invoke-RunnerInnerCycle -State $state 6>$null
-        Assert-True $state.RefreshGated 'held'
+        Assert-True $state.GateHeld 'held'
         Assert-True $state.OverallPassed 'neither a pass nor a failure is recorded'
         Assert-Equal -Expected 2 -Actual $state.ConsecutiveFailures -Because 'the gating counters are untouched'
         Assert-Equal -Expected 0 -Actual $global:__innerCalls.Count -Because 'no host check and no pull ran'
-        $sidecar = Get-Content -LiteralPath (Join-Path $script:T.Runtime 'runner.refresh-gated.json') -Raw | ConvertFrom-Json
+        $sidecar = Get-Content -LiteralPath (Join-Path $script:T.Runtime 'runner.gate-held.json') -Raw | ConvertFrom-Json
         Assert-Equal -Expected 'cycle-start' -Actual $sidecar.site
         Assert-Equal -Expected $PID -Actual $sidecar.innerPid
         Assert-Equal -Expected 'r-1' -Actual $sidecar.requestId
     }
     It 'ends the cycle before the pull when the gate closes during the host checks' {
         $script:GateReads = 0
-        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRefreshGateState {
+        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRunnerGateState {
             $script:GateReads++
             [pscustomobject]@{ SpawnAllowed = ($script:GateReads -lt 2); RequestId = 'r-2'; State = $(if ($script:GateReads -lt 2) { 'open' } else { 'closed' }) }
         }
         $state = New-InnerState -Runtime $script:T.Runtime
         Invoke-RunnerInnerCycle -State $state 6>$null
-        Assert-True $state.RefreshGated 'held'
+        Assert-True $state.GateHeld 'held'
         Assert-Equal -Expected 'Get-HostConditionVerdict' -Actual ($global:__innerCalls -join ',') -Because 'the pull never ran'
-        Assert-Equal -Expected 'git-pull' -Actual (Get-Content -LiteralPath (Join-Path $script:T.Runtime 'runner.refresh-gated.json') -Raw | ConvertFrom-Json).site
+        Assert-Equal -Expected 'git-pull' -Actual (Get-Content -LiteralPath (Join-Path $script:T.Runtime 'runner.gate-held.json') -Raw | ConvertFrom-Json).site
     }
     It 'passes an open gate and writes nothing' {
-        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $true; RequestId = $null; State = 'open' } }
-        Assert-True (Test-YurunaRefreshCycleGate -Site 'cycle-start' -RuntimeDir $script:T.Runtime) 'open'
-        Assert-False (Test-Path -LiteralPath (Join-Path $script:T.Runtime 'runner.refresh-gated.json')) 'no sidecar'
+        Mock -ModuleName Test.RunnerInnerLoop Get-YurunaRunnerGateState { [pscustomobject]@{ SpawnAllowed = $true; RequestId = $null; State = 'open' } }
+        Assert-True (Test-YurunaRunnerCycleGate -Site 'cycle-start' -RuntimeDir $script:T.Runtime) 'open'
+        Assert-False (Test-Path -LiteralPath (Join-Path $script:T.Runtime 'runner.gate-held.json')) 'no sidecar'
     }
     It 'checks the gate before the cycle-start sweep and closes the cycle log there' {
         $fn = Get-YurunaTestFunctionAst -Path (Join-Path $script:Here 'Test.RunnerInnerLoop.psm1') -Name 'Invoke-RunnerInnerCycle'
         $calls = @($fn.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true))
-        $siteLine = @($calls | Where-Object { $_.GetCommandName() -eq 'Test-YurunaRefreshCycleGate' -and $_.Extent.Text -match 'cycle-start-sweep' })[0].Extent.StartLineNumber
+        $siteLine = @($calls | Where-Object { $_.GetCommandName() -eq 'Test-YurunaRunnerCycleGate' -and $_.Extent.Text -match 'cycle-start-sweep' })[0].Extent.StartLineNumber
         $sweepLine = @($calls | Where-Object { $_.GetCommandName() -eq 'Remove-CycleStartOrphanVM' })[0].Extent.StartLineNumber
         $pullLine = @($calls | Where-Object { $_.GetCommandName() -eq 'Invoke-GitPull' })[0].Extent.StartLineNumber
-        $pullSite = @($calls | Where-Object { $_.GetCommandName() -eq 'Test-YurunaRefreshCycleGate' -and $_.Extent.Text -match "'git-pull'" })[0].Extent.StartLineNumber
+        $pullSite = @($calls | Where-Object { $_.GetCommandName() -eq 'Test-YurunaRunnerCycleGate' -and $_.Extent.Text -match "'git-pull'" })[0].Extent.StartLineNumber
         foreach ($offset in @($siteLine, $sweepLine, $pullLine, $pullSite)) { Assert-NotNull $offset 'every ordering anchor must exist' }
         Assert-True ($siteLine -lt $sweepLine) 'the sweep site precedes Remove-CycleStartOrphanVM'
         Assert-True ($pullSite -lt $pullLine) 'the pull site precedes Invoke-GitPull'
@@ -1231,7 +1478,7 @@ Describe 'Inner entry script source order' {
         foreach ($later in @('Update-StashServiceMarkerAddress', 'Get-HostConditionVerdict', 'Invoke-CycleAdmissionStep', 'Invoke-CycleServiceVmRestore', 'Clear-StaleControlState')) {
             Assert-True ($barrier -lt (& $first $later)) "the barrier precedes $later"
         }
-        $preflightExit = & $first 'Wait-YurunaRefreshRelease'
+        $preflightExit = & $first 'Wait-YurunaHandoffRelease'
         foreach ($later in @('Write-HostRegistrationRecord', 'Update-StashServiceMarkerAddress', 'Initialize-YurunaHost', 'Invoke-CycleAdmissionStep')) {
             Assert-True ($preflightExit -lt (& $first $later)) "the preflight ends before $later"
         }

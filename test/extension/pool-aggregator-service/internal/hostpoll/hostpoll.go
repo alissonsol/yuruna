@@ -240,17 +240,17 @@ func (s *HostStatus) FailClassOf() string {
 // IsTerminal reports whether a cycle status is a finished verdict.
 func IsTerminal(status string) bool { return status == "pass" || status == "fail" }
 
-// NormalizeRefreshCapability clamps the refresh object a host put in its
+// NormalizeRepairCapability clamps the repair object a host put in its
 // control-status answer. The host is read without authentication, so every
 // field is held to its vocabulary: a wrong type or an unknown availability is
 // capability_malformed, another protocol is protocol_unsupported, and a
 // ceiling that is not a rung is dropped. An explicit null reads as absent.
-func NormalizeRefreshCapability(raw json.RawMessage) *pool.HostRefresh {
+func NormalizeRepairCapability(raw json.RawMessage) *pool.HostRepair {
 	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
 		return nil
 	}
-	malformed := &pool.HostRefresh{Availability: pool.RefreshUnavailable, Reason: pool.RefreshReasonCapabilityMalformed,
-		Remote: pool.RefreshRemoteUnknown, State: pool.RefreshStateUnknown}
+	malformed := &pool.HostRepair{Availability: pool.RepairUnavailable, Reason: pool.RepairReasonCapabilityMalformed,
+		Remote: pool.RepairRemoteUnknown, State: pool.RepairStateUnknown}
 	var in struct {
 		Protocol     *int    `json:"protocol"`
 		Availability *string `json:"availability"`
@@ -268,7 +268,7 @@ func NormalizeRefreshCapability(raw json.RawMessage) *pool.HostRefresh {
 		}
 		return *p
 	}
-	r := pool.HostRefresh{Availability: *in.Availability, Ceiling: str(in.Ceiling), Reason: str(in.Reason),
+	r := pool.HostRepair{Availability: *in.Availability, Ceiling: str(in.Ceiling), Reason: str(in.Reason),
 		Remote: str(in.Remote), State: str(in.State)}
 	if in.Protocol != nil {
 		r.Protocol = *in.Protocol
@@ -482,14 +482,14 @@ func FetchVersion(client *http.Client, base string) (string, error) {
 
 // ControlStatus is one host's answer to GET /control/control-status. Present
 // false means the route did not answer usably, not "no token"; TokenTag names
-// the token without carrying it; UtcNow is the host's clock; Refresh is nil when
-// the answer carried no refresh capability. See https://yuruna.link/42c29d04-000e.
+// the token without carrying it; UtcNow is the host's clock; Repair is nil when
+// the answer carried no repair capability. See https://yuruna.link/42c29d04-000e.
 type ControlStatus struct {
 	Present         bool
 	TokenConfigured bool
 	TokenTag        string
 	UtcNow          time.Time
-	Refresh         *pool.HostRefresh
+	Repair          *pool.HostRepair
 }
 
 // ErrControlStatusOversize is a control-status answer larger than the cap.
@@ -522,13 +522,13 @@ func FetchControlStatus(client *http.Client, base string) (ControlStatus, error)
 		TokenConfigured bool            `json:"tokenConfigured"`
 		TokenTag        string          `json:"tokenTag"`
 		UtcNow          string          `json:"utcNow"`
-		Refresh         json.RawMessage `json:"refresh"`
+		Repair          json.RawMessage `json:"repair"`
 	}
 	if err := json.Unmarshal(body, &cs); err != nil {
 		return ControlStatus{}, fmt.Errorf("control-status parse: %w", err)
 	}
 	out := ControlStatus{Present: true, TokenConfigured: cs.TokenConfigured, TokenTag: cs.TokenTag,
-		Refresh: NormalizeRefreshCapability(cs.Refresh)}
+		Repair: NormalizeRepairCapability(cs.Repair)}
 	// An unparseable clock leaves UtcNow zero, which the classifier reads as
 	// "no skew evidence" rather than as an enormous skew.
 	if t, perr := time.Parse(time.RFC3339, cs.UtcNow); perr == nil {

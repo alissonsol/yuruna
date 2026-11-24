@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,6 +160,15 @@ $passwordSequenceCase = @(
     'start.guest.ubuntu.server.24.macos.utm.yml'
     'start.guest.ubuntu.server.26.yml'
     'start.guest.ubuntu.server.26.macos.utm.yml'
+) | ForEach-Object {
+    @{ name = $_; path = Join-Path $discoveryRepoRoot "test/sequences/$_" }
+}
+# The SSH start sequences rotate the expired password inside sshWaitReady and
+# prove the rotated login with an sshExec, so the console cases below (a typed
+# shell token, OCR prompts) do not describe them; their own case does.
+$sshPasswordSequenceCase = @(
+    'start.guest.ubuntu.server.24.ssh.yml'
+    'start.guest.ubuntu.server.26.ssh.yml'
 ) | ForEach-Object {
     @{ name = $_; path = Join-Path $discoveryRepoRoot "test/sequences/$_" }
 }
@@ -368,6 +377,8 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
             'start.guest.ubuntu.server.24.macos.utm.yml'
             'start.guest.ubuntu.server.26.yml'
             'start.guest.ubuntu.server.26.macos.utm.yml'
+            'start.guest.ubuntu.server.24.ssh.yml'
+            'start.guest.ubuntu.server.26.ssh.yml'
         ) | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $sequenceRoot $_)) } | Sort-Object
 
         if ($script:runtimeSequenceFile.Count -lt 3) {
@@ -398,6 +409,26 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
         $actual = @($actual | Sort-Object)
         Assert-Equal -Expected ($expectedPasswordSequencePath -join "`n") -Actual ($actual -join "`n") `
             -Because 'adding or removing a password commit requires an explicit review of its post-login confirmation'
+    }
+
+    It 'commits the rotated password only after an SSH login proved it in <name>' -TestCases $sshPasswordSequenceCase {
+        param($name, $path)
+        $sequence = Read-SequenceFile -Path $path -NoCache
+        $records = @(Get-SequenceStepRecord -Steps @($sequence['steps']))
+        $indexOf = { param($predicate) for ($i = 0; $i -lt $records.Count; $i++) { if (& $predicate $records[$i].Step) { return $i } }; return -1 }
+
+        $commits = @($records | Where-Object {
+                $_.Step['action'] -eq 'callExtension' -and $_.Step['method'] -eq 'authentication.SetPassword'
+            })
+        Assert-Equal -Expected 1 -Actual $commits.Count -Because "$name commits the password once"
+        Assert-StringEqual -Expected '${newPassword}' -Actual ([string]$commits[0].Step['args']['NewPassword'])
+
+        $rotate = & $indexOf { param($s) $s['action'] -eq 'sshWaitReady' -and $s['currentPassword'] -eq '${currentPassword}' -and $s['newPassword'] -eq '${newPassword}' }
+        $proof = & $indexOf { param($s) $s['action'] -eq 'sshExec' }
+        $commit = & $indexOf { param($s) $s['action'] -eq 'callExtension' -and $s['method'] -eq 'authentication.SetPassword' }
+        Assert-True ($rotate -ge 0) "$name rotates the expired password in sshWaitReady"
+        Assert-True ($proof -gt $rotate) "$name proves the rotated login with an sshExec after the rotation"
+        Assert-True ($commit -gt $proof) "$name commits the password only after that login"
     }
 
     It 'puts the sole SetPassword call after the computed shell token in <name>' -TestCases $passwordSequenceCase {

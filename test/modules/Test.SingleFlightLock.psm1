@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f0a42c-b27f-4bec-ab95-98fd930ad13d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test lock single-flight host-refresh
+.TAGS yuruna test lock single-flight host-operation
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -610,7 +610,7 @@ function Get-YurunaLockRank {
     .SYNOPSIS
         The rank of a named lock in the host-operation lock order.
     .DESCRIPTION
-        HostOperation (the lifetime repair lock) 100, then ServiceKey 200
+        HostOperation (the lifetime host-operation lock) 100, then ServiceKey 200
         (several may be held, taken in ordinal path order), then one short
         lock at 300: Admission, CensusMerge or Gate. Two short locks are
         never held together, and no process waits for a longer-lived lock

@@ -41,6 +41,7 @@ software:AutomationToolTimeout((software:AutomationToolTimeout)) -- subClassOf -
 software:AutomationUnknownFailure((software:AutomationUnknownFailure)) -- subClassOf --> software:AutomationFailure((software:AutomationFailure))
 software:Bootstrap((software:Bootstrap)) -- subClassOf --> y:Process[y:Process]
 software:BootstrapSyncFailure((software:BootstrapSyncFailure)) -- subClassOf --> diagnostics:InfrastructureFailure[diagnostics:InfrastructureFailure]
+software:CalVer((software:CalVer)) -- subClassOf --> software:SoftwareVersion((software:SoftwareVersion))
 software:CapabilityMatrix((software:CapabilityMatrix)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 software:CloudConfiguration((software:CloudConfiguration)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 software:CloudProvider((software:CloudProvider)) -- subClassOf --> y:SystemElement[y:SystemElement]
@@ -57,6 +58,7 @@ software:DeploymentPipeline((software:DeploymentPipeline)) -- subClassOf --> r_D
 software:DeploymentPipeline((software:DeploymentPipeline)) -- subClassOf --> y:Process[y:Process]
 software:DeploymentResource((software:DeploymentResource)) -- subClassOf --> y:SystemElement[y:SystemElement]
 software:DeploymentTarget((software:DeploymentTarget)) -- subClassOf --> y:SystemElement[y:SystemElement]
+software:GitMirror((software:GitMirror)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 software:HealthProbe((software:HealthProbe)) -- subClassOf --> y:Process[y:Process]
 software:HelmChart((software:HelmChart)) -- subClassOf --> software:SoftwareArtifact((software:SoftwareArtifact))
 software:HelmRelease((software:HelmRelease)) -- subClassOf --> y:SystemElement[y:SystemElement]
@@ -79,6 +81,7 @@ software:KubernetesSecret((software:KubernetesSecret)) -- subClassOf --> y:Confi
 software:KubernetesService((software:KubernetesService)) -- subClassOf --> y:SystemElement[y:SystemElement]
 software:LivenessProbe((software:LivenessProbe)) -- subClassOf --> software:HealthProbe((software:HealthProbe))
 software:LocalDeploymentTarget((software:LocalDeploymentTarget)) -- subClassOf --> software:DeploymentTarget((software:DeploymentTarget))
+software:LocalRegistry((software:LocalRegistry)) -- subClassOf --> software:Registry((software:Registry))
 software:ManualImageDrop((software:ManualImageDrop)) -- subClassOf --> y:Process[y:Process]
 software:N8n((software:N8n)) -- subClassOf --> r_N8n_dependsOn_NodeJS_((Anonymous class))
 software:N8n((software:N8n)) -- subClassOf --> software:SoftwareArtifact((software:SoftwareArtifact))
@@ -166,6 +169,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

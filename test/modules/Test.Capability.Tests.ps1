@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -314,9 +314,9 @@ workload:
     BeforeEach { $script:SavedPath = Save-YurunaTestEnvironment -Name 'PATH' }
     AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedPath }
 
-    It 'registers the host commands each ssh verb runs, and none for the other verbs' {
+    It 'registers the host commands each ssh and page verb runs, and none for the other verbs' {
         $declaring = @(Get-SequenceActionName | Where-Object { @((Get-SequenceAction -Name $_).HostCommandRequirement).Count -gt 0 } | Sort-Object)
-        $declaring | Should -Be @('sshExec', 'sshFetchAndExecute', 'sshWaitReady')
+        $declaring | Should -Be @('sshExec', 'sshFetchAndExecute', 'sshWaitReady', 'webClick', 'webClose', 'webExpect', 'webFill', 'webOpen', 'webPress', 'webSelect')
         $requirements = Get-SequenceActionRequirementMap
         foreach ($verb in $declaring) {
             @((Get-SequenceAction -Name $verb).HostCommandRequirement) | Should -Be @('ssh', 'ssh-keygen') -Because "$verb runs ssh, and the key check behind it runs ssh-keygen"
@@ -348,6 +348,25 @@ workload:
         Test-Path -LiteralPath $fake.Marker | Should -BeFalse -Because 'the check resolves a command and never runs it'
     }
 
+    It 'refuses a plan whose page steps need ssh this host lacks' {
+        $pagePlan = Join-Path $script:PlanRoot 'workload.fixture.page.yml'
+        [IO.File]::WriteAllText($pagePlan, @'
+resource:
+  ubuntu.server.24: []
+workload:
+  - action: webOpen
+    url: "http://localhost:8080/"
+'@)
+        $env:PATH = $script:EmptyBin
+        $cap = Test-CyclePlanCapability -SequencePath @($pagePlan) -HostType 'host.ubuntu.kvm'
+        $cap.supported | Should -BeFalse
+        @($cap.missingHostCommand | ForEach-Object command) | Should -Be @('ssh', 'ssh-keygen')
+        foreach ($missing in @($cap.missingHostCommand)) {
+            @($missing.steps | ForEach-Object { "$($_.sequence) $($_.step) $($_.action)" }) | Should -Be @('workload.fixture.page 1 webOpen') -Because "$($missing.command) is needed by the page step"
+        }
+        @($cap.unknownActions).Count | Should -Be 0
+    }
+
     It 'leaves a plan whose steps run no host command unaffected' {
         $env:PATH = $script:EmptyBin
         $cap = Test-CyclePlanCapability -SequencePath @($script:GuiPlan) -HostType 'host.ubuntu.kvm'
@@ -362,5 +381,93 @@ workload:
         $cap.supported | Should -BeTrue
         @($cap.missingHostCommand).Count | Should -Be 0
         Test-Path -LiteralPath $fake.Marker | Should -BeFalse -Because 'the check resolves a command and never runs it'
+    }
+}
+
+# A handler that calls an OCR engine by name needs that engine whatever other
+# providers are enabled; ocrAvailable alone passed a tapOn plan on a host whose
+# only provider returns no word boxes.
+Describe 'Test-CyclePlanCapability OCR engine requirements' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
+        Import-Module (Join-Path $here 'Test.SequenceResolve.psm1') -Force -DisableNameChecking -Global
+        $script:EnginePlanRoot = New-YurunaTestTempDir -Prefix 'yrn-cap-engine'
+        $script:TapOnPlan = Join-Path $script:EnginePlanRoot 'workload.fixture.tapon.yml'
+        [IO.File]::WriteAllText($script:TapOnPlan, @'
+resource:
+  ubuntu.server.24: []
+workload:
+  - action: tapOn
+    label: Next
+'@)
+        Register-HostIOProvider -HostType 'test.capability.click' -Action 'Send-Click' -Implementation { $true }
+    }
+    AfterAll {
+        (Get-Variable -Name 'YurunaHostIOProviders' -Scope Global -ValueOnly).Remove('test.capability.click')
+        Remove-YurunaTestTempDir $script:EnginePlanRoot
+    }
+
+    It 'refuses a plan whose tapOn step needs an OCR engine this host lacks, naming it and the step' {
+        Mock Test-OcrProviderAvailable -ModuleName Test.Capability { $false }
+        Mock Get-EnabledOcrProvider -ModuleName Test.Capability { @('macos-vision') }
+        $cap = Test-CyclePlanCapability -SequencePath @($script:TapOnPlan) -HostType 'test.capability.click'
+        $cap.supported | Should -BeFalse
+        $cap.ocrAvailable | Should -BeTrue -Because 'another provider is enabled, and that does not answer for tesseract'
+        @($cap.missingHostIO).Count | Should -Be 0
+        @($cap.missingOcrEngine).Count | Should -Be 1
+        $cap.missingOcrEngine[0].engine | Should -Be 'tesseract'
+        @($cap.missingOcrEngine[0].steps | ForEach-Object { "$($_.sequence) $($_.step) $($_.action)" }) | Should -Be @('workload.fixture.tapon 1 tapOn')
+    }
+
+    It 'passes when the engine is available' {
+        Mock Test-OcrProviderAvailable -ModuleName Test.Capability { $true }
+        Mock Get-EnabledOcrProvider -ModuleName Test.Capability { @('tesseract') }
+        $cap = Test-CyclePlanCapability -SequencePath @($script:TapOnPlan) -HostType 'test.capability.click'
+        $cap.supported | Should -BeTrue
+        @($cap.missingOcrEngine).Count | Should -Be 0
+    }
+
+    It 'reads a registration without the requirement as needing no engine' {
+        Register-SequenceAction -Name 'yurunaTestProbeNoEngine' -ReplaySafety 'observe' -Handler { $true }
+        @((Get-SequenceActionRequirementMap)['yurunaTestProbeNoEngine'].OcrEngine).Count | Should -Be 0
+        # The shape an entry registered by older code in a resident runner has.
+        (Get-SequenceAction -Name 'yurunaTestProbeNoEngine').Remove('OcrEngineRequirement')
+        @((Get-SequenceActionRequirementMap)['yurunaTestProbeNoEngine'].OcrEngine).Count | Should -Be 0
+    }
+
+    It 'refuses a plan that clicks on a host with no pointer provider' {
+        Mock Test-OcrProviderAvailable -ModuleName Test.Capability { $true }
+        $cap = Test-CyclePlanCapability -SequencePath @($script:TapOnPlan) -HostType 'test.capability.noclick'
+        @($cap.missingHostIO) | Should -Be @('Send-Click')
+        @($cap.missingOcrEngine).Count | Should -Be 0
+    }
+}
+
+Describe 'Test-CyclePlanCapability click provider on KVM' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
+        Import-Module (Join-Path $here 'Test.SequenceResolve.psm1') -Force -DisableNameChecking -Global
+        Import-Module (Join-Path $here 'Test.HostIO.Kvm.psm1') -Force -DisableNameChecking -Global
+        $script:KvmClickPlanRoot = New-YurunaTestTempDir -Prefix 'yrn-cap-kvmclick'
+        $script:KvmClickPlan = Join-Path $script:KvmClickPlanRoot 'workload.fixture.yml'
+        [IO.File]::WriteAllText($script:KvmClickPlan, @'
+resource:
+  ubuntu.server.24: []
+component:
+  - action: tapOn
+    label: "Next"
+workload:
+  - action: stopVm
+  - action: startVm
+'@)
+    }
+    AfterAll { Remove-YurunaTestTempDir $script:KvmClickPlanRoot }
+
+    It 'reports Send-Click missing only where no pointer is registered' {
+        Mock Test-OcrProviderAvailable -ModuleName Test.Capability { $true }
+        $kvm = Test-CyclePlanCapability -SequencePath @($script:KvmClickPlan) -HostType 'host.ubuntu.kvm'
+        Assert-False (@($kvm.missingHostIO) -ccontains 'Send-Click') "KVM lacked: $(@($kvm.missingHostIO) -join ', ')"
+        $none = Test-CyclePlanCapability -SequencePath @($script:KvmClickPlan) -HostType 'host.test.none'
+        Assert-True (@($none.missingHostIO) -ccontains 'Send-Click') "host.test.none lacked: $(@($none.missingHostIO) -join ', ')"
     }
 }

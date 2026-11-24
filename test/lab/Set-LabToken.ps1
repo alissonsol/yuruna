@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -244,7 +244,7 @@ if ($provision.ok) {
     if ($provision.bounced) {
         $msg += ' Status service restarted, so the token is live now.'
     } elseif ($BounceStatusService) {
-        $msg += ' Status-server bounce did not complete; the token takes effect at the next cycle.'
+        $msg += ' Status-service bounce did not complete; the token takes effect at the next cycle.'
     } else {
         $msg += ' Re-run with -BounceStatusService (or wait for the next cycle) to make the running status service pick it up.'
     }

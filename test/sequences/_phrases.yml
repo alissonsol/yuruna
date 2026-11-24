@@ -1,0 +1,156 @@
+# yaml-language-server: $schema=../schemas/phrases.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 4220c62e-ae6f-4617-8e4a-9f2404a44677
+
+phrases:
+
+  login:
+    sentence: "login <user> with password <password:secret>"
+    screen:
+      - action: passwdPrompt
+        pattern: "login:"
+        text: "<user>"
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "<password>"
+
+  wait-for-text:
+    sentence: "wait for text <text>"
+    screen:
+      - action: waitForText
+        pattern: "<text>"
+        noSegmentMatch: true
+
+  type:
+    sentence: "type <text>"
+    screen:
+      - action: inputText
+        text: "<text>"
+
+  type-and-enter:
+    sentence: "type <text> and press Enter"
+    screen:
+      - action: inputTextAndEnter
+        text: "<text>"
+
+  type-secret-and-enter:
+    sentence: "type secret <text:secret> and press Enter"
+    screen:
+      - action: inputTextAndEnter
+        text: "<text>"
+        sensitive: true
+
+  press-key:
+    sentence: "press <key:key>"
+    screen:
+      - action: pressKey
+        name: "<key>"
+    page:
+      - action: webPress
+        key: "<key>"
+
+  wait-seconds:
+    sentence: "wait <n:int> seconds"
+    screen:
+      - action: waitForSeconds
+        seconds: "<n>"
+    page:
+      - action: waitForSeconds
+        seconds: "<n>"
+
+  click-button:
+    sentence: "click button <label>"
+    screen:
+      - action: tapOn
+        label: "<label>"
+        match: word
+    page:
+      - action: webClick
+        role: button
+        name: "<label>"
+
+  click:
+    sentence: "click <label>"
+    screen:
+      - action: tapOn
+        label: "<label>"
+
+  expect-text:
+    sentence: "expect text <text>"
+    screen:
+      - action: waitForText
+        pattern: "<text>"
+        noSegmentMatch: true
+    page:
+      - action: webExpect
+        text: "<text>"
+
+  open-page:
+    sentence: "open page <url>"
+    page:
+      - action: webOpen
+        url: "<url>"
+
+  click-link:
+    sentence: "click link <label>"
+    page:
+      - action: webClick
+        role: link
+        name: "<label>"
+
+  fill:
+    sentence: "fill <field> with <text>"
+    page:
+      - action: webFill
+        role: textbox
+        name: "<field>"
+        text: "<text>"
+
+  fill-secret:
+    sentence: "fill <field> with secret <text:secret>"
+    page:
+      - action: webFill
+        role: textbox
+        name: "<field>"
+        text: "<text>"
+        sensitive: true
+
+  select-option:
+    sentence: "select <option> in <field>"
+    page:
+      - action: webSelect
+        role: combobox
+        name: "<field>"
+        option: "<option>"
+
+  check:
+    sentence: "check <label>"
+    page:
+      - action: webClick
+        role: checkbox
+        name: "<label>"
+        checked: true
+
+  uncheck:
+    sentence: "uncheck <label>"
+    page:
+      - action: webClick
+        role: checkbox
+        name: "<label>"
+        checked: false
+
+  expect-no-text:
+    sentence: "expect no text <text>"
+    page:
+      - action: webExpect
+        text: "<text>"
+        gone: true
+
+  expect-heading:
+    sentence: "expect heading <text>"
+    page:
+      - action: webExpect
+        role: heading
+        name: "<text>"

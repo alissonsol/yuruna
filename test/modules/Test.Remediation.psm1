@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -410,6 +410,8 @@ function Invoke-Remediation {
             silentProcessors       = $silentProcessors
             guestLivelockedSeconds = $livelockedSeconds
             guestDisplayStallEnd = & $causeField 'guestDisplayStallEnd'
+            # How a page step ended in its own account; $null for any other step.
+            webFailure = & $causeField 'web'
         }
     }
     $handler = Get-RecoveryHandler -FailureClass $failureClass
@@ -449,6 +451,13 @@ function Invoke-Remediation {
     if (-not $result.Contains('Actions'))        { $result['Actions']        = @() }
     if (-not $result.Contains('AutoApply'))      { $result['AutoApply']      = $false }
     if (-not $result.Contains('HandledBy'))      { $result['HandledBy']      = "builtin/$failureClass" }
+    # A page step filed under another class (plan_invalid, network_timeout,
+    # ip_not_discovered): the handlers of those classes speak of the cycle plan
+    # and of ssh, so one more action points the reader at the page account.
+    if ($failureClass -cne 'web_step_failed' -and $ctx.Context.webFailure -is [System.Collections.IDictionary]) {
+        $result['Actions'] = @($result['Actions']) +
+            @((Format-YurunaOperatorMessage -Key 'remediation.web_account_action'))
+    }
     # Output-side contract check: a handler (most likely an external one) that
     # returns a Recommendation outside the canonical vocabulary would emit a
     # token no caller can route on. Coerce to operator_intervention_required so
@@ -892,6 +901,35 @@ function Register-BuiltinRecoveryHandler {
             Actions        = @(
                 (Format-YurunaOperatorMessage -Key 'remediation.guest_display_stalled_action_evidence'),
                 (Format-YurunaOperatorMessage -Key 'remediation.guest_display_stalled_action_restore')
+            )
+        }
+    }
+
+    # What a page showed was not what a page step expected: the test or the
+    # site has to change first, so the advice is to look, never to rerun as is.
+    Register-RecoveryHandler -FailureClass 'web_step_failed' -Handler {
+        param([hashtable]$c)
+        $web = $c.Context.webFailure
+        $kind = '-'; $target = '-'; $url = '-'
+        if ($web -is [System.Collections.IDictionary]) {
+            if ($web['kind']) { $kind = [string]$web['kind'] }
+            if ($web['url']) { $url = [string]$web['url'] }
+            $locator = $web['locator']
+            if ($locator -is [System.Collections.IDictionary]) {
+                if ($locator['css']) { $target = "css $($locator['css'])" }
+                elseif ($locator['role']) { $target = "$($locator['role']) `"$($locator['name'])`"" }
+                elseif ($locator['text']) { $target = "text `"$($locator['text'])`"" }
+            }
+        }
+        return @{
+            Recommendation = 'pause_and_inspect'
+            Rationale      = (Format-YurunaOperatorMessage -Key 'remediation.web_step_failed_rationale' -Arguments @{
+                vmName = "$($c.Context.vmName)"; kind = $kind; target = $target; url = $url
+            })
+            Actions        = @(
+                (Format-YurunaOperatorMessage -Key 'remediation.web_step_failed_action_evidence'),
+                (Format-YurunaOperatorMessage -Key 'remediation.web_step_failed_action_repair'),
+                (Format-YurunaOperatorMessage -Key 'remediation.web_step_failed_action_rerun')
             )
         }
     }

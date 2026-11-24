@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d64c35-2931-4e2a-aa8a-75a10025ea5a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -486,7 +486,7 @@ Describe 'A refused host condition reaches the failure record' {
             @{ CycleCount = 7; ConsecutiveCrashes = 0; FailuresBeforeAlert = 3; SuccessesBeforeRearm = 2; ConsecutiveFailures = 0
                ConsecutiveSuccesses = 0; AlertArmed = $true; GatingFile = 'fixture-gating.json' }
         }
-        Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRefreshCycleGate { $true }
+        Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRunnerCycleGate { $true }
         Mock -ModuleName Test.RunnerInnerLoop Get-HostConditionVerdict {
             [pscustomobject]@{ Passed = $false; Condition = 'elevation'; Detail = ''; FailureClass = 'elevation_required'
                 Message = "Host condition 'elevation' failed; the warnings above give the remedy, which is applied at the host console." }

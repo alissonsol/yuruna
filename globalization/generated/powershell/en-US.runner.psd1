@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42aee21f-6c39-49b6-e04d-daf28d2639f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,8 +40,50 @@
         }
         "`n  Fix (either): grant this host's GH_TOKEN access to that repo,`n                or set the pool's project URL to a repository every member can read."
     )
+    'runner.auth_state_users_restarted' = @(
+        'users.yml could not be read as a mapping ('
+        @{
+            'arg' = 'problem'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'usersPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Its bytes were moved to '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' and a new users.yml was copied from the template; re-enter any corporate mappings and vault keys from the moved copy.'
+    )
+    'runner.auth_state_vault_restarted' = @(
+        'vault.yml could not be read as a mapping ('
+        @{
+            'arg' = 'problem'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'vaultPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Its bytes were moved to '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' and the vault starts empty; every password it held has to be set again with Set-Password (see docs/test-config.md).'
+    )
     'runner.boot_recovery_preserved_controls' = @(
-        'Boot recovery (refresh preservation) kept '
+        'Boot recovery (handoff preservation) kept '
         @{
             'arg' = 'count'
             'type' = 'integer'
@@ -69,6 +111,28 @@
     'runner.capability_gate_host_command_missing' = '  Sequences run host commands this host does not have:'
     'runner.capability_gate_host_command_remedy' = '  Install the missing commands on this host, or drop the steps that run them from the cycle''s sequence YAMLs.'
     'runner.capability_gate_host_command_step' = @(
+        '        '
+        @{
+            'arg' = 'sequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', step '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'runner.capability_gate_ocr_engine_missing' = '  Sequences locate text through OCR engines this host does not have:'
+    'runner.capability_gate_ocr_engine_remedy' = '  Install the missing engine on this host, or drop the steps that need it from the cycle''s sequence YAMLs.'
+    'runner.capability_gate_ocr_engine_step' = @(
         '        '
         @{
             'arg' = 'sequence'
@@ -118,6 +182,44 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.config_naming_change' = @(
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'old'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'current'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (previous file kept as '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
     )
     'runner.config_port_firewall_unconfirmed' = @(
         'The config service could not confirm that inbound TCP :'
@@ -743,6 +845,170 @@
             'trust' = 'external'
         }
     )
+    'runner.handoff_barrier_held' = @(
+        'Resumed after host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': held by '
+        @{
+            'arg' = 'controls'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        '. Release them from the status page; no VM is created or changed until then.'
+    )
+    'runner.handoff_barrier_released' = @(
+        'Held controls released after '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' s; the resumed cycle continues.'
+    )
+    'runner.handoff_complete' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] readiness verified for host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; leaving the runner gate.'
+    )
+    'runner.handoff_complete_action' = @(
+        'Complete a runner handoff ('
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
+    'runner.handoff_issue_action' = @(
+        'Issue a runner handoff token ('
+        @{
+            'arg' = 'purpose'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
+    'runner.handoff_preflight_cycle' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] handoff preflight only: no git pull, VM change or control sweep in this cycle.'
+    )
+    'runner.handoff_preflight_failed' = @(
+        'Handoff preflight failed ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); nothing was changed and the runner stays held.'
+    )
+    'runner.handoff_preflight_ready' = @(
+        'Handoff preflight ready for request '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; waiting for the host operation to release the runner.'
+    )
+    'runner.handoff_preflight_released' = @(
+        'Handoff preflight ended ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); exiting so the runner can continue.'
+    )
+    'runner.handoff_preflight_result' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] handoff preflight cycle finished with exit code '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.handoff_resume_action' = 'Restart the runner after a host operation'
+    'runner.handoff_resume_record_refused' = @(
+        'Start-TestRunner: '
+        @{
+            'arg' = 'pidFile'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' is '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; a handoff resume never takes over or deletes a live or unknown runner record.'
+    )
+    'runner.handoff_resume_started' = @(
+        'Start-TestRunner: resuming after host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; operator pauses, holds and restart requests are preserved.'
+    )
+    'runner.handoff_resume_switch_pair' = 'Start-TestRunner: -HandoffResume and -HandoffToken must be given together; not starting.'
+    'runner.handoff_resume_token_refused' = @(
+        'Start-TestRunner: the runner handoff was refused ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); not starting.'
+    )
+    'runner.handoff_unverified' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] readiness for host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' could not be verified ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); the runner stays held.'
+    )
     'runner.host_action_exit_detail' = @(
         'host action '''
         @{
@@ -812,6 +1078,73 @@
         }
         ' did not answer, so the setting is undetermined, not known to be safe.'
     )
+    'runner.host_controller_session_action' = 'End the host controller''s session yuruna-controller'
+    'runner.host_controller_start_error' = @(
+        'Host controller: the start step failed ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); no controller was started.'
+    )
+    'runner.host_controller_start_lock_unreadable' = 'Host controller: its lock cannot be read, so no second controller is risked; none was started.'
+    'runner.host_controller_start_no_multiplexer' = 'Host controller: neither tmux nor screen was found, so no controller was started; the runner starts without one.'
+    'runner.host_controller_start_not_deployed' = 'Host controller: not deployed on this host; run Enable-TestAutomation to deploy it. No controller was started.'
+    'runner.host_controller_start_not_desktop_session' = 'Host controller: not started, because this runner start is not in the desktop session (an SSH login or a background session). Start the runner from a terminal of the desktop session to start it.'
+    'runner.host_controller_start_not_held' = @(
+        'Host controller: the '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' session yuruna-controller was created, but no controller took the lock within 10 s. To read it: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_controller_start_running' = 'Host controller: running.'
+    'runner.host_controller_start_session_exists' = @(
+        'Host controller: its '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' session yuruna-controller already exists; its shim starts the controller. To read it: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_controller_start_session_unknown' = 'Host controller: could not tell whether the session yuruna-controller exists, so none was started.'
+    'runner.host_controller_start_start_failed' = @(
+        'Host controller: the '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' session yuruna-controller could not be created; no controller was started.'
+    )
+    'runner.host_controller_start_started' = @(
+        'Host controller: started in its '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' session yuruna-controller. To read it: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
     'runner.host_diagnostic_timeout' = 'Host diagnostics timed out after 120s; see the earlier host sample.'
     'runner.host_diagnostic_worker_failed' = @(
         'Host diagnostic '
@@ -876,127 +1209,129 @@
         }
         ' s and was stopped; the cycle still refuses.'
     )
-    'runner.host_refresh_action_dispose_obligations' = @(
-        'Next step: after checking each item by hand, record it with: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation '
+    'runner.host_operation_should_process_admission' = 'Record host-operation admission'
+    'runner.host_operation_should_process_listener' = 'Start the status listener in non-destructive mode'
+    'runner.host_repair_action_dispose_obligations' = @(
+        'Next step: after checking each item by hand, record it with: pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation '
         @{
             'arg' = 'obligations'
             'type' = 'detail'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_action_elevate' = @(
+    'runner.host_repair_action_elevate' = @(
         'Next step: grant this account the privilege rung '
         @{
             'arg' = 'rung'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' needs (the exact command is shown above when one applies), then run the refresh again.'
+        ' needs (the exact command is shown above when one applies), then run the repair again.'
     )
-    'runner.host_refresh_action_grant_automation' = 'Next step: allow Automation access to UTM for the application that runs this shell, then run the refresh again.'
-    'runner.host_refresh_action_gui_session' = 'Next step: run the refresh from the logged-in desktop session; this session can only observe.'
-    'runner.host_refresh_action_install_client' = @(
+    'runner.host_repair_action_grant_automation' = 'Next step: allow Automation access to UTM for the application that runs this shell, then run the repair again.'
+    'runner.host_repair_action_gui_session' = 'Next step: run the repair from the logged-in desktop session; this session can only observe.'
+    'runner.host_repair_action_install_client' = @(
         'Next step: restore the hypervisor command-line client ('
         @{
             'arg' = 'client'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); refresh does not reinstall it.'
+        '); repair does not reinstall it.'
     )
-    'runner.host_refresh_action_resume_request' = 'Next step: resume the unresolved request with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume'
-    'runner.host_refresh_action_start_runner' = 'Next step: start the runner by hand: pwsh test/Start-TestRunner.ps1'
-    'runner.host_refresh_auth_action_create_authority' = 'Create the refresh signing authority and operator credential'
-    'runner.host_refresh_auth_action_export_host_key' = @(
-        'Write the refresh verifier key for host '
+    'runner.host_repair_action_resume_request' = 'Next step: resume the unresolved request with: pwsh test/lab/Invoke-HostRepair.ps1 -Resume'
+    'runner.host_repair_action_start_runner' = 'Next step: start the runner by hand: pwsh test/Start-TestRunner.ps1'
+    'runner.host_repair_auth_action_create_authority' = 'Create the repair signing authority and operator credential'
+    'runner.host_repair_auth_action_export_host_key' = @(
+        'Write the repair verifier key for host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auth_action_install_host_key' = @(
-        'Install the refresh verifier key for host '
+    'runner.host_repair_auth_action_install_host_key' = @(
+        'Install the repair verifier key for host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auth_action_remove_host_key' = 'Remove the refresh verifier key'
-    'runner.host_refresh_auto_action_admit' = @(
-        'Admit an automatic host refresh request for cycle generation '
+    'runner.host_repair_auth_action_remove_host_key' = 'Remove the repair verifier key'
+    'runner.host_repair_auto_action_admit' = @(
+        'Admit an automatic host repair request for cycle generation '
         @{
             'arg' = 'generation'
             'type' = 'token'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_consume_evidence' = 'Consume the host refresh evidence file'
-    'runner.host_refresh_auto_action_decide' = @(
-        'Decide whether to run an automatic host refresh after outer cycle '
+    'runner.host_repair_auto_action_consume_evidence' = 'Consume the host repair evidence file'
+    'runner.host_repair_auto_action_decide' = @(
+        'Decide whether to run an automatic host repair after outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_record_outcome' = @(
-        'Record automatic host refresh outcome '
+    'runner.host_repair_auto_action_record_outcome' = @(
+        'Record automatic host repair outcome '
         @{
             'arg' = 'verdict'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_reserve' = @(
-        'Reserve the automatic host refresh attempt for UTC day '
+    'runner.host_repair_auto_action_reserve' = @(
+        'Reserve the automatic host repair attempt for UTC day '
         @{
             'arg' = 'utcDay'
             'type' = 'text'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_run_worker' = @(
-        'Run the host refresh worker for request '
+    'runner.host_repair_auto_action_run_worker' = @(
+        'Run the host repair worker for request '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_update_streak' = @(
-        'Set the host refresh evidence count to '
+    'runner.host_repair_auto_action_update_streak' = @(
+        'Set the host repair evidence count to '
         @{
             'arg' = 'streak'
             'type' = 'integer'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_withdraw' = @(
-        'Withdraw the queued automatic host refresh request '
+    'runner.host_repair_auto_action_withdraw' = @(
+        'Withdraw the queued automatic host repair request '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_write_evidence' = @(
-        'Record host refresh evidence for cycle generation '
+    'runner.host_repair_auto_action_write_evidence' = @(
+        'Record host repair evidence for cycle generation '
         @{
             'arg' = 'generation'
             'type' = 'token'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_dependency_missing' = @(
+    'runner.host_repair_auto_dependency_missing' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh is unavailable: '
+        '] automatic host repair is unavailable: '
         @{
             'arg' = 'command'
             'type' = 'identifier'
@@ -1010,14 +1345,14 @@
         }
         ' could not be loaded.'
     )
-    'runner.host_refresh_auto_error' = @(
+    'runner.host_repair_auto_error' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] the automatic host refresh decision failed ('
+        '] the automatic host repair decision failed ('
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -1025,14 +1360,14 @@
         }
         '); the runner continues without it.'
     )
-    'runner.host_refresh_auto_evidence_counted' = @(
+    'runner.host_repair_auto_evidence_counted' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] host refresh evidence: '
+        '] host repair evidence: '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1052,14 +1387,14 @@
         }
         ' cycles).'
     )
-    'runner.host_refresh_auto_evidence_reset' = @(
+    'runner.host_repair_auto_evidence_reset' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] host refresh evidence cleared: the hypervisor answered during '
+        '] host repair evidence cleared: the hypervisor answered during '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1067,14 +1402,14 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_finished' = @(
+    'runner.host_repair_auto_finished' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh '
+        '] automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1088,23 +1423,23 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_knob_invalid' = @(
-        'testCycle.autoRefreshAfterStalls is '''
+    'runner.host_repair_auto_knob_invalid' = @(
+        'testCycle.autoRepairAfterStalls is '''
         @{
             'arg' = 'value'
             'type' = 'text'
             'trust' = 'external'
         }
-        ''', which is not a non-negative whole number; automatic host refresh stays off.'
+        ''', which is not a non-negative whole number; automatic host repair stays off.'
     )
-    'runner.host_refresh_auto_operator_action' = @(
+    'runner.host_repair_auto_operator_action' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh '
+        '] automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1122,25 +1457,34 @@
             'type' = 'text'
             'trust' = 'internal'
         }
-        '. Check the host; while this request is still open, finish it with test/lab/Invoke-HostRefresh.ps1 -Resume, otherwise run test/lab/Invoke-HostRefresh.ps1.'
+        '. Check the host; while this request is still open, finish it with test/lab/Invoke-HostRepair.ps1 -Resume, otherwise run test/lab/Invoke-HostRepair.ps1.'
     )
-    'runner.host_refresh_auto_pause_skipped' = @(
+    'runner.host_repair_auto_pause_skipped' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh repaired the host; the next cycle starts without the failure pause.'
+        '] automatic host repair fixed the host; the next cycle starts without the failure pause.'
     )
-    'runner.host_refresh_auto_queued_revoked' = @(
+    'runner.host_repair_auto_pool_key_retired' = @(
+        'The pool configuration sets the retired key config.testCycle.autoRefreshAfterStalls ('
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); it is no longer read. Set config.testCycle.autoRepairAfterStalls in the pool repository instead.'
+    )
+    'runner.host_repair_auto_queued_revoked' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] the queued automatic host refresh '
+        '] the queued automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1148,14 +1492,14 @@
         }
         ' was withdrawn because the pool is draining.'
     )
-    'runner.host_refresh_auto_refused' = @(
+    'runner.host_repair_auto_refused' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh not started: '
+        '] automatic host repair not started: '
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1163,44 +1507,44 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_resume_caller_changed' = @(
+    'runner.host_repair_auto_resume_caller_changed' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh '
+        '] automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' was started for an earlier runner process, so this runner does not resume it. Finish it with test/lab/Invoke-HostRefresh.ps1 -Resume, or release what it holds with test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.'
+        ' was started for an earlier runner process, so this runner does not resume it. Finish it with test/lab/Invoke-HostRepair.ps1 -Resume, or release what it holds with test/lab/Invoke-HostRepair.ps1 -DisposeObligation.'
     )
-    'runner.host_refresh_auto_resume_disabled' = @(
+    'runner.host_repair_auto_resume_disabled' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh '
+        '] automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' is not resumed while autoRefreshAfterStalls is 0. An unclaimed request expires on its own; finish a started one with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+        ' is not resumed while autoRepairAfterStalls is 0. An unclaimed request expires on its own; finish a started one with test/lab/Invoke-HostRepair.ps1 -Resume.'
     )
-    'runner.host_refresh_auto_resuming' = @(
+    'runner.host_repair_auto_resuming' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] resuming automatic host refresh '
+        '] resuming automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1220,14 +1564,14 @@
         }
         ': restoring services only, no new teardown.'
     )
-    'runner.host_refresh_auto_starting' = @(
+    'runner.host_repair_auto_starting' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh '
+        '] automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1247,30 +1591,30 @@
         }
         '); the hypervisor may be restarted, and the services it disrupts are restored afterwards.'
     )
-    'runner.host_refresh_auto_threshold_raised' = '''testCycle.autoRefreshAfterStalls'' is 1; the runner needs the timeout in at least two cycles and treats it as 2.'
-    'runner.host_refresh_auto_unavailable' = @(
+    'runner.host_repair_auto_threshold_raised' = '''testCycle.autoRepairAfterStalls'' is 1; the runner needs the timeout in at least two cycles and treats it as 2.'
+    'runner.host_repair_auto_unavailable' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh is configured but not available on this host ('
+        '] automatic host repair is configured but not available on this host ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); the runner records the evidence and does not act on it. Run test/lab/Invoke-HostRefresh.ps1 locally if the hypervisor needs repair.'
+        '); the runner records the evidence and does not act on it. Run test/lab/Invoke-HostRepair.ps1 locally if the hypervisor needs repair.'
     )
-    'runner.host_refresh_auto_unavailable_on_host' = @(
-        '''testCycle.autoRefreshAfterStalls'' is '
+    'runner.host_repair_auto_unavailable_on_host' = @(
+        '''testCycle.autoRepairAfterStalls'' is '
         @{
             'arg' = 'value'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ', but automatic host refresh is not available on this host ('
+        ', but automatic host repair is not available on this host ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1278,23 +1622,23 @@
         }
         '); the runner records the evidence and does not act on it.'
     )
-    'runner.host_refresh_auto_value_not_integer' = @(
-        '''testCycle.autoRefreshAfterStalls'' is '''
+    'runner.host_repair_auto_value_not_integer' = @(
+        '''testCycle.autoRepairAfterStalls'' is '''
         @{
             'arg' = 'value'
             'type' = 'text'
             'trust' = 'external'
         }
-        ''' -- not a whole number; the runner treats it as 0 (automatic host refresh disabled).'
+        ''' -- not a whole number; the runner treats it as 0 (automatic host repair disabled).'
     )
-    'runner.host_refresh_auto_verdict_mismatch' = @(
+    'runner.host_repair_auto_verdict_mismatch' = @(
         '[outer cycle '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] automatic host refresh '
+        '] automatic host repair '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1308,8 +1652,8 @@
         }
         '); treating it as failed.'
     )
-    'runner.host_refresh_auto_waiting_on_worker' = @(
-        'Shutdown requested; waiting for the host refresh worker for automatic request '
+    'runner.host_repair_auto_waiting_on_worker' = @(
+        'Shutdown requested; waiting for the host repair worker for automatic request '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1323,8 +1667,8 @@
         }
         ' more seconds).'
     )
-    'runner.host_refresh_auto_worker_launch_failed' = @(
-        'Host refresh worker for automatic request '
+    'runner.host_repair_auto_worker_launch_failed' = @(
+        'Host repair worker for automatic request '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1338,8 +1682,8 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_worker_timeout' = @(
-        'Host refresh worker for automatic request '
+    'runner.host_repair_auto_worker_timeout' = @(
+        'Host repair worker for automatic request '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1351,10 +1695,57 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' seconds and was stopped; the request stays open. The runner may resume it, or finish it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+        ' seconds and was stopped; the request stays open. The runner may resume it, or finish it with test/lab/Invoke-HostRepair.ps1 -Resume.'
     )
-    'runner.host_refresh_command_missing' = @(
-        'Invoke-HostRefresh: required command '
+    'runner.host_repair_boot_resume' = @(
+        'Start-TestRunner: host repair '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was left unfinished by an earlier boot; resuming it once with test/lab/Invoke-HostRepair.ps1 -Resume (pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). This start still refuses; the repair starts the runner when it completes, and its errors go to '
+        @{
+            'arg' = 'stdErrPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.host_repair_boot_resume_failed' = @(
+        'Start-TestRunner: host repair '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was left unfinished by an earlier boot, and resuming it failed ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); resume it with test/lab/Invoke-HostRepair.ps1 -Resume.'
+    )
+    'runner.host_repair_boot_resume_tried' = @(
+        'Start-TestRunner: host repair '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', left unfinished by an earlier boot, was already resumed once in this boot; resume it again with test/lab/Invoke-HostRepair.ps1 -Resume.'
+    )
+    'runner.host_repair_capability_unverified_macos' = 'Runner reclamation and restart are not qualified on macOS yet: the ps process table and the detached launch are tested with fixtures only.'
+    'runner.host_repair_capability_unverified_windows' = 'Runner reclamation and restart are not qualified on Windows yet: the CIM process table, single-process termination and the reparent hop are tested with fixtures only.'
+    'runner.host_repair_command_missing' = @(
+        'Invoke-HostRepair: required command '
         @{
             'arg' = 'command'
             'type' = 'identifier'
@@ -1366,10 +1757,10 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ') is not available after loading the refresh module set; refusing.'
+        ') is not available after loading the repair module set; refusing.'
     )
-    'runner.host_refresh_config_ambiguous' = @(
-        'Invoke-HostRefresh: '
+    'runner.host_repair_config_ambiguous' = @(
+        'Invoke-HostRepair: '
         @{
             'arg' = 'count'
             'type' = 'integer'
@@ -1383,8 +1774,8 @@
         }
         ' name different source files; pass -ConfigPath to choose one.'
     )
-    'runner.host_refresh_config_conflict' = @(
-        'Invoke-HostRefresh: -ConfigPath '
+    'runner.host_repair_config_conflict' = @(
+        'Invoke-HostRepair: -ConfigPath '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -1398,8 +1789,8 @@
         }
         '; refusing rather than restart the runner on a different file.'
     )
-    'runner.host_refresh_config_missing' = @(
-        'Invoke-HostRefresh: the configuration recorded for this runtime ('
+    'runner.host_repair_config_missing' = @(
+        'Invoke-HostRepair: the configuration recorded for this runtime ('
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -1407,8 +1798,8 @@
         }
         ') does not exist; pass -ConfigPath.'
     )
-    'runner.host_refresh_convergence_skipped' = @(
-        'Invoke-HostRefresh: the final probe reads '
+    'runner.host_repair_convergence_skipped' = @(
+        'Invoke-HostRepair: the final probe reads '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1422,8 +1813,8 @@
         }
         '); services and the runner were not resumed.'
     )
-    'runner.host_refresh_credential_authority_created' = @(
-        'Set-HostRefreshCredential: created a refresh signing authority (tag '
+    'runner.host_repair_credential_authority_created' = @(
+        'Set-HostRepairCredential: created a repair signing authority (tag '
         @{
             'arg' = 'authorityTag'
             'type' = 'token'
@@ -1441,10 +1832,10 @@
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '. Copy authority.key and operator.credential to the pool-control service''s /etc/yuruna/host-refresh/ with owner-only permissions; never copy them to a pool host.'
+        '. Copy authority.key and operator.credential to the pool-control service''s /etc/yuruna/host-repair/ with owner-only permissions; never copy them to a pool host.'
     )
-    'runner.host_refresh_credential_authority_exists' = @(
-        'Set-HostRefreshCredential: a refresh authority already exists under '
+    'runner.host_repair_credential_authority_exists' = @(
+        'Set-HostRepairCredential: a repair authority already exists under '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -1452,8 +1843,8 @@
         }
         '; pass -Rotate to replace it, which invalidates every installed host key.'
     )
-    'runner.host_refresh_credential_host_key_exported' = @(
-        'Set-HostRefreshCredential: wrote the refresh key for host '
+    'runner.host_repair_credential_host_key_exported' = @(
+        'Set-HostRepairCredential: wrote the repair verifier key for host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
@@ -1473,24 +1864,24 @@
         }
         '. Move it to that host over a private channel, run this script there with -InstallHostKey -KeyPath, then delete the file.'
     )
-    'runner.host_refresh_credential_host_key_installed' = @(
-        'Set-HostRefreshCredential: installed the refresh key for this host '
+    'runner.host_repair_credential_host_key_installed' = @(
+        'Set-HostRepairCredential: installed this host''s repair verifier key ('
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' (tag '
+        ', tag '
         @{
             'arg' = 'keyTag'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); remote refresh requests signed by the matching authority are now verifiable here.'
+        '); remote repair requests signed by the matching authority are now verifiable here.'
     )
-    'runner.host_refresh_credential_host_key_removed' = 'Set-HostRefreshCredential: removed the refresh key; this host now refuses every non-loopback refresh request.'
-    'runner.host_refresh_credential_output_exists' = @(
-        'Set-HostRefreshCredential: '
+    'runner.host_repair_credential_host_key_removed' = 'Set-HostRepairCredential: removed this host''s repair verifier key; this host now refuses every non-loopback repair request.'
+    'runner.host_repair_credential_output_exists' = @(
+        'Set-HostRepairCredential: '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -1498,14 +1889,14 @@
         }
         ' already exists; choose another -OutputPath or delete it first.'
     )
-    'runner.host_refresh_credential_status' = @(
-        'Set-HostRefreshCredential: host '
+    'runner.host_repair_credential_status' = @(
+        'Set-HostRepairCredential: host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': remote refresh key '
+        ': repair verifier key '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1525,8 +1916,8 @@
         }
         '.'
     )
-    'runner.host_refresh_deadline_exhausted' = @(
-        'Invoke-HostRefresh: the time budget ran out during '
+    'runner.host_repair_deadline_exhausted' = @(
+        'Invoke-HostRepair: the time budget ran out during '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1534,21 +1925,21 @@
         }
         '; unfinished work is recorded as outstanding.'
     )
-    'runner.host_refresh_disruption_warning' = 'Invoke-HostRefresh: restarting the hypervisor application can suspend running guests; a hard stop, allowed only with -AllowHardStop, can power them off uncleanly.'
-    'runner.host_refresh_evidence_write_failed' = @(
-        'Could not record host refresh evidence for this cycle ('
+    'runner.host_repair_disruption_warning' = 'Invoke-HostRepair: restarting the hypervisor application can suspend running guests; a hard stop, allowed only with -AllowHardStop, can power them off uncleanly.'
+    'runner.host_repair_evidence_write_failed' = @(
+        'Could not record host repair evidence for this cycle ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); automatic host refresh will not count it.'
+        '); automatic host repair will not count it.'
     )
-    'runner.host_refresh_hung_hypervisor_manual_hyperv' = 'The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the Hyper-V management service from an elevated console (Restart-Service vmms) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.'
-    'runner.host_refresh_hung_hypervisor_manual_kvm' = 'The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the libvirt daemons (sudo systemctl restart libvirtd) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.'
-    'runner.host_refresh_hung_hypervisor_manual_utm' = 'The hypervisor control channel is hung and no reachable rung repairs that on this host. Quit and reopen UTM from the logged-in desktop session or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.'
-    'runner.host_refresh_identity_refused' = @(
-        'Invoke-HostRefresh: refusing to run as '
+    'runner.host_repair_hung_hypervisor_manual_hyperv' = 'The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the Hyper-V management service from an elevated console (Restart-Service vmms) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.'
+    'runner.host_repair_hung_hypervisor_manual_kvm' = 'The hypervisor control channel is hung and no reachable rung repairs that on this host. Restart the libvirt daemons (sudo systemctl restart libvirtd) or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.'
+    'runner.host_repair_hung_hypervisor_manual_utm' = 'The hypervisor control channel is hung and no reachable rung repairs that on this host. Quit and reopen UTM from the logged-in desktop session or reboot the host by hand, then resume with: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. A resume without that repair only re-probes and spends one of the bounded attempts.'
+    'runner.host_repair_identity_refused' = @(
+        'Invoke-HostRepair: refusing to run as '
         @{
             'arg' = 'identity'
             'type' = 'identifier'
@@ -1568,8 +1959,8 @@
         }
         '.'
     )
-    'runner.host_refresh_launcher_wait_timeout' = @(
-        'Invoke-HostRefresh: launcher process '
+    'runner.host_repair_launcher_wait_timeout' = @(
+        'Invoke-HostRepair: launcher process '
         @{
             'arg' = 'launcherPid'
             'type' = 'integer'
@@ -1589,8 +1980,8 @@
         }
         ' stays queued for a retry.'
     )
-    'runner.host_refresh_lock_busy' = @(
-        'Invoke-HostRefresh: another repair holds the lifetime lock ('
+    'runner.host_repair_lock_busy' = @(
+        'Invoke-HostRepair: another host operation holds the lifetime lock ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1598,16 +1989,16 @@
         }
         '); refusing to run alongside it.'
     )
-    'runner.host_refresh_manual_command' = @(
-        'Invoke-HostRefresh: run this by hand, or allow it without a password prompt: sudo '
+    'runner.host_repair_manual_command' = @(
+        'Invoke-HostRepair: run this by hand, or allow it without a password prompt: sudo '
         @{
             'arg' = 'command'
             'type' = 'detail'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_obligation_disposed' = @(
-        'Invoke-HostRefresh: '
+    'runner.host_repair_obligation_disposed' = @(
+        'Invoke-HostRepair: '
         @{
             'arg' = 'obligation'
             'type' = 'identifier'
@@ -1627,8 +2018,8 @@
         }
         '.'
     )
-    'runner.host_refresh_obligation_unknown' = @(
-        'Invoke-HostRefresh: '
+    'runner.host_repair_obligation_unknown' = @(
+        'Invoke-HostRepair: '
         @{
             'arg' = 'obligation'
             'type' = 'identifier'
@@ -1642,8 +2033,8 @@
         }
         '.'
     )
-    'runner.host_refresh_oneshot_active' = @(
-        'Invoke-HostRefresh: a one-shot run (PID '
+    'runner.host_repair_oneshot_active' = @(
+        'Invoke-HostRepair: a one-shot run (PID '
         @{
             'arg' = 'pid'
             'type' = 'identifier'
@@ -1657,8 +2048,8 @@
         }
         ') is using this runtime; no repair step runs while it holds the lease.'
     )
-    'runner.host_refresh_oneshot_unconfirmed' = @(
-        'Invoke-HostRefresh: the one-shot lease '
+    'runner.host_repair_oneshot_unconfirmed' = @(
+        'Invoke-HostRepair: the one-shot lease '
         @{
             'arg' = 'leasePath'
             'type' = 'detail'
@@ -1678,7 +2069,7 @@
         }
         '); repairing anyway.'
     )
-    'runner.host_refresh_operator_instruction' = @(
+    'runner.host_repair_operator_instruction' = @(
         '  Remedy: '
         @{
             'arg' = 'instruction'
@@ -1686,7 +2077,21 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_preview_group_relaunch' = @(
+    'runner.host_repair_other_kind' = @(
+        'Invoke-HostRepair: request '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' is a host update, not a repair; its controller continues it. To end it on this host, run: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_repair_preview_group_relaunch' = @(
         '  An executing run would first relaunch under the libvirt group ('
         @{
             'arg' = 'reason'
@@ -1695,8 +2100,8 @@
         }
         ').'
     )
-    'runner.host_refresh_preview_notice' = '  Preview only: nothing was locked, written, signaled or started.'
-    'runner.host_refresh_preview_would_consider' = @(
+    'runner.host_repair_preview_notice' = '  Preview only: nothing was locked, written, signaled or started.'
+    'runner.host_repair_preview_would_consider' = @(
         '  Rungs an executing run would consider, in order: '
         @{
             'arg' = 'rungs'
@@ -1704,8 +2109,8 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_private_root_unavailable' = @(
-        'Invoke-HostRefresh: the private state root under $HOME/.yuruna/host-refresh could not be secured ('
+    'runner.host_repair_private_root_unavailable' = @(
+        'Invoke-HostRepair: the private state root under $HOME/.yuruna/host-repair could not be secured ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1713,9 +2118,9 @@
         }
         '); refusing without an owner-only private root.'
     )
-    'runner.host_refresh_progress_degraded' = 'Invoke-HostRefresh: progress could not be published; the repair continued and the private journal stays authoritative.'
-    'runner.host_refresh_protocol_mismatch' = @(
-        'Invoke-HostRefresh: '
+    'runner.host_repair_progress_degraded' = 'Invoke-HostRepair: progress could not be published; the repair continued and the private journal stays authoritative.'
+    'runner.host_repair_protocol_mismatch' = @(
+        'Invoke-HostRepair: '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -1735,8 +2140,8 @@
         }
         '''.'
     )
-    'runner.host_refresh_refused' = @(
-        'Invoke-HostRefresh: refused before any change ('
+    'runner.host_repair_refused' = @(
+        'Invoke-HostRepair: refused before any change ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1744,8 +2149,8 @@
         }
         ').'
     )
-    'runner.host_refresh_request_refused' = @(
-        'Invoke-HostRefresh: request '
+    'runner.host_repair_request_refused' = @(
+        'Invoke-HostRepair: request '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1771,9 +2176,9 @@
         }
         '.'
     )
-    'runner.host_refresh_resume_none' = 'Invoke-HostRefresh: there is no unresolved request to resume.'
-    'runner.host_refresh_resume_started' = @(
-        'Invoke-HostRefresh: resuming request '
+    'runner.host_repair_resume_none' = 'Invoke-HostRepair: there is no unresolved request to resume.'
+    'runner.host_repair_resume_started' = @(
+        'Invoke-HostRepair: resuming request '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1793,8 +2198,8 @@
         }
         ').'
     )
-    'runner.host_refresh_rung_finished' = @(
-        'Invoke-HostRefresh: rung '
+    'runner.host_repair_rung_finished' = @(
+        'Invoke-HostRepair: rung '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -1820,22 +2225,22 @@
         }
         ').'
     )
-    'runner.host_refresh_rung_reason_broker_recipe_missing' = 'requires a verified OS-version-specific label, domain and owner recipe with collateral tests'
-    'runner.host_refresh_rung_reason_daemon_layout_unqualified' = 'requires daemon-layout and guest-preservation tests passing on a supported host'
-    'runner.host_refresh_rung_reason_gui_launch_unqualified' = 'starting UTM needs a same-user absence check and a GUI launch path that have not been qualified on a real macOS host'
-    'runner.host_refresh_rung_reason_lock_unqualified' = 'the repair lock''s exclusion has not been demonstrated on this platform'
-    'runner.host_refresh_rung_reason_modular_daemon_recipe_missing' = 'requires a validated recipe for the modular libvirt daemons'
-    'runner.host_refresh_rung_reason_no_reboot_supervision' = 'no verified runner and status-service supervision exists across a host reboot'
-    'runner.host_refresh_rung_reason_not_implemented' = 'no executor for this rung exists in this checkout'
-    'runner.host_refresh_rung_reason_package_recovery_unqualified' = 'requires a self-contained signed bootstrap and a tested package recovery procedure'
-    'runner.host_refresh_rung_reason_provider_recipe_missing' = 'requires a separate provider-recovery recipe tested on a supported host'
-    'runner.host_refresh_rung_reason_runner_restart_unqualified' = 'runner reclamation and verified restart have not been qualified on a real host of this platform'
-    'runner.host_refresh_rung_reason_settings_recipe_unsafe' = 'the settings recipe still reaches consent dialogs, package installs or unbounded native calls that an unattended repair must not run'
-    'runner.host_refresh_rung_reason_unsupported_on_platform' = 'not offered on this platform'
-    'runner.host_refresh_rung_reason_utm_restart_unqualified' = 'restarting UTM needs a tested launch and session path, captured guest recovery evidence, runner exclusion and the graceful quit policy, validated on a real macOS host'
-    'runner.host_refresh_rung_reason_vmms_start_unqualified' = 'starting a stopped vmms service is implemented but has not been qualified on a real Windows Hyper-V host'
-    'runner.host_refresh_rung_started' = @(
-        'Invoke-HostRefresh: rung '
+    'runner.host_repair_rung_reason_broker_recipe_missing' = 'requires a verified OS-version-specific label, domain and owner recipe with collateral tests'
+    'runner.host_repair_rung_reason_daemon_layout_unqualified' = 'requires daemon-layout and guest-preservation tests passing on a supported host'
+    'runner.host_repair_rung_reason_gui_launch_unqualified' = 'starting UTM needs a same-user absence check and a GUI launch path that have not been qualified on a real macOS host'
+    'runner.host_repair_rung_reason_lock_unqualified' = 'the repair lock''s exclusion has not been demonstrated on this platform'
+    'runner.host_repair_rung_reason_modular_daemon_recipe_missing' = 'requires a validated recipe for the modular libvirt daemons'
+    'runner.host_repair_rung_reason_no_reboot_supervision' = 'no verified runner and status-service supervision exists across a host reboot'
+    'runner.host_repair_rung_reason_not_implemented' = 'no executor for this rung exists in this checkout'
+    'runner.host_repair_rung_reason_package_recovery_unqualified' = 'requires a self-contained signed bootstrap and a tested package recovery procedure'
+    'runner.host_repair_rung_reason_provider_recipe_missing' = 'requires a separate provider-recovery recipe tested on a supported host'
+    'runner.host_repair_rung_reason_runner_restart_unqualified' = 'runner reclamation and verified restart have not been qualified on a real host of this platform'
+    'runner.host_repair_rung_reason_settings_recipe_unsafe' = 'the settings recipe still reaches consent dialogs, package installs or unbounded native calls that an unattended repair must not run'
+    'runner.host_repair_rung_reason_unsupported_on_platform' = 'not offered on this platform'
+    'runner.host_repair_rung_reason_utm_restart_unqualified' = 'restarting UTM needs a tested launch and session path, captured guest recovery evidence, runner exclusion and the graceful quit policy, validated on a real macOS host'
+    'runner.host_repair_rung_reason_vmms_start_unqualified' = 'starting a stopped vmms service is implemented but has not been qualified on a real Windows Hyper-V host'
+    'runner.host_repair_rung_started' = @(
+        'Invoke-HostRepair: rung '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -1849,8 +2254,8 @@
         }
         ' s of repair budget left.'
     )
-    'runner.host_refresh_runner_not_ready' = @(
-        'Invoke-HostRefresh: the restarted runner did not acknowledge readiness ('
+    'runner.host_repair_runner_not_ready' = @(
+        'Invoke-HostRepair: the restarted runner did not acknowledge readiness ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1858,8 +2263,8 @@
         }
         ').'
     )
-    'runner.host_refresh_runtime_missing' = @(
-        'Invoke-HostRefresh: runtime directory '
+    'runner.host_repair_runtime_missing' = @(
+        'Invoke-HostRepair: runtime directory '
         @{
             'arg' = 'runtimeDir'
             'type' = 'detail'
@@ -1867,8 +2272,8 @@
         }
         ' does not exist; set YURUNA_RUNTIME_DIR to the runner''s runtime directory.'
     )
-    'runner.host_refresh_runtime_owner_mismatch' = @(
-        'Invoke-HostRefresh: this account''s refresh state is registered to runtime '
+    'runner.host_repair_runtime_owner_mismatch' = @(
+        'Invoke-HostRepair: this account''s repair state is registered to runtime '
         @{
             'arg' = 'registeredRuntimeDir'
             'type' = 'detail'
@@ -1882,8 +2287,8 @@
         }
         '; one owning runtime per account is supported.'
     )
-    'runner.host_refresh_service_unverified' = @(
-        'Invoke-HostRefresh: service '
+    'runner.host_repair_service_unverified' = @(
+        'Invoke-HostRepair: service '
         @{
             'arg' = 'key'
             'type' = 'identifier'
@@ -1897,8 +2302,8 @@
         }
         ').'
     )
-    'runner.host_refresh_session_passive' = @(
-        'Invoke-HostRefresh: session kind is '
+    'runner.host_repair_session_passive' = @(
+        'Invoke-HostRepair: session kind is '
         @{
             'arg' = 'sessionKind'
             'type' = 'identifier'
@@ -1906,18 +2311,16 @@
         }
         '; steps that need the desktop session are skipped.'
     )
-    'runner.host_refresh_should_process_admission' = 'Record host-refresh admission'
-    'runner.host_refresh_should_process_listener' = 'Start the status listener in refresh-safe mode'
-    'runner.host_refresh_should_process_publish' = 'Publish host-refresh progress'
-    'runner.host_refresh_should_process_run' = @(
-        'Run host-refresh request '
+    'runner.host_repair_should_process_publish' = 'Publish host-repair progress'
+    'runner.host_repair_should_process_run' = @(
+        'Run host-repair request '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_active_request' = @(
+    'runner.host_repair_summary_active_request' = @(
         '  Unresolved request: '
         @{
             'arg' = 'requestId'
@@ -1938,7 +2341,7 @@
         }
         ')'
     )
-    'runner.host_refresh_summary_context' = @(
+    'runner.host_repair_summary_context' = @(
         '  Runtime:          '
         @{
             'arg' = 'runtimeDir'
@@ -1959,8 +2362,8 @@
         }
         ')'
     )
-    'runner.host_refresh_summary_header' = @(
-        'Host refresh ('
+    'runner.host_repair_summary_header' = @(
+        'Host repair ('
         @{
             'arg' = 'mode'
             'type' = 'identifier'
@@ -1973,7 +2376,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_ladder' = @(
+    'runner.host_repair_summary_ladder' = @(
         '  Repair ladder, ceiling '
         @{
             'arg' = 'ceiling'
@@ -1982,7 +2385,7 @@
         }
         ':'
     )
-    'runner.host_refresh_summary_obligation' = @(
+    'runner.host_repair_summary_obligation' = @(
         '  Outstanding:      '
         @{
             'arg' = 'obligation'
@@ -1990,7 +2393,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_probe' = @(
+    'runner.host_repair_summary_probe' = @(
         '  Hypervisor probe: '
         @{
             'arg' = 'state'
@@ -2011,7 +2414,7 @@
         }
         ' ms)'
     )
-    'runner.host_refresh_summary_rung_above_ceiling' = @(
+    'runner.host_repair_summary_rung_above_ceiling' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2026,7 +2429,7 @@
         }
         ': above the requested ceiling'
     )
-    'runner.host_refresh_summary_rung_available' = @(
+    'runner.host_repair_summary_rung_available' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2041,7 +2444,7 @@
         }
         ': available'
     )
-    'runner.host_refresh_summary_rung_result' = @(
+    'runner.host_repair_summary_rung_result' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2068,7 +2471,7 @@
         }
         ')'
     )
-    'runner.host_refresh_summary_rung_unavailable' = @(
+    'runner.host_repair_summary_rung_unavailable' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2088,7 +2491,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_runner' = @(
+    'runner.host_repair_summary_runner' = @(
         '  Runner:           '
         @{
             'arg' = 'status'
@@ -2096,7 +2499,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_verdict' = @(
+    'runner.host_repair_summary_verdict' = @(
         '  Verdict:          '
         @{
             'arg' = 'verdict'
@@ -2123,8 +2526,22 @@
         }
         ')'
     )
-    'runner.host_refresh_unexpected_error' = @(
-        'Invoke-HostRefresh: unexpected error during '
+    'runner.host_repair_trigger_call_failed' = @(
+        'Automatic host-repair call at '
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' failed and was skipped: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.host_repair_unexpected_error' = @(
+        'Invoke-HostRepair: unexpected error during '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -2137,7 +2554,371 @@
             'trust' = 'external'
         }
     )
-    'runner.host_refresh_verified_noop' = 'Invoke-HostRefresh: the hypervisor answered and the runner is healthy; nothing was changed.'
+    'runner.host_repair_verified_noop' = 'Invoke-HostRepair: the hypervisor answered and the runner is healthy; nothing was changed.'
+    'runner.host_update_access_entry_action' = 'Install or remove the sudoers entry that lets the host controller write its temporary sudo rule'
+    'runner.host_update_auth_action_create_signing_key' = 'Create the host update signing key'
+    'runner.host_update_auth_action_install_record' = @(
+        'Install the pool-control record for '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_auth_action_remove_record' = 'Remove the pool-control record'
+    'runner.host_update_busy' = @(
+        'Invoke-HostUpdate: nothing was queued; a '
+        @{
+            'arg' = 'activeKind'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' operation holds the host ('
+        @{
+            'arg' = 'activeRequestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). Wait for it to end, or end the running cycle at the runner''s console.'
+    )
+    'runner.host_update_console_window' = 'a console window of its own on the desktop of the test account, at the machine or over a remote desktop connection to that session'
+    'runner.host_update_controller_absent' = @(
+        'Invoke-HostUpdate: no host controller is running on this host (lock '
+        @{
+            'arg' = 'lockState'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); nothing was queued.'
+    )
+    'runner.host_update_credential_record_installed' = @(
+        'Set-HostRepairCredential: installed this host''s pool-control record (pool-control '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', key tag '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); host updates signed by that key are now verifiable here, and this host''s Diagnostics page sends a remote press there.'
+    )
+    'runner.host_update_credential_record_removed' = 'Set-HostRepairCredential: removed this host''s pool-control record; this host now refuses every host update from another machine.'
+    'runner.host_update_credential_record_value_replaced' = @(
+        'Set-HostRepairCredential: pool-control record '
+        @{
+            'arg' = 'key'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' -> '
+        @{
+            'arg' = 'current'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. This line keeps the previous value; install it again with -InstallPoolControlRecord if the change was not intended.'
+    )
+    'runner.host_update_credential_signing_key_created' = @(
+        'Set-HostRepairCredential: created a host update signing key (tag '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') at '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. Copy it to the pool-control service''s /etc/yuruna/host-repair/update-signing.key with owner-only permissions; never copy it to a pool host. On each pool host run: pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl <pool-control URL> -PublicKey '
+        @{
+            'arg' = 'publicKey'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_credential_signing_key_exists' = @(
+        'Set-HostRepairCredential: a host update signing key already exists at '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; pass -Rotate to replace it, after which every host''s pool-control record must be installed again.'
+    )
+    'runner.host_update_credential_status' = @(
+        'Set-HostRepairCredential: pool-control record '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; pool-control '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', key tag '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); host update signing key '
+        @{
+            'arg' = 'signingKeyState'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.host_update_elevated_work_action' = 'End the processes of a host update''s install or enable phase, including those that run as root'
+    'runner.host_update_elevation_action' = 'Change the temporary sudo rule, a transient unit or an installer copy of a host update'
+    'runner.host_update_gate_controller_absent' = @(
+        'Start-TestRunner: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds this host''s runner and no host controller is running; its system service starts one within seconds to continue the update. To end the update instead, run: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_absent_macos' = @(
+        'Start-TestRunner: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds this host''s runner and no host controller is running. '
+        @{
+            'arg' = 'result'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' Start the runner from a terminal of the desktop session to start the controller, which continues the update; or end the update with: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_restarting_macos' = @(
+        'Start-TestRunner: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds this host''s runner, and the host controller this start found is between two runs: the shim in its session starts it again shortly, and it continues the update and starts the runner itself. To end the update instead, run: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_running' = @(
+        'Start-TestRunner: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds this host''s runner; the host controller continues it and starts the runner itself. Its console: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_unknown_macos' = @(
+        'Start-TestRunner: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds this host''s runner. This start''s host controller step found a controller running or started one, but the controller lock cannot be read now, so whether a controller continues the update is not known. If none does, start the runner from a terminal of the desktop session to start the controller; or end the update with: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_queued' = @(
+        'Invoke-HostUpdate: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' is queued (scope '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', drain '
+        @{
+            'arg' = 'drain'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). Progress: '
+        @{
+            'arg' = 'stateFile'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. The runner''s console, once it starts: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_refused' = @(
+        'Invoke-HostUpdate: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was not queued ('
+        @{
+            'arg' = 'decision'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'runner.host_update_release_controller_running' = @(
+        'Invoke-HostUpdate: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' is in progress under the host controller (pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); it can be released only while it is recovering or no controller runs. Wait for its verdict.'
+    )
+    'runner.host_update_release_marked' = @(
+        'Invoke-HostUpdate: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' is marked for release; the host controller releases it after its current attempt.'
+    )
+    'runner.host_update_release_refused' = @(
+        'Invoke-HostUpdate: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' cannot be released ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'runner.host_update_released' = @(
+        'Invoke-HostUpdate: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ended as '
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; still to settle: '
+        @{
+            'arg' = 'debt'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. An ordinary runner start works again.'
+    )
+    'runner.host_update_scope_unavailable' = @(
+        'Invoke-HostUpdate: the host controller runs '
+        @{
+            'arg' = 'scopes'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', not '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; nothing was queued.'
+    )
+    'runner.host_update_takeover' = @(
+        'Invoke-HostUpdate: it takes over host update '
+        @{
+            'arg' = 'supersededId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', which was recovering.'
+    )
+    'runner.host_update_unexpected_error' = @(
+        'Invoke-HostUpdate: unexpected error during '
+        @{
+            'arg' = 'phase'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.hypervisor_control_unresponsive' = @(
         'The hypervisor control channel on this host answers state queries but no longer acts on lifecycle requests (probe '
         @{
@@ -2157,7 +2938,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). The cycle stops before building anything, because every VM start and stop would wait out its timeout. Restart the hypervisor application on this host (on macOS quit UTM.app from the desktop session, or run test/lab/Invoke-HostRefresh.ps1), then resume the runner.'
+        '). The cycle stops before building anything, because every VM start and stop would wait out its timeout. Restart the hypervisor application on this host (on macOS quit UTM.app from the desktop session, or run test/lab/Invoke-HostRepair.ps1), then resume the runner.'
     )
     'runner.inner_attempt_exited' = @(
         'The runner attempt exited '
@@ -2198,7 +2979,66 @@
         }
         ''' has no ''resource:'' OS key; not a runnable guest sequence.'
     )
+    'runner.kvm_pointer_button_held' = @(
+        'KVM pointer on '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': the '
+        @{
+            'arg' = 'button'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' button was pressed and its release could not be confirmed; it may still be held in the guest.'
+    )
+    'runner.kvm_pointer_event' = @(
+        'KVM pointer on '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('
+        @{
+            'arg' = 'stage'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.kvm_pointer_no_device' = @(
+        'KVM pointer on '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': the guest has no absolute pointer device (QEMU: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Nothing was sent; add a USB tablet to the domain.'
+    )
     'runner.launch_record_complete_action' = 'Mark the runner launch record ended'
+    'runner.launch_record_skipped' = @(
+        'Start-TestRunner: the runner launch record was not written ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); a host repair or host update cannot restart this runner, and asks the operator to start it instead.'
+    )
     'runner.launch_record_write_action' = 'Write the runner launch record'
     'runner.m1ff7f8f2d1' = @(
         @{
@@ -2432,6 +3272,59 @@
             'trust' = 'external'
         }
     )
+    'runner.mcp_workload_action' = 'Run one registered verb, for what no sentence covers. Run with operationId and the run fields action, fields and intent. Poll with operationId alone; cancel with operationId and cancel true. A call answers within the response budget, and a longer operation keeps running. The same id and input never run twice. A client that abandons a request does not cancel the operation. A cancel takes effect before the next primitive and does not interrupt one that is running.'
+    'runner.mcp_workload_cancel_with_run_fields' = 'A cancel takes operationId alone; remove the run fields.'
+    'runner.mcp_workload_failure' = 'Read the last failure of the session as a filtered view: the class, the step, the sentence, the cause detail and the evidence paths it may show.'
+    'runner.mcp_workload_instructions' = @(
+        "1. Look before you act. Call workload_snapshot for the surface before you choose a step, and choose from what it shows. A reference such as s14 or p7 is good only until the next snapshot or step on that surface.`n2. Say it as a sentence. Find the sentence with workload_phrases or workload_suggest_step and run it with workload_step. Use workload_action only for what no sentence covers.`n3. Give every step its reason. intent is one line of plain English for the person who reads the test later; it becomes the step's description. It holds no password, token or other secret value and no variable reference.`n4. Never type a secret. Where a password is needed, write the reference, for example "
+        @{
+            'arg' = 'reference'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ". A literal in a secret position is refused.`n5. One step at a time, never twice. Choose a new operationId for every new step. When a call answers workload_still_waiting, call the same tool again with only that id. Do not send a step again because its answer was slow or lost.`n6. Stop and ask the person when a result says the effect is uncertain, when two elements match and nothing on the page tells them apart, when a step would delete data or power off the guest, when the screen shows a credential, or when the product no longer shows what the test expects.`n7. Finish in order: workload_journal, workload_save_sequence, workload_run_sequence, workload_session_end."
+    )
+    'runner.mcp_workload_invalid_arguments' = @(
+        'The arguments of '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' are not valid: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.mcp_workload_invalid_request' = 'The request is not a valid JSON-RPC request.'
+    'runner.mcp_workload_journal' = 'Read the journal: the steps that succeeded so far as YAML, a summary of every operation, and the state changes the YAML does not carry.'
+    'runner.mcp_workload_phrases' = 'List the sentences in force, each with its id, surfaces, slots and tier. Optional: search, which filters the list. Answers before a session exists, from the framework library.'
+    'runner.mcp_workload_request_too_large' = @(
+        'The request is longer than '
+        @{
+            'arg' = 'limit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' characters.'
+    )
+    'runner.mcp_workload_run_form_incomplete' = @(
+        'A call that runs an operation also needs: '
+        @{
+            'arg' = 'fields'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'runner.mcp_workload_run_sequence' = 'Replay the named sequence''s own steps on the attached VM through Debug-TestSequence.ps1 in a child process. Run with operationId and the run field sequence, optionally timeoutSeconds (60 to 43200). Poll with operationId alone; cancel with operationId and cancel true. A call answers within the response budget, and a longer operation keeps running. The same id and input never run twice. A client that abandons a request does not cancel the operation. Before its first step the replay stops every other running VM on the host except the service VMs, as any Debug-TestSequence.ps1 run does; the result of workload_session_start lists them in otherRunningVms.'
+    'runner.mcp_workload_save_sequence' = 'Save the journal as a new sequence file. The file is written to the framework''s test/sequences folder, and an existing file is never replaced. Required: name, description and resource, the list of sequences it runs after. Optional: componentSteps, how many leading steps become component steps.'
+    'runner.mcp_workload_session_end' = 'End the session: stop a running operation, close the owner cycle, release the runtime lease and end the worker. The VM is left running. Without a session it answers ended false.'
+    'runner.mcp_workload_session_start' = 'Attach a workload session to a running VM. Required: guestKey and vmName. Optional: sequence, a guest sequence whose resource chain supplies the variables and whose phrase libraries are in force, and variables, at most 64 values laid over them. A start that outlives the response budget keeps running and answers workload_session_starting; call again with the same input to read its result. The result lists the other running VMs in otherRunningVms.'
+    'runner.mcp_workload_snapshot' = 'Read what a surface shows now. Required: surface (screen or page). Optional: find, which filters the returned view, and image, which also returns the screen frame. Each entry carries a reference such as s14, good only until the next snapshot or step on that surface.'
+    'runner.mcp_workload_step' = 'Run one sentence as a step. Run with operationId and the run fields step and intent, optionally on and timeoutSeconds (1 to 7200). Poll with operationId alone; cancel with operationId and cancel true. A call answers within the response budget, and a longer operation keeps running. The same id and input never run twice. A client that abandons a request does not cancel the operation. A cancel takes effect before the next primitive and does not interrupt one that is running.'
+    'runner.mcp_workload_suggest_step' = 'Suggest a step for one entry of the current snapshot. Required: ref, a reference such as s14. Returns the sentences that target exactly that entry, or a tapOn primitive with nth when no sentence singles it out.'
     'runner.mcp_yuruna_dependency_version' = 'Report the pinned dependency versions and what is installed. Emits JSON natively.'
     'runner.mcp_yuruna_invoke_clear' = 'Clear generated state. DESTRUCTIVE: what it removes is not recoverable by calling it again.'
     'runner.mcp_yuruna_set_component' = 'Apply the component definitions. Writes configuration; exits non-zero with a transcript on failure.'
@@ -2536,13 +3429,13 @@
             'trust' = 'external'
         }
     )
-    'runner.no_other_runner_refresh_active' = @(
+    'runner.no_other_runner_gate_held' = @(
         @{
             'arg' = 'callerName'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': host refresh '
+        ': host operation '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -2554,7 +3447,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); refusing to start. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
+        '); refusing to start. Wait for it to finish, or, for a host repair, resume it with test/lab/Invoke-HostRepair.ps1 -Resume.'
     )
     'runner.ocr_known_answer_degraded' = @(
         'An OCR provider cannot read a known frame ('
@@ -4468,7 +5361,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' not on host -- running full baseline chain (cold path; VM will be renamed to '''
+        ''' not on host -- running the full resource chain (cold path; VM will be renamed to '''
         @{
             'arg' = 'requiredSnapshotId'
             'type' = 'detail'
@@ -4703,7 +5596,7 @@
     'runner.operator_1a355714114b86a7' = 'UTM.app missing -- install it: brew install --cask utm (or https://mac.getutm.app)'
     'runner.operator_1a3ffa06ec11b7a6' = 'virsh not found on PATH -- the libvirt/QEMU packages are not installed. Run install/ubuntu.kvm.sh, or: sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86'
     'runner.operator_1a5944a737ed4e90' = @(
-        '  Host refresh '
+        '  Host repair '
         @{
             'arg' = 'report'
             'type' = 'detail'
@@ -5798,7 +6691,7 @@
     'runner.operator_2911629c58691e3f' = '  it a cycle would stop mid-run on a password prompt that nobody is'
     'runner.operator_29160309e2dd574e' = '/dev/kvm present.'
     'runner.operator_29205489a1013ab0' = 'host.windows.hyper-v requires elevation. Re-run Start-TestRunner.ps1 as Administrator.'
-    'runner.operator_292bf0f1ef450037' = 'Invoke-HostRefresh: hypervisor is responsive; the runner is dead or absent. Rung 1 (reclaim) is not implemented in this slice -- start it by hand: pwsh test/Start-TestRunner.ps1'
+    'runner.operator_292bf0f1ef450037' = 'Invoke-HostRepair: hypervisor is responsive; the runner is dead or absent. Rung 1 (reclaim) is not implemented in this slice -- start it by hand: pwsh test/Start-TestRunner.ps1'
     'runner.operator_29607e704f43acdc' = @(
         'users.yml['
         @{
@@ -6407,7 +7300,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_2fb31966478fca46' = 'Invoke-HostRefresh: could not resolve/secure the private host-refresh state root ($HOME/.yuruna/host-refresh). Refusing to proceed without a durable, owner-only private root.'
+    'runner.operator_2fb31966478fca46' = 'Invoke-HostRepair: could not resolve/secure the private host-repair state root ($HOME/.yuruna/host-repair). Refusing to proceed without a durable, owner-only private root.'
     'runner.operator_2fce8fc42e5b8f1f' = 'Running on macOS but UTM not found at /Applications/UTM.app.'
     'runner.operator_300e4e9499987ed4' = @(
         'Wait-YurunaAggregatorReady: the pool-aggregator service did not become ready within '
@@ -7314,7 +8207,7 @@
         ' for the per-cycle log.'
     )
     'runner.operator_3d35ece66aa84b79' = @(
-        'Guest key (from baseline): '
+        'Guest key (from resource chain): '
         @{
             'arg' = 'guestKey'
             'type' = 'detail'
@@ -8128,7 +9021,7 @@
     'runner.operator_46e3cbe0614b1d51' = 'poolStorage setup: networkPath/networkUser must not contain a single quote (it would break the guest seed). Nothing written.'
     'runner.operator_46f30de3d812ddd8' = 'System Settings > Privacy & Security > Automation'
     'runner.operator_47371277eaeea492' = @(
-        'Status-server bounce could not start: '
+        'Status-service bounce could not start: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -10879,7 +11772,7 @@
         }
         ' Look at the link and the renewal path, not at the DHCP identity.'
     )
-    'runner.operator_677303e3823afe8d' = '''testCycle.autoRefreshAfterStalls'' not set -- defaults to 0 (automatic host refresh disabled).'
+    'runner.operator_677303e3823afe8d' = '''testCycle.autoRepairAfterStalls'' not set -- defaults to 0 (automatic host repair disabled).'
     'runner.operator_67a649b2f9792d49' = @(
         'Failed to install '
         @{
@@ -11415,7 +12308,7 @@
     'runner.operator_6e9385fec86f1e3d' = 'Caching-proxy service: a caching-proxy-service bring-up holds the lock -- leaving the port map to it.'
     'runner.operator_6ec6add9e9a298c1' = '    Common cause: the cache VM is up but squid is restarting -- a freshly rebuilt cache does this once while provisioning applies its ssl-bump config.'
     'runner.operator_6eca51811f4cfdd3' = @(
-        'Invoke-HostRefresh: another repair already holds the lifetime lock ('
+        'Invoke-HostRepair: another host operation already holds the lifetime lock ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
@@ -12599,13 +13492,13 @@
         '. NAS records removed; memberships NOT touched.'
     )
     'runner.operator_7d74f75db443e9e2' = @(
-        'Status-server bounce is still running after '
+        'Status-service bounce is still running after '
         @{
             'arg' = 'bounceTimeoutSeconds'
             'type' = 'detail'
             'trust' = 'external'
         }
-        's; it was left alone (killing it would take the server down with it). Transcript: '
+        's; it was left alone (killing it would take the service down with it). Transcript: '
         @{
             'arg' = 'logPath'
             'type' = 'detail'
@@ -12807,7 +13700,7 @@
         ''''
     )
     'runner.operator_7f5c0d3fa4f8cdf8' = @(
-        'Status-server bounce exited '
+        'Status-service bounce exited '
         @{
             'arg' = 'exitCode'
             'type' = 'detail'
@@ -13517,7 +14410,7 @@
         ')'
     )
     'runner.operator_88f502760b28fd59' = @(
-        'Invoke-HostRefresh: hypervisor probe is '
+        'Invoke-HostRepair: hypervisor probe is '
         @{
             'arg' = 'state'
             'type' = 'detail'
@@ -15978,7 +16871,7 @@
         ''' is regenerated with ''dhcp-identifier: mac'', then: sudo netplan apply'
     )
     'runner.operator_a6cceb1dcf23a282' = @(
-        'Invoke-HostRefresh: request refused ('
+        'Invoke-HostRepair: request refused ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
@@ -16473,7 +17366,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_ae404c37892f11d1' = 'Write host-refresh request journal'
+    'runner.operator_ae404c37892f11d1' = 'Write host-operation request journal'
     'runner.operator_ae4e8052943a33cd' = @(
         'Ensured Windows Firewall rule '''
         @{
@@ -20310,7 +21203,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_dfd19c97aaa9ff6e' = 'Invoke-HostRefresh: hypervisor responsive and a runner is present -- verified no-op.'
+    'runner.operator_dfd19c97aaa9ff6e' = 'Invoke-HostRepair: hypervisor responsive and a runner is present -- verified no-op.'
     'runner.operator_dfd80a749d4fee8f' = '  Add Get-Image.ps1 + New-VM.ps1 under that path to enable this guest, or'
     'runner.operator_e00026446a75f063' = @(
         'Lost the pidfile race against a concurrent Start-TestRunner. Inspect '
@@ -22474,7 +23367,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' -- skipping baseline chain (warm path).'
+        ''' -- skipping the resource chain (warm path).'
     )
     'runner.operator_f8a43d6f86299328' = @(
         'Check the server error log: '
@@ -23039,7 +23932,7 @@
     )
     'runner.operator_fff495323f51f508' = 'Windows.Media.Ocr is installed on every Windows machine, but:'
     'runner.operator_fffaa1debcc46863' = @(
-        '''testCycle.autoRefreshAfterStalls'' is '
+        '''testCycle.autoRepairAfterStalls'' is '
         @{
             'arg' = 'arasVal'
             'type' = 'detail'
@@ -23125,6 +24018,29 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.phrase_library_invalid' = @(
+        '_phrases.yml: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.phrase_library_valid' = @(
+        '_phrases.yml: '
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' phrase(s) in '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
     )
     'runner.pool_configuration_library_removed' = 'Removed test-sets.yml from the configuration store; nothing reads it.'
     'runner.pool_configuration_schema_already_current' = @(
@@ -23282,6 +24198,15 @@
         '. See the network diagnostics for all attempts.'
     )
     'runner.prior_runner_cleanup_action' = "  Action:  stopping it and running`n           Remove-TestVMFiles.ps1 before start"
+    'runner.private_state_migration_blocked' = @(
+        'Start-TestRunner: the private state root could not move from its earlier host-refresh location ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); not starting. Stop the old runner, status listener and host controller, then start the runner again. See https://yuruna.link/42f909ad-0022'
+    )
     'runner.process_start_record_write_action' = 'Write a process start-time record'
     'runner.project_checkout_replace_action' = @(
         'Replace with a fresh checkout of '
@@ -23308,7 +24233,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '): a drained or paused pool, a host refresh or Ctrl+C held it before a verdict.'
+        '): a drained or paused pool, a host operation or Ctrl+C held it before a verdict.'
     )
     'runner.project_previous_cleanup_failed' = @(
         'Could not delete the displaced project checkout at '
@@ -23391,8 +24316,8 @@
         }
         '), so that CA is not trusted.'
     )
-    'runner.readiness_ack_remove_action' = 'Remove a stale refresh readiness acknowledgment'
-    'runner.readiness_ack_write_action' = 'Write the refresh readiness acknowledgment'
+    'runner.readiness_ack_remove_action' = 'Remove a stale handoff readiness acknowledgment'
+    'runner.readiness_ack_write_action' = 'Write the handoff readiness acknowledgment'
     'runner.recovery_applied' = @(
         '[outer cycle '
         @{
@@ -23483,419 +24408,6 @@
         }
         '). The cycle outcome is unaffected.'
     )
-    'runner.refresh_barrier_held' = @(
-        'Resumed after host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ': held by '
-        @{
-            'arg' = 'controls'
-            'type' = 'text'
-            'trust' = 'internal'
-        }
-        '. Release them from the status page; no VM is created or changed until then.'
-    )
-    'runner.refresh_barrier_released' = @(
-        'Held controls released after '
-        @{
-            'arg' = 'seconds'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        ' s; the resumed cycle continues.'
-    )
-    'runner.refresh_capability_unverified_macos' = 'Runner reclamation and restart are not qualified on macOS yet: the ps process table and the detached launch are tested with fixtures only.'
-    'runner.refresh_capability_unverified_windows' = 'Runner reclamation and restart are not qualified on Windows yet: the CIM process table, single-process termination and the reparent hop are tested with fixtures only.'
-    'runner.refresh_cycle_held' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] the inner stopped at '
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' because a host refresh holds this host; nothing was changed.'
-    )
-    'runner.refresh_gate_blocks_start' = @(
-        'Start-TestRunner: host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' holds this host''s runner (gate '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); not starting a second runner. Wait for it to finish, or resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
-    )
-    'runner.refresh_gate_boot_resume' = @(
-        'Start-TestRunner: host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' was left unfinished by an earlier boot; resuming it once with test/lab/Invoke-HostRefresh.ps1 -Resume (pid '
-        @{
-            'arg' = 'pid'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '). This start still refuses; the refresh starts the runner when it completes, and its errors go to '
-        @{
-            'arg' = 'stdErrPath'
-            'type' = 'detail'
-            'trust' = 'internal'
-        }
-        '.'
-    )
-    'runner.refresh_gate_boot_resume_failed' = @(
-        'Start-TestRunner: host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' was left unfinished by an earlier boot, and resuming it failed ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); resume it with test/lab/Invoke-HostRefresh.ps1 -Resume.'
-    )
-    'runner.refresh_gate_boot_resume_tried' = @(
-        'Start-TestRunner: host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ', left unfinished by an earlier boot, was already resumed once in this boot; resume it again with test/lab/Invoke-HostRefresh.ps1 -Resume.'
-    )
-    'runner.refresh_gate_hold' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' holds the runner (gate '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); no cycle starts until it releases.'
-    )
-    'runner.refresh_gate_orphaned' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' left the runner held (gate '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') and its worker is no longer running. Run test/lab/Invoke-HostRefresh.ps1 -Resume to finish its recovery.'
-    )
-    'runner.refresh_gate_released' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] the host-refresh gate released the runner; cycles resume.'
-    )
-    'runner.refresh_gate_status_ensure_failed' = @(
-        'Start-TestRunner: the status service could not be started while the gate holds: '
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'runner.refresh_gate_status_ensured' = @(
-        'Start-TestRunner: host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' has no live worker; the status service was started on port '
-        @{
-            'arg' = 'port'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        ' so its dashboard can show and resume the unresolved request. The runner start stays refused until the request is resolved.'
-    )
-    'runner.refresh_gate_unreadable' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] the host-refresh gate record could not be read ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); the runner stays held until test/lab/Invoke-HostRefresh.ps1 -Resume resolves it.'
-    )
-    'runner.refresh_gate_write_action' = @(
-        'Write the host-refresh runner gate ('
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ')'
-    )
-    'runner.refresh_handoff_complete' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] readiness verified for host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; leaving the refresh gate.'
-    )
-    'runner.refresh_handoff_complete_action' = @(
-        'Complete a host-refresh runner handoff ('
-        @{
-            'arg' = 'verdict'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ')'
-    )
-    'runner.refresh_handoff_issue_action' = @(
-        'Issue a host-refresh runner handoff token ('
-        @{
-            'arg' = 'purpose'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ')'
-    )
-    'runner.refresh_handoff_unverified' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] readiness for host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' could not be verified ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); the runner stays held.'
-    )
-    'runner.refresh_launch_record_skipped' = @(
-        'Start-TestRunner: the runner launch record was not written ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); a host refresh cannot restart this runner, and asks the operator to start it instead.'
-    )
-    'runner.refresh_preflight_cycle' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] refresh preflight only: no git pull, VM change or control sweep in this cycle.'
-    )
-    'runner.refresh_preflight_failed' = @(
-        'Refresh preflight failed ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); nothing was changed and the runner stays held.'
-    )
-    'runner.refresh_preflight_ready' = @(
-        'Refresh preflight ready for request '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; waiting for the refresh worker to release the runner.'
-    )
-    'runner.refresh_preflight_released' = @(
-        'Refresh preflight ended ('
-        @{
-            'arg' = 'outcome'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); exiting so the runner can continue.'
-    )
-    'runner.refresh_preflight_result' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] refresh preflight cycle finished with exit code '
-        @{
-            'arg' = 'exitCode'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '.'
-    )
-    'runner.refresh_resume_action' = 'Restart the runner after a host refresh'
-    'runner.refresh_resume_record_refused' = @(
-        'Start-TestRunner: '
-        @{
-            'arg' = 'pidFile'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' is '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; a refresh resume never takes over or deletes a live or unknown runner record.'
-    )
-    'runner.refresh_resume_started' = @(
-        'Start-TestRunner: resuming after host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; operator pauses, holds and restart requests are preserved.'
-    )
-    'runner.refresh_resume_switch_pair' = 'Start-TestRunner: -RefreshResume and -RefreshHandoffToken must be given together; not starting.'
-    'runner.refresh_resume_token_refused' = @(
-        'Start-TestRunner: the refresh handoff was refused ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); not starting.'
-    )
-    'runner.refresh_site_gated' = @(
-        'Cycle ended before '
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ': host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' holds this host (gate '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '). Nothing was changed; the runner waits for the refresh.'
-    )
-    'runner.refresh_status_ensure_orphaned' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] host refresh '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' holds the runner (gate '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') and its worker is no longer running; re-ensuring the status service so its dashboard can show and resume the unresolved request.'
-    )
-    'runner.refresh_status_ensure_skipped' = @(
-        '[outer cycle '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] status-service re-ensure skipped: a host refresh holds this host.'
-    )
-    'runner.refresh_trigger_call_failed' = @(
-        'Automatic host-refresh call at '
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' failed and was skipped: '
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'runner.resident_watchdog_kill_preamble' = @(
         '[outer cycle '
         @{
@@ -23955,6 +24467,185 @@
             'trust' = 'internal'
         }
         ' with its process tree.'
+    )
+    'runner.runner_gate_blocks_start' = @(
+        'Start-TestRunner: host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds this host''s runner (gate '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); not starting a second runner. Wait for it to finish, or, for a host repair, resume it with test/lab/Invoke-HostRepair.ps1 -Resume.'
+    )
+    'runner.runner_gate_cycle_held' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] the inner stopped at '
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' because a host operation holds this host; nothing was changed.'
+    )
+    'runner.runner_gate_hold' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds the runner (gate '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); no cycle starts until it releases.'
+    )
+    'runner.runner_gate_orphaned' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' left the runner held (gate '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') and its worker is no longer running. For a host repair, run test/lab/Invoke-HostRepair.ps1 -Resume to finish its recovery.'
+    )
+    'runner.runner_gate_released' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] the runner gate released the runner; cycles resume.'
+    )
+    'runner.runner_gate_site_held' = @(
+        'Cycle ended before '
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds this host (gate '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). Nothing was changed; the runner waits for it.'
+    )
+    'runner.runner_gate_status_ensure_failed' = @(
+        'Start-TestRunner: the status service could not be started while the gate holds: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.runner_gate_status_ensure_orphaned' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' holds the runner (gate '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') and its worker is no longer running; re-ensuring the status service so its dashboard can show and resume the unresolved request.'
+    )
+    'runner.runner_gate_status_ensure_skipped' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] status-service re-ensure skipped: a host operation holds this host.'
+    )
+    'runner.runner_gate_status_ensured' = @(
+        'Start-TestRunner: host operation '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' has no live worker; the status service was started on port '
+        @{
+            'arg' = 'port'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' so its dashboard can show and resume the unresolved request. The runner start stays refused until the request is resolved.'
+    )
+    'runner.runner_gate_unreadable' = @(
+        '[outer cycle '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] the runner gate record could not be read ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); the runner stays held until test/lab/Invoke-HostRepair.ps1 -Resume resolves it.'
+    )
+    'runner.runner_gate_write_action' = @(
+        'Write the runner gate ('
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
     )
     'runner.runner_process_signal_action' = @(
         'Signal a verified runner process ('
@@ -24632,6 +25323,145 @@
         }
         ').'
     )
+    'runner.ssh_host_key_pin_unconfirmed_reset' = @(
+        'The SSH host key pinned for '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' was recorded during this wait and no login has authenticated against it, and the guest at '
+        @{
+            'arg' = 'address'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' now presents another key, as a fresh guest does when its installer''s SSH server gives way to the installed system''s. The pin is forgotten and the wait goes on (reset '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' of '
+        @{
+            'arg' = 'limit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '; pin: '
+        @{
+            'arg' = 'pin'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'runner.ssh_password_rotated' = @(
+        'sshWaitReady changed the expired password of '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' over SSH.'
+    )
+    'runner.ssh_password_rotation_failed' = @(
+        'sshWaitReady could not change the expired password of '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' over SSH ('
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), so the step fails. Guest output: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.ssh_password_set' = @(
+        'sshWaitReady set the password of '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' over SSH, because the login was not expired.'
+    )
+    'runner.ssh_password_set_failed' = @(
+        'sshWaitReady could not set the password of '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' over SSH ('
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), so the step fails and no later step stores the new password. Guest output: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.ssh_password_still_expired' = @(
+        'The guest still reports an expired password for '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' after sshWaitReady changed it, so the step fails.'
+    )
+    'runner.ssh_wait_rotation_fields_incomplete' = @(
+        'sshWaitReady rotates an expired password only with both currentPassword and newPassword, and this step gives only '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', so the step fails.'
+    )
     'runner.start_cycle_worker_cleanup_failed' = @(
         'Start-cycle '
         @{
@@ -24933,7 +25763,7 @@
         }
         ''') and starting a new one.'
     )
-    'runner.status_refresh_safe_existing_ready' = @(
+    'runner.status_non_destructive_existing_ready' = @(
         'Status service PID '
         @{
             'arg' = 'processId'
@@ -24946,9 +25776,9 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '; the refresh-safe start left it running.'
+        '; the non-destructive start left it running.'
     )
-    'runner.status_refresh_safe_not_ready' = @(
+    'runner.status_non_destructive_not_ready' = @(
         'The status service started as PID '
         @{
             'arg' = 'processId'
@@ -24963,8 +25793,8 @@
         }
         ' seconds; it was left running.'
     )
-    'runner.status_refresh_safe_partial' = @(
-        'Refresh-safe start of the status service on port '
+    'runner.status_non_destructive_partial' = @(
+        'Non-destructive start of the status service on port '
         @{
             'arg' = 'port'
             'type' = 'integer'
@@ -24984,8 +25814,8 @@
         }
         ').'
     )
-    'runner.status_refresh_safe_refused' = @(
-        'Start-StatusService.ps1 -RefreshSafe refused: '
+    'runner.status_non_destructive_refused' = @(
+        'Start-StatusService.ps1 -NonDestructive refused: '
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -24993,8 +25823,8 @@
         }
         '.'
     )
-    'runner.status_refresh_safe_result_unwritable' = @(
-        'The refresh-safe start could not write its result record to '
+    'runner.status_non_destructive_result_unwritable' = @(
+        'The non-destructive start could not write its result record to '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -25002,7 +25832,7 @@
         }
         '.'
     )
-    'runner.status_refresh_safe_started' = @(
+    'runner.status_non_destructive_started' = @(
         'Status service started as PID '
         @{
             'arg' = 'processId'
@@ -25015,7 +25845,7 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' (refresh-safe start).'
+        ' (non-destructive start).'
     )
     'runner.status_restart_changed_head' = @(
         'Restarting status service (PID '
@@ -25058,6 +25888,21 @@
     )
     'runner.status_worker_directory_prepare_action' = 'Prepare the private worker directory'
     'runner.status_worker_state_write_action' = 'Publish the worker state record'
+    'runner.step_form_invalid' = @(
+        'The step at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' must have exactly one of ''step'', ''action'' and ''snippet''; it has: '
+        @{
+            'arg' = 'found'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
     'runner.step_handler_threw' = @(
         'Step '
         @{
@@ -25099,6 +25944,410 @@
             'trust' = 'external'
         }
         '. The watchdog judges the cycle by this file and stops it as wedged once it goes stale; check free space and file locks there.'
+    )
+    'runner.step_phrase_duplicate_id' = @(
+        'Phrase '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' is defined in '
+        @{
+            'arg' = 'first'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' and again in '
+        @{
+            'arg' = 'second'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. A phrase id is defined once; a library adds phrases and never redefines one.'
+    )
+    'runner.step_phrase_file_unreadable' = @(
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' cannot be read: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Sentence steps cannot be resolved without it.'
+    )
+    'runner.step_phrase_library_invalid' = @(
+        'Phrase library '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' is not valid ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') at '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'runner.step_phrase_malformed' = @(
+        'The sentence at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' cannot be read ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') at character '
+        @{
+            'arg' = 'position'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Close every quote and every variable expression, and double a quote to write it inside a quoted value.'
+    )
+    'runner.step_phrase_no_library' = @(
+        'The sentence at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' cannot be resolved: no phrase library was found. The framework library is test/sequences/_phrases.yml.'
+    )
+    'runner.step_phrase_no_match' = @(
+        'No phrase matches the sentence at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', read as: '
+        @{
+            'arg' = 'shape'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Nearest sentences: '
+        @{
+            'arg' = 'nearest'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. A value that contains spaces must be quoted.'
+    )
+    'runner.step_phrase_overlap' = @(
+        'Phrases '''
+        @{
+            'arg' = 'firstPhrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('''
+        @{
+            'arg' = 'firstSentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''', '
+        @{
+            'arg' = 'firstFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') and '''
+        @{
+            'arg' = 'secondPhrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('''
+        @{
+            'arg' = 'secondSentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''', '
+        @{
+            'arg' = 'secondFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') can match the same sentence. A sentence has one meaning; change or remove one of them.'
+    )
+    'runner.step_phrase_slot_empty' = @(
+        'The value for <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> of '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' is empty. Give it a value.'
+    )
+    'runner.step_phrase_slot_not_integer' = @(
+        'The value for <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> of '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' must be a whole number from 0 to 999999999, written without quotes and without a leading zero. A variable expression is not accepted there.'
+    )
+    'runner.step_phrase_slot_not_key' = @(
+        'The value for <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> of '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' must be one of these key names, written without quotes: '
+        @{
+            'arg' = 'keyNames'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. A variable expression is not accepted there.'
+    )
+    'runner.step_phrase_surface_missing' = @(
+        'The sentence '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' has no steps for the surface '''
+        @{
+            'arg' = 'surface'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. It is defined for: '
+        @{
+            'arg' = 'surfaces'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'runner.step_phrase_template_invalid' = @(
+        'Step '
+        @{
+            'arg' = 'index'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' of phrase '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' for the surface '''
+        @{
+            'arg' = 'surface'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' in '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' is not a valid '''
+        @{
+            'arg' = 'action'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' step. Its fields are defined in test/schemas/sequence.schema.yml; the action requires: '
+        @{
+            'arg' = 'required'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'runner.step_phrase_timeout_unused' = @(
+        'timeoutSeconds is set on the sentence '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', and none of its steps takes a timeout. Remove it.'
+    )
+    'runner.step_sentence_invalid' = @(
+        'The sentence step at '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' is not valid ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. A sentence step takes ''step'' as text and, optionally, ''on'' (screen or page), ''timeoutSeconds'' (a whole number of 1 or more), ''description'' and, with it, ''descriptionLocalized''.'
+    )
+    'runner.tapon_argument_invalid' = @(
+        'tapOn cannot run: '
+        @{
+            'arg' = 'field'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' is '''
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. Use one of: '
+        @{
+            'arg' = 'allowed'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.tapon_click_kind_unsupported' = @(
+        'tapOn: host '''
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' cannot send a '
+        @{
+            'arg' = 'click'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' click.'
+    )
+    'runner.tapon_label_ambiguous' = @(
+        'tapOn: '''
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' is on the screen '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' times: '
+        @{
+            'arg' = 'candidates'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Add nth to the step to choose one.'
+    )
+    'runner.tapon_label_unusable' = @(
+        'tapOn cannot run: the label '''
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' has no letter or digit to look for with match: '
+        @{
+            'arg' = 'match'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.tapon_second_look_failed' = @(
+        'tapOn: the second look at a doubled copy of the frame failed ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). This step reads the frame as captured only.'
     )
     'runner.telemetry_event_dropped' = @(
         'A cycle event could not be recorded ('''
@@ -25172,6 +26421,13 @@
             'trust' = 'external'
         }
     )
+    'runner.verb_web_click' = 'Click the page element found by role and name, or set a check box.'
+    'runner.verb_web_close' = 'Close the guest''s browser page and its connection.'
+    'runner.verb_web_expect' = 'Wait until an element or a text is on the page, or gone from it.'
+    'runner.verb_web_fill' = 'Replace the content of a text field on the page.'
+    'runner.verb_web_open' = 'Open a URL in the guest''s browser page and wait for it to load.'
+    'runner.verb_web_press' = 'Press a key in the page.'
+    'runner.verb_web_select' = 'Choose an option of a native select by its label.'
     'runner.vm_admission_occupied' = @(
         'Refusing to start a cycle: these VMs are running on the host and would not stop: '
         @{
@@ -25394,4 +26650,897 @@
         }
         ' s, where 0 means unbounded).'
     )
+    'runner.web_session_close_incomplete' = @(
+        'The browser session in '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' did not close cleanly ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.web_session_open_failed' = @(
+        'No browser session in '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.web_session_opened' = @(
+        'Browser session '
+        @{
+            'arg' = 'generation'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' in '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'browser'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' on guest port '
+        @{
+            'arg' = 'remotePort'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', reached through 127.0.0.1:'
+        @{
+            'arg' = 'localPort'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_argument_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': argument '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' must match '
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_busy' = @(
+        'Operation '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' is still running. Poll it or cancel it before you start another.'
+    )
+    'runner.workload_call_timeout' = @(
+        'The session worker did not answer within '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' seconds.'
+    )
+    'runner.workload_candidate_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the generated sequence failed the '
+        @{
+            'arg' = 'check'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' check: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' Nothing was written.'
+    )
+    'runner.workload_capture_failed' = 'The screen frame could not be captured.'
+    'runner.workload_config_unreadable' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the configuration '
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' could not be read.'
+    )
+    'runner.workload_elevation_required' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' drives VMs only from an elevated process. Start the MCP client elevated.'
+    )
+    'runner.workload_field_invalid' = @(
+        'Field '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' of verb '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' does not match the sequence schema: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_field_missing' = @(
+        'Verb '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' requires field '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'runner.workload_field_reserved' = @(
+        'Field '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is set by the session and cannot be supplied.'
+    )
+    'runner.workload_field_undeclared' = @(
+        'Field '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is not declared for verb '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' in the sequence schema; the handler may ignore it.'
+    )
+    'runner.workload_folder_outside' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' resolves outside the framework checkout ('
+        @{
+            'arg' = 'resolved'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Nothing was written.'
+    )
+    'runner.workload_guest_unknown' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': guest '''
+        @{
+            'arg' = 'guestKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' has no folder for '
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'runner.workload_host_driver_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the host driver did not load: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_host_not_ready' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the host is not ready to drive a guest (condition '
+        @{
+            'arg' = 'condition'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_host_unsupported' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': this platform has no host driver.'
+    )
+    'runner.workload_intent_invalid' = 'The intent must be one line of 1 to 200 characters and must not contain a variable token.'
+    'runner.workload_internal_error' = @(
+        'The session worker could not complete the request: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_journal_empty' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the journal holds no successful step to save.'
+    )
+    'runner.workload_journal_write_failed' = @(
+        'The journal file could not be written; the entry is kept in memory: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_lease_incomplete' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the lease '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' was written without its start record and was released. Call again.'
+    )
+    'runner.workload_libvirt_group_missing' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': this process does not carry the libvirt group. Start the MCP client from a session where ''id -nG'' lists libvirt, or wrap the server command in ''sg libvirt -c''.'
+    )
+    'runner.workload_mask_failed' = 'The front end did not confirm the values to hide.'
+    'runner.workload_mask_unconfirmed' = 'The front end did not confirm the values to hide; its worker logs may show them.'
+    'runner.workload_name_exists' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': a sequence file for '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' already exists: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Nothing was written.'
+    )
+    'runner.workload_name_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': name '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' must match '
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ', start with '''
+        @{
+            'arg' = 'prefix'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' and not end in .yml, .yaml or a host suffix (.ubuntu.kvm, .windows.hyper-v, .macos.utm).'
+    )
+    'runner.workload_no_page' = 'No page is open in this session. Run the sentence ''open page <url>'' first.'
+    'runner.workload_no_session' = 'No workload session is attached. Start one with workload_session_start.'
+    'runner.workload_not_dispatched' = @(
+        'Operation '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ended before it was sent to the worker; nothing ran.'
+    )
+    'runner.workload_operation_canceled' = @(
+        'The operation was canceled after '
+        @{
+            'arg' = 'completed'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' of '
+        @{
+            'arg' = 'total'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' primitives.'
+    )
+    'runner.workload_operation_conflict' = @(
+        'Operation id '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' was already used by another tool or with other input. Choose a new operationId for a new step.'
+    )
+    'runner.workload_operation_unknown' = @(
+        'No operation of this session has the id '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'runner.workload_ownership_lost' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': this session no longer owns the runtime ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). End the session.'
+    )
+    'runner.workload_plan_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the chain of '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' could not be planned: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_publish_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' could not be published: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' Nothing was written.'
+    )
+    'runner.workload_queue_full' = 'Sixteen calls already wait for the worker. Call again once one of them has been answered.'
+    'runner.workload_replay_spawn_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the replay process did not start: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_resource_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': resource must hold 1 to 16 sequence names matching '
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_runtime_owned' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': another run owns this runtime: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_secret_filter_failed' = 'The answer was withheld: after filtering for secrets it still held one or could no longer be read.'
+    'runner.workload_secret_found' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the generated sequence would contain a resolved secret. Use a variable reference in the step. Nothing was written.'
+    )
+    'runner.workload_secret_literal' = 'The request contains a value this session holds as a secret. Refer to it through its variable.'
+    'runner.workload_secret_reference_required' = @(
+        'Field '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' carries a secret and must refer to it through a variable or an extension expression.'
+    )
+    'runner.workload_secret_too_short' = @(
+        'Variable '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' holds a secret shorter than '
+        @{
+            'arg' = 'minimum'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' characters, which the session cannot mask.'
+    )
+    'runner.workload_secret_variable_unknown' = @(
+        'Field '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' refers to variable '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''', which this session does not define.'
+    )
+    'runner.workload_sequence_not_found' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': sequence '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' was not found. Searched: '
+        @{
+            'arg' = 'list'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_sequence_not_guest' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is not a guest sequence with a resource chain for '
+        @{
+            'arg' = 'osKey'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_session_active' = @(
+        'A session with other input is attached to VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. End it with workload_session_end first.'
+    )
+    'runner.workload_session_detached' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the session has no running VM ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). End the session, bring the VM up with test/Debug-TestSequence.ps1 and attach again.'
+    )
+    'runner.workload_session_starting' = 'The session is still starting. Call workload_session_start again with the same input to read its result.'
+    'runner.workload_split_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': componentSteps '
+        @{
+            'arg' = 'value'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' must be between 0 and '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_stale_reference' = @(
+        'Reference '''
+        @{
+            'arg' = 'reference'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is not in the current snapshot. Take a new snapshot and choose from it.'
+    )
+    'runner.workload_start_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the session did not start: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_step_failed' = @(
+        'Primitive '
+        @{
+            'arg' = 'index'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' of '
+        @{
+            'arg' = 'total'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') failed: '
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_step_too_large' = @(
+        'The step is larger than '
+        @{
+            'arg' = 'maximum'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' characters.'
+    )
+    'runner.workload_step_unresolved' = @(
+        'The sentence did not resolve: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_still_waiting' = @(
+        'Operation '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' is still running. Call the same tool again with only this operationId to read its result.'
+    )
+    'runner.workload_surface_unsupported' = @(
+        'This worker does not offer the surface '''
+        @{
+            'arg' = 'surface'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''. It offers: '
+        @{
+            'arg' = 'surfaces'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'runner.workload_variable_reserved' = @(
+        'Variable '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is set by the session and cannot be supplied.'
+    )
+    'runner.workload_variables_failed' = @(
+        'The session variables could not be resolved: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_verb_alias' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is another spelling of '''
+        @{
+            'arg' = 'canonical'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. Use '''
+        @{
+            'arg' = 'canonical'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'runner.workload_verb_denied_composite' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' wraps other steps. Add it to the saved sequence by hand.'
+    )
+    'runner.workload_verb_denied_operator_hold' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' waits for an operator and cannot run in a workload session.'
+    )
+    'runner.workload_verb_denied_unclassified' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' declares no replay class and cannot run in a workload session.'
+    )
+    'runner.workload_verb_denied_vm_state' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' changes the power state or the name of the VM. Run a sequence with workload_run_sequence instead.'
+    )
+    'runner.workload_verb_unregistered' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is not a registered verb.'
+    )
+    'runner.workload_vm_absent' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' does not exist on this host. Build and start it with test/Debug-TestSequence.ps1, then attach.'
+    )
+    'runner.workload_vm_stopped' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' is not running. Start it with test/Debug-TestSequence.ps1, then attach.'
+    )
+    'runner.workload_vm_unknown' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': the hypervisor did not report the state of VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. Nothing was changed.'
+    )
+    'runner.workload_worker_lost' = 'The session worker ended while it held the session, so the session is over. Start a new one.'
+    'runner.workload_worker_start_failed' = @(
+        'The session worker did not start or did not attach: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_yaml_mismatch' = 'The step cannot be written as YAML that reads back unchanged, so it was not run.'
 }

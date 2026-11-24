@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 427e2e91-a49b-4c4a-99a0-cf1f450ad4c1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,7 +131,6 @@ Describe 'Shell installer failure boundaries' -Skip:(-not (Get-Command bash -Err
         $content = @'
 set -euo pipefail
 SUDO_KEEPALIVE_PID=99999999
-YURUNA_STATUS_BACKUP=""
 YURUNA_ISSUES=()
 _yuruna_step=fixture-stage
 _yuruna_flush_log() { :; }

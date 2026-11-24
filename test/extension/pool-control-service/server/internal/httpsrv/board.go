@@ -242,11 +242,11 @@ type boardHost struct {
 	// dashboard's two-way collapse: `mismatch` (wrong token) and `skew` (clock)
 	// need different fixes and must not be shown as the same thing.
 	Control string `json:"control"`
-	// Refresh is the host's refresh capability as the aggregator last judged
+	// Repair is the host's repair capability as the aggregator last judged
 	// it, already normalized; a host this daemon only discovered, or that the
 	// aggregator has not reported, carries the never-observed value. No action
 	// is offered from the page for it.
-	Refresh pool.HostRefresh `json:"refresh"`
+	Repair pool.HostRepair `json:"repair"`
 	// Access is the pool's question -- can this member read the project its
 	// POOL assigned (ok/denied/unreachable) -- from the host's registration
 	// record. The page's repository columns come from each host's own live
@@ -416,9 +416,9 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		if base != "" {
 			seenBase[base] = true
 		}
-		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Refresh: h.Refresh, Pool: poolOf[h.HostID], Address: h.CurrentIP, PreviousHostIDs: h.PreviousHostIDs}
-		if row.Refresh.Availability == "" {
-			row.Refresh = pool.UnobservedRefresh()
+		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Repair: h.Repair, Pool: poolOf[h.HostID], Address: h.CurrentIP, PreviousHostIDs: h.PreviousHostIDs}
+		if row.Repair.Availability == "" {
+			row.Repair = pool.UnobservedRepair()
 		}
 		if row.Control == "" {
 			row.Control = "unknown"
@@ -445,7 +445,7 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 	// operator needs to see them -- a silent member is the interesting case.
 	for hid, pid := range poolOf {
 		if !seen[hid] {
-			rows = append(rows, boardHost{HostID: hid, Control: "unknown", Refresh: pool.UnobservedRefresh(), Pool: pid})
+			rows = append(rows, boardHost{HostID: hid, Control: "unknown", Repair: pool.UnobservedRepair(), Pool: pid})
 			seen[hid] = true
 		}
 	}

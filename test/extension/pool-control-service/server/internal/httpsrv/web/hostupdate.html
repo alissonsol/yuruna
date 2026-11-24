@@ -1,0 +1,80 @@
+<!doctype html>
+<!--
+  LICENSEURI https://yuruna.link/license
+  Copyright (c) 2019-2026 by Alisson Sol et al.
+  GUID: 42477cdd-352c-4218-b7d9-449f0d6a71b3
+
+  Host update confirmation. A host's Diagnostics page sends its operator here from
+  another machine; this page shows every field it will sign and asks for the
+  operator credential, which a navigation cannot carry.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title data-i18n="pool.host_update_page_title">Update host &mdash; Yuruna Pool Control</title>
+  <link rel="stylesheet" href="/assets/style.css">
+</head>
+<body class="has-footer-bar">
+  <header class="app">
+    <div class="brand">
+      <span class="name"><a href="/" data-i18n="pool.yuruna_pool_control">Yuruna Pool Control</a></span>
+      <span class="version" id="header-version"></span>
+    </div>
+    <span class="spacer"></span>
+    <span class="machine" id="machine"></span>
+    <div class="menu">
+      <button type="button" class="menu-button" id="menu-button" aria-haspopup="true" aria-expanded="false" aria-controls="menu-panel">
+        <span class="menu-icon" aria-hidden="true">&#9776;</span><span class="menu-label" data-i18n="pool.menu">Menu</span>
+      </button>
+      <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden data-i18n-aria-label="pool.pages">
+        <a href="/" data-i18n="pool.board">Board</a>
+        <a href="/hosts" data-i18n="pool.hosts">Hosts</a>
+        <a href="/pools" data-i18n="pool.pools">Pools</a>
+        <a href="/scan" data-i18n="pool.scan">Scan</a>
+        <a href="/diagnostics" data-i18n="pool.diagnostics">Diagnostics</a>
+        <a class="menu-out" href="https://yuruna.link/4207d71a-000c" target="_blank" rel="noopener" data-i18n="pool.guide">Guide</a>
+      </nav>
+    </div>
+  </header>
+  <main>
+    <h1 data-i18n="pool.host_update_heading">Update host</h1>
+    <p class="muted" data-i18n="pool.host_update_intro">This page signs one host update for the host below and sends it there. The host waits for its running cycle to end, then stops its runner, brings its checkout current and starts the runner again; it gives up after the drain bound with nothing changed. No request from this page ends a running cycle: to end one, run the command shown below in a shell on the host.</p>
+    <div id="notice" role="alert" class="notice"></div>
+    <div id="status" role="status" class="muted"></div>
+    <form id="update-form" hidden>
+      <div class="table-wrap" tabindex="0"><table>
+        <tbody>
+          <tr><th scope="row" data-i18n="pool.host_id">Host ID</th><td><code id="field-host"></code></td></tr>
+          <tr><th scope="row" data-i18n="pool.address">Address</th><td><code id="field-address"></code></td></tr>
+          <tr><th scope="row" data-i18n="pool.type">Type</th><td><code id="field-type"></code></td></tr>
+          <tr><th scope="row" data-i18n="pool.host_update_scope_label">Scope</th><td id="field-scope"></td></tr>
+          <tr><th scope="row" data-i18n="pool.host_update_drain_label">Drain bound</th><td id="field-drain"></td></tr>
+          <tr><th scope="row" data-i18n="pool.host_update_commit_label">Expected commit</th><td><code id="field-commit"></code></td></tr>
+          <tr><th scope="row" data-i18n="pool.host_update_request_label">Request ID</th><td><code id="field-request"></code></td></tr>
+          <tr><th scope="row" data-i18n="pool.host_update_drain_now_label">To end the running cycle now</th><td><code id="field-drain-now"></code></td></tr>
+        </tbody>
+      </table></div>
+      <div class="row">
+        <label for="credential" data-i18n="pool.host_update_credential_label">Operator credential</label>
+        <input id="credential" type="password" autocomplete="off" spellcheck="false" autocapitalize="off">
+      </div>
+      <div class="row">
+        <button type="submit" id="submit" data-i18n="pool.host_update_submit">Send the update</button>
+        <a href="/hosts" class="secondary" data-i18n="pool.cancel">Cancel</a>
+      </div>
+    </form>
+    <p id="diagnostics-link-row" hidden><a id="diagnostics-link" data-i18n="pool.host_update_open_diagnostics">Open the host's Diagnostics page</a></p>
+  </main>
+  <footer id="footer-bar">
+    <span id="footer-ips"><span class="label" id="footer-ips-label" data-i18n="pool.ips">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
+    <span><span data-i18n="pool.loaded">Loaded:</span> <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span><button type="button" id="footer-refresh" class="linkish" data-i18n="pool.refresh">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false" data-i18n="pool.pause">Pause</button></span>
+  </footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
+  <script src="/assets/common.js"></script>
+  <script src="/assets/hostupdate.js"></script>
+</body>
+</html>

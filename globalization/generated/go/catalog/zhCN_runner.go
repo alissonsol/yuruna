@@ -30,8 +30,50 @@ const DatazhCNrunner = `{
     },
     "\n  解决方法（二选一）：授予此宿主机的GH_TOKEN访问该仓库的权限，\n                或将池的项目 URL 设置为所有成员都能读取的仓库。"
   ],
+  "runner.auth_state_users_restarted": [
+    "无法将 users.yml 读取为映射（",
+    {
+      "arg": "problem",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）：",
+    {
+      "arg": "usersPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。其字节已移至 ",
+    {
+      "arg": "backupPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "，并已从模板复制新的 users.yml；请根据移走的副本重新填写企业映射和保管库密钥。"
+  ],
+  "runner.auth_state_vault_restarted": [
+    "无法将 vault.yml 读取为映射（",
+    {
+      "arg": "problem",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）：",
+    {
+      "arg": "vaultPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。其字节已移至 ",
+    {
+      "arg": "backupPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "，保管库从空开始；其中保存的每个密码都必须使用 Set-Password 重新设置（参见 docs/test-config.md）。"
+  ],
   "runner.boot_recovery_preserved_controls": [
-    "启动恢复（刷新保留模式）保留了",
+    "启动恢复（交接保留模式）保留了",
     {
       "arg": "count",
       "type": "integer",
@@ -59,6 +101,28 @@ const DatazhCNrunner = `{
   "runner.capability_gate_host_command_missing": "  序列会运行此宿主机上没有的命令：",
   "runner.capability_gate_host_command_remedy": "  请在此宿主机上安装缺失的命令，或从此周期的序列YAML文件中移除运行这些命令的步骤。",
   "runner.capability_gate_host_command_step": [
+    "        ",
+    {
+      "arg": "sequence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "，步骤 ",
+    {
+      "arg": "step",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.capability_gate_ocr_engine_missing": "  序列通过此宿主机上没有的 OCR 引擎定位文本：",
+  "runner.capability_gate_ocr_engine_remedy": "  请在此宿主机上安装缺失的引擎，或从此周期的序列YAML文件中移除需要它的步骤。",
+  "runner.capability_gate_ocr_engine_step": [
     "        ",
     {
       "arg": "sequence",
@@ -109,6 +173,44 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.config_naming_change": [
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "old",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "new",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    "（原文件已保留为",
+    {
+      "arg": "backupPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）"
   ],
   "runner.config_port_firewall_unconfirmed": [
     "配置服务无法确认入站TCP :",
@@ -733,6 +835,170 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
+  "runner.handoff_barrier_held": [
+    "宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "后已恢复：受",
+    {
+      "arg": "controls",
+      "type": "text",
+      "trust": "internal"
+    },
+    "阻止。请从状态页面解除这些控制；在此之前不会创建或更改任何虚拟机。"
+  ],
+  "runner.handoff_barrier_released": [
+    "阻止运行的控制已在",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s后解除；恢复的周期继续运行。"
+  ],
+  "runner.handoff_complete": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 已验证宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "的就绪状态；正在退出运行器门控。"
+  ],
+  "runner.handoff_complete_action": [
+    "完成运行器交接（",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）"
+  ],
+  "runner.handoff_issue_action": [
+    "签发运行器交接令牌（",
+    {
+      "arg": "purpose",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）"
+  ],
+  "runner.handoff_preflight_cycle": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 仅执行交接预检：此周期不执行git pull、虚拟机更改或控制清理。"
+  ],
+  "runner.handoff_preflight_failed": [
+    "交接预检失败（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；未做任何更改，运行器保持受阻状态。"
+  ],
+  "runner.handoff_preflight_ready": [
+    "请求",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "的交接预检已就绪；正在等待宿主机操作放行运行器。"
+  ],
+  "runner.handoff_preflight_released": [
+    "交接预检已结束（",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；正在退出，以便运行器继续运行。"
+  ],
+  "runner.handoff_preflight_result": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 交接预检周期已结束，退出代码为",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.handoff_resume_action": "在宿主机操作后重启运行器",
+  "runner.handoff_resume_record_refused": [
+    "Start-TestRunner：",
+    {
+      "arg": "pidFile",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "的状态为",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "；交接恢复绝不会接管或删除仍在运行或状态未知的运行器记录。"
+  ],
+  "runner.handoff_resume_started": [
+    "Start-TestRunner：正在宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "后恢复；保留操作员的暂停、阻止运行和重启请求。"
+  ],
+  "runner.handoff_resume_switch_pair": "Start-TestRunner：必须同时提供-HandoffResume和-HandoffToken；不予启动。",
+  "runner.handoff_resume_token_refused": [
+    "Start-TestRunner：运行器交接被拒绝（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；不予启动。"
+  ],
+  "runner.handoff_unverified": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 无法验证宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "的就绪状态（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；运行器保持受阻状态。"
+  ],
   "runner.host_action_exit_detail": [
     "宿主机操作“",
     {
@@ -802,6 +1068,73 @@ const DatazhCNrunner = `{
     },
     " 没有响应，因此该设置无法确定，不能视为安全。"
   ],
+  "runner.host_controller_session_action": "结束主机控制器的会话 yuruna-controller",
+  "runner.host_controller_start_error": [
+    "主机控制器：启动步骤失败（",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）；未启动任何控制器。"
+  ],
+  "runner.host_controller_start_lock_unreadable": "主机控制器：无法读取其锁，因此不冒险启动第二个控制器；未启动任何控制器。",
+  "runner.host_controller_start_no_multiplexer": "主机控制器：未找到 tmux 或 screen，因此未启动控制器；运行器将在没有控制器的情况下启动。",
+  "runner.host_controller_start_not_deployed": "主机控制器：未在此主机上部署；请运行 Enable-TestAutomation 进行部署。未启动任何控制器。",
+  "runner.host_controller_start_not_desktop_session": "主机控制器：未启动，因为本次运行器启动不在桌面会话中（SSH 登录或后台会话）。请从桌面会话的终端启动运行器来启动它。",
+  "runner.host_controller_start_not_held": [
+    "主机控制器：已创建 ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 会话 yuruna-controller，但 10 秒内没有控制器获得锁。查看方法：",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_controller_start_running": "主机控制器：正在运行。",
+  "runner.host_controller_start_session_exists": [
+    "主机控制器：其 ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 会话 yuruna-controller 已存在；该会话中的 shim 会启动控制器。查看方法：",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_controller_start_session_unknown": "主机控制器：无法确定会话 yuruna-controller 是否存在，因此未启动任何会话。",
+  "runner.host_controller_start_start_failed": [
+    "主机控制器：无法创建 ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 会话 yuruna-controller；未启动任何控制器。"
+  ],
+  "runner.host_controller_start_started": [
+    "主机控制器：已在其 ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 会话 yuruna-controller 中启动。查看方法：",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
   "runner.host_diagnostic_timeout": "宿主机诊断在120s后超时；请查看先前的宿主机采样。",
   "runner.host_diagnostic_worker_failed": [
     "宿主机诊断",
@@ -865,134 +1198,136 @@ const DatazhCNrunner = `{
     },
     "秒内完成，已被停止；本周期仍被拒绝。"
   ],
-  "runner.host_refresh_action_dispose_obligations": [
-    "下一步：手动检查每一项后，使用以下命令记录：pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation ",
+  "runner.host_operation_should_process_admission": "记录宿主机操作准入信息",
+  "runner.host_operation_should_process_listener": "以非破坏性模式启动状态侦听器",
+  "runner.host_repair_action_dispose_obligations": [
+    "下一步：手动检查每一项后，使用以下命令记录：pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation ",
     {
       "arg": "obligations",
       "type": "detail",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_action_elevate": [
+  "runner.host_repair_action_elevate": [
     "下一步：授予此账户执行",
     {
       "arg": "rung",
       "type": "identifier",
       "trust": "internal"
     },
-    "层级所需的权限（如有适用的具体命令，已在上方显示），然后再次运行刷新。"
+    "层级所需的权限（如有适用的具体命令，已在上方显示），然后再次运行修复。"
   ],
-  "runner.host_refresh_action_grant_automation": "下一步：允许运行此shell的应用程序通过“自动化”访问UTM，然后再次运行刷新。",
-  "runner.host_refresh_action_gui_session": "下一步：从已登录的桌面会话运行刷新；当前会话只能观察。",
-  "runner.host_refresh_action_install_client": [
+  "runner.host_repair_action_grant_automation": "下一步：允许运行此shell的应用程序通过“自动化”访问UTM，然后再次运行修复。",
+  "runner.host_repair_action_gui_session": "下一步：从已登录的桌面会话运行修复；当前会话只能观察。",
+  "runner.host_repair_action_install_client": [
     "下一步：恢复虚拟机监控程序的命令行客户端（",
     {
       "arg": "client",
       "type": "identifier",
       "trust": "internal"
     },
-    "）；刷新不会重新安装该客户端。"
+    "）；修复不会重新安装该客户端。"
   ],
-  "runner.host_refresh_action_resume_request": "下一步：使用以下命令恢复尚未解决的请求：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume",
-  "runner.host_refresh_action_start_runner": "下一步：手动启动运行器：pwsh test/Start-TestRunner.ps1",
-  "runner.host_refresh_auth_action_create_authority": "创建刷新签名授权机构和操作员凭据",
-  "runner.host_refresh_auth_action_export_host_key": [
+  "runner.host_repair_action_resume_request": "下一步：使用以下命令恢复尚未解决的请求：pwsh test/lab/Invoke-HostRepair.ps1 -Resume",
+  "runner.host_repair_action_start_runner": "下一步：手动启动运行器：pwsh test/Start-TestRunner.ps1",
+  "runner.host_repair_auth_action_create_authority": "创建修复签名授权机构和操作员凭据",
+  "runner.host_repair_auth_action_export_host_key": [
     "写入宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     },
-    "的刷新验证密钥"
+    "的修复验证密钥"
   ],
-  "runner.host_refresh_auth_action_install_host_key": [
+  "runner.host_repair_auth_action_install_host_key": [
     "安装宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     },
-    "的刷新验证密钥"
+    "的修复验证密钥"
   ],
-  "runner.host_refresh_auth_action_remove_host_key": "删除刷新验证密钥",
-  "runner.host_refresh_auto_action_admit": [
+  "runner.host_repair_auth_action_remove_host_key": "删除修复验证密钥",
+  "runner.host_repair_auto_action_admit": [
     "接纳周期代次",
     {
       "arg": "generation",
       "type": "token",
       "trust": "internal"
     },
-    "的自动宿主机刷新请求"
+    "的自动宿主机修复请求"
   ],
-  "runner.host_refresh_auto_action_consume_evidence": "消耗宿主机刷新证据文件",
-  "runner.host_refresh_auto_action_decide": [
+  "runner.host_repair_auto_action_consume_evidence": "消耗宿主机修复证据文件",
+  "runner.host_repair_auto_action_decide": [
     "决定是否在外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "之后运行自动宿主机刷新"
+    "之后运行自动宿主机修复"
   ],
-  "runner.host_refresh_auto_action_record_outcome": [
-    "记录自动宿主机刷新结果",
+  "runner.host_repair_auto_action_record_outcome": [
+    "记录自动宿主机修复结果",
     {
       "arg": "verdict",
       "type": "identifier",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_reserve": [
+  "runner.host_repair_auto_action_reserve": [
     "预留UTC日期",
     {
       "arg": "utcDay",
       "type": "text",
       "trust": "internal"
     },
-    "的自动宿主机刷新尝试"
+    "的自动宿主机修复尝试"
   ],
-  "runner.host_refresh_auto_action_run_worker": [
+  "runner.host_repair_auto_action_run_worker": [
     "为请求",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    "运行宿主机刷新工作进程"
+    "运行宿主机修复工作进程"
   ],
-  "runner.host_refresh_auto_action_update_streak": [
-    "将宿主机刷新证据计数设为",
+  "runner.host_repair_auto_action_update_streak": [
+    "将宿主机修复证据计数设为",
     {
       "arg": "streak",
       "type": "integer",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_withdraw": [
-    "撤回已排队的自动宿主机刷新请求",
+  "runner.host_repair_auto_action_withdraw": [
+    "撤回已排队的自动宿主机修复请求",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_write_evidence": [
+  "runner.host_repair_auto_action_write_evidence": [
     "记录周期代次",
     {
       "arg": "generation",
       "type": "token",
       "trust": "internal"
     },
-    "的宿主机刷新证据"
+    "的宿主机修复证据"
   ],
-  "runner.host_refresh_auto_dependency_missing": [
+  "runner.host_repair_auto_dependency_missing": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 自动宿主机刷新不可用：无法从",
+    "] 自动宿主机修复不可用：无法从",
     {
       "arg": "module",
       "type": "identifier",
@@ -1006,29 +1341,29 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.host_refresh_auto_error": [
+  "runner.host_repair_auto_error": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 自动宿主机刷新决策失败（",
+    "] 自动宿主机修复决策失败（",
     {
       "arg": "message",
       "type": "detail",
       "trust": "external"
     },
-    "）；运行器将继续运行，不执行此次刷新。"
+    "）；运行器将继续运行，不执行此次修复。"
   ],
-  "runner.host_refresh_auto_evidence_counted": [
+  "runner.host_repair_auto_evidence_counted": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 宿主机刷新证据：",
+    "] 宿主机修复证据：",
     {
       "arg": "phase",
       "type": "identifier",
@@ -1048,14 +1383,14 @@ const DatazhCNrunner = `{
     },
     "个周期）。"
   ],
-  "runner.host_refresh_auto_evidence_reset": [
+  "runner.host_repair_auto_evidence_reset": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 已清除宿主机刷新证据：虚拟机监控程序在",
+    "] 已清除宿主机修复证据：虚拟机监控程序在",
     {
       "arg": "phase",
       "type": "identifier",
@@ -1063,14 +1398,14 @@ const DatazhCNrunner = `{
     },
     "期间作出了响应。"
   ],
-  "runner.host_refresh_auto_finished": [
+  "runner.host_repair_auto_finished": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 自动宿主机刷新",
+    "] 自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
@@ -1084,23 +1419,23 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.host_refresh_auto_knob_invalid": [
-    "testCycle.autoRefreshAfterStalls的值为“",
+  "runner.host_repair_auto_knob_invalid": [
+    "testCycle.autoRepairAfterStalls的值为“",
     {
       "arg": "value",
       "type": "text",
       "trust": "external"
     },
-    "”，不是非负整数；自动宿主机刷新保持关闭。"
+    "”，不是非负整数；自动宿主机修复保持关闭。"
   ],
-  "runner.host_refresh_auto_operator_action": [
+  "runner.host_repair_auto_operator_action": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 自动宿主机刷新",
+    "] 自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
@@ -1118,25 +1453,34 @@ const DatazhCNrunner = `{
       "type": "text",
       "trust": "internal"
     },
-    "之前不会启动新的自动尝试。请检查宿主机；如果此请求仍未结束，请运行 test/lab/Invoke-HostRefresh.ps1 -Resume 完成请求，否则请运行 test/lab/Invoke-HostRefresh.ps1."
+    "之前不会启动新的自动尝试。请检查宿主机；如果此请求仍未结束，请运行 test/lab/Invoke-HostRepair.ps1 -Resume 完成请求，否则请运行 test/lab/Invoke-HostRepair.ps1."
   ],
-  "runner.host_refresh_auto_pause_skipped": [
+  "runner.host_repair_auto_pause_skipped": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 自动宿主机刷新已修复宿主机；下一个周期将直接启动，跳过失败后的暂停。"
+    "] 自动宿主机修复已修好宿主机；下一个周期将直接启动，跳过失败后的暂停。"
   ],
-  "runner.host_refresh_auto_queued_revoked": [
+  "runner.host_repair_auto_pool_key_retired": [
+    "池配置设置了已停用的键config.testCycle.autoRefreshAfterStalls（",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）；该键不再被读取。请改为在池仓库中设置config.testCycle.autoRepairAfterStalls。"
+  ],
+  "runner.host_repair_auto_queued_revoked": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 由于池正在执行读取完毕操作，已撤回排队中的自动宿主机刷新",
+    "] 由于池正在执行读取完毕操作，已撤回排队中的自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
@@ -1144,14 +1488,14 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.host_refresh_auto_refused": [
+  "runner.host_repair_auto_refused": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 未启动自动宿主机刷新：",
+    "] 未启动自动宿主机修复：",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1159,44 +1503,44 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.host_refresh_auto_resume_caller_changed": [
+  "runner.host_repair_auto_resume_caller_changed": [
     "[外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] 自动宿主机刷新",
+    "] 自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    "是为先前的运行器进程启动的，因此当前运行器不会恢复该请求。请使用test/lab/Invoke-HostRefresh.ps1 -Resume完成请求，或使用test/lab/Invoke-HostRefresh.ps1 -DisposeObligation释放其占用的资源。"
+    "是为先前的运行器进程启动的，因此当前运行器不会恢复该请求。请使用test/lab/Invoke-HostRepair.ps1 -Resume完成请求，或使用test/lab/Invoke-HostRepair.ps1 -DisposeObligation释放其占用的资源。"
   ],
-  "runner.host_refresh_auto_resume_disabled": [
+  "runner.host_repair_auto_resume_disabled": [
     "［外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "］autoRefreshAfterStalls为0时，不会恢复自动宿主机刷新",
+    "］autoRepairAfterStalls为0时，不会恢复自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    "。未认领的请求会自行过期；请使用test/lab/Invoke-HostRefresh.ps1 -Resume完成已启动的请求。"
+    "。未认领的请求会自行过期；请使用test/lab/Invoke-HostRepair.ps1 -Resume完成已启动的请求。"
   ],
-  "runner.host_refresh_auto_resuming": [
+  "runner.host_repair_auto_resuming": [
     "［外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "］正在恢复自动宿主机刷新",
+    "］正在恢复自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
@@ -1216,7 +1560,7 @@ const DatazhCNrunner = `{
     },
     "次：仅恢复服务，不执行新的拆除操作。"
   ],
-  "runner.host_refresh_auto_starting": [
+  "runner.host_repair_auto_starting": [
     "［外层周期",
     {
       "arg": "cycle",
@@ -1229,7 +1573,7 @@ const DatazhCNrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    "个周期超时后，开始自动宿主机刷新",
+    "个周期超时后，开始自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
@@ -1243,30 +1587,30 @@ const DatazhCNrunner = `{
     },
     "）；虚拟机监控程序可能会重启，受影响的服务随后会恢复。"
   ],
-  "runner.host_refresh_auto_threshold_raised": "“testCycle.autoRefreshAfterStalls”为1；运行器要求至少两个周期出现超时，因此将其视为2。",
-  "runner.host_refresh_auto_unavailable": [
+  "runner.host_repair_auto_threshold_raised": "“testCycle.autoRepairAfterStalls”为1；运行器要求至少两个周期出现超时，因此将其视为2。",
+  "runner.host_repair_auto_unavailable": [
     "［外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "］已配置自动宿主机刷新，但此宿主机无法使用（",
+    "］已配置自动宿主机修复，但此宿主机无法使用（",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "）；运行器会记录证据，但不据此采取操作。如需修复虚拟机监控程序，请在本地运行test/lab/Invoke-HostRefresh.ps1。"
+    "）；运行器会记录证据，但不据此采取操作。如需修复虚拟机监控程序，请在本地运行test/lab/Invoke-HostRepair.ps1。"
   ],
-  "runner.host_refresh_auto_unavailable_on_host": [
-    "“testCycle.autoRefreshAfterStalls”为",
+  "runner.host_repair_auto_unavailable_on_host": [
+    "“testCycle.autoRepairAfterStalls”为",
     {
       "arg": "value",
       "type": "integer",
       "trust": "internal"
     },
-    "，但此宿主机无法使用自动宿主机刷新（",
+    "，但此宿主机无法使用自动宿主机修复（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1274,23 +1618,23 @@ const DatazhCNrunner = `{
     },
     "）；运行器会记录证据，但不据此采取操作。"
   ],
-  "runner.host_refresh_auto_value_not_integer": [
-    "“testCycle.autoRefreshAfterStalls”为'",
+  "runner.host_repair_auto_value_not_integer": [
+    "“testCycle.autoRepairAfterStalls”为'",
     {
       "arg": "value",
       "type": "text",
       "trust": "external"
     },
-    "'，不是整数；运行器将其视为0（禁用自动宿主机刷新）。"
+    "'，不是整数；运行器将其视为0（禁用自动宿主机修复）。"
   ],
-  "runner.host_refresh_auto_verdict_mismatch": [
+  "runner.host_repair_auto_verdict_mismatch": [
     "［外层周期",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "］自动宿主机刷新",
+    "］自动宿主机修复",
     {
       "arg": "requestId",
       "type": "token",
@@ -1304,14 +1648,14 @@ const DatazhCNrunner = `{
     },
     "）；按失败处理。"
   ],
-  "runner.host_refresh_auto_waiting_on_worker": [
+  "runner.host_repair_auto_waiting_on_worker": [
     "已请求关闭；正在等待自动请求",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    "的宿主机刷新工作进程完成（最多再等待",
+    "的宿主机修复工作进程完成（最多再等待",
     {
       "arg": "seconds",
       "type": "integer",
@@ -1319,14 +1663,14 @@ const DatazhCNrunner = `{
     },
     "秒）。"
   ],
-  "runner.host_refresh_auto_worker_launch_failed": [
+  "runner.host_repair_auto_worker_launch_failed": [
     "无法启动自动请求",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    "的宿主机刷新工作进程：",
+    "的宿主机修复工作进程：",
     {
       "arg": "message",
       "type": "detail",
@@ -1334,23 +1678,70 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.host_refresh_auto_worker_timeout": [
+  "runner.host_repair_auto_worker_timeout": [
     "自动请求",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    "的宿主机刷新工作进程运行超过",
+    "的宿主机修复工作进程运行超过",
     {
       "arg": "seconds",
       "type": "integer",
       "trust": "internal"
     },
-    "秒，已停止；请求仍未结束。运行器可能会恢复此请求，也可使用test/lab/Invoke-HostRefresh.ps1 -Resume完成请求。"
+    "秒，已停止；请求仍未结束。运行器可能会恢复此请求，也可使用test/lab/Invoke-HostRepair.ps1 -Resume完成请求。"
   ],
-  "runner.host_refresh_command_missing": [
-    "Invoke-HostRefresh：加载刷新模块集后，所需命令",
+  "runner.host_repair_boot_resume": [
+    "Start-TestRunner：宿主机修复",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "在之前的一次启动中未完成；正在使用test/lab/Invoke-HostRepair.ps1 -Resume继续执行一次（pid ",
+    {
+      "arg": "pid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "）。本次启动仍被拒绝；修复完成后会启动运行器，其错误写入",
+    {
+      "arg": "stdErrPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.host_repair_boot_resume_failed": [
+    "Start-TestRunner：宿主机修复",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "在之前的一次启动中未完成，继续执行失败（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；请使用test/lab/Invoke-HostRepair.ps1 -Resume继续。"
+  ],
+  "runner.host_repair_boot_resume_tried": [
+    "Start-TestRunner：宿主机修复",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "在之前的一次启动中未完成，本次启动已继续执行过一次；请使用test/lab/Invoke-HostRepair.ps1 -Resume再次继续。"
+  ],
+  "runner.host_repair_capability_unverified_macos": "运行器回收和重启尚未在macOS上通过验证：ps进程表和分离启动仅使用测试夹具进行过测试。",
+  "runner.host_repair_capability_unverified_windows": "运行器回收和重启尚未在Windows上通过验证：CIM进程表、单进程终止和父进程切换仅使用测试夹具进行过测试。",
+  "runner.host_repair_command_missing": [
+    "Invoke-HostRepair：加载修复模块集后，所需命令",
     {
       "arg": "command",
       "type": "identifier",
@@ -1364,8 +1755,8 @@ const DatazhCNrunner = `{
     },
     "）仍不可用；拒绝执行。"
   ],
-  "runner.host_refresh_config_ambiguous": [
-    "Invoke-HostRefresh：",
+  "runner.host_repair_config_ambiguous": [
+    "Invoke-HostRepair：",
     {
       "arg": "runtimeDir",
       "type": "detail",
@@ -1379,8 +1770,8 @@ const DatazhCNrunner = `{
     },
     "个配置快照指定了不同的源文件；请传入-ConfigPath选择一个。"
   ],
-  "runner.host_refresh_config_conflict": [
-    "Invoke-HostRefresh：-ConfigPath ",
+  "runner.host_repair_config_conflict": [
+    "Invoke-HostRepair：-ConfigPath ",
     {
       "arg": "configPath",
       "type": "detail",
@@ -1394,8 +1785,8 @@ const DatazhCNrunner = `{
     },
     "不同；拒绝执行，以免使用不同文件重启运行器。"
   ],
-  "runner.host_refresh_config_missing": [
-    "Invoke-HostRefresh：为此运行时记录的配置（",
+  "runner.host_repair_config_missing": [
+    "Invoke-HostRepair：为此运行时记录的配置（",
     {
       "arg": "configPath",
       "type": "detail",
@@ -1403,8 +1794,8 @@ const DatazhCNrunner = `{
     },
     "）不存在；请传入-ConfigPath。"
   ],
-  "runner.host_refresh_convergence_skipped": [
-    "Invoke-HostRefresh：最终探测结果为",
+  "runner.host_repair_convergence_skipped": [
+    "Invoke-HostRepair：最终探测结果为",
     {
       "arg": "state",
       "type": "identifier",
@@ -1418,14 +1809,14 @@ const DatazhCNrunner = `{
     },
     "）；服务和运行器未恢复。"
   ],
-  "runner.host_refresh_credential_authority_created": [
-    "Set-HostRefreshCredential：已在",
+  "runner.host_repair_credential_authority_created": [
+    "Set-HostRepairCredential：已在",
     {
       "arg": "path",
       "type": "detail",
       "trust": "internal"
     },
-    "下创建刷新签名机构（标记",
+    "下创建修复签名机构（标记",
     {
       "arg": "authorityTag",
       "type": "token",
@@ -1437,25 +1828,25 @@ const DatazhCNrunner = `{
       "type": "token",
       "trust": "internal"
     },
-    "）。请将authority.key和operator.credential复制到pool-control服务的/etc/yuruna/host-refresh/，并设置为仅所有者可访问；切勿将其复制到池宿主机。"
+    "）。请将authority.key和operator.credential复制到pool-control服务的/etc/yuruna/host-repair/，并设置为仅所有者可访问；切勿将其复制到池宿主机。"
   ],
-  "runner.host_refresh_credential_authority_exists": [
-    "Set-HostRefreshCredential：",
+  "runner.host_repair_credential_authority_exists": [
+    "Set-HostRepairCredential：",
     {
       "arg": "path",
       "type": "detail",
       "trust": "internal"
     },
-    "下已存在刷新签名机构；传入-Rotate可替换该机构，这会使所有已安装的宿主机密钥失效。"
+    "下已存在修复签名机构；传入-Rotate可替换该机构，这会使所有已安装的宿主机密钥失效。"
   ],
-  "runner.host_refresh_credential_host_key_exported": [
-    "Set-HostRefreshCredential：已将宿主机",
+  "runner.host_repair_credential_host_key_exported": [
+    "Set-HostRepairCredential：已将宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     },
-    "的刷新密钥（标记",
+    "的修复验证密钥（标记",
     {
       "arg": "keyTag",
       "type": "token",
@@ -1469,24 +1860,24 @@ const DatazhCNrunner = `{
     },
     "。请通过私密通道将其移至该宿主机，在该宿主机上使用-InstallHostKey -KeyPath运行此脚本，然后删除该文件。"
   ],
-  "runner.host_refresh_credential_host_key_installed": [
-    "Set-HostRefreshCredential：已为此宿主机",
+  "runner.host_repair_credential_host_key_installed": [
+    "Set-HostRepairCredential：已安装此宿主机的修复验证密钥（",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     },
-    "安装刷新密钥（标记",
+    "，标记",
     {
       "arg": "keyTag",
       "type": "token",
       "trust": "internal"
     },
-    "）；现在可在此验证由匹配的签名机构签名的远程刷新请求。"
+    "）；现在可在此验证由匹配的签名机构签名的远程修复请求。"
   ],
-  "runner.host_refresh_credential_host_key_removed": "Set-HostRefreshCredential：已移除刷新密钥；此宿主机现在会拒绝所有非回环刷新请求。",
-  "runner.host_refresh_credential_output_exists": [
-    "Set-HostRefreshCredential：",
+  "runner.host_repair_credential_host_key_removed": "Set-HostRepairCredential：已移除此宿主机的修复验证密钥；此宿主机现在会拒绝所有非回环修复请求。",
+  "runner.host_repair_credential_output_exists": [
+    "Set-HostRepairCredential：",
     {
       "arg": "path",
       "type": "detail",
@@ -1494,14 +1885,14 @@ const DatazhCNrunner = `{
     },
     "已存在；请选择其他-OutputPath或先删除该文件。"
   ],
-  "runner.host_refresh_credential_status": [
-    "Set-HostRefreshCredential：宿主机",
+  "runner.host_repair_credential_status": [
+    "Set-HostRepairCredential：宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     },
-    "：远程刷新密钥",
+    "：修复验证密钥",
     {
       "arg": "state",
       "type": "identifier",
@@ -1521,8 +1912,8 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.host_refresh_deadline_exhausted": [
-    "Invoke-HostRefresh：在",
+  "runner.host_repair_deadline_exhausted": [
+    "Invoke-HostRepair：在",
     {
       "arg": "phase",
       "type": "identifier",
@@ -1530,21 +1921,21 @@ const DatazhCNrunner = `{
     },
     "阶段耗尽了时间预算；未完成的工作已记录为待处理项。"
   ],
-  "runner.host_refresh_disruption_warning": "Invoke-HostRefresh：重启虚拟机监控程序应用可能会挂起正在运行的客户机；仅在指定-AllowHardStop时才允许的强制停止操作可能导致客户机非正常断电。",
-  "runner.host_refresh_evidence_write_failed": [
-    "无法记录此周期的宿主机刷新证据（",
+  "runner.host_repair_disruption_warning": "Invoke-HostRepair：重启虚拟机监控程序应用可能会挂起正在运行的客户机；仅在指定-AllowHardStop时才允许的强制停止操作可能导致客户机非正常断电。",
+  "runner.host_repair_evidence_write_failed": [
+    "无法记录此周期的宿主机修复证据（",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "）；自动宿主机刷新不会计入此周期。"
+    "）；自动宿主机修复不会计入此周期。"
   ],
-  "runner.host_refresh_hung_hypervisor_manual_hyperv": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在提升权限的控制台中重启Hyper-V管理服务（Restart-Service vmms），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
-  "runner.host_refresh_hung_hypervisor_manual_kvm": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请重启libvirt守护进程（sudo systemctl restart libvirtd），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
-  "runner.host_refresh_hung_hypervisor_manual_utm": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在已登录的桌面会话中退出并重新打开UTM，或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
-  "runner.host_refresh_identity_refused": [
-    "Invoke-HostRefresh：拒绝以",
+  "runner.host_repair_hung_hypervisor_manual_hyperv": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在提升权限的控制台中重启Hyper-V管理服务（Restart-Service vmms），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRepair.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
+  "runner.host_repair_hung_hypervisor_manual_kvm": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请重启libvirt守护进程（sudo systemctl restart libvirtd），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRepair.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
+  "runner.host_repair_hung_hypervisor_manual_utm": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在已登录的桌面会话中退出并重新打开UTM，或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRepair.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。",
+  "runner.host_repair_identity_refused": [
+    "Invoke-HostRepair：拒绝以",
     {
       "arg": "identity",
       "type": "identifier",
@@ -1564,8 +1955,8 @@ const DatazhCNrunner = `{
     },
     "的账户运行。"
   ],
-  "runner.host_refresh_launcher_wait_timeout": [
-    "Invoke-HostRefresh：等待",
+  "runner.host_repair_launcher_wait_timeout": [
+    "Invoke-HostRepair：等待",
     {
       "arg": "waitedSeconds",
       "type": "integer",
@@ -1585,8 +1976,8 @@ const DatazhCNrunner = `{
     },
     "仍在队列中等待重试。"
   ],
-  "runner.host_refresh_lock_busy": [
-    "Invoke-HostRefresh：另一项修复持有生命周期锁（",
+  "runner.host_repair_lock_busy": [
+    "Invoke-HostRepair：另一项宿主机操作持有生命周期锁（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1594,16 +1985,16 @@ const DatazhCNrunner = `{
     },
     "）；拒绝与其同时运行。"
   ],
-  "runner.host_refresh_manual_command": [
-    "Invoke-HostRefresh：请手动运行此命令，或允许其在不提示输入密码的情况下运行：sudo ",
+  "runner.host_repair_manual_command": [
+    "Invoke-HostRepair：请手动运行此命令，或允许其在不提示输入密码的情况下运行：sudo ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_obligation_disposed": [
-    "Invoke-HostRefresh：已将请求",
+  "runner.host_repair_obligation_disposed": [
+    "Invoke-HostRepair：已将请求",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1623,8 +2014,8 @@ const DatazhCNrunner = `{
     },
     "处理完毕。"
   ],
-  "runner.host_refresh_obligation_unknown": [
-    "Invoke-HostRefresh：",
+  "runner.host_repair_obligation_unknown": [
+    "Invoke-HostRepair：",
     {
       "arg": "obligation",
       "type": "identifier",
@@ -1638,8 +2029,8 @@ const DatazhCNrunner = `{
     },
     "的待处理项。"
   ],
-  "runner.host_refresh_oneshot_active": [
-    "Invoke-HostRefresh：一次性运行（PID ",
+  "runner.host_repair_oneshot_active": [
+    "Invoke-HostRepair：一次性运行（PID ",
     {
       "arg": "pid",
       "type": "identifier",
@@ -1653,8 +2044,8 @@ const DatazhCNrunner = `{
     },
     "）正在使用此运行时；在其持有租约期间不会执行任何修复步骤。"
   ],
-  "runner.host_refresh_oneshot_unconfirmed": [
-    "Invoke-HostRefresh：一次性租约 ",
+  "runner.host_repair_oneshot_unconfirmed": [
+    "Invoke-HostRepair：一次性租约 ",
     {
       "arg": "leasePath",
       "type": "detail",
@@ -1674,7 +2065,7 @@ const DatazhCNrunner = `{
     },
     "）；仍继续修复。"
   ],
-  "runner.host_refresh_operator_instruction": [
+  "runner.host_repair_operator_instruction": [
     "  补救措施：",
     {
       "arg": "instruction",
@@ -1682,7 +2073,21 @@ const DatazhCNrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_preview_group_relaunch": [
+  "runner.host_repair_other_kind": [
+    "Invoke-HostRepair：请求 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 是主机更新，而不是修复；由其控制器继续执行。要在此主机上结束它，请运行：pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_repair_preview_group_relaunch": [
     "  实际执行时，会先以libvirt组身份重新启动（",
     {
       "arg": "reason",
@@ -1691,8 +2096,8 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
-  "runner.host_refresh_preview_notice": "  仅预览：未锁定、写入、发送信号或启动任何对象。",
-  "runner.host_refresh_preview_would_consider": [
+  "runner.host_repair_preview_notice": "  仅预览：未锁定、写入、发送信号或启动任何对象。",
+  "runner.host_repair_preview_would_consider": [
     "  实际执行时将依次考虑以下修复级别：",
     {
       "arg": "rungs",
@@ -1700,8 +2105,8 @@ const DatazhCNrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_private_root_unavailable": [
-    "Invoke-HostRefresh：无法确保$HOME/.yuruna/host-refresh下的私有状态根目录安全（",
+  "runner.host_repair_private_root_unavailable": [
+    "Invoke-HostRepair：无法确保$HOME/.yuruna/host-repair下的私有状态根目录安全（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1709,9 +2114,9 @@ const DatazhCNrunner = `{
     },
     "）；缺少仅所有者可访问的私有根目录，拒绝执行。"
   ],
-  "runner.host_refresh_progress_degraded": "Invoke-HostRefresh：无法发布进度；修复已继续，仍以私有日志为准。",
-  "runner.host_refresh_protocol_mismatch": [
-    "Invoke-HostRefresh：",
+  "runner.host_repair_progress_degraded": "Invoke-HostRepair：无法发布进度；修复已继续，仍以私有日志为准。",
+  "runner.host_repair_protocol_mismatch": [
+    "Invoke-HostRepair：",
     {
       "arg": "path",
       "type": "detail",
@@ -1731,8 +2136,8 @@ const DatazhCNrunner = `{
     },
     "”。"
   ],
-  "runner.host_refresh_refused": [
-    "Invoke-HostRefresh：在进行任何更改之前已拒绝执行（",
+  "runner.host_repair_refused": [
+    "Invoke-HostRepair：在进行任何更改之前已拒绝执行（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1740,8 +2145,8 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
-  "runner.host_refresh_request_refused": [
-    "Invoke-HostRefresh：请求",
+  "runner.host_repair_request_refused": [
+    "Invoke-HostRepair：请求",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1767,9 +2172,9 @@ const DatazhCNrunner = `{
     },
     "状态。"
   ],
-  "runner.host_refresh_resume_none": "Invoke-HostRefresh：没有可恢复的未解决请求。",
-  "runner.host_refresh_resume_started": [
-    "Invoke-HostRefresh：正在恢复请求",
+  "runner.host_repair_resume_none": "Invoke-HostRepair：没有可恢复的未解决请求。",
+  "runner.host_repair_resume_started": [
+    "Invoke-HostRepair：正在恢复请求",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1789,8 +2194,8 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
-  "runner.host_refresh_rung_finished": [
-    "Invoke-HostRefresh：修复级别",
+  "runner.host_repair_rung_finished": [
+    "Invoke-HostRepair：修复级别",
     {
       "arg": "name",
       "type": "identifier",
@@ -1816,22 +2221,22 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
-  "runner.host_refresh_rung_reason_broker_recipe_missing": "需要针对特定操作系统版本验证标签、域和所有者方案，并进行附带影响测试",
-  "runner.host_refresh_rung_reason_daemon_layout_unqualified": "需要在受支持的宿主机上通过守护进程布局测试和客户机保全测试",
-  "runner.host_refresh_rung_reason_gui_launch_unqualified": "启动UTM需要检查同一用户下是否不存在运行实例，并使用图形界面启动路径；这些尚未在真实macOS宿主机上通过验证",
-  "runner.host_refresh_rung_reason_lock_unqualified": "修复锁的互斥性尚未在此平台上得到证实",
-  "runner.host_refresh_rung_reason_modular_daemon_recipe_missing": "需要经过验证的模块化libvirt守护进程方案",
-  "runner.host_refresh_rung_reason_no_reboot_supervision": "尚无经过验证的机制可在宿主机重启前后持续监管运行器和状态服务",
-  "runner.host_refresh_rung_reason_not_implemented": "此检出版本中没有此修复级别的执行器",
-  "runner.host_refresh_rung_reason_package_recovery_unqualified": "需要自包含且已签名的引导程序，以及经过测试的软件包恢复流程",
-  "runner.host_refresh_rung_reason_provider_recipe_missing": "需要在受支持的宿主机上测试过的独立提供程序恢复方案",
-  "runner.host_refresh_rung_reason_runner_restart_unqualified": "运行器回收和经确认的重启尚未在此平台的真实宿主机上通过验证",
-  "runner.host_refresh_rung_reason_settings_recipe_unsafe": "设置方案仍会触发同意对话框、软件包安装或无时限的原生调用，无人值守修复不得执行这些操作",
-  "runner.host_refresh_rung_reason_unsupported_on_platform": "此平台不提供此功能",
-  "runner.host_refresh_rung_reason_utm_restart_unqualified": "重启UTM需要经过测试的启动和会话路径、已采集的客户机恢复证据、运行器互斥机制及正常退出策略，并在真实macOS宿主机上通过验证",
-  "runner.host_refresh_rung_reason_vmms_start_unqualified": "已实现启动已停止的vmms服务，但尚未在真实Windows Hyper-V宿主机上通过验证",
-  "runner.host_refresh_rung_started": [
-    "Invoke-HostRefresh：修复级别",
+  "runner.host_repair_rung_reason_broker_recipe_missing": "需要针对特定操作系统版本验证标签、域和所有者方案，并进行附带影响测试",
+  "runner.host_repair_rung_reason_daemon_layout_unqualified": "需要在受支持的宿主机上通过守护进程布局测试和客户机保全测试",
+  "runner.host_repair_rung_reason_gui_launch_unqualified": "启动UTM需要检查同一用户下是否不存在运行实例，并使用图形界面启动路径；这些尚未在真实macOS宿主机上通过验证",
+  "runner.host_repair_rung_reason_lock_unqualified": "修复锁的互斥性尚未在此平台上得到证实",
+  "runner.host_repair_rung_reason_modular_daemon_recipe_missing": "需要经过验证的模块化libvirt守护进程方案",
+  "runner.host_repair_rung_reason_no_reboot_supervision": "尚无经过验证的机制可在宿主机重启前后持续监管运行器和状态服务",
+  "runner.host_repair_rung_reason_not_implemented": "此检出版本中没有此修复级别的执行器",
+  "runner.host_repair_rung_reason_package_recovery_unqualified": "需要自包含且已签名的引导程序，以及经过测试的软件包恢复流程",
+  "runner.host_repair_rung_reason_provider_recipe_missing": "需要在受支持的宿主机上测试过的独立提供程序恢复方案",
+  "runner.host_repair_rung_reason_runner_restart_unqualified": "运行器回收和经确认的重启尚未在此平台的真实宿主机上通过验证",
+  "runner.host_repair_rung_reason_settings_recipe_unsafe": "设置方案仍会触发同意对话框、软件包安装或无时限的原生调用，无人值守修复不得执行这些操作",
+  "runner.host_repair_rung_reason_unsupported_on_platform": "此平台不提供此功能",
+  "runner.host_repair_rung_reason_utm_restart_unqualified": "重启UTM需要经过测试的启动和会话路径、已采集的客户机恢复证据、运行器互斥机制及正常退出策略，并在真实macOS宿主机上通过验证",
+  "runner.host_repair_rung_reason_vmms_start_unqualified": "已实现启动已停止的vmms服务，但尚未在真实Windows Hyper-V宿主机上通过验证",
+  "runner.host_repair_rung_started": [
+    "Invoke-HostRepair：修复级别",
     {
       "arg": "name",
       "type": "identifier",
@@ -1845,8 +2250,8 @@ const DatazhCNrunner = `{
     },
     " s。"
   ],
-  "runner.host_refresh_runner_not_ready": [
-    "Invoke-HostRefresh：重启后的运行器未确认就绪（",
+  "runner.host_repair_runner_not_ready": [
+    "Invoke-HostRepair：重启后的运行器未确认就绪（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1854,8 +2259,8 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
-  "runner.host_refresh_runtime_missing": [
-    "Invoke-HostRefresh：运行时目录",
+  "runner.host_repair_runtime_missing": [
+    "Invoke-HostRepair：运行时目录",
     {
       "arg": "runtimeDir",
       "type": "detail",
@@ -1863,8 +2268,8 @@ const DatazhCNrunner = `{
     },
     "不存在；请将YURUNA_RUNTIME_DIR设为运行器的运行时目录。"
   ],
-  "runner.host_refresh_runtime_owner_mismatch": [
-    "Invoke-HostRefresh：此账户的刷新状态已注册到运行时",
+  "runner.host_repair_runtime_owner_mismatch": [
+    "Invoke-HostRepair：此账户的修复状态已注册到运行时",
     {
       "arg": "registeredRuntimeDir",
       "type": "detail",
@@ -1878,8 +2283,8 @@ const DatazhCNrunner = `{
     },
     "；每个账户仅支持一个所属运行时。"
   ],
-  "runner.host_refresh_service_unverified": [
-    "Invoke-HostRefresh：修复后，服务",
+  "runner.host_repair_service_unverified": [
+    "Invoke-HostRepair：修复后，服务",
     {
       "arg": "key",
       "type": "identifier",
@@ -1893,8 +2298,8 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
-  "runner.host_refresh_session_passive": [
-    "Invoke-HostRefresh：会话类型为",
+  "runner.host_repair_session_passive": [
+    "Invoke-HostRepair：会话类型为",
     {
       "arg": "sessionKind",
       "type": "identifier",
@@ -1902,18 +2307,16 @@ const DatazhCNrunner = `{
     },
     "；已跳过需要桌面会话的步骤。"
   ],
-  "runner.host_refresh_should_process_admission": "记录宿主机刷新准入信息",
-  "runner.host_refresh_should_process_listener": "以刷新安全模式启动状态侦听器",
-  "runner.host_refresh_should_process_publish": "发布宿主机刷新进度",
-  "runner.host_refresh_should_process_run": [
-    "执行宿主机刷新请求",
+  "runner.host_repair_should_process_publish": "发布宿主机修复进度",
+  "runner.host_repair_should_process_run": [
+    "执行宿主机修复请求",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_active_request": [
+  "runner.host_repair_summary_active_request": [
     "  未解决的请求：",
     {
       "arg": "requestId",
@@ -1934,7 +2337,7 @@ const DatazhCNrunner = `{
     },
     "次尝试）"
   ],
-  "runner.host_refresh_summary_context": [
+  "runner.host_repair_summary_context": [
     "  运行时：          ",
     {
       "arg": "runtimeDir",
@@ -1955,14 +2358,14 @@ const DatazhCNrunner = `{
     },
     "）"
   ],
-  "runner.host_refresh_summary_header": [
+  "runner.host_repair_summary_header": [
     "在",
     {
       "arg": "hostType",
       "type": "identifier",
       "trust": "internal"
     },
-    "上刷新宿主机（",
+    "上修复宿主机（",
     {
       "arg": "mode",
       "type": "identifier",
@@ -1970,7 +2373,7 @@ const DatazhCNrunner = `{
     },
     "）"
   ],
-  "runner.host_refresh_summary_ladder": [
+  "runner.host_repair_summary_ladder": [
     "  修复阶梯，最高级别",
     {
       "arg": "ceiling",
@@ -1979,7 +2382,7 @@ const DatazhCNrunner = `{
     },
     "："
   ],
-  "runner.host_refresh_summary_obligation": [
+  "runner.host_repair_summary_obligation": [
     "  待处理项：      ",
     {
       "arg": "obligation",
@@ -1987,7 +2390,7 @@ const DatazhCNrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_probe": [
+  "runner.host_repair_summary_probe": [
     "  虚拟机监控程序探测：",
     {
       "arg": "state",
@@ -2008,7 +2411,7 @@ const DatazhCNrunner = `{
     },
     " ms）"
   ],
-  "runner.host_refresh_summary_rung_above_ceiling": [
+  "runner.host_repair_summary_rung_above_ceiling": [
     "    [",
     {
       "arg": "order",
@@ -2023,7 +2426,7 @@ const DatazhCNrunner = `{
     },
     "：超出请求的最高级别"
   ],
-  "runner.host_refresh_summary_rung_available": [
+  "runner.host_repair_summary_rung_available": [
     "    [",
     {
       "arg": "order",
@@ -2038,7 +2441,7 @@ const DatazhCNrunner = `{
     },
     "：可用"
   ],
-  "runner.host_refresh_summary_rung_result": [
+  "runner.host_repair_summary_rung_result": [
     "    [",
     {
       "arg": "order",
@@ -2065,7 +2468,7 @@ const DatazhCNrunner = `{
     },
     "）"
   ],
-  "runner.host_refresh_summary_rung_unavailable": [
+  "runner.host_repair_summary_rung_unavailable": [
     "    [",
     {
       "arg": "order",
@@ -2085,7 +2488,7 @@ const DatazhCNrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_runner": [
+  "runner.host_repair_summary_runner": [
     "  运行器：           ",
     {
       "arg": "status",
@@ -2093,7 +2496,7 @@ const DatazhCNrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_verdict": [
+  "runner.host_repair_summary_verdict": [
     "  判定：          ",
     {
       "arg": "verdict",
@@ -2120,8 +2523,22 @@ const DatazhCNrunner = `{
     },
     "）"
   ],
-  "runner.host_refresh_unexpected_error": [
-    "Invoke-HostRefresh：在",
+  "runner.host_repair_trigger_call_failed": [
+    "在",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "处自动调用宿主机修复失败，已跳过：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.host_repair_unexpected_error": [
+    "Invoke-HostRepair：在",
     {
       "arg": "phase",
       "type": "identifier",
@@ -2134,7 +2551,372 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
-  "runner.host_refresh_verified_noop": "Invoke-HostRefresh：虚拟机监控程序已响应，运行器状态正常；未进行任何更改。",
+  "runner.host_repair_verified_noop": "Invoke-HostRepair：虚拟机监控程序已响应，运行器状态正常；未进行任何更改。",
+  "runner.host_update_access_entry_action": "安装或删除允许主机控制器写入其临时 sudo 规则的 sudoers 条目",
+  "runner.host_update_auth_action_create_signing_key": "创建宿主机更新签名密钥",
+  "runner.host_update_auth_action_install_record": [
+    "为",
+    {
+      "arg": "poolControl",
+      "type": "token",
+      "trust": "internal"
+    },
+    "安装pool-control记录"
+  ],
+  "runner.host_update_auth_action_remove_record": "删除pool-control记录",
+  "runner.host_update_busy": [
+    "Invoke-HostUpdate：未排队任何请求；一个 ",
+    {
+      "arg": "activeKind",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 操作正占用主机（",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。请等待其结束，或在运行器的控制台中结束正在运行的周期。"
+  ],
+  "runner.host_update_console_window": "测试账户桌面上的一个独立控制台窗口，可在本机上打开，或通过远程桌面连接到该会话打开",
+  "runner.host_update_controller_absent": [
+    "Invoke-HostUpdate：此主机上没有正在运行的主机控制器（锁 ",
+    {
+      "arg": "lockState",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；未排队任何请求。"
+  ],
+  "runner.host_update_credential_record_installed": [
+    "Set-HostRepairCredential：已安装此宿主机的pool-control记录（pool-control ",
+    {
+      "arg": "poolControl",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，密钥标签",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）；现在可在此验证由该密钥签署的宿主机更新，此宿主机的诊断页面会将远程操作发送到该处。"
+  ],
+  "runner.host_update_credential_record_removed": "Set-HostRepairCredential：已删除此宿主机的pool-control记录；此宿主机现在拒绝来自其他机器的所有宿主机更新。",
+  "runner.host_update_credential_record_value_replaced": [
+    "Set-HostRepairCredential：pool-control记录",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "previous",
+      "type": "token",
+      "trust": "internal"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "token",
+      "trust": "internal"
+    },
+    "。此行保留了先前的值；如果此更改并非有意，请使用-InstallPoolControlRecord重新安装。"
+  ],
+  "runner.host_update_credential_signing_key_created": [
+    "Set-HostRepairCredential：已在",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "创建宿主机更新签名密钥（标签",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）。请以仅所有者可访问的权限将其复制到pool-control服务的/etc/yuruna/host-repair/update-signing.key；切勿复制到池中的宿主机。在池中每台宿主机上运行：pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl <pool-control URL> -PublicKey ",
+    {
+      "arg": "publicKey",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_credential_signing_key_exists": [
+    "Set-HostRepairCredential：",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "处已存在宿主机更新签名密钥；传入-Rotate可替换它，之后必须在每台宿主机上重新安装pool-control记录。"
+  ],
+  "runner.host_update_credential_status": [
+    "Set-HostRepairCredential：pool-control记录",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "；pool-control ",
+    {
+      "arg": "poolControl",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，密钥标签",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）；宿主机更新签名密钥",
+    {
+      "arg": "signingKeyState",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.host_update_elevated_work_action": "结束主机更新的安装阶段或启用阶段的进程，包括以 root 身份运行的进程",
+  "runner.host_update_elevation_action": "更改主机更新的临时 sudo 规则、临时单元或安装程序副本",
+  "runner.host_update_gate_controller_absent": [
+    "Start-TestRunner：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 占用此主机的运行器，且没有正在运行的主机控制器；其系统服务会在几秒内启动一个控制器以继续更新。若要改为结束此更新，请运行：",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_absent_macos": [
+    "Start-TestRunner：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 占用此主机的运行器，且没有正在运行的主机控制器。",
+    {
+      "arg": "result",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 请从桌面会话的终端启动运行器以启动控制器，由它继续此更新；或使用以下命令结束此更新：",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_restarting_macos": [
+    "Start-TestRunner：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 占用此主机的运行器，此次启动发现的主机控制器正处于两次运行之间：其会话中的 shim 很快会再次启动它，由它继续此更新并自行启动运行器。如要改为结束此更新，请运行：",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_running": [
+    "Start-TestRunner：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 占用此主机的运行器；主机控制器会继续执行它并自行启动运行器。其控制台：",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_unknown_macos": [
+    "Start-TestRunner：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 占用此主机的运行器。此次启动的主机控制器步骤发现有控制器正在运行或已启动一个控制器，但现在无法读取控制器锁，因此无法确定是否有控制器在继续此更新。如果没有，请从桌面会话的终端启动运行器以启动控制器；或使用以下命令结束此更新：",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_queued": [
+    "Invoke-HostUpdate：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 已排队（范围 ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "，排空 ",
+    {
+      "arg": "drain",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。进度：",
+    {
+      "arg": "stateFile",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "。运行器启动后，其控制台：",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_refused": [
+    "Invoke-HostUpdate：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 未排队（",
+    {
+      "arg": "decision",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。"
+  ],
+  "runner.host_update_release_controller_running": [
+    "Invoke-HostUpdate：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 正在主机控制器（pid ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）下进行；只有在其恢复期间或没有控制器运行时才能释放。请等待其结论。"
+  ],
+  "runner.host_update_release_marked": [
+    "Invoke-HostUpdate：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 已标记为释放；主机控制器会在当前尝试结束后释放它。"
+  ],
+  "runner.host_update_release_refused": [
+    "Invoke-HostUpdate：无法释放主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。"
+  ],
+  "runner.host_update_released": [
+    "Invoke-HostUpdate：主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 以 ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 结束；仍需处理：",
+    {
+      "arg": "debt",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。普通的运行器启动可再次使用。"
+  ],
+  "runner.host_update_scope_unavailable": [
+    "Invoke-HostUpdate：主机控制器运行 ",
+    {
+      "arg": "scopes",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "，而不是 ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "；未排队任何请求。"
+  ],
+  "runner.host_update_takeover": [
+    "Invoke-HostUpdate：它接管了正在恢复的主机更新 ",
+    {
+      "arg": "supersededId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.host_update_unexpected_error": [
+    "Invoke-HostUpdate：在",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "阶段发生意外错误：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.hypervisor_control_unresponsive": [
     "此宿主机上的虚拟机管理程序控制通道能响应状态查询，但不再执行生命周期请求（探测结果",
     {
@@ -2154,7 +2936,7 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "）。周期在构建任何内容之前停止，因为每次虚拟机启动和停止都会等到超时。请在此宿主机上重新启动虚拟机管理程序应用（在macOS上从桌面会话退出UTM.app，或运行test/lab/Invoke-HostRefresh.ps1），然后恢复运行器。"
+    "）。周期在构建任何内容之前停止，因为每次虚拟机启动和停止都会等到超时。请在此宿主机上重新启动虚拟机管理程序应用（在macOS上从桌面会话退出UTM.app，或运行test/lab/Invoke-HostRepair.ps1），然后恢复运行器。"
   ],
   "runner.inner_attempt_exited": [
     "运行器尝试在报告周期结果之前退出，退出代码为 ",
@@ -2195,7 +2977,66 @@ const DatazhCNrunner = `{
     },
     "' 在 'resource:' 中没有操作系统键，无法作为客户机序列运行。"
   ],
+  "runner.kvm_pointer_button_held": [
+    "'",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 上的 KVM 指针：",
+    {
+      "arg": "button",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 按钮已按下，但无法确认其已释放；它可能仍在客户机中保持按下状态。"
+  ],
+  "runner.kvm_pointer_event": [
+    "'",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 上的 KVM 指针（",
+    {
+      "arg": "stage",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.kvm_pointer_no_device": [
+    "'",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 上的 KVM 指针：客户机没有绝对定位指针设备（QEMU：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。未发送任何内容；请为该域添加 USB 数位板。"
+  ],
   "runner.launch_record_complete_action": "将运行器启动记录标记为已结束",
+  "runner.launch_record_skipped": [
+    "Start-TestRunner：未写入运行器启动记录（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；宿主机修复或宿主机更新无法重启此运行器，将要求操作员启动它。"
+  ],
   "runner.launch_record_write_action": "写入运行器启动记录",
   "runner.m1ff7f8f2d1": [
     {
@@ -2429,6 +3270,58 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
+  "runner.mcp_workload_action": "运行一个已注册的动词，用于没有语句覆盖的操作。运行时提供 operationId 以及运行字段 action、fields 和 intent。仅用 operationId 轮询；用 operationId 和 cancel true 取消。调用在响应预算内作答，耗时更长的操作会继续运行。相同的 id 和输入绝不会运行两次。放弃请求的客户端不会取消该操作。取消在下一个原语之前生效，不会中断正在运行的原语。",
+  "runner.mcp_workload_cancel_with_run_fields": "取消只接受 operationId；请移除运行字段。",
+  "runner.mcp_workload_failure": "以过滤后的视图读取会话的最后一次失败：类别、步骤、语句、原因详情，以及允许显示的证据路径。",
+  "runner.mcp_workload_instructions": [
+    "1. 先观察再行动。选择步骤之前，先对该界面调用 workload_snapshot，并根据它显示的内容进行选择。s14 或 p7 这样的引用仅在该界面的下一次快照或步骤之前有效。\n2. 用语句表达。用 workload_phrases 或 workload_suggest_step 找到语句，并用 workload_step 运行它。只有在没有语句覆盖时才使用 workload_action。\n3. 为每个步骤说明理由。intent 是一行简单的英文，供日后阅读测试的人查看；它会成为该步骤的描述。其中不得包含密码、令牌或其他秘密值，也不得包含变量引用。\n4. 绝不输入秘密。需要密码的地方，写上引用，例如 ",
+    {
+      "arg": "reference",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "。在秘密位置填写字面值会被拒绝。\n5. 一次一步，绝不重复。每个新步骤都选择新的 operationId。当调用返回 workload_still_waiting 时，仅用该 id 再次调用同一工具。不要因为答复缓慢或丢失而再次发送步骤。\n6. 在以下情况下停下来询问相关人员：结果表明效果不确定；两个元素都匹配且页面上没有任何内容能区分它们；某个步骤会删除数据或关闭客户机电源；屏幕显示凭据；或者产品不再显示测试所期望的内容。\n7. 按顺序收尾：workload_journal、workload_save_sequence、workload_run_sequence、workload_session_end。"
+  ],
+  "runner.mcp_workload_invalid_arguments": [
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 的参数无效：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.mcp_workload_invalid_request": "该请求不是有效的 JSON-RPC 请求。",
+  "runner.mcp_workload_journal": "读取日志：目前为止成功的步骤（YAML 格式）、每个操作的摘要，以及 YAML 未包含的状态变化。",
+  "runner.mcp_workload_phrases": "列出当前生效的语句，每条都带有其 id、界面、槽位和层级。可选：search，用于筛选列表。在会话存在之前也会根据框架库作答。",
+  "runner.mcp_workload_request_too_large": [
+    "该请求超过 ",
+    {
+      "arg": "limit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个字符。"
+  ],
+  "runner.mcp_workload_run_form_incomplete": [
+    "运行操作的调用还需要：",
+    {
+      "arg": "fields",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.mcp_workload_run_sequence": "通过子进程中的 Debug-TestSequence.ps1，在已附加的 VM 上重放所指定序列自身的步骤。运行时提供 operationId 和运行字段 sequence，可选 timeoutSeconds（60 到 43200）。仅用 operationId 轮询；用 operationId 和 cancel true 取消。调用在响应预算内作答，耗时更长的操作会继续运行。相同的 id 和输入绝不会运行两次。放弃请求的客户端不会取消该操作。在第一个步骤之前，重放会停止宿主机上除服务 VM 之外的所有其他正在运行的 VM，与任何 Debug-TestSequence.ps1 运行一样；workload_session_start 的结果在 otherRunningVms 中列出它们。",
+  "runner.mcp_workload_save_sequence": "将日志保存为新的序列文件。文件写入框架的 test/sequences 文件夹，绝不替换已有文件。必填：name、description 和 resource（它在其后运行的序列列表）。可选：componentSteps，即开头多少个步骤成为组件步骤。",
+  "runner.mcp_workload_session_end": "结束会话：停止正在运行的操作，关闭所有者周期，释放运行时租约并结束工作进程。VM 保持运行。没有会话时返回 ended false。",
+  "runner.mcp_workload_session_start": "将工作负载会话附加到正在运行的 VM。必填：guestKey 和 vmName。可选：sequence，一个客户机序列，其资源链提供变量，其短语库生效；以及 variables，叠加在这些变量之上的最多 64 个值。超出响应预算的启动会继续运行并返回 workload_session_starting；请使用相同输入再次调用以读取其结果。结果在 otherRunningVms 中列出其他正在运行的 VM。",
+  "runner.mcp_workload_snapshot": "读取某个界面当前显示的内容。必填：surface（screen 或 page）。可选：find，用于筛选返回的视图；image，同时返回屏幕帧。每个条目带有一个引用（如 s14），仅在该界面的下一次快照或步骤之前有效。",
+  "runner.mcp_workload_step": "将一条语句作为步骤运行。运行时提供 operationId 以及运行字段 step 和 intent，可选 on 和 timeoutSeconds（1 到 7200）。仅用 operationId 轮询；用 operationId 和 cancel true 取消。调用在响应预算内作答，耗时更长的操作会继续运行。相同的 id 和输入绝不会运行两次。放弃请求的客户端不会取消该操作。取消在下一个原语之前生效，不会中断正在运行的原语。",
+  "runner.mcp_workload_suggest_step": "为当前快照中的一个条目建议步骤。必填：ref，一个引用（如 s14）。返回恰好指向该条目的语句；当没有语句能单独定位它时，返回带 nth 的 tapOn 原语。",
   "runner.mcp_yuruna_dependency_version": "报告锁定的依赖项版本及实际安装情况。原生输出JSON。",
   "runner.mcp_yuruna_invoke_clear": "清除生成的状态。破坏性操作：再次调用也无法恢复已删除的内容。",
   "runner.mcp_yuruna_set_component": "应用组件定义。写入配置；失败时以非零退出码退出，并生成转录记录。",
@@ -2533,13 +3426,13 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
-  "runner.no_other_runner_refresh_active": [
+  "runner.no_other_runner_gate_held": [
     {
       "arg": "callerName",
       "type": "identifier",
       "trust": "internal"
     },
-    "：宿主机刷新",
+    "：宿主机操作",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2551,7 +3444,7 @@ const DatazhCNrunner = `{
       "type": "identifier",
       "trust": "internal"
     },
-    "）；拒绝启动。请等待其完成，或使用test/lab/Invoke-HostRefresh.ps1 -Resume恢复执行。"
+    "）；拒绝启动。请等待其完成；如果是宿主机修复，也可使用test/lab/Invoke-HostRepair.ps1 -Resume恢复执行。"
   ],
   "runner.ocr_known_answer_degraded": [
     "有一个OCR提供程序无法读取已知帧（",
@@ -4467,7 +5360,7 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "”——正在运行完整基线链（冷路径；虚拟机将在saveDiskSnapshot时重命名为“",
+    "”——正在运行完整资源链（冷路径；虚拟机将在saveDiskSnapshot时重命名为“",
     {
       "arg": "requiredSnapshotId",
       "type": "detail",
@@ -4702,7 +5595,7 @@ const DatazhCNrunner = `{
   "runner.operator_1a355714114b86a7": "缺少UTM.app——请安装：brew install --cask utm（或访问 https://mac.getutm.app)",
   "runner.operator_1a3ffa06ec11b7a6": "PATH中未找到virsh——未安装libvirt/QEMU软件包。请运行install/ubuntu.kvm.sh，或运行：sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86",
   "runner.operator_1a5944a737ed4e90": [
-    "  宿主机刷新",
+    "  宿主机修复",
     {
       "arg": "report",
       "type": "detail",
@@ -5799,7 +6692,7 @@ const DatazhCNrunner = `{
   "runner.operator_2911629c58691e3f": "  否则周期会在运行中途停在密码提示处，而无人",
   "runner.operator_29160309e2dd574e": "/dev/kvm存在。",
   "runner.operator_29205489a1013ab0": "host.windows.hyper-v需要提升权限。请以管理员身份重新运行Start-TestRunner.ps1。",
-  "runner.operator_292bf0f1ef450037": "Invoke-HostRefresh：虚拟机监控程序响应正常；运行器已终止或不存在。此部分尚未实现第1级（回收）——请手动启动运行器：pwsh test/Start-TestRunner.ps1",
+  "runner.operator_292bf0f1ef450037": "Invoke-HostRepair：虚拟机监控程序响应正常；运行器已终止或不存在。此部分尚未实现第1级（回收）——请手动启动运行器：pwsh test/Start-TestRunner.ps1",
   "runner.operator_29607e704f43acdc": [
     "users.yml[",
     {
@@ -6408,7 +7301,7 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_2fb31966478fca46": "Invoke-HostRefresh：无法解析私有host-refresh状态根目录（$HOME/.yuruna/host-refresh）或确保其安全（resolve/secure）。缺少持久且仅所有者可访问的私有根目录，拒绝继续。",
+  "runner.operator_2fb31966478fca46": "Invoke-HostRepair：无法解析私有host-repair状态根目录（$HOME/.yuruna/host-repair）或确保其安全（resolve/secure）。缺少持久且仅所有者可访问的私有根目录，拒绝继续。",
   "runner.operator_2fce8fc42e5b8f1f": "正在macOS上运行，但未找到UTM，预期位置为/Applications/UTM.app.",
   "runner.operator_300e4e9499987ed4": [
     "Wait-YurunaAggregatorReady：pool-aggregator服务未在",
@@ -7314,7 +8207,7 @@ const DatazhCNrunner = `{
     "查看各周期的日志。"
   ],
   "runner.operator_3d35ece66aa84b79": [
-    "客户机键（来自基线）：",
+    "客户机键（来自资源链）：",
     {
       "arg": "guestKey",
       "type": "detail",
@@ -8129,7 +9022,7 @@ const DatazhCNrunner = `{
   "runner.operator_46e3cbe0614b1d51": "poolStorage设置：networkPath/networkUser不得包含单引号（否则会破坏客户机初始化数据）。未写入任何内容。",
   "runner.operator_46f30de3d812ddd8": "系统设置 > 隐私与安全性 > 自动化",
   "runner.operator_47371277eaeea492": [
-    "无法启动状态服务器的重启操作：",
+    "无法启动状态服务的重启操作：",
     {
       "arg": "message",
       "type": "detail",
@@ -10885,7 +11778,7 @@ const DatazhCNrunner = `{
     },
     " 请检查链路和续租途径，而非DHCP标识。"
   ],
-  "runner.operator_677303e3823afe8d": "未设置“testCycle.autoRefreshAfterStalls”——默认为0（已禁用自动刷新宿主机）。",
+  "runner.operator_677303e3823afe8d": "未设置“testCycle.autoRepairAfterStalls”——默认为0（已禁用自动宿主机修复）。",
   "runner.operator_67a649b2f9792d49": [
     "安装",
     {
@@ -11420,7 +12313,7 @@ const DatazhCNrunner = `{
   "runner.operator_6e9385fec86f1e3d": "缓存代理服务：caching-proxy-service启动过程持有锁，将由其处理端口映射。",
   "runner.operator_6ec6add9e9a298c1": "    常见原因：缓存虚拟机已运行，但squid正在重启；新重建的缓存会在预配过程应用ssl-bump配置时出现一次此情况。",
   "runner.operator_6eca51811f4cfdd3": [
-    "Invoke-HostRefresh：另一修复过程已持有生命周期锁（",
+    "Invoke-HostRepair：另一项宿主机操作已持有生命周期锁（",
     {
       "arg": "reason",
       "type": "detail",
@@ -12604,13 +13497,13 @@ const DatazhCNrunner = `{
     "。已删除NAS记录；成员关系未更改。"
   ],
   "runner.operator_7d74f75db443e9e2": [
-    "状态服务器重启操作在",
+    "状态服务重启操作在",
     {
       "arg": "bounceTimeoutSeconds",
       "type": "detail",
       "trust": "external"
     },
-    "s后仍在运行；已保留该操作（终止它会导致服务器一并停止）。会话记录：",
+    "s后仍在运行；已保留该操作（终止它会导致服务一并停止）。会话记录：",
     {
       "arg": "logPath",
       "type": "detail",
@@ -12812,7 +13705,7 @@ const DatazhCNrunner = `{
     "”"
   ],
   "runner.operator_7f5c0d3fa4f8cdf8": [
-    "状态服务器重启操作已退出，退出码为",
+    "状态服务重启操作已退出，退出码为",
     {
       "arg": "exitCode",
       "type": "detail",
@@ -13523,7 +14416,7 @@ const DatazhCNrunner = `{
     "）"
   ],
   "runner.operator_88f502760b28fd59": [
-    "Invoke-HostRefresh：虚拟机监控程序探测结果为",
+    "Invoke-HostRepair：虚拟机监控程序探测结果为",
     {
       "arg": "state",
       "type": "detail",
@@ -15986,7 +16879,7 @@ const DatazhCNrunner = `{
     "”，然后运行：sudo netplan apply"
   ],
   "runner.operator_a6cceb1dcf23a282": [
-    "Invoke-HostRefresh：请求被拒绝（",
+    "Invoke-HostRepair：请求被拒绝（",
     {
       "arg": "reason",
       "type": "detail",
@@ -16481,7 +17374,7 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_ae404c37892f11d1": "写入宿主机刷新请求日志",
+  "runner.operator_ae404c37892f11d1": "写入宿主机操作请求日志",
   "runner.operator_ae4e8052943a33cd": [
     "已确保针对",
     {
@@ -20320,7 +21213,7 @@ const DatazhCNrunner = `{
     },
     "上提供/yuruna-archive.tar.gz"
   ],
-  "runner.operator_dfd19c97aaa9ff6e": "Invoke-HostRefresh：虚拟机监控程序响应正常，且运行器已存在——已验证无需操作。",
+  "runner.operator_dfd19c97aaa9ff6e": "Invoke-HostRepair：虚拟机监控程序响应正常，且运行器已存在——已验证无需操作。",
   "runner.operator_dfd80a749d4fee8f": "  在该路径下添加Get-Image.ps1 + New-VM.ps1以启用此客户机，或",
   "runner.operator_e00026446a75f063": [
     "在与并发的Start-TestRunner争用进程ID文件时未能取得该文件。请检查",
@@ -22486,7 +23379,7 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "”——跳过基线执行链（热路径）。"
+    "”——跳过资源链（热路径）。"
   ],
   "runner.operator_f8a43d6f86299328": [
     "请检查服务器错误日志：",
@@ -23052,7 +23945,7 @@ const DatazhCNrunner = `{
   ],
   "runner.operator_fff495323f51f508": "每台Windows计算机都安装了Windows.Media.Ocr，但：",
   "runner.operator_fffaa1debcc46863": [
-    "“testCycle.autoRefreshAfterStalls”为",
+    "“testCycle.autoRepairAfterStalls”为",
     {
       "arg": "arasVal",
       "type": "detail",
@@ -23138,6 +24031,29 @@ const DatazhCNrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.phrase_library_invalid": [
+    "_phrases.yml: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.phrase_library_valid": [
+    "_phrases.yml: ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 中有 ",
+    {
+      "arg": "count",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 个短语。"
   ],
   "runner.pool_configuration_library_removed": "已从配置存储中移除 test-sets.yml；没有任何内容读取它。",
   "runner.pool_configuration_schema_already_current": [
@@ -23295,6 +24211,15 @@ const DatazhCNrunner = `{
     "。请查看网络诊断以了解所有尝试。"
   ],
   "runner.prior_runner_cleanup_action": "  操作：  停止它，并在启动前运行\n           Remove-TestVMFiles.ps1",
+  "runner.private_state_migration_blocked": [
+    "Start-TestRunner：无法将私有状态根目录从其先前的 host-refresh 位置移出（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；不启动。请停止旧的运行器、状态侦听器和宿主机控制器，然后重新启动运行器。参见 https://yuruna.link/42f909ad-0022"
+  ],
   "runner.process_start_record_write_action": "写入进程启动时间记录",
   "runner.project_checkout_replace_action": [
     "替换为",
@@ -23321,7 +24246,7 @@ const DatazhCNrunner = `{
       "type": "identifier",
       "trust": "internal"
     },
-    "）：池已排空或暂停、主机刷新或Ctrl+C在得出结论前阻止了它。"
+    "）：池已排空或暂停、宿主机操作或Ctrl+C在得出结论前阻止了它。"
   ],
   "runner.project_previous_cleanup_failed": [
     "无法删除位于",
@@ -23402,8 +24327,8 @@ const DatazhCNrunner = `{
     },
     "），因此不信任该 CA。"
   ],
-  "runner.readiness_ack_remove_action": "删除过期的刷新就绪确认",
-  "runner.readiness_ack_write_action": "写入刷新就绪确认",
+  "runner.readiness_ack_remove_action": "删除过期的交接就绪确认",
+  "runner.readiness_ack_write_action": "写入交接就绪确认",
   "runner.recovery_applied": [
     "[外层周期",
     {
@@ -23494,419 +24419,6 @@ const DatazhCNrunner = `{
     },
     "）。周期结果不受影响。"
   ],
-  "runner.refresh_barrier_held": [
-    "宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "后已恢复：受",
-    {
-      "arg": "controls",
-      "type": "text",
-      "trust": "internal"
-    },
-    "阻止。请从状态页面解除这些控制；在此之前不会创建或更改任何虚拟机。"
-  ],
-  "runner.refresh_barrier_released": [
-    "阻止运行的控制已在",
-    {
-      "arg": "seconds",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " s后解除；恢复的周期继续运行。"
-  ],
-  "runner.refresh_capability_unverified_macos": "运行器回收和重启尚未在macOS上通过验证：ps进程表和分离启动仅使用测试夹具进行过测试。",
-  "runner.refresh_capability_unverified_windows": "运行器回收和重启尚未在Windows上通过验证：CIM进程表、单进程终止和父进程切换仅使用测试夹具进行过测试。",
-  "runner.refresh_cycle_held": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 内层循环在",
-    {
-      "arg": "site",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "处停止，因为宿主机刷新阻止了此宿主机运行；未做任何更改。"
-  ],
-  "runner.refresh_gate_blocks_start": [
-    "Start-TestRunner：宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "阻止了此宿主机的运行器运行（门控状态",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；不会启动第二个运行器。请等待刷新完成，或使用test/lab/Invoke-HostRefresh.ps1 -Resume继续刷新。"
-  ],
-  "runner.refresh_gate_boot_resume": [
-    "Start-TestRunner：宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "在之前的一次启动中未完成；正在使用test/lab/Invoke-HostRefresh.ps1 -Resume继续执行一次（pid ",
-    {
-      "arg": "pid",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "）。本次启动仍被拒绝；刷新完成后会启动运行器，其错误写入",
-    {
-      "arg": "stdErrPath",
-      "type": "detail",
-      "trust": "internal"
-    },
-    "。"
-  ],
-  "runner.refresh_gate_boot_resume_failed": [
-    "Start-TestRunner：宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "在之前的一次启动中未完成，继续执行失败（",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；请使用test/lab/Invoke-HostRefresh.ps1 -Resume继续。"
-  ],
-  "runner.refresh_gate_boot_resume_tried": [
-    "Start-TestRunner：宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "在之前的一次启动中未完成，本次启动已继续执行过一次；请使用test/lab/Invoke-HostRefresh.ps1 -Resume再次继续。"
-  ],
-  "runner.refresh_gate_hold": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "阻止了运行器运行（门控状态",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；解除前不会启动任何周期。"
-  ],
-  "runner.refresh_gate_orphaned": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "使运行器保持受阻状态（门控状态",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "），且其工作进程已停止运行。请运行test/lab/Invoke-HostRefresh.ps1 -Resume以完成恢复。"
-  ],
-  "runner.refresh_gate_released": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 宿主机刷新门控已放行运行器；周期恢复运行。"
-  ],
-  "runner.refresh_gate_status_ensure_failed": [
-    "Start-TestRunner：门控保持期间无法启动状态服务：",
-    {
-      "arg": "message",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "runner.refresh_gate_status_ensured": [
-    "Start-TestRunner：宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "没有存活的工作进程；状态服务已在端口",
-    {
-      "arg": "port",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "上启动，以便其仪表板能够显示并恢复未解决的请求。在该请求解决之前，运行器仍将拒绝启动。"
-  ],
-  "runner.refresh_gate_unreadable": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 无法读取宿主机刷新门控记录（",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；运行器将保持受阻状态，直到通过test/lab/Invoke-HostRefresh.ps1 -Resume解决此问题。"
-  ],
-  "runner.refresh_gate_write_action": [
-    "写入宿主机刷新运行器门控（",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）"
-  ],
-  "runner.refresh_handoff_complete": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 已验证宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "的就绪状态；正在退出刷新门控。"
-  ],
-  "runner.refresh_handoff_complete_action": [
-    "完成宿主机刷新运行器交接（",
-    {
-      "arg": "verdict",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）"
-  ],
-  "runner.refresh_handoff_issue_action": [
-    "签发宿主机刷新运行器交接令牌（",
-    {
-      "arg": "purpose",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）"
-  ],
-  "runner.refresh_handoff_unverified": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 无法验证宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "的就绪状态（",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；运行器保持受阻状态。"
-  ],
-  "runner.refresh_launch_record_skipped": [
-    "Start-TestRunner：未写入运行器启动记录（",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；宿主机刷新无法重启此运行器，将要求操作员启动它。"
-  ],
-  "runner.refresh_preflight_cycle": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 仅执行刷新预检：此周期不执行git pull、虚拟机更改或控制清理。"
-  ],
-  "runner.refresh_preflight_failed": [
-    "刷新预检失败（",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；未做任何更改，运行器保持受阻状态。"
-  ],
-  "runner.refresh_preflight_ready": [
-    "请求",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "的刷新预检已就绪；正在等待刷新工作进程放行运行器。"
-  ],
-  "runner.refresh_preflight_released": [
-    "刷新预检已结束（",
-    {
-      "arg": "outcome",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；正在退出，以便运行器继续运行。"
-  ],
-  "runner.refresh_preflight_result": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 刷新预检周期已结束，退出代码为",
-    {
-      "arg": "exitCode",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "。"
-  ],
-  "runner.refresh_resume_action": "在宿主机刷新后重启运行器",
-  "runner.refresh_resume_record_refused": [
-    "Start-TestRunner：",
-    {
-      "arg": "pidFile",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "的状态为",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "；刷新恢复绝不会接管或删除仍在运行或状态未知的运行器记录。"
-  ],
-  "runner.refresh_resume_started": [
-    "Start-TestRunner：正在宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "后恢复；保留操作员的暂停、阻止运行和重启请求。"
-  ],
-  "runner.refresh_resume_switch_pair": "Start-TestRunner：必须同时提供-RefreshResume和-RefreshHandoffToken；不予启动。",
-  "runner.refresh_resume_token_refused": [
-    "Start-TestRunner：刷新交接被拒绝（",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）；不予启动。"
-  ],
-  "runner.refresh_site_gated": [
-    "周期在",
-    {
-      "arg": "site",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "之前结束：宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "阻止了此宿主机运行（门控状态",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "）。未做任何更改；运行器正在等待刷新。"
-  ],
-  "runner.refresh_status_ensure_orphaned": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 宿主机刷新",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "使运行器保持受阻状态（门控状态",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "），且其工作进程已停止运行；正在再次确保状态服务运行，以便其仪表板能够显示并恢复未解决的请求。"
-  ],
-  "runner.refresh_status_ensure_skipped": [
-    "[外层周期",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] 已跳过再次确保状态服务运行的操作：宿主机刷新阻止了此宿主机运行。"
-  ],
-  "runner.refresh_trigger_call_failed": [
-    "在",
-    {
-      "arg": "site",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "处自动调用宿主机刷新失败，已跳过：",
-    {
-      "arg": "message",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "runner.resident_watchdog_kill_preamble": [
     "[外层周期 ",
     {
@@ -23966,6 +24478,185 @@ const DatazhCNrunner = `{
       "trust": "internal"
     },
     "。"
+  ],
+  "runner.runner_gate_blocks_start": [
+    "Start-TestRunner：宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "阻止了此宿主机的运行器运行（门控状态",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；不会启动第二个运行器。请等待其完成；如果是宿主机修复，也可使用test/lab/Invoke-HostRepair.ps1 -Resume继续。"
+  ],
+  "runner.runner_gate_cycle_held": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 内层循环在",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "处停止，因为宿主机操作阻止了此宿主机运行；未做任何更改。"
+  ],
+  "runner.runner_gate_hold": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "阻止了运行器运行（门控状态",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；解除前不会启动任何周期。"
+  ],
+  "runner.runner_gate_orphaned": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "使运行器保持受阻状态（门控状态",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "），且其工作进程已停止运行。如果是宿主机修复，请运行test/lab/Invoke-HostRepair.ps1 -Resume以完成恢复。"
+  ],
+  "runner.runner_gate_released": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 运行器门控已放行运行器；周期恢复运行。"
+  ],
+  "runner.runner_gate_site_held": [
+    "周期在",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "之前结束：宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "阻止了此宿主机运行（门控状态",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。未做任何更改；运行器正在等待其完成。"
+  ],
+  "runner.runner_gate_status_ensure_failed": [
+    "Start-TestRunner：门控保持期间无法启动状态服务：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.runner_gate_status_ensure_orphaned": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "使运行器保持受阻状态（门控状态",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "），且其工作进程已停止运行；正在再次确保状态服务运行，以便其仪表板能够显示并恢复未解决的请求。"
+  ],
+  "runner.runner_gate_status_ensure_skipped": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 已跳过再次确保状态服务运行的操作：宿主机操作阻止了此宿主机运行。"
+  ],
+  "runner.runner_gate_status_ensured": [
+    "Start-TestRunner：宿主机操作",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "没有存活的工作进程；状态服务已在端口",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "上启动，以便其仪表板能够显示并恢复未解决的请求。在该请求解决之前，运行器仍将拒绝启动。"
+  ],
+  "runner.runner_gate_unreadable": [
+    "[外层周期",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] 无法读取运行器门控记录（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；运行器将保持受阻状态，直到通过test/lab/Invoke-HostRepair.ps1 -Resume解决此问题。"
+  ],
+  "runner.runner_gate_write_action": [
+    "写入运行器门控（",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）"
   ],
   "runner.runner_process_signal_action": [
     "向已验证的运行器进程发送信号（",
@@ -24643,6 +25334,145 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
+  "runner.ssh_host_key_pin_unconfirmed_reset": [
+    "为 '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' 固定的 SSH 主机密钥是在本次等待期间记录的，且尚无任何登录通过它完成身份验证，而 ",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 上的客户机现在提供了另一个密钥，这正是新客户机的安装程序 SSH 服务器让位于已安装系统的 SSH 服务器时的情形。该固定记录已被丢弃，等待继续（第 ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 次重置，共 ",
+    {
+      "arg": "limit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 次；固定文件：",
+    {
+      "arg": "pin",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。"
+  ],
+  "runner.ssh_password_rotated": [
+    "sshWaitReady 已通过 SSH 更改 ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 上 ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的过期密码。"
+  ],
+  "runner.ssh_password_rotation_failed": [
+    "sshWaitReady 无法通过 SSH 更改 ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 上 ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的过期密码（",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），因此该步骤失败。客户机输出：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.ssh_password_set": [
+    "由于登录未过期，sshWaitReady 已通过 SSH 设置 ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 上 ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的密码。"
+  ],
+  "runner.ssh_password_set_failed": [
+    "sshWaitReady 无法通过 SSH 设置 ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 上 ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的密码（",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），因此该步骤失败，后续步骤不会存储新密码。客户机输出：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.ssh_password_still_expired": [
+    "sshWaitReady 更改密码后，客户机仍报告 ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 上 ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的密码已过期，因此该步骤失败。"
+  ],
+  "runner.ssh_wait_rotation_fields_incomplete": [
+    "sshWaitReady 只有在同时提供 currentPassword 和 newPassword 时才会更改过期密码，而此步骤只提供了 ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "，因此该步骤失败。"
+  ],
   "runner.start_cycle_worker_cleanup_failed": [
     "启动周期",
     {
@@ -24944,7 +25774,7 @@ const DatazhCNrunner = `{
     },
     " 秒）并启动新的服务。"
   ],
-  "runner.status_refresh_safe_existing_ready": [
+  "runner.status_non_destructive_existing_ready": [
     "Status service进程PID ",
     {
       "arg": "processId",
@@ -24957,9 +25787,9 @@ const DatazhCNrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    "响应；刷新安全启动保留了其运行状态。"
+    "响应；非破坏性启动保留了其运行状态。"
   ],
-  "runner.status_refresh_safe_not_ready": [
+  "runner.status_non_destructive_not_ready": [
     "status service已启动，PID为",
     {
       "arg": "processId",
@@ -24974,14 +25804,14 @@ const DatazhCNrunner = `{
     },
     "秒内未响应；已保留其运行状态。"
   ],
-  "runner.status_refresh_safe_partial": [
+  "runner.status_non_destructive_partial": [
     "端口",
     {
       "arg": "port",
       "type": "integer",
       "trust": "internal"
     },
-    "上的status service刷新安全启动未作任何更改：",
+    "上的status service非破坏性启动未作任何更改：",
     {
       "arg": "outcome",
       "type": "identifier",
@@ -24995,8 +25825,8 @@ const DatazhCNrunner = `{
     },
     "）。"
   ],
-  "runner.status_refresh_safe_refused": [
-    "Start-StatusService.ps1 -RefreshSafe已拒绝执行：",
+  "runner.status_non_destructive_refused": [
+    "Start-StatusService.ps1 -NonDestructive已拒绝执行：",
     {
       "arg": "reason",
       "type": "identifier",
@@ -25004,8 +25834,8 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.status_refresh_safe_result_unwritable": [
-    "刷新安全启动无法将结果记录写入",
+  "runner.status_non_destructive_result_unwritable": [
+    "非破坏性启动无法将结果记录写入",
     {
       "arg": "path",
       "type": "detail",
@@ -25013,7 +25843,7 @@ const DatazhCNrunner = `{
     },
     "。"
   ],
-  "runner.status_refresh_safe_started": [
+  "runner.status_non_destructive_started": [
     "Status service已在端口",
     {
       "arg": "port",
@@ -25026,7 +25856,7 @@ const DatazhCNrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    "（刷新安全启动）。"
+    "（非破坏性启动）。"
   ],
   "runner.status_restart_changed_head": [
     "正在重启status service（PID ",
@@ -25069,6 +25899,20 @@ const DatazhCNrunner = `{
   ],
   "runner.status_worker_directory_prepare_action": "准备工作进程的私有目录",
   "runner.status_worker_state_write_action": "发布工作进程状态记录",
+  "runner.step_form_invalid": [
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的步骤必须恰好包含 'step'、'action' 和 'snippet' 中的一个；它包含：",
+    {
+      "arg": "found",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。"
+  ],
   "runner.step_handler_threw": [
     "步骤",
     {
@@ -25110,6 +25954,404 @@ const DatazhCNrunner = `{
       "trust": "external"
     },
     "。看门狗依据此文件判断周期状态，文件过期后会将周期视为卡死并停止；请检查该位置的可用空间和文件锁。"
+  ],
+  "runner.step_phrase_duplicate_id": [
+    "短语 '",
+    {
+      "arg": "phrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 在 ",
+    {
+      "arg": "first",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 中定义，又在 ",
+    {
+      "arg": "second",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 中再次定义。短语 ID 只定义一次；库只添加短语，绝不重新定义短语。"
+  ],
+  "runner.step_phrase_file_unreadable": [
+    "无法读取 ",
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    "：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。没有它就无法解析语句步骤。"
+  ],
+  "runner.step_phrase_library_invalid": [
+    "短语库 ",
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 在 '",
+    {
+      "arg": "phrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 处无效（",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "runner.step_phrase_malformed": [
+    "无法读取 ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的语句（",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "），位于第 ",
+    {
+      "arg": "position",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 个字符。请闭合每个引号和每个变量表达式，并在带引号的值中将引号写两次来表示它。"
+  ],
+  "runner.step_phrase_no_library": [
+    "无法解析 ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的语句：未找到短语库。框架库为 test/sequences/_phrases.yml."
+  ],
+  "runner.step_phrase_no_match": [
+    "没有短语与 ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的语句匹配，读取为：",
+    {
+      "arg": "shape",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。最接近的语句：",
+    {
+      "arg": "nearest",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。包含空格的值必须加引号。"
+  ],
+  "runner.step_phrase_overlap": [
+    "短语 '",
+    {
+      "arg": "firstPhrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'（'",
+    {
+      "arg": "firstSentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'，",
+    {
+      "arg": "firstFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）和 '",
+    {
+      "arg": "secondPhrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'（'",
+    {
+      "arg": "secondSentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'，",
+    {
+      "arg": "secondFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）可能匹配同一语句。一个语句只有一种含义；请修改或删除其中一个。"
+  ],
+  "runner.step_phrase_slot_empty": [
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处 '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 的 <",
+    {
+      "arg": "slot",
+      "type": "detail",
+      "trust": "external"
+    },
+    "> 的值为空。请为其提供一个值。"
+  ],
+  "runner.step_phrase_slot_not_integer": [
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处 '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 的 <",
+    {
+      "arg": "slot",
+      "type": "detail",
+      "trust": "external"
+    },
+    "> 的值必须是 0 到 999999999 之间的整数，不加引号且没有前导零。此处不接受变量表达式。"
+  ],
+  "runner.step_phrase_slot_not_key": [
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处 '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 的 <",
+    {
+      "arg": "slot",
+      "type": "detail",
+      "trust": "external"
+    },
+    "> 的值必须是以下键名之一，且不加引号：",
+    {
+      "arg": "keyNames",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。此处不接受变量表达式。"
+  ],
+  "runner.step_phrase_surface_missing": [
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的语句 '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 没有用于界面 '",
+    {
+      "arg": "surface",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 的步骤。它定义于：",
+    {
+      "arg": "surfaces",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "runner.step_phrase_template_invalid": [
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 中短语 '",
+    {
+      "arg": "phrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 用于界面 '",
+    {
+      "arg": "surface",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 的第 ",
+    {
+      "arg": "index",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 步不是有效的 '",
+    {
+      "arg": "action",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 步骤。其字段定义在 test/schemas/sequence.schema.yml 中；该操作需要：",
+    {
+      "arg": "required",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "runner.step_phrase_timeout_unused": [
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的语句 '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 设置了 timeoutSeconds，但它的步骤都不接受超时。请将其删除。"
+  ],
+  "runner.step_sentence_invalid": [
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 处的语句步骤无效（",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。语句步骤以文本形式接受 'step'，并可选地接受 'on'（screen 或 page）、'timeoutSeconds'（1 或更大的整数）、'description'，以及与之搭配的 'descriptionLocalized'。"
+  ],
+  "runner.tapon_argument_invalid": [
+    "tapOn 无法运行：",
+    {
+      "arg": "field",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 为 '",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'。请使用以下之一：",
+    {
+      "arg": "allowed",
+      "type": "token",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.tapon_click_kind_unsupported": [
+    "tapOn：宿主机 '",
+    {
+      "arg": "hostType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' 无法发送 ",
+    {
+      "arg": "click",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 点击。"
+  ],
+  "runner.tapon_label_ambiguous": [
+    "tapOn：'",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 在屏幕上出现了 ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 次：",
+    {
+      "arg": "candidates",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。请在步骤中添加 nth 以选择其中一个。"
+  ],
+  "runner.tapon_label_unusable": [
+    "tapOn 无法运行：标签 '",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 中没有可用 match: ",
+    {
+      "arg": "match",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 查找的字母或数字。"
+  ],
+  "runner.tapon_second_look_failed": [
+    "tapOn：对放大一倍的画面副本的第二次读取失败（",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。此步骤只读取所捕获的原始画面。"
   ],
   "runner.telemetry_event_dropped": [
     "无法记录一个周期事件（'",
@@ -25183,6 +26425,13 @@ const DatazhCNrunner = `{
       "trust": "external"
     }
   ],
+  "runner.verb_web_click": "点击按角色和名称找到的页面元素，或设置复选框。",
+  "runner.verb_web_close": "关闭客户机的浏览器页面及其连接。",
+  "runner.verb_web_expect": "等待某个元素或文本出现在页面上，或从页面上消失。",
+  "runner.verb_web_fill": "替换页面上文本字段的内容。",
+  "runner.verb_web_open": "在客户机的浏览器页面中打开 URL 并等待其加载完成。",
+  "runner.verb_web_press": "在页面中按下一个键。",
+  "runner.verb_web_select": "按标签选择原生下拉列表的选项。",
   "runner.vm_admission_occupied": [
     "拒绝启动周期：以下虚拟机在宿主机上运行且无法停止：",
     {
@@ -25404,6 +26653,896 @@ const DatazhCNrunner = `{
       "trust": "internal"
     },
     " s，0 表示不限）。"
-  ]
+  ],
+  "runner.web_session_close_incomplete": [
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 中的浏览器会话未能正常关闭（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.web_session_open_failed": [
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 中没有浏览器会话：",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    "。",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.web_session_opened": [
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 中的浏览器会话 ",
+    {
+      "arg": "generation",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "browser",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 位于客户机端口 ",
+    {
+      "arg": "remotePort",
+      "type": "detail",
+      "trust": "external"
+    },
+    "，通过 127.0.0.1:",
+    {
+      "arg": "localPort",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 访问。"
+  ],
+  "runner.workload_argument_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：参数 '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 必须匹配 ",
+    {
+      "arg": "pattern",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "runner.workload_busy": [
+    "操作 '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 仍在运行。请先轮询或取消它，再启动另一个。"
+  ],
+  "runner.workload_call_timeout": [
+    "会话工作进程未在 ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒内作答。"
+  ],
+  "runner.workload_candidate_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：生成的序列未通过 ",
+    {
+      "arg": "check",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 检查：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 未写入任何内容。"
+  ],
+  "runner.workload_capture_failed": "无法捕获屏幕帧。",
+  "runner.workload_config_unreadable": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：无法读取配置 ",
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "runner.workload_elevation_required": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "hostType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 只能从提升权限的进程驱动 VM。请以提升的权限启动 MCP 客户端。"
+  ],
+  "runner.workload_field_invalid": [
+    "动词 '",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 的字段 '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 不符合序列架构：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_field_missing": [
+    "动词 '",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 需要字段 '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'。"
+  ],
+  "runner.workload_field_reserved": [
+    "字段 '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 由会话设置，不能提供。"
+  ],
+  "runner.workload_field_undeclared": [
+    "序列架构中未为动词 '",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 声明字段 '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'；处理程序可能会忽略它。"
+  ],
+  "runner.workload_folder_outside": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：",
+    {
+      "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 解析到框架检出目录之外（",
+    {
+      "arg": "resolved",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。未写入任何内容。"
+  ],
+  "runner.workload_guest_unknown": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：客户机 '",
+    {
+      "arg": "guestKey",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 没有 ",
+    {
+      "arg": "hostType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 的文件夹（",
+    {
+      "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "runner.workload_host_driver_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：宿主机驱动未加载：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_host_not_ready": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：宿主机尚未准备好驱动客户机（条件 ",
+    {
+      "arg": "condition",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_host_unsupported": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：此平台没有宿主机驱动。"
+  ],
+  "runner.workload_intent_invalid": "intent 必须是 1 到 200 个字符的一行文本，且不得包含变量标记。",
+  "runner.workload_internal_error": [
+    "会话工作进程无法完成该请求：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_journal_empty": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：日志中没有可保存的成功步骤。"
+  ],
+  "runner.workload_journal_write_failed": [
+    "无法写入日志文件；该条目保留在内存中：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_lease_incomplete": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：租约 ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 在写入时缺少其启动记录，已被释放。请再次调用。"
+  ],
+  "runner.workload_libvirt_group_missing": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：此进程不具有 libvirt 组。请从 'id -nG' 列出 libvirt 的会话中启动 MCP 客户端，或用 'sg libvirt -c' 包装服务器命令。"
+  ],
+  "runner.workload_mask_failed": "前端未确认要隐藏的值。",
+  "runner.workload_mask_unconfirmed": "前端未确认要隐藏的值；其工作进程日志可能会显示这些值。",
+  "runner.workload_name_exists": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：'",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 的序列文件已存在：",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "。未写入任何内容。"
+  ],
+  "runner.workload_name_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：名称 '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 必须匹配 ",
+    {
+      "arg": "pattern",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "，以 '",
+    {
+      "arg": "prefix",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' 开头，且不得以 .yml、.yaml 或宿主机后缀（.ubuntu.kvm, .windows.hyper-v, .macos.utm）结尾。"
+  ],
+  "runner.workload_no_page": "此会话中没有打开的页面。请先运行语句 'open page <url>'。",
+  "runner.workload_no_session": "当前没有附加的工作负载会话。请用 workload_session_start 启动一个。",
+  "runner.workload_not_dispatched": [
+    "操作 '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 在发送给工作进程之前就已结束；没有任何内容运行。"
+  ],
+  "runner.workload_operation_canceled": [
+    "该操作在完成 ",
+    {
+      "arg": "total",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个原语中的 ",
+    {
+      "arg": "completed",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个后被取消。"
+  ],
+  "runner.workload_operation_conflict": [
+    "操作 id '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 已被另一个工具或以不同输入使用过。请为新步骤选择新的 operationId。"
+  ],
+  "runner.workload_operation_unknown": [
+    "此会话中没有 id 为 '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 的操作。"
+  ],
+  "runner.workload_ownership_lost": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：此会话不再拥有运行时（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。请结束会话。"
+  ],
+  "runner.workload_plan_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：无法规划 '",
+    {
+      "arg": "sequence",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 的链：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_publish_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：无法发布 ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 未写入任何内容。"
+  ],
+  "runner.workload_queue_full": "已有十六个调用在等待工作进程。请在其中一个得到答复后再次调用。",
+  "runner.workload_replay_spawn_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：重放进程未能启动：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_resource_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：resource 必须包含 1 到 16 个匹配 ",
+    {
+      "arg": "pattern",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 的序列名称。"
+  ],
+  "runner.workload_runtime_owned": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：另一个运行占有此运行时：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_secret_filter_failed": "答复已被扣留：经过秘密过滤后，它仍包含秘密或已无法读取。",
+  "runner.workload_secret_found": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：生成的序列将包含已解析的秘密。请在步骤中使用变量引用。未写入任何内容。"
+  ],
+  "runner.workload_secret_literal": "该请求包含此会话作为秘密保存的值。请通过其变量引用它。",
+  "runner.workload_secret_reference_required": [
+    "字段 '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 携带秘密，必须通过变量或扩展表达式引用它。"
+  ],
+  "runner.workload_secret_too_short": [
+    "变量 '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 保存的秘密少于 ",
+    {
+      "arg": "minimum",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个字符，会话无法对其进行掩码。"
+  ],
+  "runner.workload_secret_variable_unknown": [
+    "字段 '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 引用了变量 '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'，而此会话未定义该变量。"
+  ],
+  "runner.workload_sequence_not_found": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：未找到序列 '",
+    {
+      "arg": "sequence",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'。已搜索：",
+    {
+      "arg": "list",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_sequence_not_guest": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：'",
+    {
+      "arg": "sequence",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 不是具有 ",
+    {
+      "arg": "osKey",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 资源链的客户机序列。"
+  ],
+  "runner.workload_session_active": [
+    "已有一个输入不同的会话附加到 VM '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'。请先用 workload_session_end 结束它。"
+  ],
+  "runner.workload_session_detached": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：会话没有正在运行的 VM（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。请结束会话，用 test/Debug-TestSequence.ps1 启动 VM，然后重新附加。"
+  ],
+  "runner.workload_session_starting": "会话仍在启动中。请使用相同输入再次调用 workload_session_start 以读取其结果。",
+  "runner.workload_split_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：componentSteps ",
+    {
+      "arg": "value",
+      "type": "integer",
+      "trust": "external"
+    },
+    " 必须介于 0 和 ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 之间。"
+  ],
+  "runner.workload_stale_reference": [
+    "引用 '",
+    {
+      "arg": "reference",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 不在当前快照中。请拍摄新的快照并从中选择。"
+  ],
+  "runner.workload_start_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：会话未能启动：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_step_failed": [
+    "第 ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个原语（共 ",
+    {
+      "arg": "total",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个，",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）失败：",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_step_too_large": [
+    "该步骤超过 ",
+    {
+      "arg": "maximum",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 个字符。"
+  ],
+  "runner.workload_step_unresolved": [
+    "该语句未能解析：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_still_waiting": [
+    "操作 '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 仍在运行。请仅用此 operationId 再次调用同一工具以读取其结果。"
+  ],
+  "runner.workload_surface_unsupported": [
+    "此工作进程不提供界面 '",
+    {
+      "arg": "surface",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'。它提供：",
+    {
+      "arg": "surfaces",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.workload_variable_reserved": [
+    "变量 '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 由会话设置，不能提供。"
+  ],
+  "runner.workload_variables_failed": [
+    "无法解析会话变量：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_verb_alias": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 是 '",
+    {
+      "arg": "canonical",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 的另一种写法。请使用 '",
+    {
+      "arg": "canonical",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'。"
+  ],
+  "runner.workload_verb_denied_composite": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 包装了其他步骤。请手动将其添加到保存的序列中。"
+  ],
+  "runner.workload_verb_denied_operator_hold": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 会等待操作员，不能在工作负载会话中运行。"
+  ],
+  "runner.workload_verb_denied_unclassified": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 未声明重放类别，不能在工作负载会话中运行。"
+  ],
+  "runner.workload_verb_denied_vm_state": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 会更改 VM 的电源状态或名称。请改用 workload_run_sequence 运行序列。"
+  ],
+  "runner.workload_verb_unregistered": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 不是已注册的动词。"
+  ],
+  "runner.workload_vm_absent": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：此宿主机上不存在 VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'。请用 test/Debug-TestSequence.ps1 构建并启动它，然后再附加。"
+  ],
+  "runner.workload_vm_stopped": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 未在运行。请用 test/Debug-TestSequence.ps1 启动它，然后再附加。"
+  ],
+  "runner.workload_vm_unknown": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "：虚拟机监控程序未报告 VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' 的状态。未做任何更改。"
+  ],
+  "runner.workload_worker_lost": "会话工作进程在持有会话期间结束，因此会话已终止。请启动一个新会话。",
+  "runner.workload_worker_start_failed": [
+    "会话工作进程未能启动或未能附加：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_yaml_mismatch": "该步骤无法写成可原样读回的 YAML，因此未运行。"
 }
 `

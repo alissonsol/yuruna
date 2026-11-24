@@ -811,7 +811,7 @@ write_files:
             insecure_skip_verify: true
           static_configs:
             - targets: ['localhost:9400']
-        # --- REGION: https://yuruna.link/429f3d06-0046
+        # See https://yuruna.link/429f3d06-0046
         - job_name: pool-host
           scrape_interval: 15s
           scrape_timeout: 10s
@@ -822,7 +822,7 @@ write_files:
             - source_labels: [hostId]
               target_label: instance
           metric_relabel_configs:
-            # --- REGION: https://yuruna.link/429f3d06-0046
+            # See https://yuruna.link/429f3d06-0046
             - source_labels: [__name__]
               regex: 'up|scrape_.*|yuruna_host_memory_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_net_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))|windows_hyperv_virtual_network_adapter_.*|windows_hyperv_virtual_switch_.*'
               action: keep
@@ -2278,7 +2278,7 @@ write_files:
       # <upstream>          <repository>          <tag>
       registry.k8s.io       pause                 3.10.2     # Docker manifest list; the kubeadm control plane
       mcr.microsoft.com     dotnet/runtime-deps   10.0       # Docker manifest list; .NET workloads
-      ghcr.io               flannel-io/flannel    v0.28.10   # OCI image index; the flannel CNI
+      ghcr.io               flannel-io/flannel    v0.28.11   # OCI image index; the flannel CNI
       mirror.gcr.io         library/registry      2          # OCI image index; the workload support image
   - path: /usr/local/bin/zot-sync-selftest.py
     permissions: '0755'

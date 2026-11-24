@@ -638,7 +638,7 @@ const DataenUSexceptions = `{
     }
   ],
   "exceptions.host_ffd2efb19a40de43": "Enable-TestAutomation.ps1 (host/windows.hyper-v) only runs on Windows.",
-  "exceptions.host_refresh_auth_authority_incomplete": [
+  "exceptions.host_repair_auth_authority_incomplete": [
     "Wrote ",
     {
       "arg": "path",
@@ -659,8 +659,8 @@ const DataenUSexceptions = `{
     },
     "); run -NewAuthority -Rotate to write both again."
   ],
-  "exceptions.host_refresh_auth_authority_missing": [
-    "No refresh authority found under ",
+  "exceptions.host_repair_auth_authority_missing": [
+    "No repair authority found under ",
     {
       "arg": "path",
       "type": "detail",
@@ -668,8 +668,8 @@ const DataenUSexceptions = `{
     },
     "; create one with -NewAuthority first."
   ],
-  "exceptions.host_refresh_auth_host_id_mismatch": [
-    "The refresh key was issued for host ",
+  "exceptions.host_repair_auth_host_id_mismatch": [
+    "The repair verifier key was issued for host ",
     {
       "arg": "keyHostId",
       "type": "identifier",
@@ -683,7 +683,7 @@ const DataenUSexceptions = `{
     },
     "; export a key for this host instead."
   ],
-  "exceptions.host_refresh_auth_host_id_unavailable": [
+  "exceptions.host_repair_auth_host_id_unavailable": [
     "This host has no host id yet (",
     {
       "arg": "path",
@@ -692,8 +692,8 @@ const DataenUSexceptions = `{
     },
     " is missing); start the runner once so host.uuid exists, then retry."
   ],
-  "exceptions.host_refresh_auth_invalid_claim": [
-    "Refresh proof field ",
+  "exceptions.host_repair_auth_invalid_claim": [
+    "Repair proof field ",
     {
       "arg": "field",
       "type": "identifier",
@@ -701,13 +701,13 @@ const DataenUSexceptions = `{
     },
     " is not valid."
   ],
-  "exceptions.host_refresh_auth_key_malformed": [
+  "exceptions.host_repair_auth_key_malformed": [
     {
       "arg": "path",
       "type": "detail",
       "trust": "internal"
     },
-    " is not a refresh key file (expected one line starting with ",
+    " is not a repair authority or verifier key file (expected one line starting with ",
     {
       "arg": "prefix",
       "type": "token",
@@ -715,7 +715,7 @@ const DataenUSexceptions = `{
     },
     ")."
   ],
-  "exceptions.host_refresh_auth_key_permissions_open": [
+  "exceptions.host_repair_auth_key_permissions_open": [
     {
       "arg": "path",
       "type": "detail",
@@ -723,8 +723,8 @@ const DataenUSexceptions = `{
     },
     " is readable by other users; restrict it to its owner (chmod 600) and retry."
   ],
-  "exceptions.host_refresh_auth_key_unusable": [
-    "The refresh key file ",
+  "exceptions.host_repair_auth_key_unusable": [
+    "The repair authority or verifier key file ",
     {
       "arg": "path",
       "type": "detail",
@@ -738,7 +738,7 @@ const DataenUSexceptions = `{
     },
     ")."
   ],
-  "exceptions.host_refresh_auth_key_write_failed": [
+  "exceptions.host_repair_auth_key_write_failed": [
     "Could not write ",
     {
       "arg": "path",
@@ -753,16 +753,16 @@ const DataenUSexceptions = `{
     },
     ")."
   ],
-  "exceptions.host_refresh_auth_private_root_unavailable": [
+  "exceptions.host_repair_auth_private_root_unavailable": [
     "The private state root could not be secured (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "); no refresh key was written."
+    "); no repair secret was written."
   ],
-  "exceptions.host_refresh_relaunch_parameter_unsupported": [
+  "exceptions.host_repair_relaunch_parameter_unsupported": [
     "Parameter ",
     {
       "arg": "name",
@@ -777,8 +777,8 @@ const DataenUSexceptions = `{
     },
     ", which cannot cross the libvirt group relaunch."
   ],
-  "exceptions.host_refresh_worker_argument_invalid": [
-    "The host-refresh worker argument ",
+  "exceptions.host_repair_worker_argument_invalid": [
+    "The host-repair worker argument ",
     {
       "arg": "name",
       "type": "identifier",
@@ -793,6 +793,30 @@ const DataenUSexceptions = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "exceptions.host_update_auth_public_key_invalid": "The pool-control public key must be the one yupk1 line -NewUpdateSigningKey printed, holding an RSA key of at least 3072 bits.",
+  "exceptions.host_update_auth_signing_key_unusable": [
+    "The host update signing key ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " cannot be used (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); create one with -NewUpdateSigningKey."
+  ],
+  "exceptions.host_update_auth_url_invalid": [
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    " is not a pool-control address: give an absolute http or https URL of at most 256 bytes with no user name, query or fragment."
   ],
   "exceptions.host_utm_sudo_requires_noninteractive": "Invoke-UtmHostTool: sudo must be called with -n as its first argument so it can never wait on a password prompt.",
   "exceptions.host_utmctl_kill_requires_stop": [

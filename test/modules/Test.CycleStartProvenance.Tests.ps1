@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 422b8d9d-ee36-4c20-b920-5d584af0ebff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,90 @@ Describe 'cycle_start commit provenance' {
         $rec = @{ timestamp = '2026-01-02T03:04:05Z'; event = 'cycle_start'; gitCommits = 'aa11bb2' }
         $violations = @(Test-CycleEventSchema -Record $rec)
         Assert-True (($violations -join '; ') -match 'gitCommits') 'a scalar gitCommits must be reported'
+    }
+}
+
+# An orchestration owns its cycle through Register-StandaloneCycle, which built
+# plain {sha, repoUrl} entries of its own, so the source provenance the runner
+# attached to each commit never reached status.json or the cycle_start event of
+# a host whose plan is an orchestration.
+Describe 'Owner cycle commit provenance' {
+    BeforeAll {
+        # Loaded only for this Describe: a status document left loaded would be
+        # rewritten by every later Start-LogFile through Set-CycleFolderUrl.
+        $script:OwnerCycleModules = @('Test.Orchestrator', 'Test.Status', 'Test.HostGit' | Where-Object { -not (Get-Module -Name $_) })
+        Import-Module (Join-Path $here 'Test.HostGit.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.Status.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.Orchestrator.psm1') -Force -Global -DisableNameChecking -WarningAction SilentlyContinue
+        function Invoke-OwnerCycleFixture {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: writes status and cycle files under a temp dir only.')]
+            [OutputType([hashtable])]
+            param([object[]]$GitCommits, [switch]$FrameworkAtCheckout)
+            $fx = New-CycleStartFixture
+            $savedRuntime = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+            try {
+                $env:YURUNA_RUNTIME_DIR = $fx.Root
+                $statusPath = Join-Path $fx.Root 'status.json'
+                # A real checkout, so the entries read without a handed list exist.
+                $repoRoot = New-YurunaTestGitRepository -Path (Join-Path $fx.Root 'framework') -CommitMessage 'Fixture framework'
+                $registerArgs = @{
+                    StatusFilePath = $statusPath; HostType = 'host.ubuntu.kvm'
+                    Config = @{ repositories = @{ frameworkUrl = 'https://example.invalid/framework' } }
+                    RepoRoot = $repoRoot; TestRoot = $fx.Root; GuestList = @('suite'); StepNames = @('Run')
+                }
+                if ($FrameworkAtCheckout) { $GitCommits[0]['sha'] = [string](git -C $repoRoot rev-parse HEAD) }
+                if ($GitCommits) { $registerArgs.GitCommits = $GitCommits }
+                $null = Register-StandaloneCycle @registerArgs
+                return @{
+                    Status = @((Get-Content -Raw -LiteralPath $statusPath | ConvertFrom-Json).gitCommits)
+                    Event  = @((Get-EmittedCycleStart -Root $fx.Root).gitCommits)
+                }
+            } finally {
+                Restore-YurunaTestEnvironment -Saved $savedRuntime
+                Restore-CycleStartFixture -Fixture $fx
+            }
+        }
+    }
+    AfterAll {
+        foreach ($name in $script:OwnerCycleModules) { Remove-Module -Name $name -Force -ErrorAction SilentlyContinue }
+    }
+
+    It 'writes the source provenance of a handed commit list to status.json and the cycle_start event' {
+        $commits = @(
+            [ordered]@{ sha = 'aa11bb2'; repoUrl = 'https://example.invalid/framework'; source = 'mirror'; verification = 'mirror-stale'; fallbackReason = 'origin-transport-failed' }
+            [ordered]@{ sha = 'cc33dd4'; repoUrl = 'https://example.invalid/project'; source = 'origin'; verification = 'origin-current' }
+        )
+        $actual = Invoke-OwnerCycleFixture -GitCommits $commits
+        foreach ($surface in @('Status', 'Event')) {
+            Assert-Equal -Expected 2 -Actual $actual[$surface].Count -Because "$surface carries framework and project"
+            Assert-Equal -Expected 'aa11bb2' -Actual $actual[$surface][0].sha -Because "$surface keeps the framework first"
+            Assert-Equal -Expected 'mirror' -Actual $actual[$surface][0].source -Because "$surface keeps the framework source"
+            Assert-Equal -Expected 'mirror-stale' -Actual $actual[$surface][0].verification -Because "$surface keeps the verification"
+            Assert-Equal -Expected 'origin-transport-failed' -Actual $actual[$surface][0].fallbackReason -Because "$surface keeps the fallback reason"
+            Assert-Equal -Expected 'origin' -Actual $actual[$surface][1].source -Because "$surface keeps the project source"
+        }
+    }
+
+    It 'keeps the web origin it resolved for a handed entry of the same revision' {
+        $commits = @(
+            [ordered]@{ sha = ''; repoUrl = 'git@example.invalid:owner/framework.git'; source = 'mirror'; verification = 'mirror-confirmed' }
+        )
+        $actual = Invoke-OwnerCycleFixture -GitCommits $commits -FrameworkAtCheckout
+        foreach ($surface in @('Status', 'Event')) {
+            Assert-Equal -Expected 'https://example.invalid/framework' -Actual $actual[$surface][0].repoUrl -Because "$surface publishes the resolved web origin"
+            Assert-Equal -Expected 'mirror-confirmed' -Actual $actual[$surface][0].verification -Because "$surface keeps the handed verification"
+        }
+    }
+
+    It 'records plain entries without source provenance when no commit list is handed over' {
+        $actual = Invoke-OwnerCycleFixture
+        foreach ($surface in @('Status', 'Event')) {
+            Assert-Equal -Expected 1 -Actual $actual[$surface].Count -Because "$surface carries the framework checkout revision"
+            foreach ($entry in $actual[$surface]) {
+                Assert-Equal -Expected 'sha,repoUrl' -Actual (@($entry.PSObject.Properties.Name) -join ',') -Because "$surface keeps the plain entry shape"
+            }
+        }
     }
 }
 

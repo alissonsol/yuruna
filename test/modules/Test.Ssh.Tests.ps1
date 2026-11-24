@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -375,6 +375,8 @@ Describe 'Read-only harness SSH key inspection' {
             param([string]$Path)
             $items = @((Get-Item -LiteralPath $Path)) + @(Get-ChildItem -LiteralPath $Path -Recurse -Force)
             $entries = foreach ($item in $items | Sort-Object FullName) {
+                # Windows directory enumeration can return metadata cached before fixture writes.
+                $item.Refresh()
                 [ordered]@{
                     name = $item.FullName.Substring($Path.Length)
                     directory = $item.PSIsContainer
@@ -411,6 +413,22 @@ Describe 'Read-only harness SSH key inspection' {
             $script:SshPubPath = $Saved.Public
             $script:CachedSshKey = $Saved.Cached
         } $script:SavedKeyPaths
+    }
+
+    It 'snapshots current directory metadata instead of stale enumeration values' {
+        $null=[IO.Directory]::CreateDirectory($script:KeyDirectory)
+        $script:StaleSnapshotDirectory=Get-Item -LiteralPath $script:KeyDirectory
+        $null=$script:StaleSnapshotDirectory.LastWriteTimeUtc
+        $expected=[datetime]::new(2025,1,2,3,4,5,[DateTimeKind]::Utc)
+        [IO.Directory]::SetLastWriteTimeUtc($script:KeyDirectory,$expected)
+        Mock Get-ChildItem { $script:StaleSnapshotDirectory } -ParameterFilter { $LiteralPath -eq $script:KeyFixtureRoot }
+
+        $snapshot=@(Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | ConvertFrom-Json)
+        ($snapshot | Where-Object { $_.name -eq [IO.Path]::DirectorySeparatorChar+'keys' }).written | Should -Be $expected.Ticks
+        $changed=$expected.AddMinutes(1)
+        [IO.Directory]::SetLastWriteTimeUtc($script:KeyDirectory,$changed)
+        $snapshot=@(Get-SshFixtureSnapshot -Path $script:KeyFixtureRoot | ConvertFrom-Json)
+        ($snapshot | Where-Object { $_.name -eq [IO.Path]::DirectorySeparatorChar+'keys' }).written | Should -Be $changed.Ticks
     }
 
     It 'plans a missing key without creating its directory or files' {
@@ -529,6 +547,47 @@ Describe 'Read-only harness SSH key inspection' {
         (Get-FileHash -LiteralPath $script:PrivateKey -Algorithm SHA256).Hash | Should -Not -BeExactly $before
         & $script:Keygen.Source -y -P '' -f $script:PrivateKey | Should -Not -BeNullOrEmpty
         $LASTEXITCODE | Should -Be 0
+    }
+
+    It 'hardens an existing native key without replacing its material' {
+        New-SshFixturePair -Path $script:PrivateKey
+        if ($IsWindows) {
+            $sid=[Security.Principal.WindowsIdentity]::GetCurrent().User
+            $initial=Get-Acl -LiteralPath $script:PrivateKey
+            $initial.AreAccessRulesProtected | Should -BeTrue
+            $initial.GetOwner([Security.Principal.SecurityIdentifier]).Value | Should -BeExactly $sid.Value
+        }
+        $hash=(Get-FileHash -LiteralPath $script:PrivateKey -Algorithm SHA256).Hash
+        $publicHash=(Get-FileHash -LiteralPath $script:PublicKey -Algorithm SHA256).Hash
+
+        Initialize-YurunaSshKey | Should -BeExactly $script:PrivateKey
+
+        (Get-FileHash -LiteralPath $script:PrivateKey -Algorithm SHA256).Hash | Should -BeExactly $hash
+        (Get-FileHash -LiteralPath $script:PublicKey -Algorithm SHA256).Hash | Should -BeExactly $publicHash
+        if ($IsWindows) {
+            $written=Get-Acl -LiteralPath $script:PrivateKey
+            $written.AreAccessRulesProtected | Should -BeTrue
+            $written.GetOwner([Security.Principal.SecurityIdentifier]).Value | Should -BeExactly $sid.Value
+            $rules=@($written.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+            $rules | Should -HaveCount 1
+            $rules[0].IdentityReference.Value | Should -BeExactly $sid.Value
+            $rules[0].IsInherited | Should -BeFalse
+            $rules[0].AccessControlType | Should -Be ([Security.AccessControl.AccessControlType]::Allow)
+            $rules[0].FileSystemRights | Should -Be ([Security.AccessControl.FileSystemRights]::FullControl)
+
+            Mock Get-Acl -ModuleName Test.Ssh {
+                $acl=Microsoft.PowerShell.Security\Get-Acl -LiteralPath $LiteralPath
+                $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-18'))
+                return $acl
+            }
+            Mock Set-Acl -ModuleName Test.Ssh { throw 'fixture-owner-repair-denied' }
+            { Initialize-YurunaSshKey } | Should -Throw -ExpectedMessage "*$script:PrivateKey*fixture-owner-repair-denied*"
+            Should -Invoke Set-Acl -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter {
+                $AclObject.GetOwner([Security.Principal.SecurityIdentifier]).Value -eq [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+            }
+        } else {
+            [IO.File]::GetUnixFileMode($script:PrivateKey) | Should -Be ([IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite)
+        }
     }
 }
 
@@ -739,5 +798,500 @@ Describe 'Get-GuestAddress' {
             if ($assigned) { $negated = $true }
         }
         Assert-True $negated "the KVP read runs only when no driver Get-VMIp is loaded: if ($condition)"
+    }
+}
+
+Describe 'Invoke-GuestSshPasswordRotation' {
+    # A scripted client stands in for ssh: it prints the prompts a guest's PAM
+    # prints, reads each answer from its input like the guest's terminal would,
+    # and writes what it received to a file the case reads back.
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Global -Force -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Global -Force -DisableNameChecking
+        $script:Pwsh = (Get-Process -Id $PID).Path
+        $script:Current = 'Fixture-Current-7351'
+        $script:New = 'Fixture-New-9024'
+        $script:StandIn = Join-Path $TestDrive 'ssh-stand-in.ps1'
+        Set-Content -LiteralPath $script:StandIn -Encoding utf8NoBOM -Value @'
+param([string]$Mode, [string]$AnswerFile)
+$out = [Console]::Out
+function Send-Text([string]$Text) { $out.Write($Text); $out.Flush() }
+function Read-Answer([string]$Prompt) {
+    Send-Text $Prompt
+    $line = [Console]::In.ReadLine()
+    # $null is the client closing its input, which is no answer.
+    if ($null -ne $line) { Add-Content -LiteralPath $AnswerFile -Value $line }
+    Send-Text "`r`n"
+    return $line
+}
+$banner = "WARNING: Your password has expired.`r`nYou are required to change your password immediately (administrator enforced).`r`nChanging password for fixture.`r`n"
+switch ($Mode) {
+    'ubuntu26' {
+        Send-Text $banner
+        $null = Read-Answer 'Current password: '; $null = Read-Answer 'New password: '; $null = Read-Answer 'Retype new password: '
+        Send-Text "yuruna-ssh-rotated`r`n"
+    }
+    'ubuntu24' {
+        Send-Text $banner
+        $null = Read-Answer '(current) UNIX password: '; $null = Read-Answer 'Enter new UNIX password: '; $null = Read-Answer 'Retype new UNIX password: '
+        Send-Text "passwd: password updated successfully`r`n"
+        Start-Sleep -Seconds 60
+    }
+    'refused' {
+        $null = Read-Answer 'Current password: '; $null = Read-Answer 'New password: '; $null = Read-Answer 'Retype new password: '
+        Send-Text "Sorry, passwords do not match.`r`npasswd: Authentication token manipulation error`r`n"
+        Start-Sleep -Seconds 60
+    }
+    'reprompt' {
+        $null = Read-Answer 'Current password: '; $null = Read-Answer 'New password: '; $null = Read-Answer 'Retype new password: '
+        $null = Read-Answer 'New password: '
+    }
+    'newfirst' { $null = Read-Answer 'New password: ' }
+    'hang' { Send-Text 'Current password: '; Start-Sleep -Seconds 60 }
+    'nochange' { Send-Text "yuruna-ssh-rotated`r`n" }
+    'silent' { $null = Read-Answer 'Current password: '; $null = Read-Answer 'New password: '; $null = Read-Answer 'Retype password: ' }
+    'echo' {
+        foreach ($prompt in 'Current password: ', 'New password: ', 'Retype new password: ') { Send-Text ((Read-Answer $prompt) + "`r`n") }
+        Send-Text "yuruna-ssh-rotated`r`n"
+    }
+}
+'@
+        $script:RotationArguments = @{ VMName = 'fixture-vm'; GuestKey = 'guest.ubuntu.server.26'; Username = 'fixture'
+            CurrentPassword = $script:Current; NewPassword = $script:New; TimeoutSeconds = 20 }
+        Mock Get-GuestAddress -ModuleName Test.Ssh { return '192.0.2.10' }
+        Mock Get-YurunaSshPrivateKeyPath -ModuleName Test.Ssh { return 'fixture-key' }
+        Mock Get-YurunaSshHostKeyOption -ModuleName Test.Ssh { return @('-o', 'StrictHostKeyChecking=yes') }
+    }
+    BeforeEach {
+        $script:AnswerFile = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.txt')
+        $script:Mode = ''
+        $script:ClientIds = [System.Collections.Generic.List[int]]::new()
+        $script:Events = [System.Collections.Generic.List[hashtable]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.Ssh { $script:Events.Add($EventRecord) }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh { throw 'no probe expected' }
+        Mock Start-GuestSshRotationClient -ModuleName Test.Ssh {
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new($script:Pwsh)
+            $startInfo.UseShellExecute = $false
+            $startInfo.RedirectStandardInput = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $startInfo.StandardInputEncoding = [System.Text.UTF8Encoding]::new($false)
+            foreach ($argument in @('-NoProfile', '-NonInteractive', '-File', $script:StandIn, $script:Mode, $script:AnswerFile)) { $startInfo.ArgumentList.Add($argument) }
+            $process = [System.Diagnostics.Process]::Start($startInfo)
+            $script:ClientIds.Add($process.Id)
+            return $process
+        }
+    }
+    AfterEach {
+        foreach ($id in $script:ClientIds) {
+            $left = Get-Process -Id $id -ErrorAction SilentlyContinue
+            if ($left -and $left.Path -eq $script:Pwsh) { $left.Kill() }
+        }
+    }
+
+    It 'answers the <Mode> prompts in order and succeeds on the guest''s confirmation' -TestCases @(
+        @{ Mode = 'ubuntu26' }, @{ Mode = 'ubuntu24' }
+    ) {
+        param($Mode)
+        $script:Mode = $Mode
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 15 -Because 'a client that lingers after the confirmation is ended'
+        $result.Ok | Should -BeTrue -Because $result.Detail
+        $result.Code | Should -BeExactly ''
+        $result.Answered | Should -Be 3
+        $result.Target | Should -BeExactly 'fixture@192.0.2.10'
+        @(Get-Content -LiteralPath $script:AnswerFile) | Should -Be @($script:Current, $script:New, $script:New)
+        Get-Process -Id $script:ClientIds[0] -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        Should -Invoke Start-GuestSshRotationClient -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter {
+            $ArgumentList[0] -eq '-tt' -and $ArgumentList -contains 'fixture@192.0.2.10' -and $ArgumentList -contains 'StrictHostKeyChecking=yes'
+        }
+    }
+
+    It 'stops at a refusal from PAM without answering again' {
+        $script:Mode = 'refused'
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments
+        $result.Ok | Should -BeFalse
+        $result.Code | Should -BeExactly 'refused'
+        $result.Detail | Should -Match 'Authentication token manipulation error'
+        @(Get-Content -LiteralPath $script:AnswerFile).Count | Should -Be 3
+        Get-Process -Id $script:ClientIds[0] -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+
+    It 'does not answer a prompt asked again after the last answer' {
+        $script:Mode = 'reprompt'
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments
+        $result.Code | Should -BeExactly 'refused'
+        @(Get-Content -LiteralPath $script:AnswerFile).Count | Should -Be 3 -Because 'a fourth answer would type a password into whatever the guest asked next'
+    }
+
+    It 'answers nothing when the prompts come out of order' {
+        $script:Mode = 'newfirst'
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments
+        $result.Code | Should -BeExactly 'unexpected-prompt'
+        $result.Answered | Should -Be 0
+        Test-Path -LiteralPath $script:AnswerFile | Should -BeFalse
+    }
+
+    It 'reports not-expired, not a rotation, when the login needed no change' {
+        $script:Mode = 'nochange'
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments
+        $result.Ok | Should -BeFalse -Because 'the vault must not take a password the guest never got'
+        $result.Code | Should -BeExactly 'not-expired'
+    }
+
+    It 'ends a client that never finishes within the timeout' {
+        $script:Mode = 'hang'
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments -TimeoutSeconds 3
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 10
+        $result.Ok | Should -BeFalse
+        $result.Code | Should -BeExactly 'timeout'
+        Get-Process -Id $script:ClientIds[0] -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].failureClass | Should -BeExactly 'credential_expired'
+        $script:Events[0].severity | Should -BeExactly 'hard'
+    }
+
+    It 'reports and records a timeout without connecting when no time is left' {
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments -TimeoutSeconds 0
+        $result.Ok | Should -BeFalse
+        $result.Code | Should -BeExactly 'timeout'
+        $result.Answered | Should -Be 0
+        Should -Invoke Start-GuestSshRotationClient -ModuleName Test.Ssh -Times 0 -Exactly
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].event | Should -BeExactly 'ssh_password_rotation'
+        $script:Events[0].ok | Should -BeFalse
+        $script:Events[0].code | Should -BeExactly 'timeout'
+        $script:Events[0].target | Should -BeExactly 'fixture@192.0.2.10'
+        $script:Events[0].failureClass | Should -BeExactly 'credential_expired'
+        $script:Events[0].severity | Should -BeExactly 'hard'
+        @(Test-CycleEventSchema -Record $script:Events[0]).Count | Should -Be 0
+    }
+
+    It 'judges a session that ends silently after the last answer by one probe that answers <Probe>' -TestCases @(
+        @{ Probe = 'expired'; ExitCode = 255; Text = 'You are required to change your password immediately (administrator enforced). Password change required but no TTY available'; Ok = $false; Code = 'still-expired' }
+        @{ Probe = 'ready'; ExitCode = 0; Text = 'yuruna-ssh-ready'; Ok = $true; Code = '' }
+    ) {
+        param($Probe, $ExitCode, $Text, $Ok, $Code)
+        $null = $Probe
+        $script:Mode = 'silent'
+        $script:ProbeAnswer = @{ Started = $true; ExitCode = $ExitCode; StdOut = ''; StdErr = $Text; TimedOut = $false; DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh { return $script:ProbeAnswer }
+        $result = Invoke-GuestSshPasswordRotation @script:RotationArguments
+        $result.Ok | Should -Be $Ok
+        $result.Code | Should -BeExactly $Code
+        $result.Answered | Should -Be 3
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter { $ArgumentList -contains 'BatchMode=yes' -and $ArgumentList -notcontains '-tt' }
+    }
+
+    It 'keeps both passwords out of the result, the event, the arguments and the verbose stream' {
+        $script:Mode = 'echo'
+        $verbose = Invoke-GuestSshPasswordRotation @script:RotationArguments -Verbose 4>&1
+        $result = @($verbose | Where-Object { $_ -is [hashtable] })[0]
+        $result.Ok | Should -BeTrue -Because $result.Detail
+        $result.Detail | Should -Match '\*\*\*' -Because 'the guest echoed the answers, and the echo is kept masked'
+        $everything = (@($verbose | ForEach-Object { [string]$_ }) -join "`n") + (ConvertTo-Json -InputObject $result -Depth 6) + (ConvertTo-Json -InputObject @($script:Events) -Depth 6)
+        $everything.Contains($script:Current) | Should -BeFalse
+        $everything.Contains($script:New) | Should -BeFalse
+        Should -Invoke Start-GuestSshRotationClient -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter {
+            ($ArgumentList -join ' ').Contains($script:Current) -eq $false -and ($ArgumentList -join ' ').Contains($script:New) -eq $false
+        }
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].event | Should -BeExactly 'ssh_password_rotation'
+        $script:Events[0].ok | Should -BeTrue
+        $script:Events[0].ContainsKey('failureClass') | Should -BeFalse
+        @(Test-CycleEventSchema -Record $script:Events[0]).Count | Should -Be 0
+    }
+}
+
+Describe 'Set-GuestSshPassword' {
+    # A scripted client stands in for ssh: it reads its whole input like the
+    # remote chpasswd would, writes what it received to a file the case reads
+    # back, and answers the way a guest's sudo and chpasswd do.
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Global -Force -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.EventSchema.psm1') -Global -Force -DisableNameChecking
+        $script:Pwsh = (Get-Process -Id $PID).Path
+        $script:New = 'Fixture-New-9024'
+        $script:StandIn = Join-Path $TestDrive 'ssh-set-stand-in.ps1'
+        Set-Content -LiteralPath $script:StandIn -Encoding utf8NoBOM -Value @'
+param([string]$Mode, [string]$InputFile)
+if ($Mode -eq 'hang') { Start-Sleep -Seconds 60; exit 0 }
+$received = [Console]::In.ReadToEnd()
+Set-Content -LiteralPath $InputFile -Value $received -NoNewline
+switch ($Mode) {
+    'ok' { [Console]::Out.Write("yuruna-ssh-password-set`n"); exit 0 }
+    'echo' { [Console]::Out.Write("$received" + "yuruna-ssh-password-set`n"); exit 0 }
+    'sudo' { [Console]::Error.Write("sudo: a password is required`n"); exit 1 }
+    'chpasswd' { [Console]::Error.Write("chpasswd: (user fixture) pam_chauthtok() failed, error:`nAuthentication token manipulation error`n"); exit 1 }
+    'warned' { [Console]::Error.Write("chpasswd: (line 1, user fixture) password not changed`n"); [Console]::Out.Write("yuruna-ssh-password-set`n"); exit 0 }
+    'transport' { [Console]::Error.Write("Connection to 192.0.2.10 closed by remote host.`n"); exit 255 }
+}
+'@
+        $script:SetArguments = @{ VMName = 'fixture-vm'; GuestKey = 'guest.ubuntu.server.26'; Username = 'fixture'
+            NewPassword = $script:New; TimeoutSeconds = 20 }
+        Mock Get-GuestAddress -ModuleName Test.Ssh { return '192.0.2.10' }
+        Mock Get-YurunaSshPrivateKeyPath -ModuleName Test.Ssh { return 'fixture-key' }
+        Mock Get-YurunaSshHostKeyOption -ModuleName Test.Ssh { return @('-o', 'StrictHostKeyChecking=yes') }
+    }
+    BeforeEach {
+        $script:InputFile = Join-Path $TestDrive ([guid]::NewGuid().ToString('N') + '.txt')
+        $script:Mode = ''
+        $script:ClientIds = [System.Collections.Generic.List[int]]::new()
+        $script:ClientLines = [System.Collections.Generic.List[string]]::new()
+        $script:Events = [System.Collections.Generic.List[hashtable]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.Ssh { $script:Events.Add($EventRecord) }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh { throw 'no probe expected' }
+        Mock Start-GuestSshRotationClient -ModuleName Test.Ssh {
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new($script:Pwsh)
+            $startInfo.UseShellExecute = $false
+            $startInfo.RedirectStandardInput = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $startInfo.StandardInputEncoding = [System.Text.UTF8Encoding]::new($false)
+            foreach ($argument in @('-NoProfile', '-NonInteractive', '-File', $script:StandIn, $script:Mode, $script:InputFile)) { $startInfo.ArgumentList.Add($argument) }
+            $process = [System.Diagnostics.Process]::Start($startInfo)
+            $script:ClientIds.Add($process.Id)
+            # The command line the operating system holds for the client: what
+            # any other process on the host could read.
+            $script:ClientLines.Add((Get-Process -Id $process.Id -ErrorAction SilentlyContinue).CommandLine)
+            return $process
+        }
+    }
+    AfterEach {
+        foreach ($id in $script:ClientIds) {
+            $left = Get-Process -Id $id -ErrorAction SilentlyContinue
+            if ($left -and $left.Path -eq $script:Pwsh) { $left.Kill() }
+        }
+    }
+
+    It 'gives the password to sudo -n chpasswd only on standard input and succeeds on the marker' {
+        $script:Mode = 'ok'
+        $result = Set-GuestSshPassword @script:SetArguments
+        $result.Ok | Should -BeTrue -Because $result.Detail
+        $result.Code | Should -BeExactly ''
+        $result.ExitCode | Should -Be 0
+        $result.Target | Should -BeExactly 'fixture@192.0.2.10'
+        Get-Content -LiteralPath $script:InputFile -Raw | Should -BeExactly "fixture:$($script:New)`n"
+        Should -Invoke Start-GuestSshRotationClient -ModuleName Test.Ssh -Times 1 -Exactly -ParameterFilter {
+            $ArgumentList[0] -eq '-T' -and $ArgumentList -notcontains '-tt' -and $ArgumentList -contains 'fixture@192.0.2.10' -and
+                $ArgumentList -contains 'StrictHostKeyChecking=yes' -and $ArgumentList[-1] -eq 'sudo -n chpasswd && echo yuruna-ssh-password-set' -and
+                -not ($ArgumentList -join ' ').Contains($script:New)
+        }
+        foreach ($line in $script:ClientLines) { ([string]$line).Contains($script:New) | Should -BeFalse }
+        Get-Process -Id $script:ClientIds[0] -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].event | Should -BeExactly 'ssh_password_set'
+        $script:Events[0].ok | Should -BeTrue
+        $script:Events[0].ContainsKey('failureClass') | Should -BeFalse
+        @(Test-CycleEventSchema -Record $script:Events[0]).Count | Should -Be 0
+    }
+
+    It 'fails with <Code> when the guest answers <Mode>' -TestCases @(
+        @{ Mode = 'sudo'; Code = 'sudo-refused'; Text = 'sudo: a password is required' }
+        @{ Mode = 'chpasswd'; Code = 'chpasswd-failed'; Text = 'Authentication token manipulation error' }
+        @{ Mode = 'warned'; Code = 'chpasswd-failed'; Text = 'password not changed' }
+        @{ Mode = 'transport'; Code = 'ssh-failed'; Text = 'closed by remote host' }
+    ) {
+        param($Mode, $Code, $Text)
+        $script:Mode = $Mode
+        $result = Set-GuestSshPassword @script:SetArguments
+        $result.Ok | Should -BeFalse
+        $result.Code | Should -BeExactly $Code
+        $result.Dispatched | Should -BeTrue -Because 'the client started, so the guest may have received the password'
+        $result.Detail | Should -Match ([regex]::Escape($Text))
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].ok | Should -BeFalse
+        $script:Events[0].failureClass | Should -BeExactly 'provisioning_failure'
+        $script:Events[0].severity | Should -BeExactly 'hard'
+        @(Test-CycleEventSchema -Record $script:Events[0]).Count | Should -Be 0
+    }
+
+    It 'ends a client that never finishes within the timeout' {
+        $script:Mode = 'hang'
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $result = Set-GuestSshPassword @script:SetArguments -TimeoutSeconds 3
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 10
+        $result.Ok | Should -BeFalse
+        $result.Code | Should -BeExactly 'timeout'
+        Get-Process -Id $script:ClientIds[0] -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].code | Should -BeExactly 'timeout'
+    }
+
+    It 'keeps the password out of the result, the event and the verbose stream when the guest echoes it' {
+        $script:Mode = 'echo'
+        $verbose = Set-GuestSshPassword @script:SetArguments -Verbose 4>&1
+        $result = @($verbose | Where-Object { $_ -is [hashtable] })[0]
+        $result.Ok | Should -BeTrue -Because $result.Detail
+        $result.Detail | Should -Match 'fixture:\*\*\*' -Because 'the echoed line is kept masked'
+        $everything = (@($verbose | ForEach-Object { [string]$_ }) -join "`n") + (ConvertTo-Json -InputObject $result -Depth 6) + (ConvertTo-Json -InputObject @($script:Events) -Depth 6)
+        $everything.Contains($script:New) | Should -BeFalse
+    }
+
+    It 'refuses a password with a line break before it connects' {
+        $result = Set-GuestSshPassword @script:SetArguments -NewPassword "Fixture`nSecond-Line"
+        $result.Ok | Should -BeFalse
+        $result.Code | Should -BeExactly 'invalid-password'
+        $result.Dispatched | Should -BeFalse
+        Should -Invoke Start-GuestSshRotationClient -ModuleName Test.Ssh -Times 0 -Exactly
+        $script:Events.Count | Should -Be 1
+        ([string]$script:Events[0].detail).Contains('Second-Line') | Should -BeFalse
+    }
+
+    It 'reports and records a timeout without connecting when no time is left' {
+        $result = Set-GuestSshPassword @script:SetArguments -TimeoutSeconds 0
+        $result.Ok | Should -BeFalse
+        $result.Code | Should -BeExactly 'timeout'
+        $result.Dispatched | Should -BeFalse
+        Should -Invoke Start-GuestSshRotationClient -ModuleName Test.Ssh -Times 0 -Exactly
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].event | Should -BeExactly 'ssh_password_set'
+        $script:Events[0].ok | Should -BeFalse
+        $script:Events[0].code | Should -BeExactly 'timeout'
+        $script:Events[0].target | Should -BeExactly 'fixture@192.0.2.10'
+        $script:Events[0].failureClass | Should -BeExactly 'provisioning_failure'
+        $script:Events[0].severity | Should -BeExactly 'hard'
+        @(Test-CycleEventSchema -Record $script:Events[0]).Count | Should -Be 0
+    }
+}
+
+Describe 'Wait-SshReady on an expired password' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Global -Force -DisableNameChecking
+        Mock Get-YurunaSshPrivateKeyPath -ModuleName Test.Ssh { return 'fixture-key' }
+        Mock Get-GuestSshUser -ModuleName Test.Ssh { return 'fixture-user' }
+        Mock Get-GuestAddress -ModuleName Test.Ssh { return '192.0.2.10' }
+        Mock Set-ProvenGuestAddress -ModuleName Test.Ssh { }
+    }
+    BeforeEach {
+        $script:Events = [System.Collections.Generic.List[hashtable]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.Ssh { $script:Events.Add($EventRecord) }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh {
+            return @{ Started = $true; ExitCode = 255; StdOut = ''
+                StdErr = 'You are required to change your password immediately (administrator enforced). Password change required but no TTY available'
+                TimedOut = $false; DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false }
+        }
+    }
+
+    It 'returns at the first expired answer and reports nothing with Return' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Wait-SshReady -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 30 -PollSeconds 1 -OnExpiredLogin Return | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 10
+        (Get-LastSshReadiness).cause | Should -BeExactly 'password_expired'
+        (Get-LastSshReadiness).attempts | Should -Be 1
+        $script:Events.Count | Should -Be 0 -Because 'the caller is about to repair the account'
+        Should -Invoke Invoke-BoundedNativeCommand -ModuleName Test.Ssh -Times 1 -Exactly
+    }
+
+    It 'fails at the first expired answer with the credential_expired report with Fail' {
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        Wait-SshReady -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 30 -PollSeconds 1 -OnExpiredLogin Fail | Should -BeFalse
+        $clock.Elapsed.TotalSeconds | Should -BeLessThan 10
+        (Get-LastSshReadiness).attempts | Should -Be 1
+        $script:Events.Count | Should -Be 1
+        $script:Events[0].event | Should -BeExactly 'ssh_handshake_failed'
+        $script:Events[0].cause | Should -BeExactly 'password_expired'
+        $script:Events[0].failureClass | Should -BeExactly 'credential_expired'
+    }
+
+    It 'keeps waiting by default, as for any other answer' {
+        Wait-SshReady -VMName fixture-vm -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 3 -PollSeconds 1 | Should -BeFalse
+        (Get-LastSshReadiness).attempts | Should -BeGreaterThan 1
+        $script:Events.Count | Should -Be 1
+    }
+}
+
+Describe 'Wait-SshReady and a host key pin no login confirmed' {
+    # A fresh guest's live installer answers SSH with its own host key before
+    # the installed system does, and accept-new pins whatever key the first
+    # handshake shows. The stand-in client below pins like accept-new: it
+    # records the guest's current key when the pin is absent and refuses a
+    # different one, then answers as the scripted guest does.
+    BeforeAll {
+        $script:UnconfirmedPinRoot = New-YurunaTestTempDir -Prefix 'yuruna-pin-unconfirmed'
+        $script:UnconfirmedPinDir = Join-Path $script:UnconfirmedPinRoot 'pins'
+        & (Get-Module Test.Ssh) { $script:SavedPinDir = $script:HostKeyPinDir; $script:HostKeyPinDir = $args[0] } $script:UnconfirmedPinDir
+        $script:GuestPin = Join-Path $script:UnconfirmedPinDir 'fixture-guest'
+        Import-Module (Join-Path $here '../../automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
+        Mock Get-YurunaSshPrivateKeyPath -ModuleName Test.Ssh { return 'fixture-key' }
+        Mock Get-GuestSshUser -ModuleName Test.Ssh { return 'fixture-user' }
+        Mock Get-GuestAddress -ModuleName Test.Ssh { return '192.0.2.10' }
+        Mock Set-ProvenGuestAddress -ModuleName Test.Ssh { }
+        Mock Send-CycleEventSafely -ModuleName Test.Ssh { }
+        Mock Invoke-BoundedNativeCommand -ModuleName Test.Ssh {
+            $turn = $script:GuestScript[[Math]::Min($script:GuestCalls, $script:GuestScript.Count - 1)]
+            $script:GuestCalls++
+            $answer = @{ Started = $true; ExitCode = 255; StdOut = ''; StdErr = ''; TimedOut = $false; DrainTimedOut = $false; OutputTruncated = $false; KillFailed = $false }
+            if (-not (Test-Path -LiteralPath $script:GuestPin)) {
+                Set-Content -LiteralPath $script:GuestPin -Value $turn.Key -NoNewline
+            } elseif ((Get-Content -LiteralPath $script:GuestPin -Raw) -ne $turn.Key) {
+                $answer.StdErr = "@@@ WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED! @@@`nOffending ED25519 key in $($script:GuestPin):1`nHost key verification failed."
+                return $answer
+            }
+            switch ($turn.Answer) {
+                'ready' { $answer.ExitCode = 0; $answer.StdOut = 'yuruna-ssh-ready' }
+                'expired' { $answer.StdErr = 'You are required to change your password immediately (administrator enforced). Password change required but no TTY available' }
+                default { $answer.StdErr = 'fixture-user@192.0.2.10: Permission denied (publickey,password).' }
+            }
+            return $answer
+        }
+    }
+    AfterAll {
+        & (Get-Module Test.Ssh) { $script:HostKeyPinDir = $script:SavedPinDir }
+        Remove-YurunaTestTempDir $script:UnconfirmedPinRoot
+    }
+    BeforeEach {
+        $script:GuestCalls = 0
+        [void][IO.Directory]::CreateDirectory($script:UnconfirmedPinDir)
+        Remove-Item -LiteralPath $script:GuestPin -Force -ErrorAction SilentlyContinue
+        & (Get-Module Test.Ssh) { $script:ConfirmedHostKeyPin.Clear() }
+    }
+
+    It 'forgets the installer''s pin when the installed system presents its own key, and reaches a shell' {
+        $script:GuestScript = @(@{ Key = 'installer'; Answer = 'denied' }, @{ Key = 'installed'; Answer = 'ready' })
+        $warnings = @()
+        $ready = Wait-SshReady -VMName fixture-guest -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 20 -PollSeconds 1 3>&1 |
+            ForEach-Object { if ($_ -is [System.Management.Automation.WarningRecord]) { $warnings += [string]$_.Message } else { $_ } }
+        $ready | Should -BeTrue
+        (Get-LastSshReadiness).cause | Should -BeExactly 'ready'
+        Get-Content -LiteralPath $script:GuestPin -Raw | Should -BeExactly 'installed'
+        $warnings.Count | Should -Be 1
+        $warnings[0] | Should -BeExactly (Format-YurunaOperatorMessage -Key 'runner.ssh_host_key_pin_unconfirmed_reset' -Arguments @{
+                vmName = 'fixture-guest'; address = '192.0.2.10'; pin = $script:GuestPin; count = 1; limit = 3 })
+    }
+
+    It 'keeps refusing a changed key when the pin predates the wait' {
+        Set-Content -LiteralPath $script:GuestPin -Value 'earlier' -NoNewline
+        [IO.File]::SetLastWriteTimeUtc($script:GuestPin, [DateTime]::UtcNow.AddMinutes(-5))
+        $script:GuestScript = @(@{ Key = 'installed'; Answer = 'ready' })
+        Wait-SshReady -VMName fixture-guest -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 3 -PollSeconds 1 -WarningVariable warned -WarningAction SilentlyContinue | Should -BeFalse
+        (Get-LastSshReadiness).cause | Should -BeExactly 'host_key_changed'
+        Get-Content -LiteralPath $script:GuestPin -Raw | Should -BeExactly 'earlier'
+        @($warned | Where-Object { [string]$_ -match 'no login has authenticated' }).Count | Should -Be 0
+    }
+
+    It 'keeps a pin a login authenticated against earlier in the same wait' {
+        # An expired-password answer comes after the key authenticated.
+        $script:GuestScript = @(@{ Key = 'installer'; Answer = 'expired' }, @{ Key = 'installed'; Answer = 'ready' })
+        Wait-SshReady -VMName fixture-guest -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 4 -PollSeconds 1 -WarningAction SilentlyContinue | Should -BeFalse
+        (Get-LastSshReadiness).cause | Should -BeExactly 'host_key_changed'
+        Get-Content -LiteralPath $script:GuestPin -Raw | Should -BeExactly 'installer'
+    }
+
+    It 'stops forgetting pins at the bound a shared scope carries' {
+        $scope = @{ SinceUtc = [DateTime]::UtcNow; Resets = 2 }
+        $script:GuestScript = @(
+            @{ Key = 'k1'; Answer = 'denied' }, @{ Key = 'k2'; Answer = 'denied' }, @{ Key = 'k2'; Answer = 'denied' },
+            @{ Key = 'k3'; Answer = 'ready' })
+        $warnings = @()
+        $ready = Wait-SshReady -VMName fixture-guest -GuestKey guest.ubuntu.server.26 -TimeoutSeconds 6 -PollSeconds 1 -HostKeyPinScope $scope 3>&1 |
+            ForEach-Object { if ($_ -is [System.Management.Automation.WarningRecord]) { $warnings += [string]$_.Message } else { $_ } }
+        $ready | Should -BeFalse
+        $scope.Resets | Should -Be 3
+        @($warnings | Where-Object { $_ -match 'no login has authenticated' }).Count | Should -Be 1
+        Get-Content -LiteralPath $script:GuestPin -Raw | Should -BeExactly 'k2'
+        (Get-LastSshReadiness).cause | Should -BeExactly 'host_key_changed'
     }
 }

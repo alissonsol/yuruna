@@ -83,9 +83,11 @@ table below) stays in the base namespace whichever namespace the concept is in.
 | `skos:prefLabel`, `rdfs:label` | Preferred English term (both carry the same value). |
 | `skos:altLabel` | Recognized abbreviation or alternative wording. |
 | `skos:definition`, `skos:scopeNote` | Meaning in context; distinctions, limits, and translation traps. |
-| `y:context` | Shared, Yuruna, AmisAd, or Text-to-SQL. |
+| `y:context` | Shared, Yuruna, AmisAd, or Text-to-SQL example. |
 | `y:codeToken`, `y:codeVocabulary` | A machine-facing token and the enum it belongs to; translations preserve it verbatim. |
 | `y:retiredLabel` | A former name, kept for recognition only. |
+| `y:implementationStatus` | Whether the behavior is implemented, a prototype, planned, or only modeled. |
+| `y:evidenceBasis` | Whether the concept is only source-defined or also found in the selected telemetry. |
 | `dcterms:source` | The source revision the concept was taken from. |
 
 Named subclass axioms express taxonomy, and object properties have explicit
@@ -100,6 +102,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology versions](../../README.md)

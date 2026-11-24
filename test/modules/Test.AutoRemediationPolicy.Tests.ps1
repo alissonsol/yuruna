@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42c9b3e7-1d58-4a06-9e24-7f3b5c8d1a60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,7 @@ Describe 'the auto-remediation allow-list' {
         # no retry performs.
         foreach ($c in @('plan_invalid', 'payload_unavailable', 'pool_storage_full',
                 'project_access_denied', 'elevation_required', 'script_error',
-                'credential_expired', 'host_network_degraded', 'hypervisor_unresponsive', 'unknown')) {
+                'credential_expired', 'host_network_degraded', 'hypervisor_unresponsive', 'web_step_failed', 'unknown')) {
             Assert-True (-not (Test-AutoRemediationAllowed -FailureClass $c)) "$c must NOT be retried unattended"
         }
     }

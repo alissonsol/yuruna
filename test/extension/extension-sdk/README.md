@@ -14,7 +14,7 @@ carries the browser runtime its UI is built on.
 | [`jsonbody`](jsonbody/) | Decodes bounded, single-document JSON request bodies. |
 | [`pool`](pool/) | The read client for the pool-aggregator service: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, plus `Get`/`GetURL` for the routes it does not type. One TLS posture, one timeout policy, one snapshot cache, and `SanitizeBaseURL` applied to every URL-valued field a response carries. |
 | [`labgate`](labgate/) | The write gate. A session unlocked with the dashboard's rotating Lab token, or the internal authentication key as a bearer, in front of any route that changes host or pool configuration. Ships `Require`, `RequireBearer`, `HandleLogin` and `Session`. |
-| [`hostrefresh`](hostrefresh/) | Remote host refresh authorization: the versioned refresh proof bound to one host, request id, tier and ceiling (`Proof`, and `Verify` with an explicit clock and two-sided skew), the `Signer` that mints it from the provisioned signing authority, the owner-only secret-file loader, and the refresh credential `Gate`, which reads only `X-Yuruna-Refresh-Credential` and never a cookie or a bearer. Its `testdata/vectors.json` is the golden vector file the Go services and the host's PowerShell verifier all pin. Only pool-control imports it. |
+| [`hostrepair`](hostrepair/) | Remote host repair authorization: the versioned repair proof bound to one host, request id, tier and ceiling (`Proof`, and `Verify` with an explicit clock and two-sided skew), the `Signer` that mints it from the provisioned signing authority, the owner-only secret-file loader, and the operator credential `Gate`, which reads only `X-Yuruna-Operator-Credential` and never a cookie or a bearer. Its `testdata/vectors.json` is the golden vector file the Go services and the host's PowerShell verifier all pin. Only pool-control imports it. |
 | [`mcp`](mcp/) | The Model Context Protocol server every daemon except `caching-proxy-parser-service` mounts at `POST /mcp`, with `FromRoute`-style wrappers so a tool is the route it wraps. A tool may carry its own `Gate`, evaluated on the incoming request after the daemon's. |
 | [`servicecfg`](servicecfg/) | Shared daemon configuration readers for UI ports and authentication files. |
 | [`strictjson`](strictjson/) | Validates one JSON object with known, unique string fields. |
@@ -24,8 +24,8 @@ Nothing here imports anything outside the standard library and this module.
 `pool` imports only the standard library; `mcp` imports `jsonbody`. The
 caching-proxy-service seed stages the SDK packages its build needs, including
 `mcp` and `jsonbody`, so adding a package dependency requires updating that
-seed. `labgate`, `hostcheck` and `hostrefresh` use `i18n` for their refusal
-text, and `hostrefresh` uses `pool` for the rung vocabulary.
+seed. `labgate`, `hostcheck` and `hostrepair` use `i18n` for their refusal
+text, and `hostrepair` uses `pool` for the rung vocabulary.
 
 ## The browser runtime, and why it is a Go package
 

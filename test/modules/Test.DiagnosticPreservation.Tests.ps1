@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f4d2ce-8bea-4df2-9273-6b149f08d814
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,7 +190,7 @@ Describe 'Outer runner preservation gates precede destructive automation' {
         Test-Path -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'diagnostic-preserve.json') | Should -BeTrue
     }
 
-    It 'parks immediately after a failed dispatch before refresh or recovery can run' {
+    It 'parks immediately after a failed dispatch before automatic repair or recovery can run' {
         $state = Get-PreservationLoopState
         Mock Start-Sleep -ModuleName Test.DiagnosticPreservation { $state.ShutdownState['Requested']=$true }
         Mock Invoke-OuterCycleDispatch -ModuleName Test.RunnerOuterLoop {
@@ -198,11 +198,11 @@ Describe 'Outer runner preservation gates precede destructive automation' {
             return @{Outcome='completed'; ExitCode=1}
         }
         Mock Publish-OuterRecoveryResult -ModuleName Test.RunnerOuterLoop { return $null }
-        Mock Import-OuterRefreshTriggerModule -ModuleName Test.RunnerOuterLoop { throw 'Automatic refresh must not run during preservation.' }
+        Mock Import-OuterRepairTriggerModule -ModuleName Test.RunnerOuterLoop { throw 'Automatic repair must not run during preservation.' }
         Mock Invoke-OuterRecovery -ModuleName Test.RunnerOuterLoop { throw 'Recovery must not run during preservation.' }
         Invoke-RunnerOuterLoop -State $state
         Should -Invoke Invoke-OuterCycleDispatch -ModuleName Test.RunnerOuterLoop -Times 1 -Exactly
-        Should -Invoke Import-OuterRefreshTriggerModule -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly
+        Should -Invoke Import-OuterRepairTriggerModule -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly
         Should -Invoke Invoke-OuterRecovery -ModuleName Test.RunnerOuterLoop -Times 0 -Exactly
     }
 }

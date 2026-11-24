@@ -1,0 +1,388 @@
+{
+  "schema": "yuruna.step-phrase-expectation/v1",
+  "cases": [
+    {
+      "sentence": "login ${username} with password ${ext:authentication.GetPassword(${username})}",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "passwdPrompt",
+          "pattern": "login:",
+          "text": "${username}",
+          "description": "login ${username} with password *** (1/2)",
+          "fromStep": "login ${username} with password ***"
+        },
+        {
+          "action": "passwdPrompt",
+          "pattern": "Password:",
+          "text": "${ext:authentication.GetPassword(${username})}",
+          "sensitive": true,
+          "description": "login ${username} with password *** (2/2)",
+          "fromStep": "login ${username} with password ***"
+        }
+      ]
+    },
+    {
+      "sentence": "login ${username} with password ${ext:authentication.GetPassword(${username})}",
+      "surface": "screen",
+      "timeoutSeconds": 600,
+      "steps": [
+        {
+          "action": "passwdPrompt",
+          "pattern": "login:",
+          "text": "${username}",
+          "timeoutSeconds": 600,
+          "description": "login ${username} with password *** (1/2)",
+          "fromStep": "login ${username} with password ***"
+        },
+        {
+          "action": "passwdPrompt",
+          "pattern": "Password:",
+          "text": "${ext:authentication.GetPassword(${username})}",
+          "sensitive": true,
+          "timeoutSeconds": 600,
+          "description": "login ${username} with password *** (2/2)",
+          "fromStep": "login ${username} with password ***"
+        }
+      ]
+    },
+    {
+      "sentence": "wait for text 'Welcome to Ubuntu'",
+      "surface": "screen",
+      "timeoutSeconds": 60,
+      "steps": [
+        {
+          "action": "waitForText",
+          "pattern": "Welcome to Ubuntu",
+          "noSegmentMatch": true,
+          "timeoutSeconds": 60,
+          "description": "wait for text 'Welcome to Ubuntu'",
+          "fromStep": "wait for text 'Welcome to Ubuntu'"
+        }
+      ]
+    },
+    {
+      "sentence": "wait for text ${username}@${hostname}",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "waitForText",
+          "pattern": "${username}@${hostname}",
+          "noSegmentMatch": true,
+          "description": "wait for text ${username}@${hostname}",
+          "fromStep": "wait for text ${username}@${hostname}"
+        }
+      ]
+    },
+    {
+      "sentence": "type hello",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "inputText",
+          "text": "hello",
+          "description": "type hello",
+          "fromStep": "type hello"
+        }
+      ]
+    },
+    {
+      "sentence": "type 'ls -la /tmp' and press Enter",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "inputTextAndEnter",
+          "text": "ls -la /tmp",
+          "description": "type 'ls -la /tmp' and press Enter",
+          "fromStep": "type 'ls -la /tmp' and press Enter"
+        }
+      ]
+    },
+    {
+      "sentence": "type secret ${ext:authentication.GetPassword(${username})} and press Enter",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "inputTextAndEnter",
+          "text": "${ext:authentication.GetPassword(${username})}",
+          "sensitive": true,
+          "description": "type secret *** and press Enter",
+          "fromStep": "type secret *** and press Enter"
+        }
+      ]
+    },
+    {
+      "sentence": "type secret 'hunter2 x' and press Enter",
+      "surface": "screen",
+      "description": "Type 'hunter2 x' (hunter2 x) for ${ext:a.B()} now",
+      "steps": [
+        {
+          "action": "inputTextAndEnter",
+          "text": "hunter2 x",
+          "sensitive": true,
+          "description": "Type *** (***) for *** now",
+          "fromStep": "type secret *** and press Enter"
+        }
+      ]
+    },
+    {
+      "sentence": "type ${ext:x.Y()} and press Enter",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "inputTextAndEnter",
+          "text": "${ext:x.Y()}",
+          "description": "type *** and press Enter",
+          "fromStep": "type *** and press Enter"
+        }
+      ]
+    },
+    {
+      "sentence": "press Enter",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "pressKey",
+          "name": "Enter",
+          "description": "press Enter",
+          "fromStep": "press Enter"
+        }
+      ]
+    },
+    {
+      "sentence": "press tab",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "pressKey",
+          "name": "Tab",
+          "description": "press tab",
+          "fromStep": "press tab"
+        }
+      ]
+    },
+    {
+      "sentence": "wait 5 seconds",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "waitForSeconds",
+          "seconds": 5,
+          "description": "wait 5 seconds",
+          "fromStep": "wait 5 seconds"
+        }
+      ]
+    },
+    {
+      "sentence": "click button Next",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "tapOn",
+          "label": "Next",
+          "match": "word",
+          "description": "click button Next",
+          "fromStep": "click button Next"
+        }
+      ]
+    },
+    {
+      "sentence": "click 'I agree'",
+      "surface": "screen",
+      "timeoutSeconds": 30,
+      "steps": [
+        {
+          "action": "tapOn",
+          "label": "I agree",
+          "timeoutSeconds": 30,
+          "description": "click 'I agree'",
+          "fromStep": "click 'I agree'"
+        }
+      ]
+    },
+    {
+      "sentence": "expect text ready",
+      "surface": "screen",
+      "steps": [
+        {
+          "action": "waitForText",
+          "pattern": "ready",
+          "noSegmentMatch": true,
+          "description": "expect text ready",
+          "fromStep": "expect text ready"
+        }
+      ]
+    },
+    {
+      "sentence": "press Enter",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webPress",
+          "key": "Enter",
+          "description": "press Enter",
+          "fromStep": "press Enter"
+        }
+      ]
+    },
+    {
+      "sentence": "wait 3 seconds",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "waitForSeconds",
+          "seconds": 3,
+          "description": "wait 3 seconds",
+          "fromStep": "wait 3 seconds"
+        }
+      ]
+    },
+    {
+      "sentence": "click button 'Sign in'",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webClick",
+          "role": "button",
+          "name": "Sign in",
+          "description": "click button 'Sign in'",
+          "fromStep": "click button 'Sign in'"
+        }
+      ]
+    },
+    {
+      "sentence": "expect text Welcome",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webExpect",
+          "text": "Welcome",
+          "description": "expect text Welcome",
+          "fromStep": "expect text Welcome"
+        }
+      ]
+    },
+    {
+      "sentence": "open page http://localhost:8080/login",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webOpen",
+          "url": "http://localhost:8080/login",
+          "description": "open page http://localhost:8080/login",
+          "fromStep": "open page http://localhost:8080/login"
+        }
+      ]
+    },
+    {
+      "sentence": "click link Next",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webClick",
+          "role": "link",
+          "name": "Next",
+          "description": "click link Next",
+          "fromStep": "click link Next"
+        }
+      ]
+    },
+    {
+      "sentence": "fill 'User name' with admin",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webFill",
+          "role": "textbox",
+          "name": "User name",
+          "text": "admin",
+          "description": "fill 'User name' with admin",
+          "fromStep": "fill 'User name' with admin"
+        }
+      ]
+    },
+    {
+      "sentence": "fill Password with secret hunter2",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webFill",
+          "role": "textbox",
+          "name": "Password",
+          "text": "hunter2",
+          "sensitive": true,
+          "description": "fill Password with secret ***",
+          "fromStep": "fill Password with secret ***"
+        }
+      ]
+    },
+    {
+      "sentence": "select Brazil in Country",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webSelect",
+          "role": "combobox",
+          "name": "Country",
+          "option": "Brazil",
+          "description": "select Brazil in Country",
+          "fromStep": "select Brazil in Country"
+        }
+      ]
+    },
+    {
+      "sentence": "check 'I agree'",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webClick",
+          "role": "checkbox",
+          "name": "I agree",
+          "checked": true,
+          "description": "check 'I agree'",
+          "fromStep": "check 'I agree'"
+        }
+      ]
+    },
+    {
+      "sentence": "uncheck 'I agree'",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webClick",
+          "role": "checkbox",
+          "name": "I agree",
+          "checked": false,
+          "description": "uncheck 'I agree'",
+          "fromStep": "uncheck 'I agree'"
+        }
+      ]
+    },
+    {
+      "sentence": "expect no text Loading",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webExpect",
+          "text": "Loading",
+          "gone": true,
+          "description": "expect no text Loading",
+          "fromStep": "expect no text Loading"
+        }
+      ]
+    },
+    {
+      "sentence": "expect heading 'Sign in'",
+      "surface": "page",
+      "steps": [
+        {
+          "action": "webExpect",
+          "role": "heading",
+          "name": "Sign in",
+          "description": "expect heading 'Sign in'",
+          "fromStep": "expect heading 'Sign in'"
+        }
+      ]
+    }
+  ]
+}

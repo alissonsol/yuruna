@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -574,6 +574,32 @@ Describe 'gitCommits array-shape (double-wrap regression guard)' {
             'the call site must assign New-CycleGitCommitList directly'
         Assert-True (-not ($src -match '=\s*@\(\s*New-CycleGitCommitList')) `
             'New-CycleGitCommitList must NOT be wrapped in @() -- that double-wraps gitCommits to [[...]]'
+    }
+    # An orchestration cycle skipped the helper, so its status document carried
+    # no source provenance for any commit.
+    It 'builds the list for an orchestration cycle too and hands it to the orchestrator' {
+        $ast = [Management.Automation.Language.Parser]::ParseFile((Join-Path $here 'Test.RunnerInnerLoop.psm1'), [ref]$null, [ref]$null)
+        $assignment = $ast.Find({ param($node)
+            $node -is [Management.Automation.Language.AssignmentStatementAst] -and
+                $node.Left.Extent.Text -eq '$GitCommitsList' -and
+                $node.Right.Extent.Text -match '^New-CycleGitCommitList\b'
+        }, $true)
+        Assert-NotNull $assignment 'fixture sanity: the helper is assigned'
+        for ($node = $assignment.Parent; $node; $node = $node.Parent) {
+            if ($node -is [Management.Automation.Language.IfStatementAst]) {
+                Assert-False (@($node.Clauses | ForEach-Object { $_.Item1.Extent.Text }) -contains '$isOrchestrationCycle') `
+                    'the list is built outside the branch that separates orchestration cycles'
+            }
+        }
+        $dispatch = @($ast.FindAll({ param($n) $n -is [Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Invoke-OrchestrationSequence' }, $true))
+        Assert-Equal -Expected 1 -Actual $dispatch.Count -Because 'fixture sanity: one orchestration dispatch'
+        $elements = $dispatch[0].CommandElements
+        $index = -1
+        for ($i = 0; $i -lt $elements.Count; $i++) {
+            if ($elements[$i] -is [Management.Automation.Language.CommandParameterAst] -and $elements[$i].ParameterName -eq 'GitCommits') { $index = $i }
+        }
+        Assert-True ($index -gt 0) 'the dispatch passes -GitCommits'
+        Assert-StringEqual '$GitCommitsList' $elements[$index + 1].Extent.Text 'the dispatch hands over the list the helper built'
     }
     It 'the call site passes the web-resolved project URL, not the raw configured value' {
         # repositories.projectUrl may be a local clone path or an ssh remote --
@@ -1383,9 +1409,9 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
     # $IterState.Control instead of a break/continue that would (wrongly) return from
     # the whole cycle; these assertions pin that discipline.
     It 'runs the cycle body once via do{...}while($false): 19 unlabeled breaks, 0 continues' {
-        # Three of the nineteen are the host-refresh gate sites (cycle start,
+        # Three of the nineteen are the runner gate sites (cycle start,
         # before the pull, before the cycle-start VM sweep): each ends the
-        # cycle before any change while a host refresh holds the runner. One
+        # cycle before any change while a host operation holds the runner. One
         # more is the hypervisor control gate, which ends the cycle before any
         # guest when the hypervisor no longer acts on lifecycle verbs, and one
         # the OCR known-answer read, which ends it when no engine can read.
@@ -1734,7 +1760,7 @@ Describe 'Post-sync storage refusal preserves the completed cycle' {
         Mock -ModuleName Test.RunnerInnerLoop Initialize-CycleGatingState {
             @{ CycleCount=42; ConsecutiveCrashes=0; FailuresBeforeAlert=3; SuccessesBeforeRearm=2; ConsecutiveFailures=1; ConsecutiveSuccesses=0; AlertArmed=$true; GatingFile='fixture-gating.json' }
         }
-        Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRefreshCycleGate { $true }
+        Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRunnerCycleGate { $true }
         Mock -ModuleName Test.RunnerInnerLoop Get-HostConditionVerdict { [pscustomobject]@{ Passed = $true; Condition = ''; Detail = ''; FailureClass = ''; Message = '' } }
         Mock -ModuleName Test.RunnerInnerLoop Initialize-HostDisplay {}
         Mock -ModuleName Test.RunnerInnerLoop Initialize-HostMetricsExporter {}
@@ -2157,6 +2183,58 @@ component:
         Should -Invoke -ModuleName Test.RunnerInnerLoop Write-CycleInfraFailure -Times 1 -Exactly -ParameterFilter {
             $Stage -eq 'Test-CyclePlanCapability' -and $FailureClass -eq 'plan_invalid' -and
             $ErrorMessage.Contains('Missing host commands: ssh (workload.fixture.ssh step 2 sshExec); ssh-keygen (workload.fixture.ssh step 2 sshExec)')
+        }
+    }
+}
+
+# tapOn locates words with Tesseract alone, so a host without it cannot run the
+# step whatever other OCR providers it has; the gate says so before any VM work.
+Describe 'The capability gate refuses a plan whose steps need a missing OCR engine' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.Capability.psm1') -Force -DisableNameChecking -Global
+        Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
+        $script:OcrEnginePlanRoot = New-YurunaTestTempDir -Prefix 'yrn-gate-engine'
+        $script:OcrEnginePlan = Join-Path $script:OcrEnginePlanRoot 'workload.fixture.tapon.yml'
+        [IO.File]::WriteAllText($script:OcrEnginePlan, @'
+resource:
+  ubuntu.server.24: []
+workload:
+  - action: tapOn
+    label: Next
+'@)
+        # The refusal branch of the cycle's capability gate, run on its own.
+        $gate = (Get-YurunaTestFunctionAst -Path (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Name 'Invoke-RunnerInnerCycle').Find({ param($n)
+                $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '-not $cap.supported' }, $true)
+        $body = $gate.Clauses[0].Item2.Extent.Text
+        $script:OcrEngineRefusal = $body.Substring(1, $body.Length - 2)
+    }
+    AfterAll { Remove-YurunaTestTempDir $script:OcrEnginePlanRoot }
+
+    It 'names a missing OCR engine and its step in the banner and the record' {
+        Mock Test-OcrProviderAvailable -ModuleName Test.Capability { $false }
+        $cap = Test-CyclePlanCapability -SequencePath @($script:OcrEnginePlan) -HostType 'host.ubuntu.kvm'
+        $cap.supported | Should -BeFalse
+        @($cap.missingOcrEngine | ForEach-Object { $_.engine }) | Should -Be @('tesseract')
+
+        Mock -ModuleName Test.RunnerInnerLoop Write-CycleInfraFailure {}
+        $result = InModuleScope Test.RunnerInnerLoop -Parameters @{ Cap = $cap; Refusal = $script:OcrEngineRefusal } {
+            param($Cap, $Refusal)
+            $HostType = 'host.ubuntu.kvm'
+            $GuestList = @('guest.ubuntu.server.24')
+            $SequenceList = @('workload.fixture.tapon')
+            $OverallPassed = $true
+            $null = @($Cap, $HostType, $GuestList, $SequenceList, $OverallPassed) # Inputs read by the refusal branch run below.
+            $banner = @(. ([scriptblock]::Create($Refusal)))
+            @{
+                Banner = $banner
+                StepLine = Format-YurunaOperatorMessage -Key 'runner.capability_gate_ocr_engine_step' -Arguments @{ sequence = 'workload.fixture.tapon'; step = 1; action = 'tapOn' }
+            }
+        }
+        $result.Banner | Should -Contain '    - tesseract'
+        $result.Banner | Should -Contain $result.StepLine
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-CycleInfraFailure -Times 1 -Exactly -ParameterFilter {
+            $Stage -eq 'Test-CyclePlanCapability' -and $FailureClass -eq 'plan_invalid' -and
+            $ErrorMessage.EndsWith('; Missing OCR engines: tesseract (workload.fixture.tapon step 1 tapOn)')
         }
     }
 }

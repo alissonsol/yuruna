@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,6 +119,8 @@ $script:TypedField = @{
     causeHostInputFault = 'string'
     causeGuestKernelFault = 'string'
     causeHostAddressChange = 'string'
+    # The kind of a page step's causeDetail.web; '' for any other step.
+    causeWeb            = 'string'
     firstGuestSilenceUtc = 'string'
     firstGuestSilenceSource = 'string'
     staleEvidence       = 'array'

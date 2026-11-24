@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421c8f6e-9b0a-4c1d-8e2f-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test runner outer cycle option forwarding host-refresh pester
+.TAGS yuruna test runner outer cycle option forwarding host-operation pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -28,6 +28,9 @@
 
 BeforeAll {
     Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    # The private state root and the runner gate resolve under $HOME; a scratch
+    # home keeps this suite and every process it starts off the operator's own.
+    $script:TestHome = Enter-YurunaTestHome
     # $script: prefix throughout, not a bare local: Pester 5 runs each It in
     # a scope that cannot see a plain variable assigned in BeforeAll.
     $script:Here     = Split-Path -Parent $PSCommandPath
@@ -40,6 +43,7 @@ BeforeAll {
 
 AfterAll {
     Remove-YurunaTestTempDir $script:TmpDir
+    Exit-YurunaTestHome $script:TestHome
 }
 
 Describe 'Invoke-OuterCycleDispatch -- forwards every operator option to the child argv (mocked spawn)' {

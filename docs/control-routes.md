@@ -28,7 +28,7 @@ anyone on the LAN, `status.json` is served, and the config-sync read
 
 | Route | Gated |
 | --- | --- |
-| `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/lab-hold-release`, `control/break-continue`, `control/test-caching-proxy-service`, `control/host-diagnostic`, `control/host-refresh` | always |
+| `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/lab-hold-release`, `control/break-continue`, `control/test-caching-proxy-service`, `control/host-diagnostic`, `control/host-repair`, `control/host-update` | always |
 | `control/test-config`, `control/perf-aggregates` | on `POST`/`PUT` -- their read path stays open |
 | `control/runner-status`, `control/control-status`, `control/host-facts` | never -- read-only, and pool services read them |
 
@@ -69,7 +69,7 @@ server or an access log; only the page's own JavaScript reads it. The page keeps
 control POST. The host recomputes the HMAC with its own copy of the token and accepts a
 proof whose expiry is no more than **20 minutes** out -- deliberately longer than the mint,
 so a host whose clock trails the proxy still accepts a freshly minted proof. The proof is
-captured once on arrival and never refreshed, so the config page shows a countdown and warns
+captured once on arrival and never refreshed, so the Config page shows a countdown and warns
 before it lapses rather than letting a long edit fail at Save.
 
 The key is pool-wide, so a proof is also **bound to the one target it opens**: the wire
@@ -93,7 +93,7 @@ host accepts on `control/step-pause`, `control/step-resume`, `control/cycle-paus
 `control/cycle-resume` and on no other route; every other control route takes only the
 bound form, and the extension services never take a scoped proof. The
 pool-wide pause and continue sends scoped proofs, so a captured one cannot save that host's
-configuration, start a cycle or refresh it. The fragment hand-off itself stays: the
+configuration, start a cycle or repair it. The fragment hand-off itself stays: the
 fragment never reaches a server or an access log, both page runtimes take it off the
 address bar with `history.replaceState` the moment they load and keep the proof only in
 `sessionStorage`, and the redirect that carries it is the LAN-open path described above.
@@ -107,7 +107,7 @@ unlocked without copying the rotating code off a dashboard tile. A service VM no
 (`POST /api/v1/control-proof`) whether the proof is genuine -- a verifier, not a mint. No
 proof, or an expired one, and the UI's ordinary Lab token prompt is still there.
 
-The **Pool-control service** presents the same proof when its *Pool Status* column pauses or
+The **Pool-control service** presents the same proof when its *Pool status* column pauses or
 continues every member of a pool at once ([pool-admin.md](pool-admin.md#pool-status--pausing-and-continuing-every-member-at-once)).
 It mints one pause-scoped proof per member from its own copy of the token when it has one,
 and otherwise reads the fragment off `/go/host?host=<member>&scope=pause` without following
@@ -499,8 +499,10 @@ whose token?" -- the input behind the dashboard's **Control** column:
 
 ```json
 { "ok": true, "tokenConfigured": true, "tokenTag": "<base64>", "utcNow": "2026-07-29T12:34:56Z",
-  "refresh": { "protocol": 1, "availability": "available", "ceiling": "start-if-stopped",
-               "reason": "", "remote": "missing", "state": "idle" } }
+  "repair": { "protocol": 1, "availability": "available", "ceiling": "start-if-stopped",
+               "reason": "", "remote": "missing", "state": "idle" },
+  "update": { "protocol": 1, "availability": "available", "scopes": "restart",
+              "reason": "", "remote": "missing", "state": "idle", "caller": "loopback" } }
 ```
 
 `tokenTag` is `base64(HMAC-SHA256(internal-auth-key, "yuruna-control|tag|v1"))` -- a
@@ -526,21 +528,40 @@ token with. That is also why it is a **live** route rather than a field in
 `host.registration.json` -- that record is written once per cycle, so a host enrolled
 between cycles (or one not running cycles at all) would report stale for hours.
 
-`refresh` is the host-refresh capability, kept to a few hundred bytes because the
+`repair` is the host-repair capability, kept to a few hundred bytes because the
 aggregator reads this route through a 4096-byte reader and refuses a larger answer:
 
 | Field | Values |
 | --- | --- |
-| `protocol` | `1`. Any other value, and a reply with no `refresh` at all (an older server), means refresh is unavailable. |
-| `availability` | `available` or `unavailable`. The Config page shows its refresh control only for `available`. |
+| `protocol` | `1`. Any other value, and a reply with no `repair` at all (an older server), means repair is unavailable. |
+| `availability` | `available` or `unavailable`. The Diagnostics page shows its **Repair host** control only for `available`. |
 | `ceiling` | The highest rung above the probe that this host can run (`reclaim`, `start-if-stopped`, ...); empty when unavailable. |
 | `reason` | Empty when available; otherwise why not: `no_qualified_rung`, `protocol_unreadable`, `journal_unreadable`, `unsupported_host`, `capability_unavailable`, or `listener_dependency_missing` (a module the route needs did not load; see `server.err`). |
-| `remote` | Remote-refresh provisioning: `provisioned`, `missing`, `invalid` or `unqualified`. It carries no key material. |
+| `remote` | Remote-repair provisioning: `provisioned`, `missing`, `invalid` or `unqualified`. It carries no key material. |
 | `state` | `idle`, `active` (a request is queued or running), `recovery_pending` (restoration is still owed) or `unknown`. |
-| `caller` | The requesting connection's vantage: `loopback` or `remote`. A non-loopback `POST control/host-refresh` needs the refresh proof, which the Config page never carries, so the page keeps its Start button disabled for `remote` and explains why; the aggregator ignores the field. |
+| `caller` | The requesting connection's vantage: `loopback` or `remote`. A non-loopback `POST control/host-repair` needs the repair proof, which the Diagnostics page never carries, so the page keeps its **Repair host** button disabled for `remote` and explains why; the aggregator ignores the field. |
 
 The capability is recomputed on every request from two small files, with no native
 command; the remote state is cached for 30 seconds.
+
+`update` is the host-update capability, the input behind the Diagnostics page's
+**Update host** button (see [POST /control/host-update](#post-controlhost-update)):
+
+| Field | Values |
+| --- | --- |
+| `protocol` | The number in `test/host-update.protocol-version` of the listener's checkout, `-1` when it cannot be read. It is reported, and decides nothing. |
+| `availability` | `available` only when the listener can run the route, a host controller holds its lock (`host-controller.lock`), the request journal can be read, and the controller's published state does not say `sessionUsable: false`; otherwise `unavailable`. |
+| `scopes` | The scopes the controller runs, from its published state: `restart`, or `restart,full`; `restart` when the state names none. Empty when unavailable. |
+| `reason` | Empty when available; otherwise the first that applies: `listener_dependency_missing`, `controller_absent`, `journal_unreadable` or `session_unusable`. On macOS `controller_absent` is the usual state until an ordinary runner start from the desktop session has started the controller, and `session_unusable` means the controller's session is an SSH login, not the desktop session, or reads a privacy grant as denied. |
+| `remote` | The state of `pool-control.record`, whatever the availability: `provisioned`, `missing` or `invalid`. Only with `provisioned` can another machine's request verify. |
+| `poolControl` | Pool-control's base URL from the record, present only with `provisioned`: an absolute `http` or `https` URL of at most 256 bytes, the one value outside the fixed vocabulary. The Diagnostics page sends a press from another machine there. |
+| `state` | `idle`, `active` (a host update is queued or claimed), `recovering`, or `unknown` (the journal cannot be read). |
+| `caller` | `loopback` when the request comes from this host by the address-and-`Host` rule of the host-update route, else `remote`. `repair.caller` keeps its address-only rule. |
+
+The controller lock is probed on every refresh of this summary; liveness comes from the
+lock, never from a timestamp. The record's state is cached for 30 seconds; the route itself
+reads the record on every request. The summary is cached for 5 seconds, and a controller state
+file whose heartbeat is more than 30 seconds old counts as absent.
 
 **`test/service/Start-StatusService.ps1`.**
 
@@ -559,16 +580,16 @@ See docs/control-routes.md (GET /control/control-status).
 
 <a id="42185271-0011"></a>
 
-## POST /control/host-refresh
+## POST /control/host-repair
 
-Starts a **host refresh**: a bounded repair of a stalled runner or hypervisor that
+Starts a **host repair**: a bounded repair of a stalled runner or hypervisor that
 restores the services it disrupts and leaves a runner ready. The route only admits the
-request and launches a detached worker (`test/lab/Invoke-HostRefresh.ps1`); it never
-waits for the repair and never holds the repair lock. The same repair is available on
-the host itself as `pwsh test/lab/Invoke-HostRefresh.ps1`.
+request and launches a detached worker (`test/lab/Invoke-HostRepair.ps1`); it never
+waits for the repair and never holds the host-operation lock. The same repair is available on
+the host itself as `pwsh test/lab/Invoke-HostRepair.ps1`.
 
-**Guest VMs can be suspended or restarted** while the hypervisor recovers, so the Config
-page asks for confirmation first, naming the ceiling it will use.
+**Guest VMs can be suspended or restarted** while the hypervisor recovers, so the
+Diagnostics page asks for confirmation first, naming the ceiling it will use.
 
 The body is a JSON object of at most 4096 bytes with `Content-Type: application/json`:
 
@@ -587,19 +608,19 @@ refused as `invalid_json`.
 **Two layers of authorization.** The cross-site guard applies first, as on every
 always-gated route: `X-Yuruna: 1`, and for a caller that is not on loopback a valid
 control proof in `X-Yuruna-Control`. That proof never authorizes a repair. A non-loopback
-caller must also send a **refresh proof** in its own header,
-`X-Yuruna-Refresh-Proof: yhr1.<hostId>.<requestId>.<tier>.<maxRung>.<issuedUnix>.<expiryUnix>.<mac>`
+caller must also send a **repair proof** in its own header,
+`X-Yuruna-Repair-Proof: yrp1.<hostId>.<requestId>.<tier>.<maxRung>.<issuedUnix>.<expiryUnix>.<mac>`
 (at most 512 bytes; the MAC is an HMAC-SHA256 over the other fields under this host's
-refresh key). The proof binds this host, this request id, and this tier and ceiling;
+repair verifier key). The proof binds this host, this request id, and this tier and ceiling;
 its lifetime is at most 300 seconds, judged with 60 seconds of clock skew either way.
-Only pool-control's `POST /api/host/refresh` mints one; a browser on the LAN holds none,
+Only pool-control's `POST /api/host/repair` mints one; a browser on the LAN holds none,
 so from another machine use pool-control, or the status page on the host itself. Remote
-refresh needs this host's verifier key; see
-[pool-admin.md](pool-admin.md#remote-host-refresh) for provisioning. Refusals answer
-`403` with `code: status.api_host_refresh_authorization_refused` and a `reason` of
-`refresh_remote_unqualified`, `refresh_tier_not_remote`, `refresh_remote_unprovisioned`,
-`refresh_remote_key_invalid`, `refresh_verifier_failed`, `refresh_verifier_unavailable`,
-or `refresh_proof_missing` / `_malformed` / `_version_unsupported` / `_invalid` /
+repair needs this host's repair verifier key; see
+[pool-admin.md](pool-admin.md#remote-host-repair) for provisioning. Refusals answer
+`403` with `code: status.api_host_repair_authorization_refused` and a `reason` of
+`repair_remote_unqualified`, `repair_tier_not_remote`, `repair_remote_unprovisioned`,
+`repair_remote_key_invalid`, `repair_verifier_failed`, `repair_verifier_unavailable`,
+or `repair_proof_missing` / `_malformed` / `_version_unsupported` / `_invalid` /
 `_host_mismatch` / `_request_mismatch` / `_policy_mismatch` / `_lifetime_invalid` /
 `_not_yet_valid` / `_expired`. A loopback caller skips both proof checks but still needs
 `X-Yuruna: 1`.
@@ -618,20 +639,20 @@ Replies (`code` is the catalog key, `error` the sentence in the caller's languag
 | 202 | `{ok:true, requestId, action:"already_claimed", ceiling, stateUrl}` | The same request is already being worked on; nothing new was launched. |
 | 200 | `{ok:true, requestId, action:"completed", state, verdict, ceiling, stateUrl}` | A finished request, replayed. `ok` means the record was found: read `verdict`. |
 | 400 | `reason: invalid_json`, `unsupported_field`, `forbidden_field` or `invalid_value`, with `field` | The body failed its schema. |
-| 403 | the cross-site and control-proof shapes above, or a refresh-proof `reason` | Not authorized. |
+| 403 | the cross-site and control-proof shapes above, or a repair-proof `reason` | Not authorized. |
 | 405 | `code: status.api_post_required_663cc07c`, `Allow: POST` | Not a POST. |
 | 408 | `reason: body_timeout` | The body was not complete within two seconds. Nothing was admitted. |
-| 409 | `reason: busy` with `activeKind` (`host_refresh` or `start_cycle`), `activeRequestId`, `stateUrl` | Another host operation holds the host. |
+| 409 | `reason: busy` with `activeKind` (`host_repair`, `start_cycle` or `host_update`), `activeRequestId`, `stateUrl` | Another host operation holds the host. For `host_update` the `stateUrl` is `/runtime/host-update.state.json`. |
 | 409 | `reason: request_conflict`, `requestId` | This id was already used with a different tier or ceiling. |
 | 409 | `reason: request_closed`, `requestId`, `state`, `verdict` | This id was refused, expired or abandoned; it is never run again. |
 | 413 | `reason: payload_too_large` | Over 4096 bytes, declared or counted. |
 | 415 | `reason: unsupported_media_type` | Not `application/json`. |
 | 503 | `reason: launcher_failed`, `requestId`, `stateUrl` | The worker could not be launched. The request stays queued; resend the same id. |
 | 503 | `reason: listener_busy`, `Retry-After: 2` | Four bodies are already being read. |
-| 503 | `reason: refresh_unavailable`, `admission_unavailable`, `listener_dependency_missing` or `private_state_unavailable` | The host advertises no refresh, could not record the request, could not load a module, or could not secure its private state. |
+| 503 | `reason: repair_unavailable`, `admission_unavailable`, `listener_dependency_missing` or `private_state_unavailable` | The host advertises no repair, could not record the request, could not load a module, or could not secure its private state. |
 | 500 | `reason: internal_error` | The handler failed; see `server.err`. |
 
-**Progress.** The worker publishes `runtime/host-refresh.state.json` (the `stateUrl`):
+**Progress.** The worker publishes `runtime/host-repair.state.json` (the `stateUrl`):
 `requestId`, `generation`, `attempt`, `channel`, `phase` (`queued`, `starting`, `claimed`,
 `capturing`, `probing`, `climbing`, `converging`, `reporting`, `terminal`), `state`,
 `heartbeatUtc`, `step {index, count, name, boundMs}`, `remainingBudgetMs`, `reasonCodes`,
@@ -640,12 +661,165 @@ path, process id, VM name, command or token. A reader treats the worker as **sta
 the server's clock (the response `Date` header) is more than 15 seconds plus the current
 `step.boundMs` plus 10 seconds of skew past `heartbeatUtc`; a long bounded step is
 therefore never called hung. A record for any other `requestId`, or no record yet, means
-"waiting" -- never this request's outcome. Polling needs no proof. The Config page stops
+"waiting" -- never this request's outcome. Polling needs no proof. The Diagnostics page stops
 waiting once no worker can still be running: 18 minutes after the request was accepted
 (a worker's whole budget is 915 seconds plus 60 seconds before admission), or as soon as
 the file shows another request that reached `terminal` after this one was accepted, since
 a second request is admitted only once the first is resolved. It then offers Retry, which
 resends the same `requestId` and shows the host's own answer for it.
+
+<a id="42185271-0014"></a>
+
+## POST /control/host-update
+
+Queues a **host update**: the host's checkout is brought to its upstream's newest commit,
+the status listener is restarted when it has to be, and the runner is started again on the
+new code, all by the **host controller**, a process of its own that a system unit (KVM) or a
+scheduled task (Windows) keeps running, and that an ordinary runner start from the desktop
+session starts on macOS (see
+[Host update and the runner's console](runner-outer-loop.md#host-update-and-the-runners-console)).
+The route only records the request in the host's private request journal; it launches
+nothing, and the controller claims the request within a few seconds. The same request is
+available on the host itself as `pwsh test/lab/Invoke-HostUpdate.ps1`, which alone can
+ask to end a running cycle (`-Drain now`).
+
+The Diagnostics page shows this control as **Update host**, on every host, disabled with the
+reason whenever `update.availability` in `GET /control/control-status` is not `available`.
+The repair of `POST /control/host-repair` is the page's **Repair host**; its route, files
+and capability are named "host repair".
+
+The body is a JSON object of at most 4096 bytes with `Content-Type: application/json`:
+
+| Key | Value |
+| --- | --- |
+| `requestId` | A lowercase UUID (`8-4-4-4-12`), canonical. Optional from this host itself, where the host mints one when it is absent; required from another machine, because the update proof binds it. Resending the same id is how a caller retries without queuing a second update. |
+| `scope` | `restart` (the default) or `full`. A scope the controller does not run is refused as `scope_unavailable`. |
+| `drainSeconds` | A JSON integer from `60` to `21600`, default `7200`: how long the update waits for the running cycle to end before it gives up as `drain_timeout`. A string, a fraction or an exponent form is refused. |
+| `expectCommit` | 7 to 40 lowercase hex digits: the commit the checkout must reach, or the update ends `failed_restored` with `commit_mismatch`. |
+
+The four keys are matched exactly, in this letter case, first. Then any other name that
+contains `drain`, or a fragment the repair route forbids, in any spelling (letter case and
+separators ignored) is refused as `forbidden_field`, and every other name as
+`unsupported_field`; either way `field` names the key as it was sent. The route always
+queues with the drain `after-cycle`: no HTTP request can end a running cycle. Duplicate
+keys in any letter case, comments, trailing commas, a byte-order mark, invalid UTF-8 and
+nesting deeper than four levels are refused as `invalid_json`.
+
+**This host itself, or pool-control's signature.** The cross-site guard applies first, as
+on every always-gated route (`X-Yuruna: 1`, and a control proof for a caller that is not on
+loopback). The route then counts a caller as this host itself only when the connection comes
+from a loopback address (an IPv4-mapped address is read as its IPv4 form) **and** the
+request has exactly one `Host` header naming `localhost`, `127.0.0.1` or `[::1]` with the
+listener's port, the name in any letter case; the port may be left out only when it is 80.
+Such a caller needs no further proof, and its request is recorded on channel `listener`.
+
+Every other caller -- another machine, or a page from another site that makes a browser on
+this host send the request under a foreign name -- must carry a **`yup1` update proof** in
+`X-Yuruna-Update-Proof`, and its request is recorded on channel `remote`. Pool-control signs
+the proof (see [Remote host update](pool-admin.md#remote-host-update)); this host verifies it
+with the public key in its `pool-control.record` and keeps no secret for it:
+
+    yup1.<hostId>.<requestId>.<scope>.<drainSeconds>.<expectCommit or empty>.<issued>.<expiry>.<signature>
+
+The signature is RSA PKCS#1 v1.5 with SHA-256, by a key of at least 3072 bits, over
+`yuruna-host-update|v2|<hostId>|<requestId>|<scope>|<drainSeconds>|<expectCommit or empty>|<issued>|<expiry>`;
+the proof is at most 1024 bytes, issued for 120 seconds, accepted for a lifetime of at most
+300 seconds with 60 seconds of clock skew either way. After the signature verifies, each
+field is compared with the request's effective values, defaults applied, so an omitted key
+cannot change what was signed. No field carries a drain: a remote request, like a local one,
+always waits for the running cycle. The verdicts, in order: `update_proof_missing` (no
+header), `update_remote_unprovisioned` (no record), `update_remote_invalid` (a record that
+does not read), `update_verifier_failed`, then `update_proof_malformed`,
+`update_proof_version_unsupported`, `update_proof_invalid` (the signature),
+`update_proof_host_mismatch`, `update_proof_request_mismatch`,
+`update_proof_policy_mismatch`, `update_proof_lifetime_invalid`,
+`update_proof_not_yet_valid` and `update_proof_expired`. A refused request leaves no record,
+so the same proof can be presented again until it expires; it admits at most once. On Linux
+the HTTP framework itself answers `400` to a request with no `Host` header and to a `[::1]`
+`Host` before any route runs.
+
+The body is read the same bounded way as the repair's: complete within two seconds, at most
+four bodies at once.
+
+Replies (`code` is the catalog key, `error` the sentence in the caller's language,
+`reason` the machine code):
+
+| Status | Body | When |
+| --- | --- | --- |
+| 202 | `{ok:true, requestId, action:"queued", scope, stateUrl}` | Queued for the controller. `supersedes` names a recovering update this one took over, with what it still owed. |
+| 202 | `{ok:true, requestId, action:"already_queued" or "already_claimed", scope, stateUrl}` | The same request is already queued or being worked on. |
+| 200 | `{ok:true, requestId, action:"completed", state, verdict, stateUrl}` | A finished request, replayed: read `verdict`. |
+| 400 | `reason: invalid_json`, `unsupported_field`, `forbidden_field` or `invalid_value`, with `field` | The body failed its schema, or a caller that is not this host itself named no `requestId`. |
+| 403 | the cross-site and control-proof shapes, or `reason` one of the update proof verdicts above | Not this host by the rule above, and no valid update proof. |
+| 405 | `code: status.api_post_required_663cc07c`, `Allow: POST` | Not a POST. |
+| 408 | `reason: body_timeout` | The body was not complete within two seconds. Nothing was queued. |
+| 409 | `reason: busy` with `activeKind` (`host_update`, `host_repair` or `start_cycle`), `activeRequestId`, `stateUrl` | Another host operation holds the host. A host update never preempts another one. |
+| 409 | `reason: request_conflict`, `requestId`, `stateUrl` | This id was already used for another request. |
+| 409 | `reason: scope_unavailable`, `scope` | The controller does not run that scope; a controller that lists only `restart` refuses `full`. |
+| 413 | `reason: payload_too_large` | Over 4096 bytes, declared or counted. |
+| 415 | `reason: unsupported_media_type` | Not `application/json`. |
+| 503 | `reason: controller_absent` | No host controller holds its lock, read when the request arrives; a request nobody would run is never queued. |
+| 503 | `reason: listener_busy`, `Retry-After: 2` | Four bodies are already being read. |
+| 503 | `reason: listener_dependency_missing` or `admission_unavailable` | A module the route needs did not load (see `server.err`), or the request could not be recorded. |
+| 500 | `reason: internal_error` | The handler failed; see `server.err`. |
+
+The repair and start-cycle routes answer `409 busy` with `activeKind: host_update` and
+`stateUrl: /runtime/host-update.state.json` while a host update holds the host.
+
+**Progress.** The listener writes no state file for a host update. The controller publishes
+`runtime/host-update.state.json` (the `stateUrl`) in the runtime directory the request
+names, every 5 seconds while it works and after every phase it records, and for the newest
+request it has not finished projecting while it is idle: `schemaVersion`, `requestId`,
+`scope`, `channel` (`listener`, `remote` or `local`), `state` (`queued`, `running`, `recovering`,
+`terminal`), `phase {index, count, name, bound}` while running or recovering (`bound` in
+seconds), `startedUtc`, `heartbeatUtc`, `mutated`, `listenerExpectedBackUtc`, `remarks`,
+`debt [{obligation, action}]`, `verdict`, `operatorAction`, `reason`,
+`commit {before, after, resident}`, `runnerConsole` (`tmux`, `window` on Windows, or `none`), `supersededBy`,
+`firstCycle` (`pass`, `fail` or `pending`, read from the first cycle the new runner records
+in `status.json`) and `terminalUtc`. Every value is a token, a hash, a time or a count; a
+step's output stays in the controller's work folder. A queued request that expired
+unclaimed reads as `refused` with the reason `request_expired`, or `protocol_mismatch`
+when the controller could not claim it because the checkout's host-update protocol
+changed and no new controller could be staged. A request that took over a recovering
+update never expires: under such a protocol change it is claimed straight into
+`recovering`. The controller also publishes
+`runtime/host-controller.state.json`: `schemaVersion`, `snapshot`, `protocol`, `pid`,
+`startTimeUnixMs`, `startedUtc`, `heartbeatUtc`, `activity` (`idle` or `busy`),
+`requestId`, `session` (`system-unit` on KVM and Windows; on macOS the controller's
+multiplexer, `tmux` or `screen`, or `terminal`), `sessionUsable` and `scopes`.
+
+The phases of the `restart` scope, in order: `preflight`, `drain`, `stop_runner`,
+`update_source`, `start_listener`, `start_runner`; the `full` scope runs `install`,
+`upgrade_pwsh` (Windows only) and `enable` between `update_source` and
+`start_listener`. The verdicts:
+
+| `verdict` | The host afterwards | `operatorAction` |
+| --- | --- | --- |
+| `refused` | Untouched: the update ended in `preflight` or `drain`, or expired unclaimed. `reason` says why. | the remedy: `end_one_shot`, `release_diagnostic_hold`, `provision_elevation`, `act_at_host`, ... |
+| `drain_timeout` | Untouched; the running cycle outlasted `drainSeconds`. | `retry_or_drain_now` |
+| `stop_failed` | The runner could not be identified or stopped; nothing was started. | `stop_runner_by_hand` |
+| `recovering` (not terminal) | The runner is to be started and is not running; the controller tries again after 5, 10, 15, then every 15 minutes. | `repair_checkout`, `act_at_host` or `release` |
+| `released` | An operator ended the update with `Invoke-HostUpdate.ps1 -Release`; `debt` lists what was still owed. | `none` |
+| `superseded` | A new host update took over while this one was recovering (`supersededBy`). | `none` |
+| `failed_restored` | The scope did not complete; the runner was started again on the checkout as it is, or left stopped as the operator had it. | `read_remarks` |
+| `reboot_required` | The scope completed, but the installer enabled a Windows feature that needs a restart and the runner's start was refused until then. The controller never restarts a host. | `reboot_host` |
+| `updated_not_started` | Every phase passed; no runner was started, because an operator had stopped it before the update. | `start_runner` |
+| `updated_with_remarks` | Current code, runner running, with remarks (`runner_console_unavailable`, `ring_held`, `checkout_pinned`, `no_git_pull`, `listener_disabled`, `install_issues`, `host_settings_unmet`, `pwsh_upgrade_failed`, and on macOS `utm_upgrade_deferred` and `brew_update_failed`). | `read_remarks` |
+| `updated` | Current code, runner running. | `none` |
+
+A reader treats the controller as stale when the server's clock (the response `Date`
+header) is 40 seconds past `heartbeatUtc`. A record for any other `requestId` means
+"waiting", never this request's outcome. Polling needs no proof. While the listener
+restarts in `start_listener` it does not answer; the Diagnostics page keeps polling, keeps its
+last line, and counts down to `listenerExpectedBackUtc` when the state names one (the
+`restart` scope leaves it `null`).
+
+The controller's private state is under `$HOME/.yuruna/host-repair/`, outside every served
+tree: its lock `host-controller.lock` and the folder `host-controller/` (the shim, the
+snapshots in `versions/`, `current`, `rejected`, the work folders in `work/` and the
+console socket `runner-console.sock`). The `host-repair/` name shape keeps them denied on
+every route. On Windows the folder `host-controller` is `%ProgramData%\yuruna\host-controller`
+instead, which only Administrators and SYSTEM can write, and it holds no console socket.
 
 <a id="42185271-0012"></a>
 
@@ -653,20 +827,20 @@ resends the same `requestId` and shows the host's own answer for it.
 
 The Config page's **Save and start cycle** asks for this after saving `test.config.yml`.
 `POST` or `PUT`, no body. The status service changes nothing itself: it records a
-start-cycle reservation -- refused as `busy` while a host refresh holds the host, so a
-runner a refresh is holding parked is never un-paused from here -- launches the detached
+start-cycle reservation -- refused as `busy` while a host operation holds the host, so a
+runner that a host operation holds parked is never un-paused from here -- launches the detached
 worker `test/modules/Invoke-StartCycleWorker.ps1`, and answers:
 
 | Status | Body |
 | --- | --- |
 | 202 | `{ok:true, action:"queued", operationId, stateUrl:"/runtime/start-cycle.state.json"}` |
-| 409 | `reason: busy`, `activeKind: host_refresh` or `start_cycle`, `activeRequestId`, `stateUrl` |
+| 409 | `reason: busy`, `activeKind: host_repair`, `start_cycle` or `host_update`, `activeRequestId`, `stateUrl` |
 | 503 | `reason: launcher_failed` (the reservation is removed; nothing was changed), `admission_unavailable`, `listener_dependency_missing` or `private_state_unavailable` |
 | 405 | `code: status.api_post_required_663cc07c` |
 
-The worker first takes the host's lifetime repair lock -- the one a host refresh takes --
-and confirms its reservation; a worker that cannot do both writes nothing. Then, in this
-order, it removes `control.cycle-pause`, `control.step-pause` and the lab hold
+The worker first takes the host's lifetime host-operation lock -- the one a host repair or
+a host update takes -- and confirms its reservation; a worker that cannot do both writes
+nothing. Then, in this order, it removes `control.cycle-pause`, `control.step-pause` and the lab hold
 (`control.lab-hold`, `lab-hold.json`, `control.lab-hold-release`); rewrites the matching
 `status.json` fields atomically; writes `control.cycle-restart`; runs
 `test/Remove-TestVMFiles.ps1` under a time limit; reads the runner's state again; and
@@ -696,7 +870,7 @@ lock, launch the detached worker and record the launch. Nothing else is
 written here. A reservation carries a pending launch that names this
 listener, and reservations are cleared by identity, never by age: a
 pending one left behind by a live listener would make every later
-start-cycle and every refresh busy until the listener restarts. So once the
+start-cycle, repair and update busy until the listener restarts. So once the
 host is reserved, every way out records started or launch-failed (which
 removes the reservation) in the finally, and a record that does not commit
 is tried once more. A throw still reaches the dispatcher's 500 reply.
@@ -749,8 +923,9 @@ under the runtime directory --
 through `runtime/`, the `yuruna-repo/` mount or the status root -- is served only when it
 names `status.json`, `current-action.json`, `break-active.json`, `ipaddresses.txt`,
 `caching-proxy-service.txt`, `host-network.txt`, `host-network.json`,
-`host.registration.json`, `start-cycle.state.json`, `host-refresh.state.json`,
-`runner.watchdog-kill.json`, `runner-attempts/index.json` or a
+`host.registration.json`, `start-cycle.state.json`, `host-repair.state.json`,
+`runner.watchdog-kill.json`, `host-update.state.json`, `host-controller.state.json`,
+`runner-attempts/index.json` or a
 `runner-attempts/<id>/{config-gate.json,config-gate.log,runner-fault.json}` record; anything
 else is a 403. The `yuruna-repo/` mount also refuses every file below a `test/status/`
 subdirectory, which is harness state rather than committed source. At start the service
@@ -783,12 +958,12 @@ The shared name shapes also refuse generated copies such as `*.snapshot.json`,
 parsed snapshot or pre-write backup must not make the same bytes public. Both
 file-serving paths and the cycle archive packer consume this one policy.
 
-Host-refresh private state lives under `$HOME/.yuruna/host-refresh/`, outside every served
+Host-repair private state lives under `$HOME/.yuruna/host-repair/`, outside every served
 tree. As a second line of defense, the name shapes of that state are denied on every
-route anyway: the `host-refresh/` directory, the request journal, the repair and
+route anyway: the `host-repair/` directory, the request journal, the repair and
 admission locks, critical records (`*.record`, `*.record.prev`), launch handshakes
 (`*.handshake.json`, `*.hop.json`), acknowledgments (`*.ack.json`) and key material
-(`*.key`, `*.credential`). The public progress files `host-refresh.state.json` and
+(`*.key`, `*.credential`). The public progress files `host-repair.state.json` and
 `start-cycle.state.json` match none of them.
 
 Private SSH keys are refused by file name on every route, wherever they sit: the
@@ -993,6 +1168,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

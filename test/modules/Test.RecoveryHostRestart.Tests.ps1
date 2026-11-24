@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42454869-be98-4903-a538-5a115b82367a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -442,19 +442,19 @@ Describe 'The host_restart event and the boot-recovery event wait for the next c
         } finally { Remove-YurunaTestTempDir $root }
     }
 
-    It 'queues the refresh-preservation summary the same way' {
-        $root = New-YurunaTestTempDir -Prefix 'yrn-host-restart-refresh'
+    It 'queues the handoff-preservation summary the same way' {
+        $root = New-YurunaTestTempDir -Prefix 'yrn-host-restart-handoff'
         try {
             $runtime = Join-Path $root 'runtime'
             $log = Join-Path $root 'log'
             $null = New-Item -ItemType Directory -Path $runtime, $log -Force
             Set-Content -LiteralPath (Join-Path $runtime 'control.pause') -Value 'x'
             $env:YURUNA_LOG_DIR = $log
-            $null = Invoke-YurunaBootRecovery -RuntimeDir $runtime -LogDir $log -RefreshPreservation -Confirm:$false
+            $null = Invoke-YurunaBootRecovery -RuntimeDir $runtime -LogDir $log -HandoffPreservation -Confirm:$false
             $queued = @(Read-QueuedEvent -RuntimeDir $runtime)
             $queued.Count | Should -Be 1
             $queued[0].event | Should -Be 'boot_recovery_completed'
-            $queued[0].mode | Should -Be 'refresh-preservation'
+            $queued[0].mode | Should -Be 'handoff-preservation'
             Test-Path -LiteralPath (Join-Path $log 'cycle.events.ndjson') | Should -BeFalse -Because 'the log-root fallback is a file nothing collects'
         } finally { Remove-YurunaTestTempDir $root }
     }

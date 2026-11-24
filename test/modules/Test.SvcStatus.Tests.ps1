@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4285ea0b-cf26-4402-b8af-aa598d20d4c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,10 +36,10 @@ $script:sss = Join-Path (Split-Path -Parent $here) 'service/Start-StatusService.
 $ast = Get-YurunaTestFileAst -Path $script:sss
 $rewrites = @($ast.FindAll({ param($node)
     $node -is [Management.Automation.Language.IfStatementAst] -and
-    $node.Clauses[0].Item1.Extent.Text -eq '-not $RefreshSafe -and (Test-Path $StatusFile)'
+    $node.Clauses[0].Item1.Extent.Text -eq '-not $NonDestructive -and (Test-Path $StatusFile)'
 }, $true))
 if ($rewrites.Count -ne 1) { throw 'The launcher must contain one non-refresh repoUrl rewrite.' }
-$script:RepoUrlRewrite = [scriptblock]::Create('param($StatusFile, $TestRoot, $ModulesDir, $RefreshSafe)' + "`n" + $rewrites[0].Extent.Text)
+$script:RepoUrlRewrite = [scriptblock]::Create('param($StatusFile, $TestRoot, $ModulesDir, $NonDestructive)' + "`n" + $rewrites[0].Extent.Text)
 
 }
 
@@ -63,7 +63,7 @@ Describe 'svc-status: the parent repoUrl writer writes status.json BOM-less' {
                 $doc = @{ repoUrl = 'git@github.com:fixture/example.git'; overallStatus = 'pass'
                     guests = @(@{ name = 'vm-1'; lastFailure = @{ errorMessage = $description } }) }
                 [IO.File]::WriteAllText($path, ($doc | ConvertTo-Json -Depth 10), [Text.UTF8Encoding]::new($true))
-                $null = & $script:RepoUrlRewrite -StatusFile $path -TestRoot $dir -ModulesDir $here -RefreshSafe $false
+                $null = & $script:RepoUrlRewrite -StatusFile $path -TestRoot $dir -ModulesDir $here -NonDestructive $false
                 $bytes = [IO.File]::ReadAllBytes($path)
                 ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) | Should -BeFalse
                 $rewritten = [Text.UTF8Encoding]::new($false, $true).GetString($bytes) | ConvertFrom-Json

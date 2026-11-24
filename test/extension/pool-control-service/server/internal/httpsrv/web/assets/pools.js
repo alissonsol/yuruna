@@ -402,7 +402,7 @@
         return;
       }
       // Every member picks the change up on its next cycle, the same blast
-      // radius as a Pool Status change, so it is named before it is written.
+      // radius as a Pool status change, so it is named before it is written.
       var count = (p.members || []).length;
       if (count > 0) {
         var question = project

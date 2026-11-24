@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42de8e40-1c77-40c0-96f2-3a5e144992e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test status service start-cycle worker host-refresh pester
+.TAGS yuruna test status service start-cycle worker host-operation pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -19,13 +19,13 @@
 <#
 .SYNOPSIS
     The detached start-cycle worker: every control mutation happens only
-    under the lifetime repair lock and a confirmed reservation, in the order
+    under the lifetime host-operation lock and a confirmed reservation, in the order
     the runner relies on, and the runner is started only on positive absence
     observed after the cleanup.
 .DESCRIPTION
     Each case runs the real worker as its own process against a scratch HOME
     and runtime, with the real single-flight lock. The functions owned by the
-    refresh journal (the lock path and the reservation) and by the detached
+    host-operation journal (the lock path and the reservation) and by the detached
     launcher are replaced by a stub module, imported after the worker's own
     imports, that records every call and answers from control files the case
     writes -- the worker is tested against the contract, not against a
@@ -51,14 +51,14 @@ function Get-StubControl { param([string]$Name)
     $path = Join-Path $script:StubDir $Name
     if (Test-Path -LiteralPath $path) { return ([IO.File]::ReadAllText($path)).Trim() }
     return '' }
-function Get-YurunaHostRefreshLockPath { param([switch]$NoCreate) $null = $NoCreate; Write-StubCall 'lockpath'; return (Join-Path $script:StubDir 'host-refresh.lock') }
-function Confirm-HostRefreshStartCycleReservation { param($OperationId, $Generation, $LifetimeLock, $Worker)
+function Get-YurunaHostOperationLockPath { param([switch]$NoCreate) $null = $NoCreate; Write-StubCall 'lockpath'; return (Join-Path $script:StubDir 'host-operation.lock') }
+function Confirm-StartCycleReservation { param($OperationId, $Generation, $LifetimeLock, $Worker)
     Write-StubCall "confirm:$OperationId|$Generation|$([bool]$LifetimeLock.Held)|$($Worker.pid)"
     $reservation = Get-StubControl 'reservation'
     if ($reservation -like 'reason:*') { return [pscustomobject]@{ Valid = $false; Reason = $reservation.Substring(7) } }
     if ($reservation -eq "$OperationId|$Generation") { return [pscustomobject]@{ Valid = $true; Reason = 'valid' } }
     return [pscustomobject]@{ Valid = $false; Reason = 'reservation-lost' } }
-function Complete-HostRefreshStartCycleReservation { param($OperationId, $Generation) Write-StubCall "complete:$OperationId|$Generation"; return [pscustomobject]@{ Cleared = $true } }
+function Complete-StartCycleReservation { param($OperationId, $Generation) Write-StubCall "complete:$OperationId|$Generation"; return [pscustomobject]@{ Cleared = $true } }
 function Start-YurunaDetachedProcess { param($FilePath, $ArgumentList, $WorkingDirectory, $StdOutPath, $StdErrPath, $StdInPath, $PrivateDirectory, $Environment, $Deadline, [switch]$Confirm)
     $null = $Deadline, $Confirm
     Write-StubCall ('launch:' + (ConvertTo-Json -Compress -Depth 4 -InputObject @{
@@ -76,12 +76,12 @@ function Read-YurunaRunnerLaunchRecord { param($RuntimeDir) $null = $RuntimeDir
     return [pscustomobject]@{ Found = $true; Valid = $true; Record = (ConvertFrom-Json -InputObject $record -AsHashtable); Reason = 'ok' } }
 function Test-YurunaRunnerLaunchSpec { param($Record, $ScriptPath, [switch]$RequireExistingConfig) $null = $Record, $ScriptPath, $RequireExistingConfig
     return [pscustomobject]@{ Valid = $true; Reason = 'ok'; Parameter = '' } }
-Export-ModuleMember -Function Get-YurunaHostRefreshLockPath, Confirm-HostRefreshStartCycleReservation, Complete-HostRefreshStartCycleReservation,
+Export-ModuleMember -Function Get-YurunaHostOperationLockPath, Confirm-StartCycleReservation, Complete-StartCycleReservation,
     Start-YurunaDetachedProcess, Get-YurunaRunnerRecordState, Read-YurunaRunnerLaunchRecord, Test-YurunaRunnerLaunchSpec
 '@
 
 # The wrapper runs the worker in its own process and, right after the worker
-# imports the refresh journal module (its last import), imports the stub
+# imports the host operation journal module (its last import), imports the stub
 # module over it, so the stubs are what the worker calls. A module named in
 # the stub directory's fail-import file fails to load, as a module broken by
 # a pull would.
@@ -94,7 +94,7 @@ function global:Import-Module {
         throw [System.IO.FileLoadException]::new('stub import failure')
     }
     & $cmdlet @args
-    if ([string]$args[0] -like '*Test.HostRefreshIntent.psm1') { & $cmdlet $Stub -Global -Force -DisableNameChecking }
+    if ([string]$args[0] -like '*Test.HostOperationJournal.psm1') { & $cmdlet $Stub -Global -Force -DisableNameChecking }
 }
 # Named arguments arrive as one JSON object: pwsh -File passes only the first
 # element of an array argument, and an array splat binds positionally.
@@ -237,7 +237,7 @@ Describe 'a start-cycle changes controls only under the lock and a confirmed res
             Assert-StringEqual $script:Runner $launch.file
             Assert-Equal 0 @($launch.args).Count 'with no launch record the runner starts on its defaults'
             Assert-StringEqual $scratch.Runtime $launch.env.YURUNA_RUNTIME_DIR
-            $private = Join-Path $scratch.Home '.yuruna/host-refresh/start-cycle'
+            $private = Join-Path $scratch.Home '.yuruna/host-repair/start-cycle'
             Assert-StringEqual $private $launch.dir 'the runner streams go to the private start-cycle directory'
             Assert-StringEqual (Join-Path $private "runner.$($scratch.OperationId).err") $launch.err
             Assert-StringEqual (Join-Path $private 'stdin.empty') $launch.in
@@ -287,7 +287,7 @@ Describe 'a start-cycle changes controls only under the lock and a confirmed res
         $scratch = New-StartCycleScratch
         try {
             $before = Get-ControlSnapshot -Scratch $scratch
-            $held = Enter-YurunaSingleFlightLock -Path (Join-Path $scratch.Stub 'host-refresh.lock')
+            $held = Enter-YurunaSingleFlightLock -Path (Join-Path $scratch.Stub 'host-operation.lock')
             Assert-True $held.Held "the test could not take the lifetime lock: $($held.Reason)"
             try { $run = Invoke-StartCycleWorker -Scratch $scratch -LockWaitSeconds 1 } finally { Exit-YurunaSingleFlightLock -Lock $held }
             Assert-Equal 1 $run.ExitCode
@@ -295,7 +295,7 @@ Describe 'a start-cycle changes controls only under the lock and a confirmed res
             Assert-StringEqual 'lock_busy' $run.State.reason
             Confirm-NothingChanged -Before $before -After (Get-ControlSnapshot -Scratch $scratch) -Because 'a worker that cannot take the lock writes no control file'
             Assert-False (Test-Path -LiteralPath (Join-Path $scratch.Stub 'cleanup.ran')) 'no cleanup ran'
-            Assert-Equal 1 @($run.Calls | Where-Object { $_ -like 'complete:*' }).Count 'the reservation is cleared so a refresh is not blocked behind it'
+            Assert-Equal 1 @($run.Calls | Where-Object { $_ -like 'complete:*' }).Count 'the reservation is cleared so a host operation is not blocked behind it'
         } finally { Remove-YurunaTestTempDir $scratch.Root }
     }
 

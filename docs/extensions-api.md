@@ -255,14 +255,15 @@ Go module. The packages a service uses directly:
 | `pool` | The read client for the **information provider**: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, and `Get`/`GetURL` for untyped routes. |
 | `labgate` | The write gate: `Require`, `RequireBearer`, `HandleLogin`, `Session`. |
 | `hostcheck` | The Host-header allow-list against DNS rebinding, wrapped around a daemon's whole mux: any address, `localhost`, the machine's host name and its first label, and the names the service is configured with pass; any other name answers `421` (`auth.host_not_served`) before a route runs. A loopback peer's `X-Forwarded-Host` names, which a reverse proxy on the same machine forwards, are judged too. |
-| `hostrefresh` | Remote host refresh authorization: the versioned refresh proof (`Proof`, `Verify` with an explicit clock and a two-sided skew), the `Signer` that mints it from the signing authority, the secret-file loader, and the refresh credential `Gate` that reads only `X-Yuruna-Refresh-Credential`. Only pool-control imports it; see [Remote host refresh](pool-admin.md#remote-host-refresh). |
+| `hostrepair` | Remote host repair authorization: the versioned repair proof (`Proof`, `Verify` with an explicit clock and a two-sided skew), the `Signer` that mints it from the signing authority, the secret-file loader, and the operator credential `Gate` that reads only `X-Yuruna-Operator-Credential`. Only pool-control imports it; see [Remote host repair](pool-admin.md#remote-host-repair). |
+| `hostupdate` | Remote host update authorization: the `yup1` proof (`Proof`, `Verify` with an explicit clock and a two-sided skew) signed with RSA PKCS#1 v1.5 and SHA-256, the `Signer` that mints it from pool-control's update signing key, the owner-only key loader, and the `yupk1` public key line a host's pool-control record carries. Its golden vectors in `hostupdate/testdata` are shared with the PowerShell verifier. |
 
-`pool.Host` also carries `Refresh`, the host's refresh capability as the
-aggregator last judged it (`pool.HostRefresh`: protocol, availability, ceiling,
+`pool.Host` also carries `Repair`, the host's repair capability as the
+aggregator last judged it (`pool.HostRepair`: protocol, availability, ceiling,
 reason, remote key state, request state, observation age). `Status` normalizes
 it to its bounded vocabulary, an aggregator that predates it yields the
 never-observed value, and `RemoteUsable()` is the one test a caller applies
-before sending a remote refresh.
+before sending a remote repair.
 
 Three decisions live in `pool` so they cannot vary per consumer: the trusted-LAN
 TLS posture (the aggregator's leaf is signed by the pool CA, which no guest
@@ -598,9 +599,10 @@ suites assert the two match.
 | `pool-aggregator-service` | `POST :9400/mcp` | `pool_status`, `pool_extension_hosts`, `pool_stats`, `pool_incidents`, `pool_cycle_links`, `pool_health` |
 | `caching-proxy-service` | `POST :9310/mcp` | `caching_proxy_status`, `caching_proxy_recent_requests`, `caching_proxy_switches`, `caching_proxy_hostinfo`, and the gated `caching_proxy_set_offline` / `caching_proxy_set_no_upstream` |
 | `stash-service` | `POST :80/mcp` | `stash_list`, `stash_get`, `stash_host`, `stash_hostinfo`, `stash_session`, and the gated `stash_refresh` |
-| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo`, `pool_control_scan_status`, `pool_control_host_control_state`, and the gated `pool_control_add_host`, `pool_control_move_host`, `pool_control_remove_host`, `pool_control_set_host_control`, `pool_control_set_pool_repositories`, and `pool_control_refresh_host` (listed only while remote refresh is provisioned) |
+| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo`, `pool_control_scan_status`, `pool_control_host_control_state`, and the gated `pool_control_add_host`, `pool_control_move_host`, `pool_control_remove_host`, `pool_control_set_host_control`, `pool_control_set_pool_repositories`, `pool_control_repair_host` (listed only while remote repair is provisioned), and `pool_control_update_host` (listed only while remote host update is provisioned) |
 | `download-agent-service` | `POST :80/mcp` | `download_agent_status`, `download_agent_images`, `download_agent_image`, `download_agent_session`, `download_agent_diagnostics`, `download_agent_hostinfo`, and the gated `download_agent_refresh_image` / `download_agent_prune_image` |
 | core framework | `test/service/Start-McpServer.ps1` (stdio) | the ten `automation/` entry points |
+| workload authoring | `test/service/Start-WorkloadMcpServer.ps1` (stdio) | the eleven `workload_*` tools |
 
 `caching-proxy-parser-service` is deliberately absent: it has no auth story at
 all, so there is no gate for a mutating tool to inherit and nothing to make
@@ -639,7 +641,8 @@ The annotation on each tool is the same claim its route makes:
   and only when that one admitted it; both must allow, so it can only narrow.
   The handler runs on a synthesized request that carries no credential, which
   is why a route-specific credential can only be checked here.
-  `pool_control_refresh_host` uses it for the refresh credential, and a
+  `pool_control_repair_host` and `pool_control_update_host` use it for the
+  operator credential, and a
   read-only tool cannot carry one.
 - **A domain refusal keeps its own token.** A caching-proxy daemon in remote
   mode refuses `caching_proxy_set_offline` with
@@ -676,6 +679,38 @@ well; `Check-DependencyVersion` emits JSON natively and is passed through; and
 `Set-HostAlias` writes no transcript, so a thrown error is its only failure
 signal. Reading any of those by exit code alone reports the wrong thing.
 
+<a id="42fffc2c-001f"></a>
+
+### The workload MCP server
+
+`test/service/Start-WorkloadMcpServer.ps1` is a second stdio server, for
+writing tests against a running guest. It serves eleven `workload_*` tools
+and holds at most one session. It runs as two processes. The front end
+answers the client and never touches a VM; the worker,
+`test/service/Invoke-WorkloadSession.ps1`, starts at `workload_session_start`,
+ends at `workload_session_end`, holds the runtime's one-shot lease in between
+and runs every step. A worker that exits, hangs or writes a malformed frame
+ends the session, and the front end goes on answering.
+
+Every call is answered within the response budget, `-MaxCallSeconds`
+(default 50, from 30 to 600), which stays below the 60 seconds after which
+common MCP clients give up on a request. The three tools that run something,
+`workload_step`, `workload_action` and `workload_run_sequence`, take an
+`operationId`: a call with the run fields starts the operation, a call with
+the `operationId` alone polls it, and a call with the `operationId` and
+`cancel` true cancels it. An operation that outlives the budget keeps running
+and is answered `workload_still_waiting`, and the same `operationId` with the
+same input never runs twice. `notifications/cancelled` abandons only the
+request it names: a client that gives up on a slow call sends the same
+notification as a person who interrupts one, so the operation keeps running
+and stays reachable by its id.
+
+The `initialize` result carries the working rules for an authoring client as
+`instructions`, rendered from the `runner` catalog. Each session writes its
+journal, logs, snapshot texts and failure views to its own folder under the
+log directory, `test/status/log/workload-mcp/<session id>/`, and the server
+keeps the newest 20 session folders. The server speaks MCP `2025-06-18`.
+
 <a id="42fffc2c-0012"></a>
 
 ### Connecting a client
@@ -687,6 +722,7 @@ signal. Reading any of those by exit code alone reports the wrong thing.
       "command": "pwsh",
       "args": ["-NoProfile", "-File", "test/service/Start-McpServer.ps1"]
     },
+    "yuruna-workload": { "command": "pwsh", "args": ["-NoProfile", "-File", "test/service/Start-WorkloadMcpServer.ps1"] },
     "yuruna-pool": { "url": "http://<proxy>:9400/mcp" },
     "yuruna-cache": { "url": "http://<proxy>:9310/mcp" }
   }
@@ -1180,6 +1216,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

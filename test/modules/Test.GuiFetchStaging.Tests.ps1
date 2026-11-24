@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42dc2c8b-375c-4869-8113-cd1b1b7a0e53
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -565,6 +565,9 @@ function Invoke-GuestSsh {
     }
     It 'uses only an exact capability answer and existing connection inputs within the small budget' {
         & $script:capabilityModule {param($c) Test-GuiFetchEnvelopeSupported $c} $script:capabilityContext | Should -BeTrue
+        $script:capabilityContext.GuiCapability.reasonCode | Should -BeExactly 'supported'
+        $script:capabilityContext.GuiCapability.sshAttempted | Should -BeTrue
+        $script:capabilityContext.GuiCapability.sshSucceeded | Should -BeTrue
         & $script:capabilityModule {
             $script:probeCalls | Should -Be 1
             $script:arguments.ResolvedAddress | Should -BeExactly '192.0.2.42'
@@ -580,6 +583,9 @@ function Invoke-GuestSsh {
         if($Missing -eq 'key') {& $script:capabilityModule {$script:keyExists=$false}}
         if($Missing -eq 'user') {$script:capabilityContext.Vars=@{}}
         & $script:capabilityModule {param($c) Test-GuiFetchEnvelopeSupported $c} $script:capabilityContext | Should -BeFalse
+        $reason = @{address='address-unproven';key='key-unavailable';user='user-unavailable'}[$Missing]
+        $script:capabilityContext.GuiCapability.reasonCode | Should -BeExactly $reason
+        $script:capabilityContext.GuiCapability.elapsedMs | Should -BeGreaterOrEqual 0
         & $script:capabilityModule {$script:probeCalls | Should -Be 0}
     }
     It 'falls back on old seed, offline SSH, timeout, corrupt token or nonzero status without caching' -ForEach @(
@@ -595,6 +601,17 @@ function Invoke-GuestSsh {
         & $script:capabilityModule {$script:throwProbe=$false;$script:result=@{success=$true;exitCode=0;output='YFE_GUI_1'}}
         & $script:capabilityModule {param($c) Test-GuiFetchEnvelopeSupported $c} $script:capabilityContext | Should -BeTrue
         & $script:capabilityModule {$script:probeCalls | Should -Be 2}
+    }
+
+    It 'records no connection identity, response or error text in the capability diagnosis' {
+        & $script:capabilityModule { $script:result=@{success=$true;exitCode=0;output='fixture-secret response'} }
+        & $script:capabilityModule {param($c) Test-GuiFetchEnvelopeSupported $c} $script:capabilityContext | Should -BeFalse
+        $script:capabilityContext.GuiCapability.reasonCode | Should -BeExactly 'capability-not-advertised'
+        ($script:capabilityContext.GuiCapability | ConvertTo-Json) | Should -Not -Match 'fixture-secret|192\.0\.2\.42|yuruna_ed25519|username'
+        $script:capabilityContext.Step=@{sensitive=$true}
+        $script:capabilityContext.GuiCapability=$null
+        & $script:capabilityModule {param($c) Test-GuiFetchEnvelopeSupported $c} $script:capabilityContext | Should -BeFalse
+        $script:capabilityContext.GuiCapability | Should -BeNullOrEmpty
     }
 }
 
@@ -749,12 +766,15 @@ $script:matchedPattern=$null
 $script:stateAnswers=[System.Collections.Generic.Queue[string]]::new()
 $script:consoleFrame=$null
 $script:frameCalls=0
+$script:frameFailure=$false
+$script:receiptFolder=$null
 $script:vncEvents=@()
 $script:vncSince=$null
 $script:recorderArtifactPath=$null
 $script:recorderPath=$null
 function Invoke-GuestSsh { param($VMName,$GuestKey,$Command,$TimeoutSeconds,$TransportRetryCount,$DetachToken) $null=$VMName;$null=$GuestKey;$null=$TransportRetryCount;$null=$DetachToken;$script:sshCalls.Add([string]$Command);$script:sshTimeout=$TimeoutSeconds; if ([string]$Command -match 'gui-rejection' -and [string]$Command -match 'rm -f --') { return $script:rejectionResult }; if ($script:stateAnswers.Count -and [string]$Command -match 'fetch-context/') { return @{success=$true;output=$script:stateAnswers.Dequeue()} }; return $script:sshResult }
-function Save-GuestConsoleFrame { param($Context,$Label) $null=$Context;$null=$Label; $script:frameCalls++; return $script:consoleFrame }
+function Save-GuestConsoleFrame { param($Context,$Label) $null=$Context;$null=$Label; $script:frameCalls++; if ($script:frameFailure) { throw 'fixture-secret capture failure' }; return $script:consoleFrame }
+function Get-CycleGuestDataFolder { param($VMName) $null=$VMName; return $script:receiptFolder }
 function Get-VncConnectionEvent { param($VMName,$SinceUtc) $null=$VMName; $script:vncSince=$SinceUtc; return $script:vncEvents }
 function Send-CycleEventSafely { param($EventRecord) $script:events.Add($EventRecord) }
 function Get-FetchExecutionContext {
@@ -792,6 +812,7 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
         $helpers = (Get-FunctionSource 'Get-GuiFetchExecutionInput') + "`n" + (Get-FunctionSource 'Resolve-SequenceCharDelay') + "`n" + (Get-FunctionSource 'Test-GuiFetchInputStalled') + "`n" + (Get-FunctionSource 'Get-GuiFetchPayloadState') +
             "`n" + (Get-FunctionSource 'Get-GuiFetchEnvelopeTransfer') + "`n" + (Get-FunctionSource 'Get-GuiFetchRejection') +
             "`n" + (Get-FunctionSource 'Get-GuiFetchGuardAnswer') + "`n" + (Get-FunctionSource 'Confirm-GuiFetchSubmission') +
+            "`n" + (Get-FunctionSource 'Save-GuiFetchInputReceipt') +
             "`n" + (Get-FunctionSource 'Get-GuestAptUpdateStall')
         $script:handlerModule = New-Module -ScriptBlock ([scriptblock]::Create(
             $fixture + "`n" + $helpers + "`nfunction Invoke-TestUtmProvider $provider`nfunction Invoke-TestHandler $handler"))
@@ -820,6 +841,7 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             $script:rejectionResult=@{success=$true;output=''};$script:events.Clear();$script:waitResults.Clear();$script:matchedPattern=$null;$script:Fail.StepLauncherRejection=$null
             $script:compactInput=@();$script:compactSupported=$false;$script:capabilityCalls=0
             $script:stateAnswers.Clear();$script:consoleFrame=$null;$script:frameCalls=0;$script:vncEvents=@();$script:vncSince=$null
+            $script:receiptFolder=$null;$script:frameFailure=$false
             $script:recorderArtifactPath=$null;$script:recorderPath=$null
         }
         & $script:engineStandIn { $script:keys.Clear(); $script:keyResult = $true }
@@ -901,6 +923,8 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
             } $supported
             & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
             & $script:handlerModule { $script:sent[-1] | Should -Match 'sha256sum' }
+            $script:handlerContext.GuiInput.format | Should -BeExactly 'legacy'
+            $script:handlerContext.GuiInput.selectionReason | Should -BeExactly $(if ($supported) { 'compact-not-cheaper' } else { 'capability-unsupported' })
         }
     }
 
@@ -1284,5 +1308,128 @@ function Save-FetchExecutionEvidence { param($Context,$Succeeded,$ElapsedSeconds
         } $script:CompactEnvelopeLines
         & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeTrue
         @($script:handlerContext.GuiTransfer.submissions | ForEach-Object { "$($_.attempt):$($_.outcome)" }) -join ',' | Should -BeExactly '1:rejected,2:running'
+    }
+
+    It 'retains legacy receipt frames and OCR after the rolling raw files are evicted' {
+        $folder=Join-Path $TestDrive 'retained-input'
+        $raw=Join-Path $TestDrive 'receipt-raw.png'
+        [IO.File]::WriteAllText($raw,'fixture frame')
+        [IO.File]::WriteAllText([IO.Path]::ChangeExtension($raw,'.txt'),'fixture OCR receipt')
+        $hash=(Get-FileHash -LiteralPath $raw).Hash
+        & $script:handlerModule {param($path,$image,$digest)
+            $script:receiptFolder=$path
+            $script:consoleFrame=@{Path=$image;Hash=$digest;Text="> __y+='receipt';"}
+            $script:preparedCommand="echo fixture-secret; : '" + ('x'*450) + "'"
+            $script:vncEvents=@([pscustomobject]@{Utc=[datetime]::UtcNow;Kind='opened';Detail='fixture backend'})
+        } $folder $raw $hash
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        Remove-Item -LiteralPath @($raw,([IO.Path]::ChangeExtension($raw,'.txt')))
+        $record=$script:handlerContext.GuiInput
+        $record.receipts.Count | Should -Be $record.lineCount
+        foreach ($receipt in $record.receipts) {
+            [IO.File]::ReadAllText($receipt.framePath) | Should -BeExactly 'fixture frame'
+            [IO.File]::ReadAllText($receipt.ocrPath) | Should -BeExactly 'fixture OCR receipt'
+            $receipt.captureOutcome | Should -BeExactly 'captured'
+            $receipt.intendedSha256 | Should -Match '^[0-9a-f]{64}$'
+            $receipt.openStaging | Should -BeTrue
+            $receipt.dispatched | Should -BeTrue
+            $receipt.transportEvents[0] | Should -Match 'opened fixture backend$'
+        }
+        ($record | ConvertTo-Json -Depth 6) | Should -Not -Match 'fixture-secret|echo ready'
+        $record.receipts[-1].framePath | Should -Match 'gui-input\.[A-Za-z0-9-]+\.\d{3}\.png$'
+    }
+
+    It 'records a failed legacy dispatch and lets unavailable captures remain nonfatal' {
+        & $script:handlerModule {param($path)
+            $script:receiptFolder=$path;$script:failSend=2;$script:frameFailure=$true
+        } (Join-Path $TestDrive 'failed-input')
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeFalse
+        $script:handlerContext.GuiInput.receipts | Should -HaveCount 2
+        $script:handlerContext.GuiInput.receipts[-1].dispatched | Should -BeFalse
+        $script:handlerContext.GuiInput.receipts[-1].captureOutcome | Should -BeExactly 'capture-error'
+        $script:handlerContext.GuiInput.captureErrorCount | Should -Be 2
+        ($script:handlerContext.GuiInput | ConvertTo-Json -Depth 6) | Should -Not -Match 'fixture-secret'
+        & $script:handlerModule { $script:failSend=0 }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        $script:handlerContext.GuiInput.receipts[0].lineNumber | Should -Be 1
+    }
+
+    It 'bounds legacy receipts to the first sixteen lines and the final guard' {
+        & $script:handlerModule { $script:preparedCommand="echo ready; : '" + ('x'*5000) + "'" }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        $record=$script:handlerContext.GuiInput
+        $record.lineCount | Should -BeGreaterThan 17
+        $record.receipts | Should -HaveCount 17
+        $record.receipts[-1].lineNumber | Should -Be $record.lineCount
+        $record.skippedCaptureCount | Should -Be ($record.lineCount-17)
+    }
+
+    It 'records the existing legacy failure probe without adding a submission retry or probe' {
+        & $script:handlerModule { $script:waitResult=$false;$script:Fail.WaitForTextOcrTail="> __y+='pending';" }
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext 3>$null | Should -BeFalse
+        $script:handlerContext.GuiInput.payloadState | Should -BeExactly 'NOT_PREPARED'
+        $script:handlerContext.GuiTransfer | Should -BeNullOrEmpty
+        & $script:handlerModule { $script:sshCalls | Should -HaveCount 1; $script:waited | Should -Be 1 }
+        @(& $script:engineStandIn { $script:keys }) | Should -HaveCount 0
+    }
+
+    It 'keeps sensitive and compact input out of legacy receipt capture' -ForEach @(@{Sensitive=$true},@{Sensitive=$false}) {
+        $script:handlerContext.Step.sensitive=$Sensitive
+        $script:handlerContext.GuiInput=@{stale='fixture-secret'}
+        & $script:handlerModule {param($path,$compact)
+            $script:receiptFolder=$path
+            if ($compact) {$script:compactSupported=$true;$script:compactInput=@('compact data;','compact guard)')}
+        } (Join-Path $TestDrive 'excluded-input') (-not $Sensitive)
+        & $script:handlerModule {param($c) Invoke-TestHandler $c} $script:handlerContext | Should -BeTrue
+        & $script:handlerModule { $script:frameCalls | Should -Be 0 }
+        if ($Sensitive) { $script:handlerContext.GuiInput | Should -BeNullOrEmpty }
+        else { $script:handlerContext.GuiInput.format | Should -BeExactly 'compact'; $script:handlerContext.GuiInput.receipts | Should -HaveCount 0 }
+    }
+}
+
+Describe 'GUI input execution evidence persistence' {
+    BeforeAll {
+        $fixture=@'
+$script:profileFolder=$null
+$script:transportThrows=$false
+$script:observedSinceUtc=$null
+function Get-VncConnectionEvent {
+    param($VMName,$SinceUtc) $null=$VMName; $script:observedSinceUtc=$SinceUtc
+    if ($script:transportThrows) {throw 'fixture-secret transport failure'}
+    [pscustomobject]@{Utc=[datetime]::UtcNow;Kind='dispatched';Detail='fixture backend'}
+}
+function Get-CycleGuestDataFolder {param($VMName) $null=$VMName; return $script:profileFolder}
+function Test-Path {param($LiteralPath,$PathType) $null=$PathType; return [IO.File]::Exists($LiteralPath)}
+function Save-GuestExecutionProfile {param($VMName,$GuestKey,$OutputFolder,$StepInvocationId,$TimeoutSeconds,$Variables) $null=$VMName,$GuestKey,$OutputFolder,$TimeoutSeconds,$Variables; return @{diagnosticOutcome='unavailable';reasonCode='profile-file-absent';stepInvocationId=$StepInvocationId}}
+'@
+        $script:profileModule=New-Module -ScriptBlock ([scriptblock]::Create($fixture+"`n"+(Get-FunctionSource 'Save-FetchExecutionEvidence')))
+    }
+    It 'persists selection and receipts even when the payload never produced an execution log' {
+        $folder=Join-Path $TestDrive 'profile-input'
+        [void][IO.Directory]::CreateDirectory($folder)
+        & $script:profileModule {param($p) $script:profileFolder=$p} $folder
+        $typingStartedUtc=[datetime]::new(2026,11,18,2,54,0,[DateTimeKind]::Utc)
+        $context=@{Step=@{};VMName='vm';GuestKey='guest';StepInvocationId='receipt-step';Vars=@{}
+            GuiInput=[ordered]@{format='legacy';selectionReason='capability-unsupported';startedAtUtc=$typingStartedUtc.ToString('o');receipts=@(@{lineNumber=1;intendedChars=240});transportEvents=@()}}
+        & $script:profileModule {param($c) Save-FetchExecutionEvidence -Context $c -Succeeded $false -ElapsedSeconds 90} $context
+        $sinceUtc=& $script:profileModule {$script:observedSinceUtc}
+        $sinceUtc.Kind | Should -Be ([DateTimeKind]::Utc)
+        $sinceUtc.Ticks | Should -Be $typingStartedUtc.Ticks
+        [IO.File]::Exists((Join-Path $folder 'fetch-and-execute.receipt-step.evidence.json')) | Should -BeTrue -Because ($context.ExecutionProfile | ConvertTo-Json -Depth 6)
+        $saved=Get-Content -LiteralPath (Join-Path $folder 'fetch-and-execute.receipt-step.evidence.json') -Raw | ConvertFrom-Json
+        $saved.guiInput.selectionReason | Should -BeExactly 'capability-unsupported'
+        $saved.guiInput.receipts[0].intendedChars | Should -Be 240
+        $saved.guiInput.transportEvents[0] | Should -Match 'dispatched fixture backend$'
+    }
+    It 'preserves input evidence on a fast success and tolerates unavailable transport diagnostics' {
+        & $script:profileModule {$script:transportThrows=$true}
+        $context=@{Step=@{};GuiInput=@{format='legacy';startedAtUtc=[datetime]::UtcNow.ToString('o')}}
+        & $script:profileModule {param($c) Save-FetchExecutionEvidence -Context $c -Succeeded $true -ElapsedSeconds 1} $context
+        $context.ExecutionProfile.guiInput.format | Should -BeExactly 'legacy'
+        $context.ExecutionProfile.guiInput.transportOutcome | Should -BeExactly 'transport-events-unavailable'
+        ($context.ExecutionProfile | ConvertTo-Json -Depth 5) | Should -Not -Match 'fixture-secret'
+        $context.Step.sensitive=$true
+        & $script:profileModule {param($c) Save-FetchExecutionEvidence -Context $c -Succeeded $false -ElapsedSeconds 90} $context
+        $context.ExecutionProfile.ContainsKey('guiInput') | Should -BeFalse
     }
 }

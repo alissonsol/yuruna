@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4276cc15-f279-45c9-88c0-ffee0bd5b030
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@ BeforeAll {
     $script:ProjectRoot = Join-Path (Split-Path -Parent $script:RepoRoot) 'yuruna-project'
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
     Import-Module powershell-yaml -Global -Verbose:$false
+    Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Force -Global -DisableNameChecking
 
     function Confirm-SiblingCheckout {
         param([Parameter(Mandatory)][string]$Path)
@@ -113,6 +114,24 @@ BeforeAll {
                 $steps = @($resolved) + $tail
                 continue
             }
+            if ($step.Contains('step')) {
+                # A sentence is judged by the steps it becomes. The loop restarts
+                # at the first of them: the entries before this one were prefix
+                # steps already passed, and keeping $index would skip the first
+                # generated step of a sentence that is not the first entry.
+                $surface = if ($step.Contains('on')) { [string]$step['on'] } elseif ($parsed.Contains('defaultSurface')) { [string]$parsed['defaultSurface'] } else { 'screen' }
+                $generated = @()
+                try {
+                    $generated = @(Resolve-StepPhrase -Sentence ([string]$step['step']) -Surface $surface -Library (Get-SequencePhraseLibrary -SequencePath $Path))
+                } catch {
+                    return "$Path opens with a sentence that does not resolve"
+                }
+                if ($generated.Count -eq 0) { return "$Path opens with a sentence that does not resolve" }
+                $tail = if ($index + 1 -le $steps.Count - 1) { @($steps[($index + 1)..($steps.Count - 1)]) } else { @() }
+                $steps = @($generated) + $tail
+                $index = 0
+                continue
+            }
             $action = [string]$step['action']
             if ($script:GuestWaitActions -contains $action) { return $null }
             if ($script:SafePrefixActions -contains $action) { $index++; continue }
@@ -177,5 +196,43 @@ Describe 'Invoke-WaitVmIp calls its resolver only as often as the one-probe argu
         $unanswered = Invoke-WaitVmIp -VMName 'vm-fixture' -TimeoutSeconds 1 -PollSeconds 1 -StableForSeconds 0 -ResolveVmIp $silent
         $unanswered | Should -BeNullOrEmpty
         $state.Calls | Should -BeLessOrEqual 2
+    }
+}
+
+Describe 'an opening sentence is judged by the steps it becomes' {
+    BeforeAll {
+        $script:OpeningCase = 0
+        function Write-OpeningSequence {
+            <#
+            .SYNOPSIS
+                Write a guest sequence named workload.fixture.yml into a fresh folder; return its path.
+            #>
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([Parameter(Mandatory)][string]$Component)
+            $script:OpeningCase++
+            $dir = Join-Path $TestDrive ('opening{0:D2}' -f $script:OpeningCase)
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            $path = Join-Path $dir 'workload.fixture.yml'
+            [IO.File]::WriteAllText($path, "description: t`nkeystrokeMechanism: gui`nresource:`n  ubuntu.server.26: []`ncomponent:`n$Component")
+            return $path
+        }
+    }
+
+    It 'accepts an opening sentence that expands to a guest wait' {
+        $login = Write-OpeningSequence -Component "  - step: ""login `${username} with password `${ext:authentication.GetPassword(`${username})}""`n"
+        Assert-Null (Confirm-GuestSequenceOpensWithWait -Path $login) 'a login sentence opens with passwdPrompt'
+        $retry = Write-OpeningSequence -Component "  - action: retry`n    steps:`n      - step: ""press Enter""`n      - step: ""wait 2 seconds""`n      - step: ""wait for text login:""`n"
+        Assert-Null (Confirm-GuestSequenceOpensWithWait -Path $retry) 'a nudge, a pause and a wait sentence open with a guest wait'
+    }
+
+    It 'reports an opening sentence that does not wait' {
+        $typing = Write-OpeningSequence -Component "  - step: ""type ls and press Enter""`n"
+        $retry = Write-OpeningSequence -Component "  - action: retry`n    steps:`n      - action: pressKey`n        name: Enter`n      - step: ""type ls and press Enter""`n      - action: waitForText`n        pattern: ""x""`n"
+        foreach ($path in $typing, $retry) {
+            $finding = Confirm-GuestSequenceOpensWithWait -Path $path
+            Assert-NotNull $finding "$path was accepted"
+            Assert-True $finding.EndsWith("opens with 'inputTextAndEnter', not a guest wait") "finding: $finding"
+        }
     }
 }

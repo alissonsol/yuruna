@@ -12,10 +12,11 @@ up a test machine.
 ## Start here
 
 Portuguese (Brazil): [documentação em português](pt-BR/index.md) covers the
-operator subset. The translation manifest records each document's accepted
-review; English remains the source of truth.
+operator subset. The translation manifest records the English each translated
+document was made from and whether it is still a machine draft; English remains
+the source of truth.
 
-- **[globalization.md](globalization.md)** -- language selection, catalog authoring, and reviewed translation exchange.
+- **[globalization.md](globalization.md)** -- language selection, catalog authoring, machine drafts, and the professional translation exchange.
 - **[sbom/README.md](sbom/README.md)** -- software inventories, source evidence, prior-version comparison, and pre-commit maintenance.
 - **[architecture.md](architecture.md)** -- the three capabilities and the
   three-phase Resources -> Components -> Workloads model, plus the CLI entry
@@ -313,6 +314,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

@@ -294,6 +294,10 @@ runner past the guest's own boot puts it in this state -- most often an operator
 step-pause, which holds the runner while the guest keeps printing; see
 [control-routes.md](control-routes.md#pause-and-resume-the-flag-file-back-channel).
 The harness answers this itself when the step sets `blindAfterSeconds`.
+The SSH start sequences read no console, so they type `yes` + Enter blind,
+about 150 seconds after the VM starts and again about 150 seconds later for a
+slow boot; a `yes` that arrives after the confirmation lands on the installer's
+log screen and does nothing.
 
 **Boot issues** -- check `/var/log/installer/installer-journal.txt` for
 hints. If the text-mode installer appears stuck, `Ctrl+Alt+F2` (or `F3`)
@@ -370,6 +374,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

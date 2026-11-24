@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e8a9c1-7b3d-4f5a-8e12-9c4b0d6a3e71
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,11 +49,12 @@ $paths = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
 $repoRoot = $paths.RepoRoot
 Initialize-YurunaEntryPointModuleSet -For CachingProxyService -ModulesDir $paths.ModulesDir
 
+# --- REGION: Elevation check
+if (-not (Assert-Elevation -HostType (Get-HostType))) { exit 1 }
+
 # --- REGION: Take the start's authorization before the wait
 # Each answer below is one Start-Syzygy.ps1 would otherwise ask for when the
 # commit arrives, which can be hours after the operator has left.
-if (-not (Assert-Elevation -HostType (Get-HostType))) { exit 1 }
-
 # The token is stored in the authentication vault, where the proxy start reads
 # it. The rebuild a new token calls for needs no forwarding: Start-Syzygy.ps1
 # always rebuilds the proxy.

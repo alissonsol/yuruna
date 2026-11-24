@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421ff7ed-6fcc-4816-b558-d052d6a39c1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,7 +62,7 @@
     Each loop also runs one listener watch (Invoke-StatusListenerWatch): when
     the status service's liveness lease has read wedged on two passes in a row
     and the service does not answer, the beacon runs Start-StatusService.ps1
-    -RefreshSafe -ReplaceWedged, which stops that listener and starts a new
+    -NonDestructive -ReplaceWedged, which stops that listener and starts a new
     one without the full start's sweeps, so a wedged listener is replaced in
     the middle of a cycle. The beacon keeps running across the replacement: it
     follows server.pid.
@@ -108,7 +108,7 @@ if ([string]::IsNullOrWhiteSpace($RuntimeDir) -or -not (Test-Path -LiteralPath $
     return
 }
 
-# --- REGION: Single-instance lock (OS-held exclusive handle)
+# --- REGION: Single-instance lock
 # See https://yuruna.link/42d38664-001e
 # An OS-HELD exclusive handle, not a parsed PID file: opened FileShare::None and
 # kept open for the whole run, so the kernel releases it even on SIGKILL. Taken
@@ -191,7 +191,7 @@ $probeListener = {
         return $true
     } catch { return $false }
 }
-# The replacement runs as its own process, as the refresh-safe start must, and
+# The replacement runs as its own process, as the non-destructive start must, and
 # is bounded by the deadline it is handed plus a margin for its own exit.
 $replaceListener = {
     $env:YURUNA_RUNTIME_DIR = $RuntimeDir
@@ -199,7 +199,7 @@ $replaceListener = {
     $deadline = [Environment]::TickCount64 + 90000
     $options = @{
         FilePath = (Get-Process -Id $PID).Path; PassThru = $true
-        ArgumentList = @('-NoProfile', '-NonInteractive', '-File', ('"' + $starter + '"'), '-RefreshSafe', '-ReplaceWedged', '-Port', "$StatusPort", '-DeadlineTickMs', "$deadline")
+        ArgumentList = @('-NoProfile', '-NonInteractive', '-File', ('"' + $starter + '"'), '-NonDestructive', '-ReplaceWedged', '-Port', "$StatusPort", '-DeadlineTickMs', "$deadline")
         RedirectStandardOutput = (Join-Path $RuntimeDir 'status-replace.out'); RedirectStandardError = (Join-Path $RuntimeDir 'status-replace.err')
     }
     if ($IsWindows) { $options.WindowStyle = 'Hidden' }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4235cf39-20c0-270a-724d-9125095a5d8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -575,6 +575,7 @@
     )
     'host.enable_automation_no_prompt_confirm_conflict' = 'Enable-TestAutomation: -NoOperatorPrompt cannot be combined with -Confirm, which asks before every change; nothing was captured or changed.'
     'host.enable_automation_no_prompt_mode' = 'Enable-TestAutomation: running with -NoOperatorPrompt -- no consent dialogs, no Dock or screen saver restart, no module installs, no sudo prompt and no networkStorage questionnaire. Settings that need an operator are reported as still unmet.'
+    'host.enable_automation_no_prompt_mode_host' = 'Enable-TestAutomation: running with -NoOperatorPrompt -- no package offer, no module installs, no sudo prompt, no networkStorage questionnaire and no change to the host controller''s registration. Settings that need an operator are reported as still unmet.'
     'host.enable_automation_no_prompt_unsupported' = 'Enable-TestAutomation: -NoOperatorPrompt needs Set-MacHostConditionSet -NoGuiDisruption, which this checkout does not provide; nothing was captured or changed. Run it without -NoOperatorPrompt from an attended session instead.'
     'host.forwarder_identity_unverified' = @(
         'Stop-CachingProxyServiceForwarder: pid '
@@ -585,6 +586,335 @@
         }
         ' could not be read within the time limit; the pidfile was kept and nothing was signaled.'
     )
+    'host.host_controller_deployed_macos' = @(
+        '  host controller: shim and snapshot '
+        @{
+            'arg' = 'snapshot'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' deployed. macOS registers no job: an ordinary runner start from a terminal of the desktop session starts the controller.'
+    )
+    'host.host_controller_files_failed' = @(
+        '  host controller: the shim or the code snapshot could not be deployed under ~/.yuruna/host-repair/host-controller ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), so yuruna-host-controller.service was not registered.'
+    )
+    'host.host_controller_files_failed_macos' = @(
+        '  host controller: the shim or the code snapshot could not be deployed under ~/.yuruna/host-repair/host-controller ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), so no runner start can start the controller.'
+    )
+    'host.host_controller_files_kept' = @(
+        'Host controller files under '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (a controller still holds its lock 30 seconds after the stop; left as they are)'
+    )
+    'host.host_controller_files_not_removed' = @(
+        'Host controller files under '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (not removed: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.host_controller_files_removed' = @(
+        'Removed the host controller files (shim, snapshots, work folders) under '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.host_controller_group_missing' = @(
+        '  host controller: group '''
+        @{
+            'arg' = 'grp'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' does not exist, so yuruna-host-controller.service could not start (its SupplementaryGroups names the group). Install the libvirt packages, then re-run this script.'
+    )
+    'host.host_controller_no_sudo' = '  yuruna-host-controller.service is not installed, enabled and running with this checkout''s unit, and sudo cannot run here without a password, so it was only checked. Re-run this script from a terminal that can answer the sudo prompt.'
+    'host.host_controller_not_running' = '  host controller: no controller took its lock within 15 seconds. Read ''systemctl status yuruna-host-controller'' and ''journalctl -u yuruna-host-controller'' for the cause.'
+    'host.host_controller_not_verified' = @(
+        '  host controller: the deployed controller is not the one this checkout deploys ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); -NoOperatorPrompt leaves its registration as it is. Run Enable-TestAutomation.ps1 without -NoOperatorPrompt to register it again.'
+    )
+    'host.host_controller_running' = @(
+        '  host controller: running from snapshot '
+        @{
+            'arg' = 'snapshot'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' (yuruna-host-controller.service)'
+    )
+    'host.host_controller_session_end_failed' = '  host controller: its session yuruna-controller could not be ended, so it keeps the shim it started with until it ends. End it with: tmux -L yuruna-controller kill-session -t yuruna-controller (or, under screen: screen -ls, then screen -S <pid>.yuruna-controller -X quit)'
+    'host.host_controller_session_ended' = 'Ended the host controller session yuruna-controller'
+    'host.host_controller_session_ended_claimed' = @(
+        '  host controller: host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was claimed while its session yuruna-controller was being ended, so no controller continues it now. Start the runner from a terminal of the desktop session to start the controller again, which continues the update, or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'host.host_controller_session_ended_unknown' = @(
+        '  host controller: its session yuruna-controller was ended, but the host update journal then read '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', so a host update claimed meanwhile cannot be ruled out. Start the runner from a terminal of the desktop session to start the new controller, which continues any such update.'
+    )
+    'host.host_controller_session_kept' = @(
+        '  host controller: the shim changed, but its session yuruna-controller runs host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' and was left running. The new shim takes effect once that session ends; run this script again after the update ends.'
+    )
+    'host.host_controller_session_kept_unknown' = @(
+        '  host controller: its session yuruna-controller may still run a replaced shim, but the host update journal reads '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', so whether that session runs a host update cannot be told, and it was left running. Run this script again once the journal can be read; it ends the session then.'
+    )
+    'host.host_controller_session_not_ended' = 'Host controller session yuruna-controller (not ended; end it with: tmux -L yuruna-controller kill-session -t yuruna-controller, or screen -ls, then screen -S <pid>.yuruna-controller -X quit)'
+    'host.host_controller_session_restart_pending' = '  host controller: its session yuruna-controller ran a replaced shim and was ended; the next runner start from a terminal of the desktop session starts the new one.'
+    'host.host_controller_sudo_failed' = '  host controller: a privileged step failed (see the warning above), so yuruna-host-controller.service may not be registered. Re-run this script.'
+    'host.host_controller_task_action' = 'Register and start the host controller task'
+    'host.host_controller_task_claimed_not_restarted' = @(
+        'Scheduled task Yuruna Host Controller (stopped while host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' was in progress, and not started again: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). The task and the controller files were kept. Start it again with: Start-ScheduledTask -TaskName ''Yuruna Host Controller'', or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+    )
+    'host.host_controller_task_failed' = @(
+        '  host controller: the scheduled task Yuruna Host Controller could not be registered or started ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Re-run this script.'
+    )
+    'host.host_controller_task_files_failed' = @(
+        '  host controller: the shim or the code snapshot could not be deployed under %ProgramData%\yuruna\host-controller ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), so the scheduled task Yuruna Host Controller was not registered.'
+    )
+    'host.host_controller_task_not_removed' = @(
+        'Scheduled task Yuruna Host Controller (not removed: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.host_controller_task_not_running' = @(
+        '  host controller: no controller took its lock within 15 seconds. Read shim.log and controller.log under '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' for the cause.'
+    )
+    'host.host_controller_task_registered' = '  Yuruna Host Controller (scheduled task): registered'
+    'host.host_controller_task_removed' = 'Stopped and removed the scheduled task Yuruna Host Controller'
+    'host.host_controller_task_replaced' = '  Yuruna Host Controller (scheduled task): replaced'
+    'host.host_controller_task_running' = @(
+        '  host controller: running from snapshot '
+        @{
+            'arg' = 'snapshot'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (scheduled task Yuruna Host Controller)'
+    )
+    'host.host_controller_task_unknown_not_restarted' = @(
+        'Scheduled task Yuruna Host Controller (stopped, and then the host update journal read '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', so a host update claimed meanwhile cannot be ruled out; not started again: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). The task and the controller files were kept. Start it again with: Start-ScheduledTask -TaskName ''Yuruna Host Controller'', then run this script again once the journal can be read.'
+    )
+    'host.host_controller_unit_installed' = '  yuruna-host-controller.service: installed'
+    'host.host_controller_unit_not_removed' = @(
+        'yuruna-host-controller.service (not removed: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.host_controller_unit_removed' = 'Stopped, disabled and removed yuruna-host-controller.service'
+    'host.host_controller_unit_replaced' = '  yuruna-host-controller.service: replaced'
+    'host.host_controller_update_claimed' = @(
+        'Host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' is in progress on this host, and stopping its controller now would leave the runner stopped with nothing to start it. Wait for it to end. When it is recovering, or no controller runs any more, end it with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. Nothing was changed.'
+    )
+    'host.host_controller_update_claimed_not_restarted' = @(
+        'yuruna-host-controller.service (stopped while host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was in progress, and not started again: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). The unit and the controller files were kept. Start it again with: sudo systemctl start yuruna-host-controller.service, or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'host.host_controller_update_claimed_session_ended' = @(
+        'Host update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' was claimed while the host controller''s session was being ended, so no controller continues it now. The controller files and the sudoers entry were kept. Start the runner from a terminal of the desktop session to start the controller again, which continues the update, or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. Then run this script again.'
+    )
+    'host.host_controller_update_unknown' = @(
+        'The host update journal reads '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', so whether a host update is in progress on this host cannot be told, and stopping its controller during one would leave the runner stopped with nothing to start it. Nothing was changed. Run this script again once the journal can be read.'
+    )
+    'host.host_controller_update_unknown_not_restarted' = @(
+        'yuruna-host-controller.service (stopped, and then the host update journal read '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', so a host update claimed meanwhile cannot be ruled out; not started again: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). The unit and the controller files were kept. Start it again with: sudo systemctl start yuruna-host-controller.service, then run this script again once the journal can be read.'
+    )
+    'host.host_controller_update_unknown_session_ended' = @(
+        'The host update journal read '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' after the host controller''s session was ended, so a host update claimed meanwhile cannot be ruled out. The controller files and the sudoers entry were kept. Start the runner from a terminal of the desktop session to start the controller again, which continues any such update, then run this script again once the journal can be read.'
+    )
+    'host.host_update_access_entry_failed' = @(
+        '  host update elevation: /etc/sudoers.d/yuruna-host-update-access could not be installed ('
+        @{
+            'arg' = 'detail'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), so this host offers only the restart scope of a host update. Re-run this script from a terminal that can answer the sudo prompt.'
+    )
+    'host.host_update_access_entry_installed' = '  /etc/sudoers.d/yuruna-host-update-access: installed (it lets the host controller write and remove the temporary sudo rule of a full host update)'
+    'host.host_update_access_entry_kept' = '/etc/sudoers.d/yuruna-host-update-access and any temporary rule /etc/sudoers.d/yuruna-host-update (kept while a host controller may still run; run this script again once it has ended)'
+    'host.host_update_access_entry_not_removed' = '/etc/sudoers.d/yuruna-host-update-access (not removed; remove it with: sudo rm -f /etc/sudoers.d/yuruna-host-update-access)'
+    'host.host_update_access_entry_removed' = 'Removed /etc/sudoers.d/yuruna-host-update-access (the host update elevation entry)'
+    'host.host_update_access_entry_replaced' = '  /etc/sudoers.d/yuruna-host-update-access: replaced (its text differed from the one this checkout installs)'
+    'host.host_update_access_entry_unchanged' = '  /etc/sudoers.d/yuruna-host-update-access: unchanged'
+    'host.host_update_rule_not_removed' = '/etc/sudoers.d/yuruna-host-update (not removed; remove it with: sudo rm -f /etc/sudoers.d/yuruna-host-update)'
     'host.hyperv_bounded_call_no_answer' = @(
         'The Hyper-V call ended without returning an answer (child process exit code: '
         @{
@@ -848,6 +1178,21 @@
         }
         '''; install a sudoers rule for /bin/kill or stop the domain by hand.'
     )
+    'host.kvm_frame_size_unreadable' = @(
+        'Get-VMScreenshot: no frame size could be read from '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''; the window capture of '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' was discarded.'
+    )
     'host.kvm_journal_group_missing' = 'group ''systemd-journal'' does not exist, so the test runner''s diagnostics cannot read the system journal or the previous boot''s kernel log. systemd creates it from sysusers.d; ''sudo systemd-sysusers'' restores it, then re-run this script.'
     'host.kvm_journal_group_session_stale' = '  ''systemd-journal'' membership is in /etc/group; this shell''s group set is stale. Log out and back in, then start the test runner from that new session so its diagnostics can read the system journal.'
     'host.kvm_rename_destination_dir_exists' = @(
@@ -928,27 +1273,6 @@
             'trust' = 'external'
         }
         '.'
-    )
-    'host.operator_00de7e0959068c8c' = @(
-        'Send-Click on host.ubuntu.kvm: not implemented (Hyper-V-only today). Use SSH-mode workloads on KVM. (vm='''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' ignored x='
-        @{
-            'arg' = 'x'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' y='
-        @{
-            'arg' = 'y'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ')'
     )
     'host.operator_00df328f839cec6c' = 'Reconnect vmconnect'
     'host.operator_00e0e35404f36e5b' = @(
@@ -2335,7 +2659,7 @@
         }
     )
     'host.operator_266b54d6b96583f4' = '  Removing the half-built bridge so the netplan fallback (or a re-run) starts clean.'
-    'host.operator_2679edd915af22f8' = 'Nothing will be changed: every macOS knob Enable touches is a pre-existing setting, so with no record of its prior value there is nothing safe to restore.'
+    'host.operator_2679edd915af22f8' = 'No setting will be restored: every macOS knob Enable touches is a pre-existing setting, so with no record of its prior value there is nothing safe to restore. The host controller, its files and its sudoers entries are still removed.'
     'host.operator_26843e669bc191ba' = @(
         'Cannot resolve adapter for default-route InterfaceIndex '
         @{
@@ -4334,7 +4658,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); building with an EMPTY token: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token until one is provisioned and the proxy rebuilt.'
+        '); building with an EMPTY key: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token until one is provisioned and the proxy rebuilt.'
     )
     'host.operator_641d4bde8dc788c6' = '  6. Click the ''64-bit Download'' button'
     'host.operator_6424990f88c7f7bc' = @(
@@ -9903,7 +10227,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. utmctl still reached UTM.app for state queries, so the application is running but no longer carries out start, stop or delete, and retrying only adds another timeout. Restart UTM.app on this host (quit it from the desktop session, or run test/lab/Invoke-HostRefresh.ps1), then start the VM again. The VM was never launched and its disk is untouched.'
+        '''. utmctl still reached UTM.app for state queries, so the application is running but no longer carries out start, stop or delete, and retrying only adds another timeout. Restart UTM.app on this host (quit it from the desktop session, or run test/lab/Invoke-HostRepair.ps1), then start the VM again. The VM was never launched and its disk is untouched.'
     )
     'host.utm_start_dropped' = @(
         ''''

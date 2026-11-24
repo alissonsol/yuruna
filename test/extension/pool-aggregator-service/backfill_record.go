@@ -23,7 +23,7 @@ type cycleRecord struct {
 	Start         time.Time
 	End           time.Time
 	// Status is the overallStatus the host's status.json recorded for the cycle:
-	// pass, fail, or skipped for a cycle a host refresh aborted.
+	// pass, fail, or skipped for a cycle a held runner gate aborted.
 	Status string
 	// FailureClass is set on a fail: the class of the last step failure in the
 	// file, or "unknown" when nothing classified the failure.
@@ -47,7 +47,7 @@ func outcomeOf(rec cycleRecord) cycleOutcome {
 }
 
 // statusForOutcome maps a cycle_end outcome to the overallStatus the runner wrote
-// for the same cycle. A cycle a host refresh aborted is "skipped", which the
+// for the same cycle. A cycle a held runner gate aborted is "skipped", which the
 // dashboard counts as neither pass nor fail; every other aborted or unknown end
 // is a failed cycle, as the runner records it.
 func statusForOutcome(outcome, reason string) string {
@@ -55,7 +55,7 @@ func statusForOutcome(outcome, reason string) string {
 	case "pass":
 		return "pass"
 	case "aborted":
-		if strings.Contains(strings.ToLower(reason), "host refresh") {
+		if strings.Contains(strings.ToLower(reason), "runner gate held") {
 			return "skipped"
 		}
 		return "fail"

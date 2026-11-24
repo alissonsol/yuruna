@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 428d1a31-188c-4b3f-8536-74c55e9f6bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,7 @@ BeforeAll {
     $script:OtherPlatform = if ($script:ThisPlatform -eq 'windows') { 'linux' } else { 'windows' }
 }
 
-Describe 'fail-fast never turns cancelled work into passing evidence' {
+Describe 'fail-fast never turns canceled work into passing evidence' {
     BeforeEach { $script:FailFastRoot = New-FixtureTree }
     AfterEach {
         $absolute = [IO.Path]::GetFullPath($script:FailFastRoot)
@@ -56,10 +56,10 @@ Describe 'slow' { It 'waits' { Start-Sleep -Seconds 30 } }
         $run.Result.suites | Should -HaveCount 2
         $run.Result.totals.failed | Should -Be 1
         $run.Result.totals.incomplete | Should -Be 1
-        $cancelled = $run.Result.suites | Where-Object path -LIKE '*Beta*'
-        $cancelled.rc | Should -Be 125
-        $cancelled.haveXml | Should -BeFalse
-        $cancelled.message | Should -Match 'not launched'
+        $canceled = $run.Result.suites | Where-Object path -LIKE '*Beta*'
+        $canceled.rc | Should -Be 125
+        $canceled.haveXml | Should -BeFalse
+        $canceled.message | Should -Match 'not launched'
         $run.Result.problems[0] | Should -Match 'Alpha.Tests.ps1.*1 failed'
         $run.Result.problems[0] | Should -Match 'FAIL  fail.fails'
         Test-Path -LiteralPath (Join-Path $script:FailFastRoot 'test/unexpected-launch') | Should -BeFalse
@@ -96,11 +96,11 @@ Describe 'slow' { It 'passes' { 1 | Should -Be 1 } }
         $row = $run.Result.suites | Where-Object path -LIKE '*Beta*'
         $row.rc | Should -Be 125
         $row.haveXml | Should -BeFalse
-        $row.message | Should -Match 'cancelled after another suite failed'
+        $row.message | Should -Match 'canceled after another suite failed'
         $identity = Get-Content -LiteralPath (Join-Path $script:FailFastRoot 'test/beta-owner.json') -Raw | ConvertFrom-Json
         $probe = $null
         try { $probe = [Diagnostics.Process]::GetProcessById($identity.pid) }
-        catch [ArgumentException] { Write-Debug 'the cancelled owned sibling is absent' }
+        catch [ArgumentException] { Write-Debug 'the canceled owned sibling is absent' }
         if ($probe) {
             try { $probe.StartTime.ToUniversalTime().Ticks | Should -Not -Be $identity.started }
             finally { $probe.Dispose() }

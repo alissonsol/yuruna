@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4264ed3d-6368-8876-a160-49b6eee20de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 # locale: qps-Ploc  domain: pool
 
 @{
-    'pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to' = '[Á ƥóóļ ğřóúƥš ħóšţš úñďéř á šţáƀļé Ƥóóļ ÍĎ (ĞÚÍĎ); á ħóšţ ƀéļóñğš ţó áţ ɱóšţ óñé ƥóóļ. Ƥóóļ Šţáţúš řéáďš ŵħáţ ţħé ɱéɱƀéřš ářé ďóíñğ ñóŵ — çħóóšíñğ á ṽáļúé áƥƥļíéš íţ ţó éṽéřý ɱéɱƀéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to' = '[Á ƥóóļ ğřóúƥš ħóšţš úñďéř á šţáƀļé Ƥóóļ ÍĎ (ĞÚÍĎ); á ħóšţ ƀéļóñğš ţó áţ ɱóšţ óñé ƥóóļ. Ƥóóļ šţáţúš řéáďš ŵħáţ ţħé ɱéɱƀéřš ářé ďóíñğ ñóŵ — çħóóšíñğ á ṽáļúé áƥƥļíéš íţ ţó éṽéřý ɱéɱƀéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'pool.a_scan_of_value1_is_already_running_following_that_one' = @(
         '[Á šçáñ óƒ '
         @{
@@ -73,7 +73,7 @@
         }
         '); çóñţřóļ šţáţé íš úñķñóŵñ. Ɱóṽíñğ ħóšţš šţíļļ ŵóřķš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.aggregator_url' = '[áğğřéğáţóř ÚŘĻ ~~~~~~]'
+    'pool.aggregator_url' = '[Áğğřéğáţóř ÚŘĻ ~~~~~~]'
     'pool.all_checks_passed_pool_control_service_value1_value2_collected_va' = @(
         '[Áļļ çħéçķš ƥáššéď. ƥóóļ-çóñţřóļ-šéřṽíçé '
         @{
@@ -175,7 +175,7 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.configuration_git_url' = '[çóñƒíğúřáţíóñ ğíţ ÚŘĻ ~~~~~~~~~]'
+    'pool.configuration_git_url' = '[Çóñƒíğúřáţíóñ ğíţ ÚŘĻ ~~~~~~~~~]'
     'pool.configuration_read_raw_invocation' = '[Çóñƒíğúřáţíóñ řéáď — řáŵ íñṽóçáţíóñ ~~~~~~~~~~~~~~]'
     'pool.continue' = '[Çóñţíñúé ~~~~]'
     'pool.control' = '[Çóñţřóļ ~~~]'
@@ -504,7 +504,7 @@
         ' ~~~~~~~~~~~~~~~~~~~]'
     )
     'pool.display_name' = '[Ďíšƥļáý ñáɱé ~~~~~]'
-    'pool.duration' = '[ďúřáţíóñ ~~~~]'
+    'pool.duration' = '[Ďúřáţíóñ ~~~~]'
     'pool.each_of_the_four_numbers_must_be_0_to_255' = '[Éáçħ óƒ ţħé ƒóúř ñúɱƀéřš ɱúšţ ƀé 0 ţó 255. ~~~~~~~~~~~~~~~~~]'
     'pool.empty' = '[(éɱƥţý) ~~~]'
     'pool.enrollment_target' = @(
@@ -561,7 +561,7 @@
         }
         ' ɱéáñš íţ çáññóţ řéáď ţħé óñé çóñƒíğúřéď. Á řé-ķéýéď řóŵ íš óñé ɱáçħíñé''š óļď íďéñţíţý: íţ ŵáš řéíɱáğéď óř řé-çļóñéď, šó ţħé ļíṽé ħóšţ áñšŵéřš úñďéř ţħé íď šħóŵñ ƀéšíďé íţ ŵħíļé áñý ƥóóļ ɱéɱƀéřšħíƥ šţáýš óñ ţħé óļď óñé — ħáñď íţ óṽéř ƒřóɱ ţħáţ řóŵ. Ħóšţñáɱéš áƥƥéář óñçé ţħíš ƀřóŵšéř íš úñļóçķéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.exit_code' = '[éẋíţ çóďé ~~~~]'
+    'pool.exit_code' = '[Éẋíţ çóďé ~~~~]'
     'pool.fail' = '[ƑÁÍĻ ~~]'
     'pool.failed' = '[ƒáíļéď ~~~]'
     'pool.first_seen' = '[Ƒířšţ šééñ ~~~~]'
@@ -580,11 +580,11 @@
     'pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r' = '[Ƒóúñď ƀý šçáññíñğ ţħé ñéţŵóřķ; íţ ƀéļóñğš ţó ñó ƥóóļ áñď ħáš ñóţ řéğíšţéřéď ŵíţħ ţħé áğğřéğáţóř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'pool.framework' = '[Ƒřáɱéŵóřķ ~~~~]'
     'pool.framework_project' = '[Ƒřáɱéŵóřķ / Ƥřóĵéçţ ~~~~~~~~]'
-    'pool.framework_revision' = '[ƒřáɱéŵóřķ řéṽíšíóñ ~~~~~~~~]'
+    'pool.framework_revision' = '[Ƒřáɱéŵóřķ řéṽíšíóñ ~~~~~~~~]'
     'pool.framework_url' = '[Ƒřáɱéŵóřķ ÚŘĻ ~~~~~~]'
-    'pool.framework_version' = '[ƒřáɱéŵóřķ ṽéřšíóñ ~~~~~~~]'
-    'pool.free_storage' = '[Ƒřéé Šţóřáğé ~~~~~]'
-    'pool.go' = '[ğó ~]'
+    'pool.framework_version' = '[Ƒřáɱéŵóřķ ṽéřšíóñ ~~~~~~~]'
+    'pool.free_storage' = '[Ƒřéé šţóřáğé ~~~~~]'
+    'pool.go' = '[Ğó ~]'
     'pool.guide' = '[Ğúíďé ~~]'
     'pool.hand_over' = '[Ħáñď óṽéř ~~~~]'
     'pool.hand_over_failed_value1' = @(
@@ -601,7 +601,7 @@
     'pool.home' = '[ĦÓⱮÉ ~~]'
     'pool.host' = '[+ ħóšţ ~~~]'
     'pool.host_id' = '[Ħóšţ ÍĎ ~~~]'
-    'pool.host_id_7b624c8f' = '[ħóšţ íď ~~~]'
+    'pool.host_id_7b624c8f' = '[Ħóšţ ÍĎ ~~~]'
     'pool.host_id_to_add_to_pool_value1' = @(
         '[Ħóšţ íď ţó áďď ţó ƥóóļ '
         @{
@@ -611,8 +611,8 @@
         }
         ' ~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_body_invalid' = @(
-        '[Ţħé řéƒřéšħ řéʠúéšţ ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ óƒ šţříñğš ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, ţíéř áñď ɱáẋŘúñğ ('
+    'pool.host_repair_body_invalid' = @(
+        '[Ţħé řéƥáíř řéʠúéšţ ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ óƒ šţříñğš ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, ţíéř áñď ɱáẋŘúñğ ('
         @{
             'arg' = 'detail'
             'type' = 'identifier'
@@ -620,14 +620,14 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_busy' = @(
+    'pool.host_repair_busy' = @(
         '[Ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' íš áļřéáďý ħáñďļíñğ řéƒřéšħ řéʠúéšţ '
+        ' íš áļřéáďý ħáñďļíñğ řéƥáíř řéʠúéšţ '
         @{
             'arg' = 'activeRequestId'
             'type' = 'identifier'
@@ -635,7 +635,7 @@
         }
         '; ƒóļļóŵ ţħáţ řéʠúéšţ íñšţéáď óƒ šţářţíñğ áñóţħéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_control_proof_unavailable' = @(
+    'pool.host_repair_control_proof_unavailable' = @(
         '[Ñó çóñţřóļ ƥřóóƒ çóúļď ƀé óƀţáíñéď ƒóř ħóšţ '
         @{
             'arg' = 'hostId'
@@ -650,8 +650,8 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_field_unsupported' = @(
-        '[Ţħé řéƒřéšħ řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď '
+    'pool.host_repair_field_unsupported' = @(
+        '[Ţħé řéƥáíř řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď '
         @{
             'arg' = 'field'
             'type' = 'identifier'
@@ -659,7 +659,7 @@
         }
         '; ƒóřçé áñď ħářď-šţóƥ óƥţíóñš ářé ñéṽéř áççéƥţéď řéɱóţéļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_host_address_unknown' = @(
+    'pool.host_repair_host_address_unknown' = @(
         '[Ţħé ƥóóļ áğğřéğáţóř ķñóŵš ħóšţ '
         @{
             'arg' = 'hostId'
@@ -668,15 +668,15 @@
         }
         ' ƀúţ ħáš ñó áďďřéšš ƒóř íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_host_id_invalid' = '[ħóšţÍď ɱúšţ ƀé á 32-çħářáçţéř ħéẋáďéçíɱáļ ħóšţ íď. ~~~~~~~~~~~~~~~~~~~~]'
-    'pool.host_refresh_host_refused' = @(
+    'pool.host_repair_host_id_invalid' = '[ħóšţÍď ɱúšţ ƀé á 32-çħářáçţéř ħéẋáďéçíɱáļ ħóšţ íď. ~~~~~~~~~~~~~~~~~~~~]'
+    'pool.host_repair_host_refused' = @(
         '[Ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' řéƒúšéď ţħé řéƒřéšħ (ĦŢŢƤ '
+        ' řéƒúšéď ţħé řéƥáíř (ĦŢŢƤ '
         @{
             'arg' = 'status'
             'type' = 'integer'
@@ -690,14 +690,14 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_host_unavailable' = @(
+    'pool.host_repair_host_unavailable' = @(
         '[Ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' çóúļď ñóţ šţářţ ţħé řéƒřéšħ (ĦŢŢƤ '
+        ' çóúļď ñóţ šţářţ ţħé řéƥáíř (ĦŢŢƤ '
         @{
             'arg' = 'status'
             'type' = 'integer'
@@ -715,9 +715,9 @@
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_host_unknown' = @(
+    'pool.host_repair_host_unknown' = @(
         '[Ţħé ƥóóļ áğğřéğáţóř ďóéš ñóţ ķñóŵ ħóšţ '
         @{
             'arg' = 'hostId'
@@ -726,7 +726,7 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_host_unreachable' = @(
+    'pool.host_repair_host_unreachable' = @(
         '[Ħóšţ '
         @{
             'arg' = 'hostId'
@@ -741,16 +741,16 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_mint_failed' = @(
-        '[Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé řéƒřéšħ řéʠúéšţ ƒóř ħóšţ '
+    'pool.host_repair_mint_failed' = @(
+        '[Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé řéƥáíř řéʠúéšţ ƒóř ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_reply_invalid' = @(
+    'pool.host_repair_reply_invalid' = @(
         '[Ħóšţ '
         @{
             'arg' = 'hostId'
@@ -765,7 +765,7 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_request_closed' = @(
+    'pool.host_repair_request_closed' = @(
         '[Řéʠúéšţ '
         @{
             'arg' = 'requestId'
@@ -790,9 +790,9 @@
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '); ğéñéřáţé á ñéŵ řéʠúéšţ íď ţó řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); ğéñéřáţé á ñéŵ řéʠúéšţ íď ţó řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_request_conflict' = @(
+    'pool.host_repair_request_conflict' = @(
         '[Řéʠúéšţ '
         @{
             'arg' = 'requestId'
@@ -801,10 +801,10 @@
         }
         ' ŵáš áļřéáďý úšéď ŵíţħ á ďíƒƒéřéñţ ţíéř óř çéíļíñğ; řéšéñď ţħé óříğíñáļ ƥóļíçý óř ğéñéřáţé á ñéŵ řéʠúéšţ íď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_request_id_invalid' = '[řéʠúéšţÍď ɱúšţ ƀé á ļóŵéřçášé ÚÚÍĎ (8-4-4-4-12) ţħáţ ţħé çáļļéř ğéñéřáţéš óñçé áñď řéúšéš óñ éṽéřý řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'pool.host_refresh_rung_unsupported' = '[ɱáẋŘúñğ ɱúšţ ƀé ƥřóƀé, řéçļáíɱ, šţářţ-íƒ-šţóƥƥéď, řéšţářţ-íƒ-ħúñğ óř řéšţářţ-ƀřóķéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'pool.host_refresh_signing_unconfigured' = @(
-        '[Řéɱóţé ħóšţ řéƒřéšħ íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó řéƒřéšħ šíğñíñğ áúţħóříţý ('
+    'pool.host_repair_request_id_invalid' = '[řéʠúéšţÍď ɱúšţ ƀé á ļóŵéřçášé ÚÚÍĎ (8-4-4-4-12) ţħáţ ţħé çáļļéř ğéñéřáţéš óñçé áñď řéúšéš óñ éṽéřý řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'pool.host_repair_rung_unsupported' = '[ɱáẋŘúñğ ɱúšţ ƀé ƥřóƀé, řéçļáíɱ, šţářţ-íƒ-šţóƥƥéď, řéšţářţ-íƒ-ħúñğ óř řéšţářţ-ƀřóķéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'pool.host_repair_signing_unconfigured' = @(
+        '[Řéɱóţé ħóšţ řéƥáíř íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó řéƥáíř šíğñíñğ áúţħóříţý ('
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -812,21 +812,254 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.host_refresh_tier_unsupported' = '[Óñļý ţħé řéšţářţ ţíéř çáñ ƀé řéʠúéšţéď řéɱóţéļý; ţħé ƒúļļ ţíéř íš ļóçáļ-óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'pool.host_refresh_unavailable' = @(
+    'pool.host_repair_tier_unsupported' = '[Óñļý ţħé řéšţářţ ţíéř çáñ ƀé řéʠúéšţéď řéɱóţéļý; ţħé ƒúļļ ţíéř íš ļóçáļ-óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'pool.host_repair_unavailable' = @(
         '[Ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' ďóéš ñóţ áďṽéřţíšé řéɱóţé řéƒřéšħ ('
+        ' ďóéš ñóţ áďṽéřţíšé řéɱóţé řéƥáíř ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'external'
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_action' = '[Úƥďáţé ħóšţ ~~~~~]'
+    'pool.host_update_body_invalid' = @(
+        '[Ţħé úƥďáţé řéʠúéšţ ɱúšţ ƀé óñé ĴŠÓÑ óƀĵéçţ ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, šçóƥé, ďřáíñŠéçóñďš áñď éẋƥéçţÇóɱɱíţ, éáçħ óñçé ('
+        @{
+            'arg' = 'detail'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_busy' = @(
+        '[Ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' íš ƀúšý ŵíţħ řéʠúéšţ '
+        @{
+            'arg' = 'activeRequestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; ƒóļļóŵ ţħáţ řéʠúéšţ íñšţéáď óƒ šţářţíñğ áñóţħéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_commit_invalid' = '[éẋƥéçţÇóɱɱíţ ɱúšţ ƀé 7 ţó 40 ļóŵéřçášé ħéẋáďéçíɱáļ ďíğíţš. ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'pool.host_update_commit_label' = '[Éẋƥéçţéď çóɱɱíţ ~~~~~~]'
+    'pool.host_update_completed' = @(
+        '[Řéʠúéšţ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' áļřéáďý éñďéď óñ ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_credential_label' = '[Óƥéřáţóř çřéďéñţíáļ ~~~~~~~~]'
+    'pool.host_update_credential_missing' = '[Éñţéř ţħé óƥéřáţóř çřéďéñţíáļ. ~~~~~~~~~~~~]'
+    'pool.host_update_drain_invalid' = '[ďřáíñŠéçóñďš ɱúšţ ƀé á ŵħóļé ñúɱƀéř ƒřóɱ 60 ţó 21600. ~~~~~~~~~~~~~~~~~~~~~~]'
+    'pool.host_update_drain_label' = '[Ďřáíñ ƀóúñď ~~~~~]'
+    'pool.host_update_drain_now_label' = '[Ţó éñď ţħé řúññíñğ çýçļé ñóŵ ~~~~~~~~~~~~]'
+    'pool.host_update_drain_value' = @(
+        '['
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š ('
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ɱíñ) ~~~~~~~~~~~]'
+    )
+    'pool.host_update_field_forbidden' = @(
+        '[Ţħé úƥďáţé řéʠúéšţ çářříéď '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; ñó řéʠúéšţ ƒřóɱ ţħíš šéřṽíçé éñďš á řúññíñğ çýçļé. Ţó éñď óñé, řúñ Invoke-HostUpdate.ps1 -Ďřáíñ ñóŵ íñ á šħéļļ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_field_unsupported' = @(
+        '[Ţħé úƥďáţé řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_heading' = '[Úƥďáţé ħóšţ ~~~~~]'
+    'pool.host_update_host_refused' = @(
+        '[Ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' řéƒúšéď ţħé úƥďáţé (ĦŢŢƤ '
+        @{
+            'arg' = 'status'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ', '
+        @{
+            'arg' = 'hostReason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_host_unavailable' = @(
+        '[Ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' çóúļď ñóţ ʠúéúé ţħé úƥďáţé (ĦŢŢƤ '
+        @{
+            'arg' = 'status'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ', '
+        @{
+            'arg' = 'hostReason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '); řéţřý ŵíţħ ţħé šáɱé řéʠúéšţ íď '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_intro' = '[Ţħíš ƥáğé šíğñš óñé ħóšţ úƥďáţé ƒóř ţħé ħóšţ ƀéļóŵ áñď šéñďš íţ ţħéřé. Ţħé ħóšţ ŵáíţš ƒóř íţš řúññíñğ çýçļé ţó éñď, ţħéñ šţóƥš íţš řúññéř, ƀříñğš íţš çħéçķóúţ çúřřéñţ áñď šţářţš ţħé řúññéř áğáíñ; íţ ğíṽéš úƥ áƒţéř ţħé ďřáíñ ƀóúñď ŵíţħ ñóţħíñğ çħáñğéď. Ñó řéʠúéšţ ƒřóɱ ţħíš ƥáğé éñďš á řúññíñğ çýçļé: ţó éñď óñé, řúñ ţħé çóɱɱáñď šħóŵñ ƀéļóŵ íñ á šħéļļ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'pool.host_update_loading' = '[Řéáďíñğ ţħé ħóšţ… ~~~~~~~]'
+    'pool.host_update_mint_failed' = @(
+        '[Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé úƥďáţé řéʠúéšţ ƒóř ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_not_offered' = @(
+        '[Ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' çáññóţ ţáķé á řéɱóţé ħóšţ úƥďáţé ñóŵ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_open_diagnostics' = '[Óƥéñ ţħé ħóšţ''š Ďíáğñóšţíçš ƥáğé ~~~~~~~~~~~~~]'
+    'pool.host_update_page_title' = '[Úƥďáţé ħóšţ — Ýúřúñá Ƥóóļ Çóñţřóļ ~~~~~~~~~~~~~~]'
+    'pool.host_update_request_conflict' = @(
+        '[Řéʠúéšţ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ŵáš áļřéáďý úšéď ŵíţħ á ďíƒƒéřéñţ šçóƥé, ďřáíñ ƀóúñď óř éẋƥéçţéď çóɱɱíţ; řéšéñď ţħé óříğíñáļ řéʠúéšţ óř šţářţ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_request_label' = '[Řéʠúéšţ ÍĎ ~~~~]'
+    'pool.host_update_scope' = @{
+        'kind' = 'select'
+        'selector' = 'scope'
+        'variants' = @{
+            'full' = '[Řéíñšţáļļ ďéƥéñďéñçíéš áñď šéţţíñğš, ţħéñ řéšţářţ ~~~~~~~~~~~~~~~~~~~~]'
+            'other' = @(
+                '['
+                @{
+                    'arg' = 'scope'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                ' ~~~]'
+            )
+            'restart' = '[Řéšţářţ ţħé řúññéř óñ çúřřéñţ çóďé ~~~~~~~~~~~~~~]'
+        }
+    }
+    'pool.host_update_scope_invalid' = '[šçóƥé ɱúšţ ƀé řéšţářţ óř ƒúļļ. ~~~~~~~~~~~~]'
+    'pool.host_update_scope_label' = '[Šçóƥé ~~]'
+    'pool.host_update_sending' = '[Šíğñíñğ áñď šéñďíñğ ţħé úƥďáţé… ~~~~~~~~~~~~~]'
+    'pool.host_update_sent' = @(
+        '[Ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ʠúéúéď úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; óƥéñíñğ íţš Ďíáğñóšţíçš ƥáğé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_signing_unconfigured' = @(
+        '[Řéɱóţé ħóšţ úƥďáţé íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó úƥďáţé šíğñíñğ ķéý óř ñó óƥéřáţóř çřéďéñţíáļ ('
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'pool.host_update_submit' = '[Šéñď ţħé úƥďáţé ~~~~~~]'
+    'pool.host_update_unavailable' = @(
+        '[Ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' çáññóţ ţáķé á řéɱóţé ħóšţ úƥďáţé ñóŵ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool' = @(
         '[Ħóšţ '
@@ -990,7 +1223,7 @@
         }
         ' ~~~~~~~~]'
     )
-    'pool.listen_addr' = '[ļíšţéñ áďďř ~~~~~]'
+    'pool.listen_addr' = '[Ļíšţéñ áďďř ~~~~~]'
     'pool.loaded' = '[Ļóáďéď: ~~~]'
     'pool.loading_hosts' = '[Ļóáďíñğ ħóšţš... ~~~~~~~]'
     'pool.loading_pools' = '[Ļóáďíñğ ƥóóļš... ~~~~~~~]'
@@ -1089,8 +1322,8 @@
     'pool.paused_after_cycle_and_step' = '[Ƥáúšéď áƒţéř çýçļé áñď šţéƥ ~~~~~~~~~~~]'
     'pool.persisted_health' = '[Ƥéřšíšţéď ħéáļţħ ~~~~~~~]'
     'pool.persistence_disabled' = '[(ƥéřšíšţéñçé ďíšáƀļéď) ~~~~~~~~~]'
-    'pool.pid' = '[ƥíď ~~]'
-    'pool.platform' = '[ƥļáţƒóřɱ ~~~~]'
+    'pool.pid' = '[ƤÍĎ ~~]'
+    'pool.platform' = '[Ƥļáţƒóřɱ ~~~~]'
     'pool.pool' = '[Ƥóóļ ~~]'
     'pool.pool_for_host_value1' = @(
         '[Ƥóóļ ƒóř ħóšţ '
@@ -1114,7 +1347,7 @@
     )
     'pool.pool_project_denied' = '[Ţħé ƥóóļ áššíğñéď ţħíš ħóšţ á ƥřóĵéçţ íţš ğíţ çřéďéñţíáļ çáññóţ řéáď. Ğřáñţ íţš ţóķéñ áççéšš ţó ţħáţ řéƥóšíţóřý, óř řéáššíğñ ţħé ƥóóļ ţó óñé éṽéřý ɱéɱƀéř çáñ řéáď. Íţš çýçļéš ƒáíļ úñţíļ ţħéñ, áñď ñó řéţřý çáñ ƒíẋ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'pool.pool_project_unreachable' = '[Ţħé ƥřóĵéçţ ţħíš ħóšţ''š ƥóóļ áššíğñéď ďíď ñóţ áñšŵéř. Ţħíš íš ñéţŵóřķ, ñóţ ƥéřɱíššíóñ, áñď ţħé çļóñé řéţříéš ţħřóúğħ ţħé ñóřɱáļ ƀáçķóƒƒ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'pool.pool_status' = '[Ƥóóļ Šţáţúš ~~~~~]'
+    'pool.pool_status' = '[Ƥóóļ šţáţúš ~~~~~]'
     'pool.pool_status_change_failed_value1' = @(
         '[Ƥóóļ šţáţúš çħáñğé ƒáíļéď: '
         @{
@@ -1220,7 +1453,7 @@
             'project' = '[Ţħíš ħóšţ çáññóţ řéáď ţħé ƥřóĵéçţ řéƥóšíţóřý íţ íš çóñƒíğúřéď ŵíţħ. Çħéçķ íţš ğíţ çřéďéñţíáļ áñď ţħé úřļ íñ test.config.yml. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
         }
     }
-    'pool.repo_dir' = '[řéƥó ďíř ~~~~]'
+    'pool.repo_dir' = '[Řéƥó ďíř ~~~~]'
     'pool.repo_held_detail' = @{
         'kind' = 'select'
         'selector' = 'repo'
@@ -1494,10 +1727,10 @@
     )
     'pool.scan_yuruna_pool_control' = '[Šçáñ — Ýúřúñá Ƥóóļ Çóñţřóļ ~~~~~~~~~~~]'
     'pool.service_diagnostics' = '[Šéřṽíçé ďíáğñóšţíçš ~~~~~~~~]'
-    'pool.service_user' = '[šéřṽíçé úšéř ~~~~~]'
+    'pool.service_user' = '[Šéřṽíçé úšéř ~~~~~]'
     'pool.show_hostnames' = '[Šħóŵ ħóšţñáɱéš ~~~~~~]'
-    'pool.started_at' = '[šţářţéď áţ ~~~~]'
-    'pool.state_dir' = '[šţáţé ďíř ~~~~]'
+    'pool.started_at' = '[Šţářţéď áţ ~~~~]'
+    'pool.state_dir' = '[Šţáţé ďíř ~~~~]'
     'pool.state_fail' = '[ƒáíļ ~~]'
     'pool.state_idle' = '[íďļé ~~]'
     'pool.state_mismatch' = '[ɱíšɱáţçħ ~~~~]'
@@ -1639,12 +1872,12 @@
     'pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o' = '[Ţħíš íď ñó ļóñğéř áñšŵéřš áţ ţħíš áďďřéšš; ţħé íď ƀéšíďé íţ ďóéš. Óñé ɱáçħíñé, ţŵó íďš -- íţ ŵáš řéíɱáğéď óř řé-çļóñéď. Áñý ƥóóļ ɱéɱƀéřšħíƥ íš šţíļļ řéçóřďéď áğáíñšţ ŢĦÍŠ íď, šó ţħé ļíṽé ħóšţ íš ďóíñğ ţħé ŵóřķ óúţšíďé ţħé ƥóóļ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'pool.time_period' = '[Ţíɱé ƥéříóď ~~~~~]'
     'pool.token_is_right_but_the_clock_is_off_fix_the_host_clock' = '[Ţóķéñ íš říğħţ ƀúţ ţħé çļóçķ íš óƒƒ -- ƒíẋ ţħé ħóšţ çļóçķ. ~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'pool.total_storage' = '[Ţóţáļ Šţóřáğé ~~~~~~]'
+    'pool.total_storage' = '[Ţóţáļ šţóřáğé ~~~~~~]'
     'pool.type' = '[Ţýƥé ~~]'
     'pool.unlock' = '[Úñļóçķ ~~~]'
     'pool.unlock_with_the_lab_token_to_see_hostnames' = '[Úñļóçķ ŵíţħ ţħé Ļáƀ ţóķéñ ţó šéé ħóšţñáɱéš. ~~~~~~~~~~~~~~~~~~]'
     'pool.unsupported_range' = '[úñšúƥƥóřţéď řáñğé; úšé 1ħ, 24ħ, 7ď óř 30ď ~~~~~~~~~~~~~~~~~]'
-    'pool.uptime' = '[úƥţíɱé ~~~]'
+    'pool.uptime' = '[Úƥţíɱé ~~~]'
     'pool.use_this_network' = '[Úšé ţħíš ñéţŵóřķ ~~~~~~~]'
     'pool.value1_applied_to_value2_host_s_in_pool_value3' = @(
         '['
@@ -1754,7 +1987,7 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'pool.version' = '[ṽéřšíóñ ~~~]'
+    'pool.version' = '[Ṽéřšíóñ ~~~]'
     'pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch' = '[Ŵħáţ ţħé ďáéɱóñ ŵáš ļáúñçħéď ŵíţħ, áñď ţħé éñṽířóñɱéñţ íţš ƥŵšħ çħíļď ƥřóçéššéš íñħéříţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'pool.what_to_do' = '[Ŵħáţ ţó ďó ~~~~]'
     'pool.which_build_is_actually_running_and_for_how_long_establishes_whet' = '[Ŵħíçħ ƀúíļď íš áçţúáļļý řúññíñğ, áñď ƒóř ħóŵ ļóñğ — éšţáƀļíšħéš ŵħéţħéř á ƒíẋ ŵáš ďéƥļóýéď áţ áļļ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42bcdf70-8f13-463a-8f88-0dcd1771f9c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,8 +70,8 @@ BeforeDiscovery {
         & $newCase @{ CaseName = 'a failed installer download refuses'; FailDownload = 'install/macos.utm.sh'; Expect = 'refused'; Message = 'DOWNLOAD FAILED' }
         & $newCase @{ CaseName = 'a digest command that fails refuses'; DigestFails = $true; Expect = 'refused'; Message = 'INSTALLER HASH MISMATCH' }
         & $newCase @{ CaseName = 'an empty signed manifest refuses'; Manifest = 'empty'; Expect = 'refused'; Message = 'INSTALLER HASH MISMATCH' }
-        & $newCase @{ CaseName = 'the refresh variant runs the downloaded installer with both refresh signals'; LastLine = 'refresh' }
-        & $newCase @{ CaseName = 'the refresh variant still refuses a mismatched installer'; LastLine = 'refresh'; Manifest = 'hash-under-other-row'; Expect = 'refused'; Message = 'INSTALLER HASH MISMATCH' }
+        & $newCase @{ CaseName = 'the repair variant runs the downloaded installer with both repair signals'; LastLine = 'repair' }
+        & $newCase @{ CaseName = 'the repair variant still refuses a mismatched installer'; LastLine = 'repair'; Manifest = 'hash-under-other-row'; Expect = 'refused'; Message = 'INSTALLER HASH MISMATCH' }
     )
     $script:WindowsCases = @(
         & $newCase @{ CaseName = 'a valid signed manifest runs the installer'; Target = 'install/windows.hyper-v.ps1' }
@@ -132,10 +132,10 @@ function Write-StubScript {
 }
 
 $script:VerifiedSection = '## Verified install'
-$script:RefreshSection = '## Refresh an installed macOS host'
+$script:RepairSection = '## Repair an installed macOS host'
 $script:BashBlock = Get-BlockAfter -Text $script:ReadmeText -Section $script:VerifiedSection -Marker '**macOS UTM / Ubuntu KVM**'
 $script:WindowsBlock = Get-BlockAfter -Text $script:ReadmeText -Section $script:VerifiedSection -Marker '**Windows Hyper-V**'
-$script:RefreshBlocks = @(Get-FencedBlock -Text $script:ReadmeText.Substring($script:ReadmeText.IndexOf($script:RefreshSection, [StringComparison]::Ordinal)))
+$script:RepairBlocks = @(Get-FencedBlock -Text $script:ReadmeText.Substring($script:ReadmeText.IndexOf($script:RepairSection, [StringComparison]::Ordinal)))
 
 # One key for the whole suite: generating RSA keys is the slow part, and every
 # case needs a manifest signed by the key its snippet is told to trust.
@@ -153,11 +153,11 @@ function New-SignedFixture {
     $srv = Join-Path $root 'srv'; $bin = Join-Path $root 'bin'; $rec = Join-Path $root 'rec'
     New-Item -ItemType Directory -Force -Path (Join-Path $srv 'install/keys'), $bin, $rec, (Join-Path $root 'tmp'), (Join-Path $root 'home') | Out-Null
 
-    # Each fake installer records that it ran, its arguments and the refresh
+    # Each fake installer records that it ran, its arguments and the repair
     # variable, so a case can tell exactly which file was executed and how.
     $installers = [ordered]@{}
     foreach ($leaf in @('macos.utm.sh', 'ubuntu.kvm.sh')) {
-        $installers["install/$leaf"] = "#!/bin/bash`nprintf '%s\n' '$leaf' > '$rec/ran'`nprintf '%s\n' `"`$@`" > '$rec/argv'`nprintf '%s' `"`${YURUNA_REFRESH-<unset>}`" > '$rec/refresh'`n"
+        $installers["install/$leaf"] = "#!/bin/bash`nprintf '%s\n' '$leaf' > '$rec/ran'`nprintf '%s\n' `"`$@`" > '$rec/argv'`nprintf '%s' `"`${YURUNA_REPAIR-<unset>}`" > '$rec/repair'`n"
     }
     $installers['install/windows.hyper-v.ps1'] = "[IO.File]::WriteAllText('$rec/ran', 'windows.hyper-v.ps1')`n"
     $hashes = @{}
@@ -249,7 +249,7 @@ function Get-FixtureEvidence {
     return @{
         Ran     = (& $read 'ran')
         Argv    = (& $read 'argv')
-        Refresh = (& $read 'refresh')
+        Repair = (& $read 'repair')
         Urls    = @(if (Test-Path -LiteralPath (Join-Path $Fixture.Rec 'curl.log')) { Get-Content -LiteralPath (Join-Path $Fixture.Rec 'curl.log') })
     }
 }
@@ -300,10 +300,10 @@ function Invoke-BashSnippet {
             # The README tells Ubuntu operators to change S in the first line.
             $text = $text.Replace('S=install/macos.utm.sh', "S=$($Case.Target)")
         }
-        if ($Case.LastLine -eq 'refresh') {
-            $refreshLine = $script:RefreshBlocks[1].Trim()
+        if ($Case.LastLine -eq 'repair') {
+            $repairLine = $script:RepairBlocks[1].Trim()
             $lines = @($text.TrimEnd("`n") -split "`n")
-            $lines[-1] = $refreshLine
+            $lines[-1] = $repairLine
             $text = ($lines -join "`n") + "`n"
         }
         $snippet = Join-Path $fixture.Root 'snippet.sh'
@@ -313,7 +313,7 @@ function Invoke-BashSnippet {
         if ($openSslDir -notin @('/usr/bin', '/bin')) { $pathPrefix = "${pathPrefix}:$openSslDir" }
         $environment = @{
             PATH = "${pathPrefix}:/usr/bin:/bin"; TMPDIR = (Join-Path $fixture.Root 'tmp'); HOME = (Join-Path $fixture.Root 'home')
-            ZDOTDIR = (Join-Path $fixture.Root 'home'); YURUNA_REFRESH = ''; BASH_ENV = ''; ENV = ''; LC_ALL = 'C'
+            ZDOTDIR = (Join-Path $fixture.Root 'home'); YURUNA_REPAIR = ''; BASH_ENV = ''; ENV = ''; LC_ALL = 'C'
         }
         $r = Invoke-SignedFixtureShell -ShellPath $ShellPath -SnippetPath $snippet -CurlPath (Join-Path $fixture.Bin 'curl') -Environment $environment
         $evidence = Get-FixtureEvidence -Fixture $fixture
@@ -442,15 +442,15 @@ Describe 'The published verification snippets' {
     }
 }
 
-Describe 'The refresh forms in install/README.md' {
+Describe 'The repair forms in install/README.md' {
     It 'documents the convenience form with the $0 placeholder and both signals, pinned to a release tag' {
-        $convenience = $script:RefreshBlocks[0].Trim()
-        Assert-Match '^YURUNA_REFRESH=1 /bin/bash -c "\$\(curl -fsSL ''https://raw\.githubusercontent\.com/alissonsol/yuruna/refs/tags/\d{4}\.\d{2}\.\d{2}(\.\d+)?/install/macos\.utm\.sh''\)" _ --refresh$' $convenience `
-            'the tag keeps an older installer, which ignores --refresh and installs, from being fetched'
+        $convenience = $script:RepairBlocks[0].Trim()
+        Assert-Match '^YURUNA_REPAIR=1 /bin/bash -c "\$\(curl -fsSL ''https://raw\.githubusercontent\.com/alissonsol/yuruna/refs/tags/\d{4}\.\d{2}\.\d{2}(\.\d+)?/install/macos\.utm\.sh''\)" _ --repair$' $convenience `
+            'the tag keeps an older installer, which ignores --repair and installs, from being fetched'
     }
 
     It 'documents the verified form as the verified block''s last line with both signals' {
-        Assert-Equal 'YURUNA_REFRESH=1 bash "$t/$(basename "$S")" --refresh' $script:RefreshBlocks[1].Trim() ''
+        Assert-Equal 'YURUNA_REPAIR=1 bash "$t/$(basename "$S")" --repair' $script:RepairBlocks[1].Trim() ''
         Assert-Match '(?m)^bash "\$t/\$\(basename "\$S"\)"\s*$' $script:BashBlock 'the replaced last line exists in the verified block'
     }
 
@@ -461,7 +461,7 @@ Describe 'The refresh forms in install/README.md' {
         $tags = @([regex]::Matches($script:ReadmeText, "alissonsol/yuruna/refs/tags/($calver)") | ForEach-Object { $_.Groups[1].Value } | Select-Object -Unique)
         Assert-Equal 1 $tags.Count ('every tagged URL names one release: ' + ($tags -join ', '))
         $repinned = [regex]::Replace($script:ReadmeText, '(alissonsol/yuruna/)refs/tags/' + $calver, '${1}refs/tags/2099.01.01')
-        Assert-Equal 3 ([regex]::Matches($repinned, 'refs/tags/2099\.01\.01')).Count 'the Windows and bash verified URLs and the refresh URL all move together'
+        Assert-Equal 3 ([regex]::Matches($repinned, 'refs/tags/2099\.01\.01')).Count 'the Windows and bash verified URLs and the repair URL all move together'
     }
 }
 
@@ -472,14 +472,14 @@ Describe 'The bash verification snippet under <ShellName>' -ForEach $script:Shel
         if (-not $script:OpenSsl) { Set-ItResult -Skipped -Because 'openssl is not installed on this host; the snippet verifies with it'; return }
         $result = Invoke-BashSnippet -Case $_ -ShellPath $ShellPath
         Confirm-SnippetOutcome -Result $result -Case $_ -Shell $ShellName
-        if ($_.LastLine -eq 'refresh' -and $_.Expect -eq 'ran') {
-            Assert-Equal '--refresh' $result.Argv "the refresh variant passes --refresh ($ShellName)"
-            Assert-Equal '1' $result.Refresh "the refresh variant sets YURUNA_REFRESH=1 ($ShellName)"
+        if ($_.LastLine -eq 'repair' -and $_.Expect -eq 'ran') {
+            Assert-Equal '--repair' $result.Argv "the repair variant passes --repair ($ShellName)"
+            Assert-Equal '1' $result.Repair "the repair variant sets YURUNA_REPAIR=1 ($ShellName)"
         }
         if ($_.LastLine -eq 'install' -and $_.Expect -eq 'ran') {
             Assert-True ([string]::IsNullOrEmpty($result.Argv)) "the install form passes no argument ($ShellName)"
-            # The fixture clears YURUNA_REFRESH to empty so a parent value cannot leak in.
-            Assert-True ($result.Refresh -in @('', '<unset>')) "the install form carries no refresh signal ($ShellName)"
+            # The fixture clears YURUNA_REPAIR to empty so a parent value cannot leak in.
+            Assert-True ($result.Repair -in @('', '<unset>')) "the install form carries no repair signal ($ShellName)"
         }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42861ba7-21b4-45b8-96e4-6615fceded8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,13 +71,15 @@ BeforeAll {
         $ast = [Management.Automation.Language.Parser]::ParseFile($sourcePath, [ref]$null, [ref]$null)
         $bodyStart = $ast.ParamBlock.Extent.EndOffset
         $body = $source.Substring($bodyStart)
-        # Linux cannot construct WindowsIdentity. Only that native administrator
-        # check is supplied by the fixture; the production plan remains intact.
+        # Native platform admission is supplied by the fixture: WindowsIdentity
+        # is unavailable on Linux, and copied KVM plans also run on other hosts.
+        # The production plan and its validation remain intact.
         foreach ($statement in @($ast.EndBlock.Statements | Where-Object {
                     $_ -is [Management.Automation.Language.IfStatementAst] -and
-                    $_.Clauses[0].Item1.Extent.Text -match 'WindowsIdentity' } | Sort-Object { $_.Extent.StartOffset } -Descending)) {
+                    ($_.Clauses[0].Item1.Extent.Text -match 'WindowsIdentity' -or
+                        $_.Clauses[0].Item1.Extent.Text -ceq '-not $IsLinux') } | Sort-Object { $_.Extent.StartOffset } -Descending)) {
             $offset = $statement.Extent.StartOffset - $bodyStart
-            $body = $body.Remove($offset, $statement.Extent.Text.Length).Insert($offset, '# Administrator preflight supplied by the fixture.')
+            $body = $body.Remove($offset, $statement.Extent.Text.Length).Insert($offset, '# Native platform preflight supplied by the fixture.')
         }
         $prefix = @'
 $script:FixtureState = '__STATE__'

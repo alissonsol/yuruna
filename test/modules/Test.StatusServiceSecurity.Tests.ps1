@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 427642c0-6914-46fa-a327-c4a7e4ddc547
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,7 +51,8 @@ BeforeAll {
     foreach ($relative in @('test/test.config.yml', '.git/config', 'test/status/ssh/yuruna_ed25519',
             'test/status/runtime/host-config-ca/ca.pfx', 'test/status/runtime/host-config-ca/server.pfx',
             'test/status/runtime/client.p12', 'test/status/runtime/poolstorage.42.fixture.cifs.cred',
-            'test/status/runtime/status.json', 'test/status/runtime/host-refresh.state.json', 'README.md',
+            'test/status/runtime/status.json', 'test/status/runtime/host-repair.state.json', 'README.md',
+            'test/status/runtime/host-update.state.json', 'test/status/runtime/host-controller.state.json',
             # Private-key file names that sit where no directory rule looks: a
             # project's hand-off directory, a key beside an unrelated tree, the
             # OpenSSH default names at depth, and the runtime mount.
@@ -217,7 +218,9 @@ Describe 'status file authorization uses the resolved path' {
 
     It 'serves public progress and repository files' -TestCases @(
         @{ Path = '/runtime/status.json' }
-        @{ Path = '/runtime//host-refresh.state.json' }
+        @{ Path = '/runtime//host-repair.state.json' }
+        @{ Path = '/runtime/host-update.state.json' }
+        @{ Path = '/runtime/host-controller.state.json' }
         @{ Path = '/yuruna-repo/README.md' }
         @{ Path = '/log/cycle.txt' }
         # The hand-off files the lab reads back.
@@ -406,10 +409,11 @@ Describe 'control routes accept the scope that covers them' {
         @{ Route = 'control/cycle-resume'; Expected = 'pause' }
         @{ Route = 'control/start-cycle'; Expected = '' }
         @{ Route = 'control/test-config'; Expected = '' }
-        @{ Route = 'control/host-refresh'; Expected = '' }
+        @{ Route = 'control/host-repair'; Expected = '' }
         @{ Route = 'control/break-continue'; Expected = '' }
         @{ Route = 'control/lab-hold-release'; Expected = '' }
         @{ Route = 'control/host-diagnostic'; Expected = '' }
+        @{ Route = 'control/host-update'; Expected = '' }
     ) {
         param($Route, $Expected)
         ((Get-StatusControlRouteGuard -Path $Route -Method 'POST').ProofScope -join ',') | Should -BeExactly $Expected
@@ -430,7 +434,7 @@ Describe 'the control route guard table' {
         @{ Route = 'control/start-cycle' }, @{ Route = 'control/break-continue' }, @{ Route = 'control/test-caching-proxy-service' }
         @{ Route = 'control/host-diagnostic' }, @{ Route = 'control/step-pause' }, @{ Route = 'control/step-resume' }
         @{ Route = 'control/cycle-pause' }, @{ Route = 'control/cycle-resume' }, @{ Route = 'control/lab-hold-release' }
-        @{ Route = 'control/host-refresh' }
+        @{ Route = 'control/host-repair' }, @{ Route = 'control/host-update' }
     ) {
         param($Route)
         foreach ($method in @('GET', 'HEAD', 'POST', 'PUT', 'DELETE')) {
@@ -788,7 +792,7 @@ Add-PendingRequestBody -RequestContext $context -Loopback $true
         $result = & $probe $add.Extent.Text
         $result.AfterAnonymous | Should -Be 2 -Because 'a third anonymous body waits for a slot'
         @($result.Refused) | Should -Be @(503)
-        $result.Total | Should -Be 3 -Because 'a refresh is still read beside them'
+        $result.Total | Should -Be 3 -Because 'a repair is still read beside them'
     }
 }
 

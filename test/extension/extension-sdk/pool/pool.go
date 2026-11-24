@@ -64,44 +64,44 @@ const (
 	ControlUnknown  = "unknown"
 )
 
-// Host refresh capability, as the aggregator carries it ON THE WIRE. Every
+// Host repair capability, as the aggregator carries it ON THE WIRE. Every
 // value is lowercase with underscores because it crosses the listener,
 // aggregator, pool-control and UI boundaries, where one spelling per code is
 // what lets each surface branch on it.
 //
-// Refresh is a separate typed field rather than another Control state on
+// Repair is a separate typed field rather than another Control state on
 // purpose: Control keeps its last-known verdict across a missed probe, and a
-// disruptive capability must not. A refresh observation that is stale,
+// disruptive capability must not. A repair observation that is stale,
 // unreadable or absent reads as unavailable.
 const (
-	// RefreshProtocolVersion is the only capability protocol this SDK can act
+	// RepairProtocolVersion is the only capability protocol this SDK can act
 	// on; a host advertising another reads as unavailable.
-	RefreshProtocolVersion = 1
+	RepairProtocolVersion = 1
 
-	RefreshAvailable   = "available"
-	RefreshUnavailable = "unavailable"
+	RepairAvailable   = "available"
+	RepairUnavailable = "unavailable"
 
 	// Whether the host holds a verifier key for remote requests.
-	RefreshRemoteProvisioned = "provisioned"
-	RefreshRemoteMissing     = "missing"
-	RefreshRemoteInvalid     = "invalid"
-	RefreshRemoteUnqualified = "unqualified"
-	RefreshRemoteUnknown     = "unknown"
+	RepairRemoteProvisioned = "provisioned"
+	RepairRemoteMissing     = "missing"
+	RepairRemoteInvalid     = "invalid"
+	RepairRemoteUnqualified = "unqualified"
+	RepairRemoteUnknown     = "unknown"
 
-	RefreshStateIdle            = "idle"
-	RefreshStateActive          = "active"
-	RefreshStateRecoveryPending = "recovery_pending"
-	RefreshStateUnknown         = "unknown"
+	RepairStateIdle            = "idle"
+	RepairStateActive          = "active"
+	RepairStateRecoveryPending = "recovery_pending"
+	RepairStateUnknown         = "unknown"
 
-	// Why the aggregator reports a host's refresh as unavailable when the host
+	// Why the aggregator reports a host's repair as unavailable when the host
 	// itself did not say so.
-	RefreshReasonNotAdvertised           = "not_advertised"
-	RefreshReasonProtocolUnsupported     = "protocol_unsupported"
-	RefreshReasonCapabilityMalformed     = "capability_malformed"
-	RefreshReasonControlStatusUnreadable = "control_status_unreadable"
-	RefreshReasonHostUnreachable         = "host_unreachable"
-	RefreshReasonObservationExpired      = "observation_expired"
-	RefreshReasonNeverObserved           = "never_observed"
+	RepairReasonNotAdvertised           = "not_advertised"
+	RepairReasonProtocolUnsupported     = "protocol_unsupported"
+	RepairReasonCapabilityMalformed     = "capability_malformed"
+	RepairReasonControlStatusUnreadable = "control_status_unreadable"
+	RepairReasonHostUnreachable         = "host_unreachable"
+	RepairReasonObservationExpired      = "observation_expired"
+	RepairReasonNeverObserved           = "never_observed"
 )
 
 // Repair rung names. They are parameter vocabulary shared with the host's rung
@@ -117,24 +117,24 @@ const (
 	RungReboot          = "reboot"
 )
 
-// refreshRungNames is the whole ladder in Order: the index of a name is its
+// repairRungNames is the whole ladder in Order: the index of a name is its
 // Order. The host's rung declaration is the authority for this list, and a
 // suite on the host side reads this literal and compares it with that
 // declaration, so the two cannot drift silently.
-var refreshRungNames = [...]string{"probe", "reclaim", "start-if-stopped", "restart-if-hung", "restart-broker", "reapply-settings", "reinstall", "reboot"}
+var repairRungNames = [...]string{"probe", "reclaim", "start-if-stopped", "restart-if-hung", "restart-broker", "reapply-settings", "reinstall", "reboot"}
 
-// RefreshRungNames returns the eight rung names in Order. A copy, so no
+// RepairRungNames returns the eight rung names in Order. A copy, so no
 // importer can reorder the ladder another importer compares against.
-func RefreshRungNames() []string {
-	out := make([]string, len(refreshRungNames))
-	copy(out, refreshRungNames[:])
+func RepairRungNames() []string {
+	out := make([]string, len(repairRungNames))
+	copy(out, repairRungNames[:])
 	return out
 }
 
-// RefreshRungOrder is a rung's Order, and whether the name is a rung at all.
+// RepairRungOrder is a rung's Order, and whether the name is a rung at all.
 // Callers compare Order, never the name.
-func RefreshRungOrder(name string) (int, bool) {
-	for i, n := range refreshRungNames {
+func RepairRungOrder(name string) (int, bool) {
+	for i, n := range repairRungNames {
 		if n == name {
 			return i, true
 		}
@@ -142,14 +142,14 @@ func RefreshRungOrder(name string) (int, bool) {
 	return 0, false
 }
 
-// refreshReasonRE bounds a host-supplied reason code: a label-safe token short
+// repairReasonRE bounds a host-supplied reason code: a label-safe token short
 // enough that no host can grow a metric or a table cell with it.
-var refreshReasonRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
+var repairReasonRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,47}$`)
 
-// HostRefresh is one host's refresh capability as the aggregator last judged
+// HostRepair is one host's repair capability as the aggregator last judged
 // it. It carries no key, tag, proof or request id: the capability says whether
 // a remote request could be accepted, never how to make one.
-type HostRefresh struct {
+type HostRepair struct {
 	Protocol     int    `json:"protocol,omitempty"`
 	Availability string `json:"availability"`
 	// Ceiling is the highest rung the host can execute in the restart tier,
@@ -164,23 +164,23 @@ type HostRefresh struct {
 	AgeSeconds     int64 `json:"ageSeconds,omitempty"`
 }
 
-// UnobservedRefresh is the capability of a host nobody has read one from:
+// UnobservedRepair is the capability of a host nobody has read one from:
 // unavailable, with every enumerated field at its unknown value.
-func UnobservedRefresh() HostRefresh {
-	return HostRefresh{
-		Availability: RefreshUnavailable,
-		Reason:       RefreshReasonNeverObserved,
-		Remote:       RefreshRemoteUnknown,
-		State:        RefreshStateUnknown,
+func UnobservedRepair() HostRepair {
+	return HostRepair{
+		Availability: RepairUnavailable,
+		Reason:       RepairReasonNeverObserved,
+		Remote:       RepairRemoteUnknown,
+		State:        RepairStateUnknown,
 	}
 }
 
-// RemoteUsable reports whether a remote refresh request may be sent to the
+// RemoteUsable reports whether a remote repair request may be sent to the
 // host at all: a compatible protocol, an available capability, and a verifier
 // key on the host. An aggregator that predates the field decodes to the zero
 // value, which is never usable.
-func (r HostRefresh) RemoteUsable() bool {
-	return r.Protocol == RefreshProtocolVersion && r.Availability == RefreshAvailable && r.Remote == RefreshRemoteProvisioned
+func (r HostRepair) RemoteUsable() bool {
+	return r.Protocol == RepairProtocolVersion && r.Availability == RepairAvailable && r.Remote == RepairRemoteProvisioned
 }
 
 // Normalized clamps every field to its bounded vocabulary. The value arrives
@@ -188,9 +188,9 @@ func (r HostRefresh) RemoteUsable() bool {
 // reason or an available capability with no rung to climb reads as
 // unavailable rather than being passed through to a UI or a decision. An
 // absent capability (an aggregator that predates it) reads as never observed.
-func (r HostRefresh) Normalized() HostRefresh {
+func (r HostRepair) Normalized() HostRepair {
 	if r.Availability == "" {
-		return UnobservedRefresh()
+		return UnobservedRepair()
 	}
 	out := r
 	if out.ObservedUnixMs < 0 {
@@ -199,38 +199,38 @@ func (r HostRefresh) Normalized() HostRefresh {
 	if out.AgeSeconds < 0 {
 		out.AgeSeconds = 0
 	}
-	if _, ok := RefreshRungOrder(out.Ceiling); !ok {
+	if _, ok := RepairRungOrder(out.Ceiling); !ok {
 		out.Ceiling = ""
 	}
 	switch out.Remote {
-	case RefreshRemoteProvisioned, RefreshRemoteMissing, RefreshRemoteInvalid, RefreshRemoteUnqualified, RefreshRemoteUnknown:
+	case RepairRemoteProvisioned, RepairRemoteMissing, RepairRemoteInvalid, RepairRemoteUnqualified, RepairRemoteUnknown:
 	default:
-		out.Remote = RefreshRemoteUnknown
+		out.Remote = RepairRemoteUnknown
 	}
 	switch out.State {
-	case RefreshStateIdle, RefreshStateActive, RefreshStateRecoveryPending, RefreshStateUnknown:
+	case RepairStateIdle, RepairStateActive, RepairStateRecoveryPending, RepairStateUnknown:
 	default:
-		out.State = RefreshStateUnknown
+		out.State = RepairStateUnknown
 	}
-	demote := func(reason string) HostRefresh {
-		out.Availability, out.Reason = RefreshUnavailable, reason
+	demote := func(reason string) HostRepair {
+		out.Availability, out.Reason = RepairUnavailable, reason
 		return out
 	}
-	if out.Protocol != RefreshProtocolVersion {
-		return demote(RefreshReasonProtocolUnsupported)
+	if out.Protocol != RepairProtocolVersion {
+		return demote(RepairReasonProtocolUnsupported)
 	}
-	if out.Reason != "" && !refreshReasonRE.MatchString(out.Reason) {
-		return demote(RefreshReasonCapabilityMalformed)
+	if out.Reason != "" && !repairReasonRE.MatchString(out.Reason) {
+		return demote(RepairReasonCapabilityMalformed)
 	}
 	switch out.Availability {
-	case RefreshAvailable:
+	case RepairAvailable:
 		if out.Ceiling == "" {
-			return demote(RefreshReasonCapabilityMalformed)
+			return demote(RepairReasonCapabilityMalformed)
 		}
 		out.Reason = ""
-	case RefreshUnavailable:
+	case RepairUnavailable:
 	default:
-		return demote(RefreshReasonCapabilityMalformed)
+		return demote(RepairReasonCapabilityMalformed)
 	}
 	return out
 }
@@ -351,9 +351,9 @@ type Host struct {
 	PoolGUID       string `json:"poolGuid"`
 	// Control is the remote-control verdict: one of the Control* constants.
 	Control string `json:"control"`
-	// Refresh is the host's refresh capability. Status normalizes it, so an
-	// aggregator that predates the field yields UnobservedRefresh.
-	Refresh HostRefresh `json:"refresh"`
+	// Repair is the host's repair capability. Status normalizes it, so an
+	// aggregator that predates the field yields UnobservedRepair.
+	Repair HostRepair `json:"repair"`
 	// ActiveExtensions are the areas this host is ACTIVELY running, and
 	// ExtensionTargets the deep-link it advertises for each.
 	ActiveExtensions []string          `json:"activeExtensions"`
@@ -428,7 +428,7 @@ func (c *Client) Status(ctx context.Context) (Status, error) {
 	// scripts as fetch targets, and a value that is not an absolute http(s) URL
 	// is not one either consumer can use.
 	for i := range s.Hosts {
-		s.Hosts[i].Refresh = s.Hosts[i].Refresh.Normalized()
+		s.Hosts[i].Repair = s.Hosts[i].Repair.Normalized()
 		s.Hosts[i].BaseURL = SanitizeBaseURL(s.Hosts[i].BaseURL)
 		s.Hosts[i].StashBaseURL = SanitizeBaseURL(s.Hosts[i].StashBaseURL)
 		for area, target := range s.Hosts[i].ExtensionTargets {

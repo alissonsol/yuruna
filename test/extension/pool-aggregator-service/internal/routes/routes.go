@@ -75,7 +75,7 @@ type Config struct {
 	HTTPClient       *http.Client
 	LabRotate        time.Duration
 	Outbox           *loki.Outbox
-	RefreshTTL       time.Duration
+	RepairTTL        time.Duration
 	AnnounceTTL      time.Duration
 	IncidentN        int
 	IncidentWindow   time.Duration
@@ -99,7 +99,7 @@ type Server struct {
 	httpClient           *http.Client
 	labRotate            time.Duration
 	outbox               *loki.Outbox
-	refreshTTL           time.Duration
+	repairTTL            time.Duration
 	announceTtl          time.Duration
 	incidentN            int
 	incidentWin          time.Duration
@@ -118,7 +118,7 @@ func New(cfg Config) *Server {
 	return &Server{
 		Sender: feed.Sender{Outbox: cfg.Outbox},
 		st:     cfg.State, pool: cfg.Pool, authToken: cfg.AuthToken, lokiURL: cfg.LokiURL, httpClient: cfg.HTTPClient,
-		labRotate: cfg.LabRotate, outbox: cfg.Outbox, refreshTTL: cfg.RefreshTTL, announceTtl: cfg.AnnounceTTL,
+		labRotate: cfg.LabRotate, outbox: cfg.Outbox, repairTTL: cfg.RepairTTL, announceTtl: cfg.AnnounceTTL,
 		incidentN: cfg.IncidentN, incidentWin: cfg.IncidentWindow, crossWin: cfg.CrossWindow,
 		archiveRoot: cfg.ArchiveRoot, hostMetricsPort: cfg.HostMetricsPort, deepLinkLookback: cfg.DeepLinkLookback,
 		resolveFolderByIndex: cfg.FolderByIndex, parseListing: cfg.ParseListing,
@@ -142,9 +142,9 @@ type poolStatusEntry struct {
 	*hostView
 	StashBaseURL    string   `json:"stashBaseUrl,omitempty"`
 	PreviousHostIDs []string `json:"previousHostIds,omitempty"`
-	// Refresh is HostView.RefreshView at serialization time, so pool-status
+	// Repair is HostView.RepairView at serialization time, so pool-status
 	// never publishes a capability past its observation window.
-	Refresh sdkpool.HostRefresh `json:"refresh"`
+	Repair sdkpool.HostRepair `json:"repair"`
 }
 
 func (s *Server) HandleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -187,7 +187,7 @@ func (s *Server) HandlePoolStatus(w http.ResponseWriter, r *http.Request) {
 			stash := cands[announceKey(id, StashArea)].Target
 			previous := view.RetiredIDs(id)
 			sort.Strings(previous)
-			out.Hosts = append(out.Hosts, poolStatusEntry{hostView: hv, StashBaseURL: stash, PreviousHostIDs: previous, Refresh: hv.RefreshView(now, s.refreshTTL)})
+			out.Hosts = append(out.Hosts, poolStatusEntry{hostView: hv, StashBaseURL: stash, PreviousHostIDs: previous, Repair: hv.RepairView(now, s.repairTTL)})
 		}
 		annKeys := make([]string, 0, len(view.Announce))
 		for k := range view.Announce {
@@ -438,7 +438,7 @@ func (s *Server) MetricsWithArchiveProbe(w http.ResponseWriter, readable func(st
 	// The share may stall during reconnect. Probe the fixed startup path before
 	// locking live state so discovery and control remain usable during outages.
 	in := metrics.Inputs{
-		Pool: s.pool, Now: time.Now(), RefreshTTL: s.refreshTTL, CrossWindow: s.crossWin,
+		Pool: s.pool, Now: time.Now(), RepairTTL: s.repairTTL, CrossWindow: s.crossWin,
 		ArchiveConfigured: s.archiveRoot != "",
 		LabTokenLive:      s.labRotate > 0 && s.authToken != "",
 	}

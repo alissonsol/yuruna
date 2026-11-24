@@ -138,8 +138,8 @@ const DataheILstatus = `{
   "status.api_forbidden_not_served": "אסור (אינו קובץ שמוגש)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "אסור: יעד הבדיקה חייב להיות כתובת פרטית (loopback⁦/RFC1918/link-local⁩) או כתובת IP המוגדרת עבור המטמון",
   "status.api_guest_channel_key_absent": "למארח זה אין עדיין מפתח ערוץ אורחים; הוא נוצר כשהמארח מייצר לראשונה seed של אורח",
-  "status.api_host_refresh_authorization_refused": [
-    "ההרשאה לרענון נדחתה (",
+  "status.api_host_repair_authorization_refused": [
+    "ההרשאה לתיקון נדחתה (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -147,8 +147,8 @@ const DataheILstatus = `{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "פעולה אחרת במארח נמצאת בביצוע",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "פעולה אחרת במארח נמצאת בביצוע",
+  "status.api_host_repair_request_closed": [
     "מזהה הבקשה הזה כבר סגור (",
     {
       "arg": "state",
@@ -157,15 +157,36 @@ const DataheILstatus = `{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "מזהה הבקשה הזה כבר שימש עם הגדרות אחרות",
-  "status.api_host_refresh_unavailable": [
-    "רענון המארח אינו זמין במארח זה (",
+  "status.api_host_repair_request_conflict": "מזהה הבקשה הזה כבר שימש עם הגדרות אחרות",
+  "status.api_host_repair_unavailable": [
+    "תיקון המארח אינו זמין במארח זה (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "הרשאת עדכון המארח נדחתה (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "עדכון מארח מתבצע במארח זה",
+  "status.api_host_update_controller_absent": "אין בקר מארח פועל במארח זה; דבר לא נוסף לתור",
+  "status.api_host_update_proof_missing": "עדכון מארח ממכונה אחרת דורש הוכחת עדכון מ-pool-control; דבר לא נוסף לתור",
+  "status.api_host_update_scope_unavailable": [
+    "בקר המארח אינו מריץ את ההיקף ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; דבר לא נוסף לתור"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "מפתח אימות פנימי אינו מוגדר במארח זה",
   "status.api_internal_error": "הבקשה נכשלה במארח; עיינו בקובץ ⁦server.err⁩",
@@ -344,8 +365,8 @@ const DataheILstatus = `{
   "status.config": "תצורה",
   "status.config_field_alwaysredownload": "הורדה מחדש תמיד (alwaysRedownload)",
   "status.config_field_armwindowhours": "חלון דריכה בשעות",
-  "status.config_field_autorefreshafterstalls": "רענון אוטומטי לאחר תקיעות (autoRefreshAfterStalls)",
   "status.config_field_autoremediation": "תיקון אוטומטי (autoRemediation)",
+  "status.config_field_autorepairafterstalls": "תיקון אוטומטי לאחר תקיעות (autoRepairAfterStalls)",
   "status.config_field_autoseed": "הזנה ראשונית אוטומטית",
   "status.config_field_bootdelayseconds": "השהיית אתחול בשניות (bootDelaySeconds)",
   "status.config_field_cachingproxyip": "כתובת IP של שרת מתווך עם מטמון (cachingProxyIp)",
@@ -455,7 +476,7 @@ const DataheILstatus = `{
     },
     ")"
   ],
-  "status.control_host_token_missing": "למארח זה אין עדיין אסימון מעבדה.",
+  "status.control_host_token_missing": "למארח זה אין עדיין מפתח אימות פנימי.",
   "status.control_instructions": [
     "מארח זה מקבל פקודות שליטה רק מדפדפן במארח עצמו (",
     {
@@ -463,7 +484,7 @@ const DataheILstatus = `{
       "type": "detail",
       "trust": "external"
     },
-    "), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק אסימון לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו ",
+    "), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק הוכחת שליטה לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו ",
     {
       "arg": "command",
       "type": "detail",
@@ -471,7 +492,7 @@ const DataheILstatus = `{
     },
     " עם הקוד מאריח אסימון המעבדה בלוח הבקרה."
   ],
-  "status.control_proof_expired": "פג תוקפו של אסימון השליטה בדף זה (תוקף האסימונים הוא 15 דקות).",
+  "status.control_proof_expired": "פג תוקפה של הוכחת השליטה בדף זה (תוקף ההוכחות הוא 15 דקות).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "פג תוקפה של הוכחת השליטה -- פתחו מחדש את המארח דרך הקישור בלוח הבקרה לפני השמירה. העריכות שלכם נשמרות עד שתעשו זאת.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "תוקפה של הוכחת השליטה יפוג בעוד ",
@@ -482,12 +503,12 @@ const DataheILstatus = `{
     },
     "s -- שמרו בקרוב, או פתחו מחדש את המארח דרך הקישור בלוח הבקרה לקבלת הוכחה חדשה."
   ],
-  "status.control_proof_invalid": "לא ניתן לאמת כאן את אסימון השליטה של דף זה — אסימון המעבדה השמור במארח כנראה שונה מהאסימון הנוכחי של המעבדה, לכן רשמו את המארח מחדש.",
-  "status.control_proof_missing": "דף זה נפתח ללא אסימון שליטה, ולכן לא נשלח אסימון.",
+  "status.control_proof_invalid": "לא ניתן לאמת כאן את הוכחת השליטה של דף זה — מפתח האימות הפנימי של מארח זה כנראה שונה מהמפתח הנוכחי של המעבדה, לכן רשמו את המארח מחדש באמצעות אסימון מעבדה.",
+  "status.control_proof_missing": "דף זה נפתח ללא הוכחת שליטה, ולכן לא נשלחה הוכחה.",
   "status.control_refused": "בקשת השליטה נדחתה.",
   "status.control_routes": "הגדרת נתיבי שליטה",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "למארח זה אין lab-auth-token, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת ",
+    "למארח זה אין מפתח אימות פנימי, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת ",
     {
       "arg": "address",
       "type": "token",
@@ -744,11 +765,11 @@ const DataheILstatus = `{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "⁦mirror.origin⁩",
-  "status.git_source_mirror_fresh": "⁦mirror.fresh⁩",
-  "status.git_source_mirror_stale": "⁦mirror.stale⁩",
-  "status.git_source_not_applicable": "⁦not.applicable⁩",
-  "status.git_source_origin_direct": "⁦remote.origin⁩",
+  "status.git_source_mirror_confirmed": "⁦mirror⁩",
+  "status.git_source_mirror_fresh": "⁦mirror fresh⁩",
+  "status.git_source_mirror_stale": "⁦mirror stale⁩",
+  "status.git_source_not_applicable": "⁦not applicable⁩",
+  "status.git_source_origin_direct": "⁦remote⁩",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -821,24 +842,24 @@ const DataheILstatus = `{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-DisposeObligation⁩.",
-  "status.host_refresh_action_elevate": "השלב הבא: התיקון דורש הרשאות מנהל; הריצו אותו במארח מתוך הפעלה עם הרשאות מוגברות.",
-  "status.host_refresh_action_grant_automation": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז רעננו שוב.",
-  "status.host_refresh_action_gui_session": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז רעננו שוב.",
-  "status.host_refresh_action_install_client": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז רעננו שוב.",
-  "status.host_refresh_action_resume_request": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.",
-  "status.host_refresh_action_start_runner": "השלב הבא: הפעילו את רכיב ההרצה במארח; לא נמצאה הפעלה מתועדת שניתן להשתמש בה להפעלתו מחדש.",
-  "status.host_refresh_authorization_refused": [
-    "רענון זה דורש הוכחת הרשאה לרענון שאינה קיימת בדף זה (",
+  "status.host_repair_action_dispose_obligations": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-DisposeObligation⁩.",
+  "status.host_repair_action_elevate": "השלב הבא: התיקון דורש הרשאות מנהל; הריצו אותו במארח מתוך הפעלה עם הרשאות מוגברות.",
+  "status.host_repair_action_grant_automation": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז תקנו שוב.",
+  "status.host_repair_action_gui_session": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז תקנו שוב.",
+  "status.host_repair_action_install_client": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז תקנו שוב.",
+  "status.host_repair_action_resume_request": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.",
+  "status.host_repair_action_start_runner": "השלב הבא: הפעילו את רכיב ההרצה במארח; לא נמצאה הפעלה מתועדת שניתן להשתמש בה להפעלתו מחדש.",
+  "status.host_repair_authorization_refused": [
+    "תיקון זה דורש הוכחת תיקון שאינה קיימת בדף זה (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). השתמשו בדף המצב במארח עצמו, או בפעולת הרענון של בקרת המאגר."
+    "). השתמשו בדף המצב במארח עצמו, או בפעולת התיקון של בקרת המאגר."
   ],
-  "status.host_refresh_busy": [
-    "רענון מארח אחר (",
+  "status.host_repair_busy": [
+    "תיקון מארח אחר (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -846,8 +867,8 @@ const DataheILstatus = `{
     },
     ") מתבצע כעת; התקדמותו מוצגת."
   ],
-  "status.host_refresh_check_host": "הריצו במארח pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "הריצו במארח pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי.",
+  "status.host_repair_closed": [
     "בקשה ",
     {
       "arg": "requestId",
@@ -860,16 +881,16 @@ const DataheILstatus = `{
       "type": "identifier",
       "trust": "external"
     },
-    "); התחילו רענון חדש."
+    "); התחילו תיקון חדש."
   ],
-  "status.host_refresh_confirm": [
+  "status.host_repair_confirm": [
     "מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש, ורכיב ההרצה מופעל מחדש. התהליך עשוי להימשך עד ",
     {
       "arg": "minutes",
       "type": "integer",
       "trust": "internal"
     },
-    " דקות. לרענן מארח זה עד לשלב ",
+    " דקות. לתקן מארח זה עד לשלב ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -877,18 +898,9 @@ const DataheILstatus = `{
     },
     "?"
   ],
-  "status.host_refresh_conflict": [
-    "בקשה ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " כבר נשלחה עם הגדרות שונות; התחילו רענון חדש."
-  ],
-  "status.host_refresh_launcher_failed": "המארח לא הצליח להפעיל את תהליך הרענון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב.",
-  "status.host_refresh_lost": [
-    "רענון ",
+  "status.host_repair_launcher_failed": "המארח לא הצליח להפעיל את תהליך התיקון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב.",
+  "status.host_repair_lost": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -900,11 +912,11 @@ const DataheILstatus = `{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או ברענון המארח כדי להתחיל רענון חדש."
+    " שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או בתיקון המארח כדי להתחיל תיקון חדש."
   ],
-  "status.host_refresh_note": "מתקן רכיב הרצה או מנהל מכונות וירטואליות שנתקע במארח זה. מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש.",
-  "status.host_refresh_progress": [
-    "רענון ",
+  "status.host_repair_note": "מתקן רכיב הרצה או מנהל מכונות וירטואליות שנתקע במארח זה. מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש.",
+  "status.host_repair_progress": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -936,19 +948,11 @@ const DataheILstatus = `{
     },
     " שניות."
   ],
-  "status.host_refresh_recovery_pending": "עדיין נדרש שחזור של שירותים או של רכיב ההרצה. ניסיון חוזר ממשיך את אותה בקשה.",
-  "status.host_refresh_rejected": [
-    "המארח דחה את בקשת הרענון: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו ברענון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩.",
-  "status.host_refresh_retry": "ניסיון חוזר",
-  "status.host_refresh_stale": [
-    "רענון ",
+  "status.host_repair_recovery_pending": "עדיין נדרש שחזור של שירותים או של רכיב ההרצה. ניסיון חוזר ממשיך את אותה בקשה.",
+  "status.host_repair_remote_viewer": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו בתיקון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩.",
+  "status.host_repair_retry": "ניסיון חוזר",
+  "status.host_repair_stale": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -960,14 +964,13 @@ const DataheILstatus = `{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות. ייתכן שתהליך הרענון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
+    " שניות. ייתכן שתהליך התיקון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
   ],
-  "status.host_refresh_start": "רענון המארח",
-  "status.host_refresh_start_cycle_busy": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים.",
-  "status.host_refresh_submitting": "בקשת הרענון נשלחת...",
-  "status.host_refresh_title": "רענון המארח",
-  "status.host_refresh_unavailable": [
-    "רענון המארח אינו זמין במארח זה (",
+  "status.host_repair_start": "תיקון המארח",
+  "status.host_repair_start_cycle_busy": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים.",
+  "status.host_repair_title": "תיקון המארח",
+  "status.host_repair_unavailable": [
+    "תיקון המארח אינו זמין במארח זה (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -975,8 +978,8 @@ const DataheILstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "רענון ",
+  "status.host_repair_verdict_abandoned": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -984,8 +987,8 @@ const DataheILstatus = `{
     },
     " נזנח לאחר ניסיונות חוזרים; רשומת השחזור שלו נשמרת במארח."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "רענון ",
+  "status.host_repair_verdict_already_healthy": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -993,8 +996,8 @@ const DataheILstatus = `{
     },
     " הסתיים: המארח כבר היה תקין, ולכן לא בוצעו שינויים."
   ],
-  "status.host_refresh_verdict_failed": [
-    "רענון ",
+  "status.host_repair_verdict_failed": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1008,8 +1011,8 @@ const DataheILstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "רענון ",
+  "status.host_repair_verdict_partial": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1023,8 +1026,8 @@ const DataheILstatus = `{
     },
     "); חלק מהשירותים או רכיב ההרצה עדיין דורשים טיפול."
   ],
-  "status.host_refresh_verdict_refused": [
-    "רענון ",
+  "status.host_repair_verdict_refused": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1038,8 +1041,8 @@ const DataheILstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "רענון ",
+  "status.host_repair_verdict_repaired": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1047,8 +1050,8 @@ const DataheILstatus = `{
     },
     " הסתיים: המארח תוקן ורכיב ההרצה מוכן."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "רענון ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1056,8 +1059,8 @@ const DataheILstatus = `{
     },
     " הסתיים: מנהל המכונות הווירטואליות עדיין אינו מגיב."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "רענון ",
+  "status.host_repair_verdict_unknown": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1071,17 +1074,17 @@ const DataheILstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "רענון ",
+  "status.host_repair_waiting": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " התקבל; ממתינים לדיווח הראשון מתהליך הרענון."
+    " התקבל; ממתינים לדיווח הראשון מתהליך התיקון."
   ],
-  "status.host_refresh_waiting_long": [
-    "רענון ",
+  "status.host_repair_waiting_long": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1093,8 +1096,545 @@ const DataheILstatus = `{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות. ייתכן שהפעלת תהליך הרענון נכשלה; בדקו את המארח."
+    " שניות. ייתכן שהפעלת תהליך התיקון נכשלה; בדקו את המארח."
   ],
+  "status.host_request_conflict": [
+    "בקשה ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " כבר נשלחה עם הגדרות שונות; התחילו בקשה חדשה."
+  ],
+  "status.host_request_rejected": [
+    "המארח דחה את הבקשה: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "הבקשה נשלחת...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "הצעד הבא: בדקו את המארח ופעלו בו.",
+      "end_one_shot": "הצעד הבא: סיימו את ההפעלה החד-פעמית במארח, ואז לחצו שוב.",
+      "other": [
+        "הצעד הבא: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "הצעד הבא: תנו לרכיב ההרצה את כלל ה-sudo שלו במארח, ואז לחצו שוב.",
+      "provision_elevation_macos": [
+        "הצעד הבא: במארח, הריצו ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ממסוף של הפעלת שולחן העבודה וענו על השאלות שלו; הוא מתקין את רשומת ה-sudoers שעדכוני מארח משתמשים בה. לאחר מכן לחצו שוב."
+      ],
+      "read_remarks": "הצעד הבא: קראו את ההערות.",
+      "reboot_host": "הצעד הבא: הפעילו מחדש את Windows במארח, ואז הפעילו את רכיב ההרצה.",
+      "release": [
+        "הצעד הבא: כדי לסיים אותו, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "הצעד הבא: שחררו את ה-VM שנשמרה לאבחון, ואז לחצו שוב.",
+      "repair_checkout": "הצעד הבא: תקנו את עותק הקוד במארח; המארח ממשיך לנסות.",
+      "retry_or_drain_now": [
+        "הצעד הבא: לחצו שוב, או סיימו את המחזור עכשיו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "הצעד הבא: הפעילו את רכיב ההרצה במארח.",
+      "stop_runner_by_hand": "הצעד הבא: עצרו את רכיב ההרצה במארח ידנית."
+    }
+  },
+  "status.host_update_blocks": [
+    "עדכון מארח (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") מתבצע; נסו שוב לאחר שיסתיים."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "תיקון מארח (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") מתבצע; נסו שוב לאחר שיסתיים."
+      ],
+      "host_update": [
+        "עדכון מארח אחר (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") מתבצע; מוצגת ההתקדמות שלו."
+      ],
+      "other": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים."
+    }
+  },
+  "status.host_update_confirm": [
+    "לעדכן את המארח (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? רכיב ההרצה ייעצר כשהמחזור הנוכחי יסתיים ויופעל מחדש על הקוד הנוכחי; העדכון מוותר לאחר ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "רכיב ההרצה הופעל ללא מסוף.",
+      "other": [
+        "המסוף של רכיב ההרצה: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "כדי לפתוח את המסוף של רכיב ההרצה, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "המסוף של רכיב ההרצה הוא חלון משלו בשולחן העבודה של חשבון הבדיקה: פתחו אותו ליד המכונה, או דרך חיבור לשולחן עבודה מרוחק להפעלה זו."
+    }
+  },
+  "status.host_update_countdown": [
+    "שירות הסטטוס מופעל מחדש; צפוי לחזור בעוד ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " שניות."
+  ],
+  "status.host_update_cycle_time": [
+    "המחזור הנוכחי רץ כבר ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; מחזורים אחרונים נמשכו כ-",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "עדיין נדרש במארח: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "המחזור הראשון לאחר העדכון נכשל.",
+      "other": "ממתין למחזור הראשון לאחר העדכון.",
+      "pass": "המחזור הראשון לאחר העדכון עבר."
+    }
+  },
+  "status.host_update_lost": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": המארח כבר אינו מדווח עליו, ולכן תוצאתו אינה ידועה כאן; בדקו את המארח."
+  ],
+  "status.host_update_note": [
+    "מעדכן את הקוד של מארח זה ומפעיל מחדש את רכיב ההרצה כשהמחזור הנוכחי מסתיים, ומוותר לאחר ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": שלב ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " מתוך ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), מוגבל ל-",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ממתין בתור; הוא יתחיל כשהמחזור הנוכחי יסתיים."
+  ],
+  "status.host_update_remarks": [
+    "הערות: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "עדכון המארח פותח את pool-control בכתובת ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", שחותם על הבקשה ומחזיר אתכם לכאן."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "התקנה מחדש של תלויות והגדרות, ואז הפעלה מחדש",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "הפעלה מחדש של רכיב ההרצה על הקוד הנוכחי"
+    }
+  },
+  "status.host_update_stale": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": אין דיווח זה ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " שניות; בדקו את המארח."
+  ],
+  "status.host_update_start": "עדכון המארח",
+  "status.host_update_title": "עדכון המארח",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "אין בקר מארח שרץ במארח זה. כדי להגדיר אחד, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "עדכון מארח מחזיק את רכיב ההרצה של מארח זה ואין בקר מארח פועל. הריצו ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " פעם נוספת ממסוף של הפעלת שולחן העבודה והשאירו כמו שהוא רכיב הרצה שפועל: הפעלה זו נעצרת בשער המריץ ומפעילה את הבקר, שממשיך את העדכון."
+      ],
+      "controller_absent_macos": [
+        "אין בקר מארח שרץ במארח זה. ב-macOS הפעלת רכיב ההרצה מפעילה אותו: הריצו ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ממסוף של הפעלת שולחן העבודה, או עצרו רכיב הרצה פועל אחרי המחזור שלו והפעילו אותו שוב בדרך זו. במארח שמעולם לא הוכן לעדכוני מארח, הריצו קודם את ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "."
+      ],
+      "host_type": "עדכוני מארח עדיין אינם זמינים בסוג מארח זה.",
+      "journal_unreadable": "המארח אינו יכול לקרוא את יומן הפעולות שלו; בדקו את המארח.",
+      "listener_dependency_missing": "שירות הסטטוס לא טען את מה שעדכוני מארח צריכים; הפעילו אותו מחדש במארח.",
+      "other": [
+        "עדכוני מארח אינם זמינים במארח זה (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "ממכונה אחרת הדף הזה רק עוקב אחר עדכון מארח; עד ש-",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " יותקן במארח, לחצו שם על עדכון המארח."
+      ],
+      "scope_unavailable": "המארח אינו יכול להריץ כעת את ההיקף שנבחר.",
+      "session_unusable": [
+        "ההפעלה של בקר המארח אינה יכולה להפעיל רכיב הרצה תקין: היא אינה הפעלת שולחן העבודה, או שחסרה בה הרשאת פרטיות. במארח, סיימו את ההפעלה yuruna-controller באמצעות ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (תחת screen, סיימו את ההפעלה yuruna-controller ש-",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " מציג), עצרו רכיב הרצה פועל אחרי המחזור שלו, והפעילו שוב את רכיב ההרצה ממסוף של הפעלת שולחן העבודה שיש לו את ההרשאות."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ויתר: המחזור הנוכחי נמשך יותר מזמן ההמתנה. דבר לא השתנה."
+      ],
+      "failed_restored": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " לא הושלם (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); המארח שוחזר."
+      ],
+      "other": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים בתוצאה שהדף הזה אינו מזהה (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים, אבל יש להפעיל מחדש את Windows לפני שה-hypervisor יוכל לרוץ, ולכן רכיב ההרצה לא הופעל."
+      ],
+      "recovering": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": רכיב ההרצה עדיין אינו רץ; המארח ממשיך לנסות (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": רכיב ההרצה עדיין אינו רץ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), ואין בקר מארח פועל שינסה שוב."
+      ],
+      "refused": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " נדחה; דבר לא השתנה (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " שוחרר במארח."
+      ],
+      "stop_failed": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": לא ניתן היה לעצור את רכיב ההרצה, ולכן דבר לא הופעל."
+      ],
+      "superseded": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הוחלף על ידי ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים; רכיב ההרצה מריץ את הקוד הנוכחי."
+      ],
+      "updated_not_started": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים; רכיב ההרצה נעצר לפניו, ולכן לא הופעל."
+      ],
+      "updated_with_remarks": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים עם הערות; רכיב ההרצה מריץ את הקוד הנוכחי."
+      ]
+    }
+  },
   "status.host_value1": [
     "מארח: ",
     {
@@ -1571,8 +2111,8 @@ const DataheILstatus = `{
     },
     ", הפעילו מחדש את המכונה הווירטואלית ואז המשיכו את הרצף"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "רענון מארח (",
+  "status.start_cycle_blocked_by_repair": [
+    "תיקון מארח (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1662,7 +2202,7 @@ const DataheILstatus = `{
   "status.testing_caching_proxy_service_from_host": "מתבצעת בדיקת שירות מתווך המטמון מהמארח…",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "הארכיון נבנה מיומני השרת בלבד ומורד למחשב זה. לא נכללים נתונים מהפעלת הגלישה הנוכחית.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "תוקף הוכחת השליטה פג. פתחו מחדש את המארח הזה דרך הקישור בלוח הבקרה כדי לקבל הוכחה חדשה.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות lab-auth-token שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות מפתח אימות פנימי שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "המארח לא הצליח לטעון את מאמת הוכחת השליטה שלו; בדקו את היומן של status service.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "תוקף חלונית השיתוף פג בזמן שהמארח ארז את התיקייה. ",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "הדפדפן הזה לא הצליח לצרף את הקובץ להודעה בעצמו. ",

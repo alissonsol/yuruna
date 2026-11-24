@@ -408,6 +408,21 @@ sudo -u postgres psql -c "SELECT version();"
 Download guides: [Ubuntu](https://www.postgresql.org/download/linux/ubuntu/) -
 [Red Hat](https://www.postgresql.org/download/linux/redhat/).
 
+<a id="42ec97cd-001c"></a>
+
+### Browser
+
+Installs [Google Chrome](https://www.google.com/chrome/) from Google's signed apt
+repository, on amd64 and arm64, for the page steps of a sequence.
+
+| Guest | Command |
+|---|---|
+| **Ubuntu Server 24.04 and 26.04** | `E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/shared/ubuntu.browser.sh` |
+
+A page step reaches pages on the guest itself (`localhost`) and on lab addresses.
+A page that needs external HTTPS through the lab's intercepting proxy is not promised
+to load: no proxy certificate authority is imported into the browser.
+
 <a id="42ec97cd-0012"></a>
 
 ## Credentials
@@ -695,6 +710,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

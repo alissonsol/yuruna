@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -869,6 +869,67 @@ function Stop-YurunaTestHttpResponder {
     return [string[]]$requests
 }
 
+function Enter-YurunaTestHome {
+    <#
+    .SYNOPSIS
+    Points this process, and every process it starts, at a scratch home
+    directory, so a suite never reads or changes the operator's per-user state.
+    .DESCRIPTION
+    The private state root and everything kept under it -- the runner gate,
+    the service census, the host-operation journal and lock -- resolve under
+    $HOME/.yuruna. A suite that reaches them under the real home reads the
+    live host's gate, so a closed gate or an earlier root left beside the
+    current one fails the suite, and resolving the root can move the
+    operator's own records to their current location.
+
+    $HOME is read-only and set once, at startup, from HOME on Linux and macOS
+    and from USERPROFILE on Windows. This rebinds the variable in the global
+    scope, where every module reads it, and sets both environment entries, so
+    a child process derives the same home. A path that starts with ~ resolves
+    through the FileSystem provider's own home, not through $HOME, so that
+    moves too. Call it in the suite's top-level BeforeAll before importing a
+    module that reads $HOME as it loads, and hand the result to
+    Exit-YurunaTestHome in the top-level AfterAll.
+    .OUTPUTS
+    [pscustomobject] @{ Path; Home; ProviderHome; Environment }: the scratch
+    home, the previous $HOME, the previous FileSystem provider home and the
+    saved environment entries.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test scaffold: points the suite process at a scratch home that Exit-YurunaTestHome undoes.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $path = New-YurunaTestTempDir -Prefix 'yrn-home'
+    $saved = Save-YurunaTestEnvironment -Name @('HOME', 'USERPROFILE')
+    $previous = (Get-Variable -Name HOME -Scope Global).Value
+    $fileSystem = Get-PSProvider -PSProvider FileSystem
+    $providerHome = $fileSystem.Home
+    $env:HOME = $path
+    $env:USERPROFILE = $path
+    Set-Variable -Name HOME -Value $path -Scope Global -Force
+    $fileSystem.Home = $path
+    return [pscustomobject]@{ Path = $path; Home = $previous; ProviderHome = $providerHome; Environment = $saved }
+}
+
+function Exit-YurunaTestHome {
+    <#
+    .SYNOPSIS
+    Undoes Enter-YurunaTestHome: $HOME, the FileSystem provider home, HOME
+    and USERPROFILE get their previous values back and the scratch home is
+    removed.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test teardown: restores the suite process home and removes the scratch one.')]
+    [CmdletBinding()]
+    param([Parameter(Position = 0)][AllowNull()][psobject]$TestHome)
+    if ($null -eq $TestHome) { return }
+    Set-Variable -Name HOME -Value $TestHome.Home -Scope Global -Force
+    (Get-PSProvider -PSProvider FileSystem).Home = $TestHome.ProviderHome
+    Restore-YurunaTestEnvironment -Saved $TestHome.Environment
+    Remove-YurunaTestTempDir $TestHome.Path
+}
+
 function Enter-TranslationTestEnvironment {
     <# .SYNOPSIS
     Snapshots all translation engines and disables external engines for local fixture work.
@@ -989,6 +1050,79 @@ function Stop-YurunaTestBrowserProfile {
         if ($running.Count) { Start-Sleep -Milliseconds 200 }
     } while ($running.Count -and [DateTime]::UtcNow -lt $deadline)
     return $stopped
+}
+
+function Start-YurunaTestBrowser {
+    <#
+    .SYNOPSIS
+        Starts a headless browser on a fresh profile and returns its DevTools endpoint.
+    .DESCRIPTION
+        The profile turns off network prediction before the browser starts: a
+        speculative connection that sends no request holds the one-at-a-time
+        suite responder for its whole read timeout. A failure stops what was
+        started and removes the profile before it rethrows. End the browser
+        with Stop-YurunaTestBrowser.
+    .OUTPUTS
+        [pscustomobject] Browser, Process, ProfileDir, Port, Endpoint.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Starts a browser on a profile directory this module creates for one test.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$Browser, [int]$TimeoutSeconds = 45)
+    $browserProfile = New-YurunaTestTempDir -Prefix 'yuruna-browser-profile'
+    $process = $null
+    try {
+        $null = New-Item -ItemType Directory -Force -Path (Join-Path $browserProfile 'Default')
+        [IO.File]::WriteAllText((Join-Path $browserProfile 'Default/Preferences'), '{"net":{"network_prediction_options":2}}', [Text.ASCIIEncoding]::new())
+        $start = [Diagnostics.ProcessStartInfo]::new($Browser)
+        foreach ($argument in @('--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run', '--no-default-browser-check',
+                "--user-data-dir=$browserProfile", '--remote-debugging-port=0', 'about:blank')) { $start.ArgumentList.Add($argument) }
+        $start.UseShellExecute = $false
+        $process = [Diagnostics.Process]::Start($start)
+        $endpoint = Wait-YurunaTestBrowserEndpoint -PortFile (Join-Path $browserProfile 'DevToolsActivePort') -Deadline ([DateTime]::UtcNow.AddSeconds($TimeoutSeconds))
+        return [pscustomobject]@{
+            Browser    = $Browser
+            Process    = $process
+            ProfileDir = $browserProfile
+            Port       = ([Uri]$endpoint).Port
+            Endpoint   = $endpoint
+        }
+    } catch {
+        Stop-YurunaTestBrowser -Session ([pscustomobject]@{ Browser = $Browser; Process = $process; ProfileDir = $browserProfile })
+        throw
+    }
+}
+
+function Stop-YurunaTestBrowser {
+    <#
+    .SYNOPSIS
+        Ends a browser that Start-YurunaTestBrowser started and removes its profile, never throwing.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Stops only a browser this module started and removes the profile directory it created.')]
+    [CmdletBinding()]
+    param([AllowNull()][object]$Session)
+    if ($null -eq $Session) { return }
+    $process = $Session.Process
+    if ($process) {
+        try {
+            if (-not $process.HasExited) { $process.Kill($true); [void]$process.WaitForExit(5000) }
+        } catch {
+            Write-Verbose "The browser process was not stopped: $($_.Exception.Message)"
+        }
+    }
+    if ($Session.ProfileDir) {
+        try {
+            $null = Stop-YurunaTestBrowserProfile -Browser ([string]$Session.Browser) -ProfileDir ([string]$Session.ProfileDir)
+        } catch {
+            Write-Verbose "The browsers of the profile were not stopped: $($_.Exception.Message)"
+        }
+    }
+    if ($process) {
+        try { $process.Dispose() } catch { Write-Verbose "The browser process was not released: $($_.Exception.Message)" }
+    }
+    Remove-YurunaTestTempDir ([string]$Session.ProfileDir) -Attempts 10
 }
 
 function Get-YurunaTestBrowserDomCdp {
@@ -1131,7 +1265,7 @@ function Invoke-YurunaTestBrowserResult {
     }
 }
 
-Export-ModuleMember -Function Get-YurunaTestBrowser, Get-YurunaTestBrowserDom, Invoke-YurunaTestBrowserResult, Save-YurunaTestEnvironment, Restore-YurunaTestEnvironment, Enter-TranslationTestEnvironment, Get-YurunaTestCommandArgumentAst, Get-YurunaTestShellFunction, Invoke-YurunaTestShell, `
+Export-ModuleMember -Function Get-YurunaTestBrowser, Start-YurunaTestBrowser, Stop-YurunaTestBrowser, Get-YurunaTestBrowserDom, Invoke-YurunaTestBrowserResult, Save-YurunaTestEnvironment, Restore-YurunaTestEnvironment, Enter-YurunaTestHome, Exit-YurunaTestHome, Enter-TranslationTestEnvironment, Get-YurunaTestCommandArgumentAst, Get-YurunaTestShellFunction, Invoke-YurunaTestShell, `
     New-YurunaTestTcpListener, Get-YurunaTestFreePort, New-YurunaTestSocketPair, New-YurunaTestHttpReply, Start-YurunaTestHttpResponder, Stop-YurunaTestHttpResponder, `
     Assert-True, Assert-False, Assert-Equal, Assert-StringEqual, Assert-NotEqual, `
     Assert-Null, Assert-NotNull, Assert-Match, Assert-Throw, Assert-NoFinding, `

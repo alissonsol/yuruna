@@ -52,8 +52,8 @@ in a module rather than inline in
 call-op + `Set-RunnerState` exercises the state-transition sequence without
 spawning a real inner pwsh.
 
-While a host refresh repairs the host, every one of these steps is held; see
-[Host refresh and the runner](#host-refresh-and-the-runner).
+While a host repair runs, every one of these steps is held; see
+[Host repair and the runner](#host-repair-and-the-runner).
 
 A framework update failure in the outer loop is a yellow preflight failure. Its retained attempt
 record explains the failed update, while the previous completed cycle keeps its
@@ -218,8 +218,8 @@ A fresh start runs every refusal -- these two, the elevation check, and
 the one-shot lease below -- before the boot recovery and before it stops
 the runner it would replace: a start that is going to refuse must leave
 the other runner and its runtime state as they were. A start resumed by a
-host refresh runs them once it owns `runner.pid`.
-Either way a refusal records that the start's launch ended cleanly, so a refresh
+host repair runs them once it owns `runner.pid`.
+Either way a refusal records that the start's launch ended cleanly, so a repair
 does not take it for a crashed runner to restart -- except while a live
 runner owns `runner.pid`, whose launch record is that runner's.
 
@@ -231,10 +231,14 @@ again right after it writes `runner.pid`, because the one-shot entry
 points take the lease first and then look for `runner.pid`: of two starts
 at the same moment, at least one sees the other. A lease whose holder
 cannot be proven alive or gone is reported and does not block the runner.
-A host refresh reads the lease each time it has closed the refresh gate
+A host repair reads the lease each time it has closed the runner gate
 before a repair step, and runs no step while a live process holds it
 (reason code `oneshot-active`); an unproven holder is reported once and
-does not stop the repair.
+does not stop the repair. A workload session
+(`test/service/Invoke-WorkloadSession.ps1`) holds the same lease from
+session start to session end, so the runner does not start and a host
+repair runs no repair step while a session is open; the session has no
+idle expiry.
 
 <a id="42f909ad-0009"></a>
 
@@ -379,14 +383,14 @@ it as `-CycleGeneration` and hands it to the inner as
 `YURUNA_CYCLE_GENERATION`, so evidence an inner writes can be matched to the
 cycle that produced it and never counted for another.
 
-Three keys carry [host-refresh](#host-refresh-and-the-runner) state between
+Three keys carry [host-repair](#host-repair-and-the-runner) state between
 dispatches, and all three may be absent:
 
 | Key | Type | Purpose |
 |---|---|---|
-| `RefreshHandoff` | `[hashtable]` | A handoff the next dispatch runs as a preflight chain: `TokenId`, `RequestId`, `Purpose`, `Generation`. `Start-TestRunner.ps1` sets it on a resumed start; the automatic refresh decision sets it for the resident runner. |
-| `RefreshBarrierRequestId` | `[string]` | The request whose held-control barrier the next ordinary cycle carries. Cleared once a cycle completes. |
-| `RefreshGateHoldSeconds` | `[int]` | The interruptible hold between dispatches while a refresh holds the runner (default 15). |
+| `RunnerHandoff` | `[hashtable]` | A handoff the next dispatch runs as a preflight chain: `TokenId`, `RequestId`, `Purpose`, `Generation`. `Start-TestRunner.ps1` sets it on a resumed start; the automatic repair decision sets it for the resident runner. |
+| `HandoffBarrierRequestId` | `[string]` | The request whose held-control barrier the next ordinary cycle carries. Cleared once a cycle completes. |
+| `RunnerGateHoldSeconds` | `[int]` | The interruptible hold between dispatches while a host operation holds the runner (default 15). |
 
 <a id="42f909ad-000d"></a>
 
@@ -436,11 +440,11 @@ kernel is filed as `guest_kernel_stalled`, whose budget is its own (180
 minutes, written in its route), so a host whose guests keep wedging spends
 that class's minutes and not the ones real step timeouts are retried on.
 
-The automatic host-refresh decision runs after every dispatch, through
-`Test.HostRefreshTrigger` when that module is present (it is off by default;
-[test-config.md](test-config.md) describes `testCycle.autoRefreshAfterStalls`).
+The automatic host-repair decision runs after every dispatch, through
+`Test.HostRepairTrigger` when that module is present (it is off by default;
+[test-config.md](test-config.md) describes `testCycle.autoRepairAfterStalls`).
 Every outcome first consumes the cycle's evidence file,
-`runner.refresh-evidence.json`; only a completed cycle counts. The decision then
+`runner.repair-evidence.json`; only a completed cycle counts. The decision then
 has three call sites in the loop. A passing cycle asks it on the success branch
 before looping. A failing cycle asks it on the failure branch after the streak
 and crash-gating accounting and before the pause: when the repair reports the
@@ -470,11 +474,11 @@ transition table live in
 | Pool `configuredState=paused` (hold) | `cycle-start -> paused`, then `paused -> cycle-start` on the ~30s configuration re-poll |
 | Entering failure-pause | `fault -> paused` |
 | Pause broke out | `paused -> idle` |
-| Host refresh holds the dispatch or the cycle start | none: the cycle changes nothing |
-| Host refresh holds the cycle after its pull (before the wipe) | `cycle-start -> paused`, then `paused -> cycle-start` on the next dispatch |
+| Host operation holds the dispatch or the cycle start | none: the cycle changes nothing |
+| Host operation holds the cycle after its pull (before the wipe) | `cycle-start -> paused`, then `paused -> cycle-start` on the next dispatch |
 | Inner held at one of its own gate sites | `in-cycle -> cycle-end -> idle` |
-| Refresh preflight cycle exited | `in-cycle -> cycle-end -> idle` |
-| Automatic refresh repaired the host after a failure | `fault -> idle` (the failure pause is skipped) |
+| Handoff preflight cycle exited | `in-cycle -> cycle-end -> idle` |
+| An automatic repair fixed the host after a failure | `fault -> idle` (the failure pause is skipped) |
 
 Each `Set-RunnerState` call is `Get-Command`-guarded so a stripped-
 down test fixture that did not import `Test.RunnerState` still runs
@@ -489,16 +493,16 @@ Six files are wiped before the watchdog is armed, each for its own reason.
 | File | Why it is wiped pre-spawn |
 |---|---|
 | `inner.pid` | A stale file makes `Start-Watchdog` skip its wait-for-pidfile loop, read the dead PID, fail to capture an identity for it, and lapse within seconds -- leaving the new inner unwatched for the whole cycle. |
-| `inner.start` | The start-time sidecar of `inner.pid`, which the host-refresh identity checks read with it. It goes with its pidfile, so a new inner's PID is never paired with the previous inner's start time. |
+| `inner.start` | The start-time sidecar of `inner.pid`, which the host-repair identity checks read with it. It goes with its pidfile, so a new inner's PID is never paired with the previous inner's start time. |
 | `runner.stepHeartbeat` | The symmetric trap: the watchdog would see an hours-old mtime and kill the new inner before it started its first step. |
 | `last_failure.json` | `Invoke-Sequence` removes it at the start of each sequence, but between the previous cycle's failure and the new cycle's first sequence there is a multi-second window where a dashboard or status-service reader sees stale cycle-N failure context attached to cycle N+1. Pre-spawn deletion closes that window. |
 | `runner.phase` | It selects the watchdog's TIGHT preamble bound, so a copy left behind by a killed inner would apply that bound to the next cycle's sequence steps and kill healthy long ones. The new inner re-creates it within its first second; until then its absence means the loose bound, which is the safe direction. |
 | `break-active.json` | Written by the `break` sequence action when a cooperative breakpoint parks the cycle, and removed on resume. Restarting only `Start-TestRunner.ps1` while a break is parked leaves the file behind, and the first new-cycle step's Gate #1 then hangs the cycle waiting on a breakpoint nobody set. Status-service startup sweeps it too, but the runner can start without the status service, so both startup paths clean it. |
 
-A [refresh preflight cycle](#handoff-and-preflight) wipes only `inner.pid`,
+A [handoff preflight cycle](#handoff-and-preflight) wipes only `inner.pid`,
 `inner.start`, `runner.stepHeartbeat` and `runner.phase`. It keeps
 `last_failure.json` and `break-active.json`, which still describe the cycle the
-refresh interrupted, and skips the pool-storage check below, because it
+host operation interrupted, and skips the pool-storage check below, because it
 archives nothing.
 
 The **pool-storage space check** runs immediately after the `last_failure.json`
@@ -567,42 +571,69 @@ code that points at the tests.
 
 <a id="42f909ad-0022"></a>
 
-## Host refresh and the runner
+## Host repair and the runner
 
-A host refresh -- `test/lab/Invoke-HostRefresh.ps1` run by hand, the
-`POST /control/host-refresh` route in [control-routes.md](control-routes.md), or
+A host repair -- `test/lab/Invoke-HostRepair.ps1` run by hand, the
+`POST /control/host-repair` route in [control-routes.md](control-routes.md), or
 the automatic repair above -- repairs a stalled runner or hypervisor. While it
 reclaims processes or restarts the hypervisor, no runner process may start a
 cycle, pull, or sweep VMs; when it is done, it hands the host back to a runner
-without an operator. Three mechanisms carry that: the refresh gate, the handoff,
+without an operator. Three mechanisms carry that: the runner gate, the handoff,
 and the held-control barrier. The gate and handoff records live in
 `Test.SingleInstance`, which the loop, the cycle process and the inner all
 consult; the barrier runs in the inner (`Test.RunnerInnerLoop`).
 
+**Moving a host to 2026.11.23.** That release renamed this operation from host refresh to
+host repair, with no old name kept: the route, headers, proof prefixes, private root,
+journal, locks and handoff variables all changed. Move every host and the pool-control VM
+in one window, with no repair, update or start-cycle in flight. A running runner pulls the
+framework at every cycle, so stop every runner (or run it with `-NoGitPull`) before this
+release reaches the branch the hosts pull; otherwise a cycle can move the private root
+while the old listener and controller still run, and the leftover `host-refresh` directory
+then has to be removed by hand (`migration-conflict`). On each host, stop the runner, the
+status listener and the host controller (on Ubuntu KVM, `sudo systemctl stop
+yuruna-host-controller`; killing the process or rebooting starts the old controller again,
+which holds its lock in the old directory), and confirm the host address beacon
+(`Invoke-HostAddressBeacon.ps1`) has exited before you pull: it ends on its own within
+about 15 seconds of the status service stopping, but it stays on the old code if a new
+status service starts first. Then pull and start the runner again; **Update host** and a
+repair cannot deliver the change, because the old controller and the new runner would use
+different private roots and handoff files. On Ubuntu KVM, re-run
+`host/ubuntu.kvm/Enable-TestAutomation.ps1` with sudo in the same window, before any
+reboot, so the controller unit names the new private root. The first runner start (or that
+script) moves `$HOME/.yuruna/host-refresh/` to `$HOME/.yuruna/host-repair/` and reports
+each moved item as `previous -> new`. While another process holds one of its locks, the
+runner start is refused with `migration-pending` and names the lock that is held; when
+both directories exist it refuses (`migration-conflict`), names both paths and merges
+nothing, so resolve that by hand: once no old-code process is running, keep `host-repair/`
+and move the recreated `host-refresh/` aside. Remote repair needs its secrets again
+([pool-admin.md](pool-admin.md#remote-host-repair)).
+
 <a id="42f909ad-0023"></a>
 
-### The refresh gate
+### The runner gate
 
 The gate is one record per user, `runner-gate.record` under
-`$HOME/.yuruna/host-refresh/`, because a hypervisor repair disrupts every
+`$HOME/.yuruna/host-repair/`, because a hypervisor repair disrupts every
 runtime directory the user owns. Every write takes `runner-gate.lock`: the
-refresh worker opens, closes and hands off the gate, and the designated runner
+repair worker opens, closes and hands off the gate, and the designated runner
 writes it once, to complete its handoff; everything else in the runner only
 reads it. Its state is `open`, `closed`, `recovery-pending` or `handoff`. A
 gate that cannot be read -- damaged, from a newer schema, or under a private
 directory that fails its safety checks -- holds exactly like a closed one.
 Nothing expires a gate by age: one left behind by a worker that died stays held
-until `test/lab/Invoke-HostRefresh.ps1 -Resume` resolves it, and the runner's
-hold line says so. A refresh an earlier boot left unfinished is the one case the
+until `test/lab/Invoke-HostRepair.ps1 -Resume` resolves it, and the runner's
+hold line says so. A repair an earlier boot left unfinished is the one case the
 runner resumes itself: when the gate is orphaned and its owner started before
-the current boot (a power loss or a reboot in the middle of the refresh), the
+the current boot (a power loss or a reboot in the middle of the repair), the
 first `Start-TestRunner.ps1` start of each boot runs that same `-Resume` once for
-that request, detached, and still refuses; the refresh's own handoff starts the
+that request, detached, and still refuses; the repair's own handoff starts the
 runner when it completes. The marker `boot-resume.json` beside the gate names
 the request and the boot, so a resume that fails is not retried until the next
 boot, and the worker's stderr is kept in `boot-resume.err`. A gate whose owner
 died in this boot, or whose owner's start time was not recorded, stays with the
-operator.
+operator, and a gate the host controller closed for a host update stays with the
+controller (see [Host update and the runner's console](#host-update-and-the-runners-console)).
 
 An orphaned gate -- its owner proven dead or recycled, with no live handoff
 token -- still holds the runner, but not the observational status service:
@@ -624,16 +655,16 @@ Six sites read it, each before anything it guards can change:
 | Before the pull | inner | The auth vault, the status reset and the framework pull |
 | Before the cycle-start sweep | inner | `Remove-CycleStartOrphanVM` and everything after it |
 
-A held dispatch or cycle returns the outcome `refresh-gated`. An inner held at
-its own sites exits 0 and leaves `runner.refresh-gated.json` naming itself and
+A held dispatch or cycle returns the outcome `gate-held`. An inner held at
+its own sites exits 0 and leaves `runner.gate-held.json` naming itself and
 its parent; the cycle process accepts that file only from its own inner during
-this spawn, deletes it, and reports `refresh-gated` too, skipping every
+this spawn, deletes it, and reports `gate-held` too, skipping every
 cycle-end hook. An inner held before the cycle-start sweep has already opened
 the cycle log, so it closes it as aborted and records the cycle as `skipped`
-in the status history, which the fleet counters do not tally. `refresh-gated` is neither a pass nor a failure: no fault state,
+in the status history, which the fleet counters do not tally. `gate-held` is neither a pass nor a failure: no fault state,
 no crash gating or streak, no failure pause, no failure notification, and no
 completed cycle for the automatic decision to count. The loop holds for
-`RefreshGateHoldSeconds` (sliced, so Ctrl+C still lands within seconds) and
+`RunnerGateHoldSeconds` (sliced, so Ctrl+C still lands within seconds) and
 dispatches again. It logs the hold to the console and `outer.log` once per
 change of request, gate state or orphaned worker, and logs one line when the
 gate releases. The status-service re-ensure before a failure pause is skipped
@@ -654,7 +685,7 @@ an expiry measured on the boot clock (a reboot expires it). The purpose names
 which runner receives it:
 
 - **`new-outer`**: the worker restarts the runner itself -- see
-  [A runner restarted by a refresh](#a-runner-restarted-by-a-refresh) -- and the
+  [A runner restarted by a handoff](#a-runner-restarted-by-a-handoff) -- and the
   new runner's first dispatch is the preflight chain.
 - **`resident-outer`**: the runner that called an automatic repair was never
   stopped. The token comes back in the repair's result, and that runner's next
@@ -663,12 +694,12 @@ which runner receives it:
 The gate admits only the preflight chain of the designated runner. A preflight
 cycle skips the pull and the pool-configuration sync, wipes only the four files named
 under [Pre-spawn cleanup ordering](#pre-spawn-cleanup-ordering), and carries the
-token to its inner in the environment (`YURUNA_REFRESH_PREFLIGHT`,
-`YURUNA_REFRESH_HANDOFF_TOKEN`). The preflight inner is bounded (120 seconds)
+token to its inner in the environment (`YURUNA_HANDOFF_PREFLIGHT`,
+`YURUNA_HANDOFF_TOKEN`). The preflight inner is bounded (120 seconds)
 and changes nothing: no git, no VM, no control sweep, no status document. It
 probes the hypervisor from the final process ancestry -- the one that matters
 for per-process permissions -- and writes a readiness acknowledgment,
-`runner-handoff.<token>.ack.json` under `$HOME/.yuruna/host-refresh/`, carrying
+`runner-handoff.<token>.ack.json` under `$HOME/.yuruna/host-repair/`, carrying
 the three chain identities and the operator controls it found. An
 acknowledgment is written only while the gate holds that token.
 
@@ -680,7 +711,7 @@ expired. A
 verify it is waiting on it: that runner checks the acknowledgment against the
 cycle it spawned and completes the handoff itself, `released` when it verified
 readiness and `recovery-pending` otherwise. Either way the cycle reports the
-outcome `refresh-preflight`, which runs no cycle-end hook and never counts as a
+outcome `handoff-preflight`, which runs no cycle-end hook and never counts as a
 completed cycle. A successful preflight arms the barrier below; a failed one
 keeps the runner held, so no inner starts into the same fault.
 
@@ -691,16 +722,16 @@ the runner completes the handoff `recovery-pending` itself and reports
 readiness failed (`handoff-expired`) to the repair's request record. A gate
 this runner owns in that state -- or after its own preflight failed -- is
 logged like a gate whose worker died, naming
-`test/lab/Invoke-HostRefresh.ps1 -Resume` as the way out.
+`test/lab/Invoke-HostRepair.ps1 -Resume` as the way out.
 
 <a id="42f909ad-0025"></a>
 
 ### Held-control barrier
 
-A refresh preserves the operator's controls: `control.cycle-pause`,
+A host repair preserves the operator's controls: `control.cycle-pause`,
 `control.step-pause`, `control.pause`, a lab hold and its release, and
 `control.cycle-restart` all survive it. The first ordinary cycle after a
-handoff carries the barrier (`YURUNA_REFRESH_BARRIER`, the request id), and its
+handoff carries the barrier (`YURUNA_HANDOFF_BARRIER`, the request id), and its
 inner stops right after host detection, before anything can touch a VM or the
 host. While a pause flag exists it parks, refreshing its step heartbeat, until
 the status page's resume removes the flag. A preserved lab hold goes to its
@@ -711,23 +742,23 @@ startup consumer.
 
 <a id="42f909ad-0026"></a>
 
-### A runner restarted by a refresh
+### A runner restarted by a handoff
 
-A refresh that had to reclaim the runner restarts it from its launch record:
-`runner-launch.<runtime key>.record` under `$HOME/.yuruna/host-refresh/`,
+A repair that had to reclaim the runner restarts it from its launch record:
+`runner-launch.<runtime key>.record` under `$HOME/.yuruna/host-repair/`,
 written by `Start-TestRunner.ps1` after it wins its pidfile. The record holds
 the six operator options with their resolved values (`-ConfigPath`,
 `-NoGitPull`, `-NoStatusService`, `-NoConfigGate`, `-CycleDelaySeconds`,
 `-logLevel`), the working directory, the runtime directory and the forwarded
 `YURUNA_*` environment. It is validated against the runner script's own
 parameter metadata before any launch, so it never replays a command line. A
-runner that could not write one says so at startup; a later refresh then cannot
+runner that could not write one says so at startup; a later repair then cannot
 restart it and reports that the operator must start it. A runner whose last
 exit was clean (Ctrl+C) is not restarted either. A runner still running from an
-older checkout has no launch record, and a refresh cannot hand the host back to
+older checkout has no launch record, and a repair cannot hand the host back to
 it: restart it once so it writes one.
 
-The worker starts `Start-TestRunner.ps1 -RefreshResume -RefreshHandoffToken
+The worker starts `Start-TestRunner.ps1 -HandoffResume -HandoffToken
 <token>` detached, with the recorded options. Both parameters are internal and
 travel together; neither reaches the inner or the launch record. A resumed
 start:
@@ -741,7 +772,7 @@ start:
   touches a live runner's state: pause flags, lab holds and the restart request
   stay for their normal consumers; `inner.pid` goes only when its process is
   proven gone; `runner.pid`, `server.pid` and `config-server.pid` are left
-  alone; and `break-active.json` is archived only for the inner the refresh
+  alone; and `break-active.json` is archived only for the inner the repair
   reclaimed;
 - never prompts: a host whose elevation check would ask for a password
   refuses the start, as an unattended start does;
@@ -749,19 +780,19 @@ start:
 
 A startup refusal after the launch record is written -- `powershell-yaml`
 missing, elevation, the config gate -- marks the record as a clean exit, like
-Ctrl+C, so a later refresh does not restart the runner into the same refusal.
+Ctrl+C, so a later repair does not restart the runner into the same refusal.
 The worker watches the runner it launched: one that exits before
 acknowledging ends the wait at once as a failed launch instead of holding the
 repair until its deadline.
 
-A refresh recognizes this checkout's runner however it was started: by an
+A repair recognizes this checkout's runner however it was started: by an
 absolute path, by a path relative to the directory it was started from
 (`pwsh test/Start-TestRunner.ps1`, a `./test/Start-TestRunner.ps1` shebang
 launch), through a symbolic link to the checkout, or, failing all of those, by
 the process identity its launch record names.
 
 **Stopping a resumed runner.** A restarted runner has no console: its stdout is
-discarded, its stderr goes to `runner.<request id>.err` in the refresh's private
+discarded, its stderr goes to `runner.<request id>.err` in the repair's private
 directory (captures untouched for a week are pruned at the next restart, the
 four newest always kept), and `outer.log` and the per-cycle logs remain the
 durable record.
@@ -773,6 +804,219 @@ current cycle finishes and tears its guests down, then stop the process tree
 rooted at the PID in `runtime/runner.pid`, children first -- stopping only that
 PID leaves its cycle process and inner running. The next start's boot recovery
 treats the result as a crashed runner, which is the designed path.
+
+<a id="42f909ad-002b"></a>
+
+## Host update and the runner's console
+
+A host update brings the host's checkout to its upstream's newest commit and starts the
+runner again on the new code, without an operator at the keyboard. It is asked for by
+`POST /control/host-update` (the Diagnostics page's **Update host**, from the host itself or,
+through pool-control, from another machine; see
+[control-routes.md](control-routes.md#post-controlhost-update)) or by
+`pwsh test/lab/Invoke-HostUpdate.ps1` in the host's shell. Either way the request is one
+queued row in the host-repair request journal under `$HOME/.yuruna/host-repair/`, of the
+kind `host-update`; nothing is launched by the caller. The repair of the sections above
+keeps its own rows, and every repair reader ignores host-update rows.
+
+**The host controller** does the work, a process that is neither the runner nor the
+listener, so it survives both being stopped. On Ubuntu KVM, `Enable-TestAutomation.ps1`
+registers it as the system unit `yuruna-host-controller.service` (see the
+[KVM host notes](../host/ubuntu.kvm/README.md#the-host-controller)), which runs
+`/bin/sh <private root>/host-controller/shim`. On Windows it registers the scheduled task
+**Yuruna Host Controller**, started at each logon of the test account with its highest
+privileges, which runs Windows PowerShell on `%ProgramData%\yuruna\host-controller\shim.ps1`
+(see the [Windows host notes](../host/windows.hyper-v/README.md#the-host-controller)); the
+controller folder there is writable by Administrators only, and the work folders below are
+in it. On macOS nothing is registered: `Enable-TestAutomation.ps1` deploys the shim and the
+first snapshot (see the [macOS host notes](../host/macos.utm/README.md#the-host-controller)),
+and an ordinary start of `test/Start-TestRunner.ps1` from a terminal of the desktop session
+starts the shim when no controller holds its lock, in a detached session of its own named
+`yuruna-controller` (below). The shim starts
+`test/lab/Invoke-HostUpdateController.ps1` from a **snapshot**, a private copy under
+`host-controller/versions/<hash>/` of the code the controller runs (`automation/`,
+`test/modules/` without the test files, the generated PowerShell catalogs, the locale
+manifests, and the controller and step scripts), named by the first 16 hex digits of a
+hash over its files; `current` names the snapshot, the previous one and the checkout. The
+controller imports only from its snapshot, so a pull never changes the code that is
+running the update. The shim starts it again when it ends: at once after exit 75 (a new
+snapshot was staged), 30 seconds later after exit 76 (another controller holds the lock),
+and otherwise after 10 seconds, doubling to 60; on macOS a 76 from the first controller a
+shim started makes that shim exit instead, so of two sessions started in the same instant
+only one keeps a shim; three deaths in a row of a snapshot that
+never created its `ok` file put that snapshot in `rejected` and go back to the previous
+one. A stop of the unit reaches only the shim, which passes it on and gives the controller
+30 seconds; the runner, the listener and the console keep running. The Windows shim keeps
+the same rules, and on exit 77 runs the PowerShell 7 upgrade the controller asked for
+before it starts the controller again; a `stop` file in the controller folder makes it end
+its controller alone and exit. Only an attended `Enable-TestAutomation.ps1` replaces a
+deployed shim. After a commit that changes the shim, and until that run, the unattended
+`Enable-TestAutomation.ps1 -NoOperatorPrompt` reports the shim as not verified (exit 2), so
+the `enable` phase of a `full` update ends with the remark `host_settings_unmet`.
+
+One controller runs per host: it holds `host-controller.lock` for its whole life and exits
+76 when another holds it. Every two seconds it looks for a queued host update, compares the
+checkout with its snapshot and claims the oldest request under `host-operation.lock`; every
+five minutes while idle it stages a snapshot of a checkout that changed and exits 75. It
+publishes `runtime/host-controller.state.json` and `runtime/host-update.state.json` every
+five seconds, waits included, so the page can tell a long wait from a dead controller. The
+phases of the `restart` scope, and in between the three of the `full` scope:
+
+| Phase | Bound | What it does | When it fails |
+| --- | --- | --- | --- |
+| `preflight` | 60 s | Refuses before anything changes: the private root's filesystem does not qualify for the locks, the home directory cannot be verified, a one-shot run holds the host, a VM is kept for diagnosis, on macOS the session cannot start a working runner (`session_unusable`: an SSH login, not the desktop session, or a privacy grant read as denied), the runner is to be started and its launch record or its sudo rule is missing, or the scope is `full` and the host does not list it now. | `refused`, with the reason and its remedy |
+| `drain` | `drainSeconds` | Closes the runner gate with the controller as its owner (role `controller`), so the resident starts no cycle and no pull, then waits for the running cycle: no cycle process alive on two checks five seconds apart, or the cycle parked on **Pause after cycle** on two checks. `-Drain now` goes on at once. | Gate opened; `drain_timeout`, or `refused` for a one-shot run or a diagnostic hold |
+| `stop_runner` | 120 s | Records once what the last phase will do (start the runner when it is running or its last exit was not clean), then stops the inner, the cycle process and the resident, each by identity. | Gate opened; `stop_failed` |
+| `update_source` | 300 s | The framework pull a cycle runs, with the runner's recorded options and configuration; skipped under `-NoGitPull`. `expectCommit` is checked here. A checkout whose host-update protocol number changed gets a new snapshot, and the controller continues from it. | Restore; `failed_restored` |
+| `install` (`full`) | 2400 s KVM and macOS, 3600 s Windows | The checkout's installer with `--unattended` (`-Unattended` on Windows, from an Administrator-only copy under `%ProgramData%\yuruna`); its result record, matched by request id and attempt, decides, and the remark tokens it records (macOS: `utm_upgrade_deferred`, `brew_update_failed`) become the update's remarks. On KVM and macOS a PowerShell it moved to a new version makes the controller stop the listener and start again on it. | Restore; `failed_restored` with the installer's reason |
+| `upgrade_pwsh` (`full`, Windows) | 1200 s | When the install recorded a newer PowerShell 7: the listener is stopped and the shim runs the upgrade on exit 77. | The update goes on; remark `pwsh_upgrade_failed` |
+| `enable` (`full`) | 300 s, 600 s on macOS | `Enable-TestAutomation.ps1 -SkipPoolStorage -NoOperatorPrompt`; exit 2 is a pass with the remark `host_settings_unmet`. | Restore; `failed_restored` |
+| `start_listener` | 60 s | Starts the status listener again, replacing one that is wedged; skipped when the runner has no status service. | The update goes on; the listener is listed as debt |
+| `start_runner` | 240 s | Starts the runner through the repair's resumed start, with the handoff token, in a console, and waits for its readiness acknowledgment, which opens the gate. | `recovering` |
+
+Each phase except `drain` runs as a step child, `test/lab/Invoke-HostUpdateStep.ps1 -Step
+<phase>`, started detached with its output and result file in
+`host-controller/work/<request id>/`. Its attempts are counted in the journal row: a phase
+gets three starts, and a controller that starts again (a crash, a stop of the unit, a
+reboot) continues the walk from the journal, passing every finished phase and waiting for
+a step child that is still alive instead of starting a second one, also one the journal
+does not name yet (it is found by its command line), and using the result of one that
+finished while no controller watched it. After a reboot it starts the listener first,
+whatever the update was doing. Restore gives back what
+the update took away -- the transient units and the sudo rule of the `full` scope, the
+listener, then the runner on the checkout as it is, or the gate when no runner is to start.
+On KVM the `install` and `enable` phases run their work as root through a temporary sudo
+rule, `/etc/sudoers.d/yuruna-host-update`, written through the runner's passwordless `tee`
+after `visudo -cf` and confirmed with `sudo -n -k true`; root starts the transient timer
+`yuruna-host-update-expire`, which removes the rule at the phase's bound plus two minutes,
+so a rule never outlives a controller that died. The work runs in the transient unit
+`yuruna-host-update-<phase>-<attempt>`, which the step, the restore and `-Release` end with
+the runner's passwordless `systemctl`. A host lists `full` among its scopes while the
+runner's manifest (`systemctl`, `tee`, `rm`) answers without a password; the controller
+probes it when it starts and every ten minutes while it does not. macOS has no systemd and
+no passwordless manifest: the attended `Enable-TestAutomation.ps1` installs the permanent
+entry `/etc/sudoers.d/yuruna-host-update-access`, which lets the test account run only
+`/usr/bin/tee` and `/bin/rm -f` of that one rule file as root, and the rule carries its own
+expiry instead of a timer, `<account> ALL=(ALL:ALL) NOTAFTER=<UTC time>Z NOPASSWD: ALL`, at
+the phase's bound plus two minutes. It is checked by `visudo -cf`, written through the entry
+under a umask of 0227, confirmed with `sudo -n -k true`, and removed with
+`sudo -n /bin/rm -f`. The installer and `Enable-TestAutomation` run as the test account, as
+children of the step child, with standard input closed, `NONINTERACTIVE=1`, a
+`SUDO_ASKPASS` that fails, Homebrew's prefixes first on `PATH`, and their output in
+`work/<request id>/<phase>.<attempt>.work.log`. At the bound, and always before the rule is
+removed, the step ends the phase's process tree, found by the installer's or
+`Enable-TestAutomation`'s own arguments: members of the test account by identity, members
+that run as root with `sudo -n /bin/kill` while the rule still allows it. A macOS host lists
+`full` while the controller's own probe passes: it writes a file holding only a comment
+through the entry with `sudo -n -k` and removes it again. The controller probes when it
+starts, every ten minutes while the probe fails, and once more immediately before it claims
+a `full` request, at most once a minute for the same request (a refused claim leaves it
+queued, and every queue read tries it again). It never probes while an update is claimed,
+since the probe writes the rule's own file, nor while the request journal cannot be read,
+which could hide a claim; it then keeps the `full` its last published state listed. The preflight
+reads the scopes from the controller's published state and runs no `sudo`. A Windows update whose
+installer enabled Hyper-V ends as `reboot_required` when the runner's start is refused. While an update is `recovering`, the controller tries the
+source update, the listener when `start_listener` never finished and no restore ran, and the start again after 5, 10 and 15
+minutes, then every 15 minutes, and releases `host-operation.lock` between tries; it ends as
+`updated_not_started` when no runner was to start. An update that took over a recovering
+one owns its stopped runner and closed gate: it never expires unclaimed, and when the
+checkout's protocol number changed and no new snapshot can be staged, the controller
+claims it straight into `recovering`. `pwsh test/lab/Invoke-HostUpdate.ps1 -Release
+<request id>` ends it: with a controller running it marks a recovering update and the
+controller writes `released` within seconds; with no controller it takes both locks
+itself, refuses while a step child of the update is still alive (on Windows also while the
+shim's PowerShell upgrade may still run), ends the transient units of the `full` scope (on
+macOS the process tree of its installer or `Enable-TestAutomation`) and removes the
+temporary sudo rule, opens the gate, starts nothing and writes `released` with
+what was still owed. A
+claimed update that is not recovering cannot be released while its controller runs; the
+command names the controller's process id.
+
+**An ordinary runner start during a host update** refuses, as it does during a repair, and
+does not launch the repair's boot resume for a gate the controller closed. The refusal
+follows the controller lock: while a controller holds it, the line says the controller
+continues the update and names the console to attach to; otherwise it says no controller
+is running, that the system service starts one within seconds, and names the `-Release`
+command.
+
+**On macOS the runner's start starts the controller.** Every ordinary start of
+`test/Start-TestRunner.ps1` on a macOS host (never a resumed one, `-HandoffResume`) runs one
+step after it sets the host identity and before it reads the gate, and prints one
+`Host controller:` line on the console and in `outer.log`; nothing in it ends the start. In
+order: no shim or `current` under the controller root (Enable has not deployed it, or
+Disable removed it), a start from an SSH login or from a session that is not the desktop's,
+a controller lock that is held (the usual case: `running`) or cannot be read, and neither
+`tmux` nor `screen` each start nothing. `tmux` is looked for on `PATH`, then at
+`/opt/homebrew/bin` and `/usr/local/bin`; `screen` on `PATH`, then at `/usr/bin`. When the
+session `yuruna-controller` already exists, its shim is between two controllers and nothing
+is started either. Otherwise the step creates the session, bounded at 5 seconds, running
+`/bin/sh <private root>/host-controller/shim` with the start's environment minus every
+`YURUNA_*` variable except the `YURUNA_SKIP_*` operator overrides, which hold for the
+controller and the runner it starts too, and minus the multiplexer's own (`TMUX`,
+`TMUX_PANE`, `STY`, `WINDOW`), and watches the lock for 10 seconds:
+`started`, or `not_held` when no controller took it. Read the controller with
+`tmux -L yuruna-controller attach -t yuruna-controller` (`Ctrl+B`, then `D`) or
+`screen -r yuruna-controller` (`Ctrl+A`, then `D`). The session is no descendant of the
+runner, so Ctrl+C in the runner's terminal and the stop of `stop_runner` do not reach it; a
+logout or a restart of the host ends it, and nothing starts it again before the next
+ordinary runner start. While a host update holds the gate, that start refuses there, after
+it started the controller, which then continues the update. When the lock does not read
+held at the gate, the refusal follows the step's result. After any result but `running` and
+`started` it repeats the step's line and names both ways on: start the runner from a
+terminal of the desktop session, or `-Release` the update. After `running` or `started`, a
+lock that reads free or absent means the controller is between two runs and its shim starts
+it again shortly, so the refusal says so and names only `-Release`; a lock that cannot be
+read leaves unknown whether a controller continues the update, and the refusal says that
+and names both ways on. While `-Release` runs with no controller it holds the controller
+lock, so a runner start in that instant starts nothing.
+
+<a id="42f909ad-002c"></a>
+
+### The runner's console
+
+A runner a host update starts runs in a console an operator can open, so its output can be
+watched and Ctrl+C stops it as it stops a runner started by hand. On KVM and macOS the start
+step creates a detached `tmux` session on the socket `runner-console.sock` in the controller
+root (on macOS another session than the controller's `yuruna-controller`, and never the
+terminal the operator started the first runner from), without the account's `tmux`
+configuration, named `runner-<request id>-<attempt>`, so a name is never reused. The pane runs the resident itself through `/usr/bin/env` with the
+recorded environment, minus the names a pane must never inherit: the relaunch markers
+`YURUNA_SG_RELAUNCH` and `YURUNA_RUNNER_RELAUNCH`, which would skip the libvirt group re-exec
+and the inner's pidfile guard; the handoff transport (`YURUNA_HANDOFF_TOKEN`,
+`YURUNA_HANDOFF_PREFLIGHT`, `YURUNA_HANDOFF_BARRIER`, `YURUNA_CYCLE_GENERATION`), which belongs
+to one spawn of the resident; `STY`, which the tmux server copies from a screen session the
+launcher runs in (on macOS the host controller's own), so a `screen` command run in the console
+without `-S` would act on that session (`screen -X quit` would end the host controller); and
+`TMUX_PANE`, so no runner code targets the pane implicitly. `TMUX` stays, so the runner records
+that it runs in tmux, and every session record checks `TMUX` before `STY`. The session's output is copied to
+`work/<request id>/console.<attempt>.log` until the readiness acknowledgment. As the test
+account, from any shell on the host, SSH included:
+
+```
+tmux -S ~/.yuruna/host-repair/host-controller/runner-console.sock attach
+```
+
+`Ctrl+B`, then `D`, leaves the runner running. On Windows the runner gets a console window
+of its own instead, on the desktop of the test account, started by the launcher's
+intermediate process with nothing redirected and not hidden: open it at the machine or over
+a remote desktop connection to that session; closing the window ends the runner as a
+killed session does. Before the start the step reads `PATH` again from the registry, so a
+tool installed earlier in the same update is found. `tmux` is looked for on `PATH`, then at
+`/opt/homebrew/bin/tmux` and `/usr/local/bin/tmux`, where Homebrew puts it on macOS. A host
+without `tmux`, a socket path too long
+for a socket, or a session that `tmux` confirms it did not create starts the runner as the
+repair does, without a console, and the update carries the remark
+`runner_console_unavailable`; a missing console never fails an update. When `tmux` fails
+and cannot say whether the session exists, the attempt fails as `console_state_unknown`, and
+the next attempt first stops any resident it finds. The repair's own start never uses a
+console.
+
+| Ctrl+C in the console | Effect |
+| --- | --- |
+| After the acknowledgment, or between updates | The runner stops in an orderly way and marks its launch record a clean exit; nothing starts it again. The next host update starts no runner and ends `updated_not_started`. |
+| On the resident while an update waits for its cycle | No resident is alive, so the drain is done; the update ends `updated_not_started`. |
+| In `start_runner`, before the acknowledgment | A failed start, whoever ended it: the update is `recovering`, and the controller starts the runner again after its backoff. Press Ctrl+C again once the preflight is ready, or release the update. |
+| The session is killed instead | A lost runner: the next host update starts one. |
 
 <a id="42f909ad-0010"></a>
 
@@ -887,8 +1131,8 @@ After every dispatch the loop records the cycle's typed result in
 `runtime/recovery.result.json` (the fields are in the
 [failure schema](failure-schema.md#recovery-result-and-ledger)). It is built from the
 dispatch outcome, the outcome record, `last_failure.json` and `vm-admission.json`;
-the outcomes that say no cycle ran to a conclusion (`drain`, `refresh-gated`,
-`refresh-preflight`, `paused`, `shutdown`) produce none. A `passed` result appends a
+the outcomes that say no cycle ran to a conclusion (`drain`, `gate-held`,
+`handoff-preflight`, `paused`, `shutdown`) produce none. A `passed` result appends a
 `resolved` line to the recovery ledger, which re-arms every repair budget.
 
 Bounded repairs run at three points, all gated by `testCycle.autoRemediation.enabled`
@@ -898,7 +1142,7 @@ ledger):
 1. **A failed framework pull** (`pull-error`), before the short hold. The pull runs in
    the cycle process, so its redacted failure text reaches the loop through the
    outcome record's `detail`; a stale `.git/index.lock` is the case this serves.
-2. **The failure branch**, after the fault accounting, the host-refresh decision and
+2. **The failure branch**, after the fault accounting, the host-repair decision and
    the status-service check, and before the pause. A repair that applied replaces the
    pause: the state machine goes `fault -> idle`, `outer.log` names the repair, and the
    next cycle is its proof.
@@ -924,7 +1168,7 @@ sysexits `EX_TEMPFAIL`), the recovery result says `degraded`, and the cycle
 summary line reads `DEGRADED (n of m guests skipped)`. It raises no fault and
 takes no failure pause, but it has none of a pass's effects: it re-arms no
 repair budget, ends no failure streak, counts toward no alert re-arm and gives
-the automatic host refresh no success, because the skipped guest proves
+the automatic host repair no success, because the skipped guest proves
 nothing. The status page and the history row still show the guests that ran as
 passing and the skipped guest as `skipped`.
 
@@ -1030,10 +1274,10 @@ runner respawns the inner from a clean state.
 | `runner.stepHeartbeat`   | `Write-RunnerStepHeartbeat`, from the runspace as work completes | outer watchdog | The signal the watchdog uses to detect a wedged step. Its one writer counts failed writes and reports them, at most once a minute, as a warning and in `runner.stepHeartbeat.errors.log`. |
 | `runner.phase`           | inner runner during its preamble | outer watchdog | Present means the inner has not reached its first sequence step, which selects the tighter preamble bound. |
 | `runner.watchdog.lapsed` | outer watchdog          | resident runner, cycle process, status service | Durable sentinel written when the watchdog gives up before arming, ending in the bounds it would have applied (`[stepSeconds=N preambleSeconds=M]`). The resident guards the cycle with those bounds while it runs, the status page shows the cycle as unguarded, and the cycle process reports it and removes the file once the inner returns. |
-| `inner.start`            | inner runner per cycle  | host refresh, boot recovery | StartTime sidecar of `inner.pid`, written before it. Wiped with `inner.pid` before each spawn. |
-| `runner.cycle.json`      | outer runner            | host refresh, inner (preflight) | PID, start time, cycle number and generation of the running cycle process, plus the outer's own identity; removed once the cycle exits. Lets a refresh identify the whole runner chain. |
-| `runner.refresh-gated.json` | inner runner         | cycle process         | Written when the inner stops at one of its host-refresh gate sites, naming itself and its parent. Consumed by the cycle process that spawned it. |
-| `runner.refresh-evidence.json` | inner runner (service-VM restore) | outer runner | Hypervisor evidence for the automatic refresh decision, stamped with the cycle generation. Read and consumed by the outer after every dispatch. |
+| `inner.start`            | inner runner per cycle  | host repair, boot recovery | StartTime sidecar of `inner.pid`, written before it. Wiped with `inner.pid` before each spawn. |
+| `runner.cycle.json`      | outer runner            | host repair, inner (preflight) | PID, start time, cycle number and generation of the running cycle process, plus the outer's own identity; removed once the cycle exits. Lets a repair identify the whole runner chain. |
+| `runner.gate-held.json` | inner runner         | cycle process         | Written when the inner stops at one of its runner gate sites, naming itself and its parent. Consumed by the cycle process that spawned it. |
+| `runner.repair-evidence.json` | inner runner (service-VM restore) | outer runner | Hypervisor evidence for the automatic repair decision, stamped with the cycle generation. Read and consumed by the outer after every dispatch. |
 | `outer.log`              | outer + inner           | post-mortem, status service | Append-only milestone log. Survives a `conhost` output wedge. |
 | `cycle-events.pending.json` | outer runner (boot recovery, runner faults); inner runner (an orchestration cycle's leftover-VM record) | next cycle's `Start-LogFile` | Events raised while no cycle is open, written into the next cycle's `cycle.events.ndjson` ahead of `cycle_start`. See [queued events](definition.md#42fa6f45-0030). |
 
@@ -1169,7 +1413,7 @@ image-build step.
 
 While an edit leaves `test.config.yml` unparsable -- a save caught half
 written, a typo in the YAML -- every resident decision (these timeouts, the
-cycle ceiling, automatic recovery and its budget, the automatic refresh
+cycle ceiling, automatic recovery and its budget, the automatic repair
 threshold, the pool-storage checks) keeps the last configuration that parsed,
 and the runner warns once per broken content (`Read-TestConfig
 -LastGoodOnError`). Without the fallback, a broken file would read as no configuration,
@@ -1248,7 +1492,7 @@ explicit machine gives the lifecycle a single observable shape.
 | `idle` | The runner is alive and ready for the next cycle. |
 | `cycle-start` | A new cycle is starting; pre-spawn work (framework update, cleanup) is in flight. |
 | `in-cycle` | The inner runner is executing sequence steps. |
-| `cycle-end` | The outer is closing an attempt after exit 0, a completed degraded cycle (75), an inner-side refresh hold, or refresh preflight. |
+| `cycle-end` | The outer is closing an attempt after exit 0, a completed degraded cycle (75), an inner-side runner-gate hold, or handoff preflight. |
 | `fault` | The outer is handling a failed or unrecorded cycle attempt. |
 | `paused` | The failure-pause loop is waiting for a new commit, a config edit, or the cap. |
 
@@ -1446,6 +1690,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

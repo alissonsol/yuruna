@@ -571,7 +571,7 @@ func TestDeleteCancelsTheInFlightDownload(t *testing.T) {
 	}
 }
 
-func TestCatalogSynthesisesAbsentRowsForTheStableFamilies(t *testing.T) {
+func TestCatalogSynthesizesAbsentRowsForTheStableFamilies(t *testing.T) {
 	// The Fido script is pinned at a path that does not exist, so the Windows
 	// rows report the same thing on every machine rather than depending on
 	// whether the one running the suite happens to have PowerShell installed.

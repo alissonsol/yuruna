@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421acc52-385e-488d-859e-c51ce10fdcdc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
 
     The server runs from a scratch repository root whose modules are links
     to this repository's, except three that are replaced by stand-ins: the
-    refresh module (capability and worker vector), the refresh journal
+    repair module (capability and worker vector), the host operation journal
     (admission and the start-cycle reservation, kept in a scratch JSON file)
     and the detached launcher (which starts the stand-in workers). The
     stand-in workers carry the real workers' parameter blocks, record their
@@ -76,7 +76,7 @@ namespace Yuruna.TestFixtures {
 '@
 }
 
-$script:StubHostRefresh = @'
+$script:StubHostRepair = @'
 function Get-VirtualizationRepairRung { [CmdletBinding()] param([string]$HostType) $null = $HostType
     $order = 0
     foreach ($name in @('probe', 'reclaim', 'start-if-stopped', 'restart-if-hung', 'restart-broker', 'reapply-settings', 'reinstall', 'reboot')) {
@@ -84,20 +84,20 @@ function Get-VirtualizationRepairRung { [CmdletBinding()] param([string]$HostTyp
 function Get-HarnessJournal { $path = Join-Path $env:YURUNA_TEST_STUB_DIR 'journal.json'
     if (-not (Test-Path -LiteralPath $path)) { return @{ requests = @(); reservation = $null } }
     return (ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path)) -AsHashtable) }
-function Get-HostRefreshCapability { [CmdletBinding()] param([string]$HostType, [string]$RepoRoot, [string]$JournalPath) $null = $HostType, $RepoRoot, $JournalPath
+function Get-HostRepairCapability { [CmdletBinding()] param([string]$HostType, [string]$RepoRoot, [string]$JournalPath) $null = $HostType, $RepoRoot, $JournalPath
     $journal = Get-HarnessJournal
     $active = @($journal.requests | Where-Object { $_.state -in @('queued', 'running') }).Count -gt 0
     return [ordered]@{ protocol = 1; availability = 'available'; ceiling = 'start-if-stopped'; reason = ''; state = $(if ($active) { 'active' } else { 'idle' }) } }
-function New-HostRefreshBudget { [CmdletBinding()] param([long]$ExpiryTick, [long]$PreAdmissionExpiryTick, [scriptblock]$ClockTicks) $null = $ExpiryTick, $PreAdmissionExpiryTick, $ClockTicks
+function New-HostRepairBudget { [CmdletBinding()] param([long]$ExpiryTick, [long]$PreAdmissionExpiryTick, [scriptblock]$ClockTicks) $null = $ExpiryTick, $PreAdmissionExpiryTick, $ClockTicks
     $now = [Environment]::TickCount64; return [pscustomobject]@{ TotalExpiryTick = $now + 915000; PreAdmissionExpiryTick = $now + 60000 } }
-function New-HostRefreshWorkerArgumentList { [CmdletBinding()] param([string]$RepoRoot, [string]$RequestId, $Budget, [switch]$IncludeInterpreterArgument) $null = $RepoRoot, $IncludeInterpreterArgument
+function New-HostRepairWorkerArgumentList { [CmdletBinding()] param([string]$RepoRoot, [string]$RequestId, $Budget, [switch]$IncludeInterpreterArgument) $null = $RepoRoot, $IncludeInterpreterArgument
     '-RequestId'; $RequestId; '-DeadlineTickMs'; [string]$Budget.TotalExpiryTick; '-PreAdmissionDeadlineTickMs'; [string]$Budget.PreAdmissionExpiryTick }
-function Publish-HostRefreshQueuedState { [CmdletBinding()] param([string]$RuntimeDir, [string]$RequestId, [string]$Channel)
-    [IO.File]::WriteAllText((Join-Path $RuntimeDir 'host-refresh.state.json'), (ConvertTo-Json -Compress -InputObject ([ordered]@{ schemaVersion = 1; requestId = $RequestId; phase = 'queued'; state = 'queued'; channel = $Channel }))); return $true }
-Export-ModuleMember -Function Get-VirtualizationRepairRung, Get-HostRefreshCapability, New-HostRefreshBudget, New-HostRefreshWorkerArgumentList, Publish-HostRefreshQueuedState
+function Publish-HostRepairQueuedState { [CmdletBinding()] param([string]$RuntimeDir, [string]$RequestId, [string]$Channel)
+    [IO.File]::WriteAllText((Join-Path $RuntimeDir 'host-repair.state.json'), (ConvertTo-Json -Compress -InputObject ([ordered]@{ schemaVersion = 1; requestId = $RequestId; phase = 'queued'; state = 'queued'; channel = $Channel }))); return $true }
+Export-ModuleMember -Function Get-VirtualizationRepairRung, Get-HostRepairCapability, New-HostRepairBudget, New-HostRepairWorkerArgumentList, Publish-HostRepairQueuedState
 '@
 
-$script:StubHostRefreshIntent = @'
+$script:StubHostOperationJournal = @'
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
 function Get-HarnessJournalPath { return (Join-Path $env:YURUNA_TEST_STUB_DIR 'journal.json') }
 function Read-HarnessJournal { $path = Get-HarnessJournalPath
@@ -106,7 +106,7 @@ function Read-HarnessJournal { $path = Get-HarnessJournalPath
     $journal.requests = @($journal.requests); return $journal }
 function Save-HarnessJournal { param($Journal) [IO.File]::WriteAllText((Get-HarnessJournalPath), (ConvertTo-Json -Compress -Depth 6 -InputObject $Journal)) }
 function Add-HarnessCall { param([string]$Line) Add-Content -LiteralPath (Join-Path $env:YURUNA_TEST_STUB_DIR 'calls.log') -Value $Line }
-function Request-HostRefreshAdmission { [CmdletBinding(SupportsShouldProcess)] param([string]$RequestId, [string]$Channel, [string]$Tier, [string]$MaxRung, [string]$RuntimeDir, [string]$HostType, [hashtable]$Context, $AdmissionLock, [int]$AdmissionWaitMilliseconds, [scriptblock]$UtcNow)
+function Request-HostRepairAdmission { [CmdletBinding(SupportsShouldProcess)] param([string]$RequestId, [string]$Channel, [string]$Tier, [string]$MaxRung, [string]$RuntimeDir, [string]$HostType, [hashtable]$Context, $AdmissionLock, [int]$AdmissionWaitMilliseconds, [scriptblock]$UtcNow)
     $null = $RuntimeDir, $HostType, $Context, $AdmissionLock, $UtcNow
     Add-HarnessCall "admit:$RequestId|$Channel|$Tier|$MaxRung|$AdmissionWaitMilliseconds"
     $journal = Read-HarnessJournal
@@ -118,35 +118,46 @@ function Request-HostRefreshAdmission { [CmdletBinding(SupportsShouldProcess)] p
         if ($known.launch -eq 'launch-failed') { return [pscustomobject]@{ Decision = 'spawn'; RequestId = $RequestId; Attempt = 1; Ceiling = $known.maxRung } }
         return [pscustomobject]@{ Decision = 'already-claimed'; RequestId = $RequestId; Ceiling = $known.maxRung } }
     $active = @($journal.requests | Where-Object { $_.state -in @('queued', 'running') }) | Select-Object -First 1
-    if ($active) { return [pscustomobject]@{ Decision = 'busy'; RequestId = $RequestId; ActiveKind = 'host-refresh'; ActiveRequestId = $active.requestId } }
+    if ($active) { return [pscustomobject]@{ Decision = 'busy'; RequestId = $RequestId; ActiveKind = 'host-repair'; ActiveRequestId = $active.requestId } }
     $journal.requests += @{ requestId = $RequestId; maxRung = $MaxRung; state = 'queued'; launch = 'pending'; verdict = '' }
     Save-HarnessJournal $journal
     return [pscustomobject]@{ Decision = 'spawn'; RequestId = $RequestId; Attempt = 1; Ceiling = $MaxRung } }
-function Set-HostRefreshLaunchOutcome { [CmdletBinding(SupportsShouldProcess)] param([string]$RequestId, [string]$Outcome, $Launch)
+function Set-HostRepairLaunchOutcome { [CmdletBinding(SupportsShouldProcess)] param([string]$RequestId, [string]$Outcome, $Launch)
     $null = $Launch; Add-HarnessCall "outcome:$RequestId|$Outcome"
     $journal = Read-HarnessJournal
     foreach ($request in $journal.requests) { if ($request.requestId -eq $RequestId) { $request.launch = $Outcome } }
     Save-HarnessJournal $journal; return [pscustomobject]@{ Saved = $true; Reason = 'ok' } }
-function Get-HostRefreshPrivateWorkDir { [CmdletBinding()] param([switch]$NoCreate)
+function Get-HostRepairPrivateWorkDir { [CmdletBinding()] param([switch]$NoCreate)
     $leaf = Get-YurunaPrivateStatePath -Name 'stdin.empty' -Subdirectory 'work' -NoCreate:$NoCreate
     if (-not $leaf.Resolved) { return $null }; return (Split-Path -Parent $leaf.Path) }
-function Get-YurunaHostRefreshLockPath { [CmdletBinding()] param([switch]$NoCreate)
-    $leaf = Get-YurunaPrivateStatePath -Name 'host-refresh.lock' -NoCreate:$NoCreate; if ($leaf.Resolved) { return $leaf.Path }; return $null }
-function Request-HostRefreshStartCycleReservation { [CmdletBinding(SupportsShouldProcess)] param([string]$OperationId, [string]$RuntimeDir, [int]$AdmissionWaitMilliseconds)
+function Get-YurunaHostOperationLockPath { [CmdletBinding()] param([switch]$NoCreate)
+    $leaf = Get-YurunaPrivateStatePath -Name 'host-operation.lock' -NoCreate:$NoCreate; if ($leaf.Resolved) { return $leaf.Path }; return $null }
+function Request-StartCycleReservation { [CmdletBinding(SupportsShouldProcess)] param([string]$OperationId, [string]$RuntimeDir, [int]$AdmissionWaitMilliseconds)
     $null = $RuntimeDir; Add-HarnessCall "reserve:$OperationId|$AdmissionWaitMilliseconds"
     $journal = Read-HarnessJournal
     $active = @($journal.requests | Where-Object { $_.state -in @('queued', 'running') }) | Select-Object -First 1
-    if ($active) { return [pscustomobject]@{ Decision = 'busy'; ActiveKind = 'host-refresh'; ActiveRequestId = $active.requestId } }
+    if ($active) { return [pscustomobject]@{ Decision = 'busy'; ActiveKind = 'host-repair'; ActiveRequestId = $active.requestId } }
     if ($journal.reservation) { return [pscustomobject]@{ Decision = 'busy'; ActiveKind = 'start-cycle'; ActiveRequestId = $journal.reservation.operationId } }
     $journal.reservation = @{ operationId = $OperationId; generation = ('gen-' + [Guid]::NewGuid().ToString('N')) }
     Save-HarnessJournal $journal
     return [pscustomobject]@{ Decision = 'reserved'; Generation = $journal.reservation.generation } }
-function Set-HostRefreshStartCycleLaunch { [CmdletBinding()] param([string]$OperationId, [string]$Generation, [string]$Outcome, $Launch)
+function Set-StartCycleLaunch { [CmdletBinding()] param([string]$OperationId, [string]$Generation, [string]$Outcome, $Launch)
     $null = $Launch; Add-HarnessCall "reservation-launch:$OperationId|$Generation|$Outcome"
     if ($Outcome -eq 'launch-failed') { $journal = Read-HarnessJournal; $journal.reservation = $null; Save-HarnessJournal $journal }
     return [pscustomobject]@{ Saved = $true } }
-Export-ModuleMember -Function Request-HostRefreshAdmission, Set-HostRefreshLaunchOutcome, Get-HostRefreshPrivateWorkDir, Get-YurunaHostRefreshLockPath,
-    Request-HostRefreshStartCycleReservation, Set-HostRefreshStartCycleLaunch
+# A stand-in controller holds its lock while controller.held exists.
+function Get-HostUpdateControllerLockState { [CmdletBinding()] param()
+    if (Test-Path -LiteralPath (Join-Path $env:YURUNA_TEST_STUB_DIR 'controller.held')) { return 'held' }; return 'free' }
+function Get-HostUpdateCapability { [CmdletBinding()] param([string]$RepoRoot, [string]$RuntimeDir, [string]$JournalPath, [scriptblock]$UtcNow)
+    $null = $RepoRoot, $RuntimeDir, $JournalPath, $UtcNow
+    return [pscustomobject]@{ LockState = (Get-HostUpdateControllerLockState); JournalStatus = 'ok'; ControllerState = $null; Protocol = 1; UpdateState = 'idle' } }
+function Request-HostUpdateAdmission { [CmdletBinding(SupportsShouldProcess)] param([string]$RequestId, [string]$Channel, [string]$Scope, [string]$Drain, [int]$DrainSeconds,
+        [string]$ExpectCommit, [string]$RuntimeDir, [string]$HostType, [int]$AdmissionWaitMilliseconds, [scriptblock]$UtcNow)
+    $null = $RuntimeDir, $HostType, $UtcNow
+    Add-HarnessCall "admit-update:$RequestId|$Channel|$Scope|$Drain|$DrainSeconds|$ExpectCommit|$AdmissionWaitMilliseconds"
+    return [pscustomobject]@{ Decision = 'queued'; RequestId = $RequestId; State = 'queued' } }
+Export-ModuleMember -Function Request-HostRepairAdmission, Set-HostRepairLaunchOutcome, Get-HostRepairPrivateWorkDir, Get-YurunaHostOperationLockPath,
+    Request-StartCycleReservation, Set-StartCycleLaunch, Get-HostUpdateControllerLockState, Get-HostUpdateCapability, Request-HostUpdateAdmission
 '@
 
 $script:StubInnerSpawn = @'
@@ -207,14 +218,14 @@ function New-HarnessTree {
         $common = $common.Replace($creation, 'if ($Platform -eq ''windows'') { Start-Sleep -Milliseconds 700; $null = [IO.Directory]::CreateDirectory($Path) }')
         [IO.File]::WriteAllText($commonPath, $common)
     }
-    $replaced = @('Test.HostRefresh.psm1', 'Test.HostRefreshIntent.psm1', 'Test.InnerSpawn.psm1', 'Test.HostMemoryMetrics.psm1', 'Invoke-HostDiagnosticWorker.ps1', 'Invoke-StartCycleWorker.ps1')
+    $replaced = @('Test.HostRepair.psm1', 'Test.HostOperationJournal.psm1', 'Test.InnerSpawn.psm1', 'Test.HostMemoryMetrics.psm1', 'Invoke-HostDiagnosticWorker.ps1', 'Invoke-StartCycleWorker.ps1')
     foreach ($file in @(Get-ChildItem -LiteralPath $here -File)) {
         if ($replaced -contains $file.Name -or $file.Name -like '*.Tests.ps1') { continue }
         if ($IsWindows) { Copy-Item -LiteralPath $file.FullName -Destination (Join-Path $modules $file.Name) }
         else { $null = New-Item -ItemType SymbolicLink -Path (Join-Path $modules $file.Name) -Target $file.FullName }
     }
-    [IO.File]::WriteAllText((Join-Path $modules 'Test.HostRefresh.psm1'), $script:StubHostRefresh)
-    [IO.File]::WriteAllText((Join-Path $modules 'Test.HostRefreshIntent.psm1'), $script:StubHostRefreshIntent)
+    [IO.File]::WriteAllText((Join-Path $modules 'Test.HostRepair.psm1'), $script:StubHostRepair)
+    [IO.File]::WriteAllText((Join-Path $modules 'Test.HostOperationJournal.psm1'), $script:StubHostOperationJournal)
     [IO.File]::WriteAllText((Join-Path $modules 'Test.InnerSpawn.psm1'), $script:StubInnerSpawn)
     [IO.File]::WriteAllText((Join-Path $modules 'Test.HostMemoryMetrics.psm1'), @'
 function Get-YurunaHostMemoryMetricPayload {
@@ -223,7 +234,7 @@ function Get-YurunaHostMemoryMetricPayload {
 }
 Export-ModuleMember -Function Get-YurunaHostMemoryMetricPayload
 '@)
-    [IO.File]::WriteAllText((Join-Path $tree.Repo 'test/lab/Invoke-HostRefresh.ps1'), (Get-StandInWorker -Kind 'refresh' -ParamBlock @'
+    [IO.File]::WriteAllText((Join-Path $tree.Repo 'test/lab/Invoke-HostRepair.ps1'), (Get-StandInWorker -Kind 'repair' -ParamBlock @'
     [string]$RequestId, [long]$DeadlineTickMs, [long]$PreAdmissionDeadlineTickMs
 '@))
     [IO.File]::WriteAllText((Join-Path $modules 'Invoke-StartCycleWorker.ps1'), (Get-StandInWorker -Kind 'start-cycle' -ParamBlock @'
@@ -405,7 +416,7 @@ function Start-Harness {
     if ($UnsafePrivateRoot) {
         $null = New-Item -ItemType Directory -Path (Join-Path $script:Tree.Home '.yuruna')
         $linkType = if ($IsWindows) { 'Junction' } else { 'SymbolicLink' }
-        $null = New-Item -ItemType $linkType -Path (Join-Path $script:Tree.Home '.yuruna/host-refresh') -Target $script:Tree.Runtime
+        $null = New-Item -ItemType $linkType -Path (Join-Path $script:Tree.Home '.yuruna/host-repair') -Target $script:Tree.Runtime
     }
     $script:Port = Get-YurunaTestFreePort -AnyAddress
     # The runtime's own inputs, passed the way the launcher passes them.
@@ -685,13 +696,13 @@ Describe 'a live listener stays responsive around bodies and workers' {
         } finally { $response.Dispose() }
     }
 
-    It 'answers concurrent refresh, start-cycle and diagnostic requests quickly while the read-only routes keep answering' {
+    It 'answers concurrent repair, start-cycle and diagnostic requests quickly while the read-only routes keep answering' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $tasks = @{}
         $watch = [System.Diagnostics.Stopwatch]::StartNew()
         foreach ($spec in @(
-                @{ Name = 'refresh'; Method = 'POST'; Path = 'control/host-refresh'; Body = '{}' },
+                @{ Name = 'repair'; Method = 'POST'; Path = 'control/host-repair'; Body = '{}' },
                 @{ Name = 'start-cycle'; Method = 'POST'; Path = 'control/start-cycle' },
                 @{ Name = 'diagnostic'; Method = 'GET'; Path = 'control/host-diagnostic' })) {
             $message = [System.Net.Http.HttpRequestMessage]::new([System.Net.Http.HttpMethod]::new($spec.Method), "http://localhost:$($script:Port)/$($spec.Path)")
@@ -717,10 +728,10 @@ Describe 'a live listener stays responsive around bodies and workers' {
             if ($elapsed[$name] -gt 1500) { $findings += "$name completed after $($elapsed[$name]) ms (observer finished at $($watch.ElapsedMilliseconds) ms)" }
         }
         Assert-NoFinding $findings 'a concurrent control request was slow or undocumented'
-        # Refresh and start-cycle exclude each other: whichever the loop admits
+        # Repair and start-cycle exclude each other: whichever the loop admits
         # first is launched and the other is told busy, never both.
-        $admitted = @(@('refresh', 'start-cycle') | Where-Object { [int]$tasks[$_].Task.Result.StatusCode -eq 202 })
-        Assert-Equal 1 $admitted.Count 'exactly one of refresh and start-cycle is admitted'
+        $admitted = @(@('repair', 'start-cycle') | Where-Object { [int]$tasks[$_].Task.Result.StatusCode -eq 202 })
+        Assert-Equal 1 $admitted.Count 'exactly one of repair and start-cycle is admitted'
         Assert-Equal 202 ([int]$tasks['diagnostic'].Task.Result.StatusCode) 'the diagnostic answers pending while its worker runs'
         $deadline = [DateTime]::UtcNow.AddSeconds(10)
         while ([DateTime]::UtcNow -lt $deadline -and ((Get-StandInPid -Kind $admitted[0]).Count -lt 1 -or (Get-StandInPid -Kind 'diagnostic').Count -lt 1)) { Start-Sleep -Milliseconds 100 }
@@ -769,8 +780,8 @@ Describe 'a live listener stays responsive around bodies and workers' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $admissionsBefore = (Get-HarnessCall -Prefix 'admit:').Count
-        $refreshBefore = (Get-StandInPid -Kind 'refresh').Count
-        $raw = Open-RawRequest -Head "POST /control/host-refresh HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 100`r`n`r`n"
+        $repairBefore = (Get-StandInPid -Kind 'repair').Count
+        $raw = Open-RawRequest -Head "POST /control/host-repair HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 100`r`n`r`n"
         Start-Sleep -Milliseconds 200
         $status = Invoke-HarnessRequest -Path 'status/' -TimeoutMs 3000
         Assert-Equal 200 $status.Status
@@ -780,12 +791,12 @@ Describe 'a live listener stays responsive around bodies and workers' {
         Assert-True ($answer.Status -in @(0, 408)) "a withheld body got $($answer.Status)"
         if ($answer.Status -eq 408) { Assert-Match 'body_timeout' $answer.Text }
         Assert-Equal $admissionsBefore (Get-HarnessCall -Prefix 'admit:').Count 'no admission for a body that never arrived'
-        Assert-Equal $refreshBefore (Get-StandInPid -Kind 'refresh').Count 'no worker for a body that never arrived'
+        Assert-Equal $repairBefore (Get-StandInPid -Kind 'repair').Count 'no worker for a body that never arrived'
     }
 
     It 'cuts a trickled body at two seconds despite progress' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
-        $raw = Open-RawRequest -Head "POST /control/host-refresh HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 50`r`n`r`n{"
+        $raw = Open-RawRequest -Head "POST /control/host-repair HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 50`r`n`r`n{"
         $answer = Wait-RawResponse -Raw $raw -TimeoutMs 6000 -TrickleEveryMs 300 -TrickleText ' '
         Assert-True ($answer.AnsweredMs -ge 1900 -and $answer.AnsweredMs -le 3500) "the trickled body was answered after $($answer.AnsweredMs) ms"
         Assert-True ($answer.Status -in @(0, 408)) "a trickled body got $($answer.Status)"
@@ -793,16 +804,16 @@ Describe 'a live listener stays responsive around bodies and workers' {
 
     It 'cuts a chunked trickle the same way, and refuses a chunked body past the cap' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
-        $raw = Open-RawRequest -Head "POST /control/host-refresh HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nTransfer-Encoding: chunked`r`n`r`n"
+        $raw = Open-RawRequest -Head "POST /control/host-repair HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nTransfer-Encoding: chunked`r`n`r`n"
         $answer = Wait-RawResponse -Raw $raw -TimeoutMs 6000 -TrickleEveryMs 300 -TrickleText "1`r`n `r`n"
         Assert-True ($answer.AnsweredMs -ge 1900 -and $answer.AnsweredMs -le 3500) "the chunked trickle was answered after $($answer.AnsweredMs) ms"
         $big = ' ' * 5000
-        $oversize = Open-RawRequest -Head ("POST /control/host-refresh HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nTransfer-Encoding: chunked`r`n`r`n" +
+        $oversize = Open-RawRequest -Head ("POST /control/host-repair HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nTransfer-Encoding: chunked`r`n`r`n" +
             ('{0:x}' -f $big.Length) + "`r`n" + $big + "`r`n0`r`n`r`n")
         $refused = Wait-RawResponse -Raw $oversize -TimeoutMs 4000
         Assert-Equal 413 $refused.Status 'a chunked body past 4096 bytes is refused with no declared length to go on'
         Assert-Match 'payload_too_large' $refused.Text
-        $declared = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body ('{"x":"' + ('y' * 5000) + '"}')
+        $declared = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body ('{"x":"' + ('y' * 5000) + '"}')
         Assert-Equal 413 $declared.Status 'a declared length past the cap is refused before reading'
     }
 
@@ -811,10 +822,10 @@ Describe 'a live listener stays responsive around bodies and workers' {
         $held = @()
         try {
             foreach ($i in 1..4) {
-                $held += Open-RawRequest -Head "POST /control/host-refresh HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 100`r`n`r`n"
+                $held += Open-RawRequest -Head "POST /control/host-repair HTTP/1.1`r`nHost: localhost`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 100`r`n`r`n"
             }
             Start-Sleep -Milliseconds 300
-            $fifth = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body '{}'
+            $fifth = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body '{}'
             Assert-Equal 503 $fifth.Status
             Assert-StringEqual 'listener_busy' $fifth.Json.reason
             Assert-StringEqual '2' $fifth.RetryAfter 'the busy reply says when to retry'
@@ -827,13 +838,13 @@ Describe 'a live listener stays responsive around bodies and workers' {
 
     It 'keeps the cross-site guard and the method check in front of the route' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
-        $get = Invoke-HarnessRequest -Path 'control/host-refresh'
+        $get = Invoke-HarnessRequest -Path 'control/host-repair'
         Assert-Equal 405 $get.Status 'a GET that carries the header reaches the method check'
-        $noHeader = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body '{}' -NoCsrfHeader
+        $noHeader = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body '{}' -NoCsrfHeader
         Assert-Equal 403 $noHeader.Status 'a POST without the header is refused before the route'
-        $preflight = Invoke-HarnessRequest -Method OPTIONS -Path 'control/host-refresh' -NoCsrfHeader
+        $preflight = Invoke-HarnessRequest -Method OPTIONS -Path 'control/host-repair' -NoCsrfHeader
         Assert-Equal 204 $preflight.Status
-        $media = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body '{}' -ContentType 'text/plain'
+        $media = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body '{}' -ContentType 'text/plain'
         Assert-Equal 415 $media.Status
     }
 
@@ -842,7 +853,7 @@ Describe 'a live listener stays responsive around bodies and workers' {
         Reset-HarnessJournal -Journal $null
         $before = (Get-HarnessCall -Prefix 'admit:').Count
         foreach ($body in @('{"force":true}', '{"AllowHardStop":true}', '{"configPath":"/etc/x"}', '{"tier":"full"}')) {
-            $reply = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body $body
+            $reply = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body $body
             Assert-Equal 400 $reply.Status $body
             Assert-True ($reply.Json.reason -in @('forbidden_field', 'invalid_value')) "$body got $($reply.Json.reason)"
         }
@@ -853,35 +864,35 @@ Describe 'a live listener stays responsive around bodies and workers' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $id = [Guid]::NewGuid().ToString('D')
-        $first = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body ('{"requestId":"' + $id + '","maxRung":"start-if-stopped"}')
+        $first = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body ('{"requestId":"' + $id + '","maxRung":"start-if-stopped"}')
         Assert-Equal 202 $first.Status $first.Text
         Assert-StringEqual 'spawned' $first.Json.action
-        $again = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body ('{"requestId":"' + $id + '","maxRung":"start-if-stopped"}')
+        $again = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body ('{"requestId":"' + $id + '","maxRung":"start-if-stopped"}')
         Assert-Equal 202 $again.Status
         Assert-StringEqual 'already_claimed' $again.Json.action
-        $other = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body ('{"requestId":"' + [Guid]::NewGuid().ToString('D') + '"}')
+        $other = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body ('{"requestId":"' + [Guid]::NewGuid().ToString('D') + '"}')
         Assert-Equal 409 $other.Status
         Assert-StringEqual 'busy' $other.Json.reason
-        Assert-StringEqual 'host_refresh' $other.Json.activeKind
+        Assert-StringEqual 'host_repair' $other.Json.activeKind
         Assert-StringEqual $id $other.Json.activeRequestId
-        $changed = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body ('{"requestId":"' + $id + '","maxRung":"reclaim"}')
+        $changed = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body ('{"requestId":"' + $id + '","maxRung":"reclaim"}')
         Assert-Equal 409 $changed.Status
         Assert-StringEqual 'request_conflict' $changed.Json.reason
         $completedId = [Guid]::NewGuid().ToString('D')
         Reset-HarnessJournal -Journal @{ requests = @(@{ requestId = $completedId; maxRung = 'start-if-stopped'; state = 'completed'; launch = 'started'; verdict = 'partial' }); reservation = $null }
-        $replay = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body ('{"requestId":"' + $completedId + '","maxRung":"start-if-stopped"}')
+        $replay = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body ('{"requestId":"' + $completedId + '","maxRung":"start-if-stopped"}')
         Assert-Equal 200 $replay.Status
         Assert-True $replay.Json.ok
         Assert-StringEqual 'partial' $replay.Json.verdict 'a completed replay reports its stored verdict, which is what the caller must read'
     }
 
-    It 'makes start-cycle and refresh exclude each other in both orders' {
+    It 'makes start-cycle and repair exclude each other in both orders' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
-        Reset-HarnessJournal -Journal @{ requests = @(@{ requestId = 'active-refresh'; maxRung = 'reclaim'; state = 'running'; launch = 'started'; verdict = '' }); reservation = $null }
+        Reset-HarnessJournal -Journal @{ requests = @(@{ requestId = 'active-repair'; maxRung = 'reclaim'; state = 'running'; launch = 'started'; verdict = '' }); reservation = $null }
         $blocked = Invoke-HarnessRequest -Method POST -Path 'control/start-cycle'
         Assert-Equal 409 $blocked.Status
-        Assert-StringEqual 'host_refresh' $blocked.Json.activeKind
-        Assert-StringEqual '/runtime/host-refresh.state.json' $blocked.Json.stateUrl
+        Assert-StringEqual 'host_repair' $blocked.Json.activeKind
+        Assert-StringEqual '/runtime/host-repair.state.json' $blocked.Json.stateUrl
         Reset-HarnessJournal -Journal $null
         $queued = Invoke-HarnessRequest -Method POST -Path 'control/start-cycle'
         Assert-Equal 202 $queued.Status $queued.Text
@@ -889,23 +900,128 @@ Describe 'a live listener stays responsive around bodies and workers' {
         $recorded = @(Get-HarnessCall -Prefix "reservation-launch:$($queued.Json.operationId)|")
         Assert-Equal 1 $recorded.Count 'the launch of a reserved start-cycle is recorded once, first time'
         Assert-Match '\|started$' $recorded[0]
-        $refresh = Invoke-HarnessRequest -Method POST -Path 'control/host-refresh' -Body '{}'
-        Assert-Equal 409 $refresh.Status
-        Assert-StringEqual 'start_cycle' $refresh.Json.activeKind
-        Assert-StringEqual $queued.Json.operationId $refresh.Json.activeRequestId
-        Assert-StringEqual '/runtime/start-cycle.state.json' $refresh.Json.stateUrl
+        $repair = Invoke-HarnessRequest -Method POST -Path 'control/host-repair' -Body '{}'
+        Assert-Equal 409 $repair.Status
+        Assert-StringEqual 'start_cycle' $repair.Json.activeKind
+        Assert-StringEqual $queued.Json.operationId $repair.Json.activeRequestId
+        Assert-StringEqual '/runtime/start-cycle.state.json' $repair.Json.stateUrl
     }
 
-    It 'advertises the refresh capability in a small control-status reply' {
+    It 'advertises the repair capability in a small control-status reply' {
         Assert-True $script:HarnessReady $script:HarnessSkipReason
         Reset-HarnessJournal -Journal $null
         $status = Invoke-HarnessRequest -Path 'control/control-status'
         Assert-Equal 200 $status.Status
         Assert-True ([System.Text.Encoding]::UTF8.GetByteCount($status.Text) -lt 1024) "control-status is $([System.Text.Encoding]::UTF8.GetByteCount($status.Text)) bytes"
-        Assert-Equal 1 $status.Json.refresh.protocol
-        Assert-StringEqual 'available' $status.Json.refresh.availability
-        Assert-StringEqual 'start-if-stopped' $status.Json.refresh.ceiling
-        Assert-StringEqual 'idle' $status.Json.refresh.state
+        Assert-Equal 1 $status.Json.repair.protocol
+        Assert-StringEqual 'available' $status.Json.repair.availability
+        Assert-StringEqual 'start-if-stopped' $status.Json.repair.ceiling
+        Assert-StringEqual 'idle' $status.Json.repair.state
+        Assert-StringEqual 'protocol,availability,scopes,reason,remote,state,caller' (@($status.Json.update.PSObject.Properties.Name) -join ',')
+        Assert-StringEqual 'loopback' $status.Json.update.caller 'a request to localhost at the listener port is this host itself'
+        Assert-StringEqual 'missing' $status.Json.update.remote
+    }
+
+    It 'guards POST /control/host-update and queues only this host''s own request while a controller runs' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $held = Join-Path $script:Tree.Stub 'controller.held'
+        Remove-Item -LiteralPath $held -Force -ErrorAction SilentlyContinue
+        $before = (Get-HarnessCall -Prefix 'admit-update:').Count
+        Assert-Equal 405 (Invoke-HarnessRequest -Path 'control/host-update').Status 'a GET that carries the header reaches the method check'
+        Assert-Equal 403 (Invoke-HarnessRequest -Method POST -Path 'control/host-update' -Body '{}' -NoCsrfHeader).Status 'a POST without the header is refused before the route'
+        Assert-Equal 204 (Invoke-HarnessRequest -Method OPTIONS -Path 'control/host-update' -NoCsrfHeader).Status
+        Assert-Equal 415 (Invoke-HarnessRequest -Method POST -Path 'control/host-update' -Body '{}' -ContentType 'text/plain').Status
+        $drain = Invoke-HarnessRequest -Method POST -Path 'control/host-update' -Body '{"drain":"now"}'
+        Assert-Equal 400 $drain.Status
+        Assert-StringEqual 'forbidden_field' $drain.Json.reason
+        Assert-StringEqual 'drain' $drain.Json.field
+        $absent = Invoke-HarnessRequest -Method POST -Path 'control/host-update' -Body '{}'
+        Assert-Equal 503 $absent.Status $absent.Text
+        Assert-StringEqual 'controller_absent' $absent.Json.reason
+        Assert-Equal $before (Get-HarnessCall -Prefix 'admit-update:').Count 'nothing is queued while no controller runs'
+        [IO.File]::WriteAllText($held, '')
+        try {
+            $queued = Invoke-HarnessRequest -Method POST -Path 'control/host-update' -Body '{}'
+            Assert-Equal 202 $queued.Status $queued.Text
+            Assert-StringEqual 'queued' $queued.Json.action
+            Assert-StringEqual '/runtime/host-update.state.json' $queued.Json.stateUrl
+            $admitted = @(Get-HarnessCall -Prefix "admit-update:$($queued.Json.requestId)|")
+            Assert-Equal 1 $admitted.Count
+            Assert-Match '\|listener\|restart\|after-cycle\|7200\|\|1000$' $admitted[0]
+            $raw = Open-RawRequest -Head ("POST /control/host-update HTTP/1.1`r`nHost: evil.example:$($script:Port)`r`nX-Yuruna: 1`r`nContent-Type: application/json`r`nContent-Length: 2`r`n`r`n{}")
+            $foreign = Wait-RawResponse -Raw $raw -TimeoutMs 6000
+            Assert-Equal 403 $foreign.Status 'a loopback address under a foreign Host name is not this host itself'
+            Assert-Match 'update_proof_missing' $foreign.Text
+            Assert-Equal ($before + 1) (Get-HarnessCall -Prefix 'admit-update:').Count 'only the loopback request reached admission'
+        } finally {
+            Remove-Item -LiteralPath $held -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'admits a host update from another machine only with a proof signed by the key in the pool-control record' {
+        Assert-True $script:HarnessReady $script:HarnessSkipReason
+        $held = Join-Path $script:Tree.Stub 'controller.held'
+        $privateRoot = [IO.Path]::Combine($script:Tree.Home, '.yuruna', 'host-repair')
+        $recordPath = [IO.Path]::Combine($privateRoot, 'pool-control.record')
+        $vectorDir = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'extension-sdk', 'hostupdate', 'testdata')
+        $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($vectorDir, 'vectors.json')))
+        $uuidPath = Join-Path $script:Tree.Runtime 'host.uuid'
+        $hadUuid = [IO.File]::Exists($uuidPath)
+        if (-not $hadUuid) { [IO.File]::WriteAllText($uuidPath, '42cccccccccccccccccccccccccccccc') }
+        $hostId = [string](Invoke-HarnessRequest -Path 'control/control-status').Json.hostId
+        Assert-Match '\A[0-9a-f]{32}\z' $hostId
+        $sign = {
+            param([string]$KeyFile, [string]$RequestId, [string]$Scope)
+            $now = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+            $fields = @($hostId, $RequestId, $Scope, '7200', '', "$now", "$($now + 120)")
+            $rsa = [Security.Cryptography.RSA]::Create()
+            try {
+                $rsa.ImportFromPem([IO.File]::ReadAllText([IO.Path]::Combine($vectorDir, $KeyFile)))
+                $sig = $rsa.SignData([Text.Encoding]::UTF8.GetBytes('yuruna-host-update|v2|' + ($fields -join '|')),
+                    [Security.Cryptography.HashAlgorithmName]::SHA256, [Security.Cryptography.RSASignaturePadding]::Pkcs1)
+            } finally { $rsa.Dispose() }
+            (@('yup1') + $fields + @([Convert]::ToBase64String($sig).TrimEnd('=').Replace('+', '-').Replace('/', '_'))) -join '.'
+        }
+        # A foreign Host name makes the request another machine's to the
+        # route, while the loopback address still passes the transport guard.
+        $send = {
+            param([string]$Proof, [string]$Body)
+            $head = "POST /control/host-update HTTP/1.1`r`nHost: pool-host.example:$($script:Port)`r`nX-Yuruna: 1`r`nX-Yuruna-Update-Proof: $Proof`r`n" +
+                "Content-Type: application/json`r`nConnection: close`r`nContent-Length: $([Text.Encoding]::UTF8.GetByteCount($Body))`r`n`r`n$Body"
+            Wait-RawResponse -Raw (Open-RawRequest -Head $head) -TimeoutMs 6000
+        }
+        $id = [Guid]::NewGuid().ToString('D')
+        $before = (Get-HarnessCall -Prefix 'admit-update:').Count
+        [IO.File]::WriteAllText($held, '')
+        try {
+            $unprovisioned = & $send (& $sign 'test-key.pem' $id 'restart') ('{"requestId":"' + $id + '"}')
+            Assert-Equal 403 $unprovisioned.Status $unprovisioned.Text
+            Assert-Match 'update_remote_unprovisioned' $unprovisioned.Text
+            if (-not [IO.Directory]::Exists($privateRoot)) { $null = [IO.Directory]::CreateDirectory($privateRoot, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
+            [IO.File]::WriteAllText($recordPath, ([ordered]@{ schema = 'yuruna.pool-control-record/v1'; poolControl = 'http://192.0.2.10'; updateKey = $vectors.publicKey } | ConvertTo-Json -Compress))
+            if (-not $IsWindows) { [IO.File]::SetUnixFileMode($recordPath, [IO.UnixFileMode]'UserRead, UserWrite') }
+
+            $noId = & $send (& $sign 'test-key.pem' $id 'restart') '{}'
+            Assert-Equal 400 $noId.Status 'a remote request must name the id its proof binds'
+            Assert-Match '"field":"requestId"' $noId.Text
+            $policy = & $send (& $sign 'test-key.pem' $id 'restart') ('{"requestId":"' + $id + '","scope":"full"}')
+            Assert-Equal 403 $policy.Status
+            Assert-Match 'update_proof_policy_mismatch' $policy.Text
+            $forged = & $send (& $sign 'other-key.pem' $id 'restart') ('{"requestId":"' + $id + '"}')
+            Assert-Equal 403 $forged.Status
+            Assert-Match 'update_proof_invalid' $forged.Text
+            Assert-Equal $before (Get-HarnessCall -Prefix 'admit-update:').Count 'no refused request reached admission'
+
+            $queued = & $send (& $sign 'test-key.pem' $id 'restart') ('{"requestId":"' + $id + '"}')
+            Assert-Equal 202 $queued.Status $queued.Text
+            Assert-Match '"action":"queued"' $queued.Text
+            $admitted = @(Get-HarnessCall -Prefix "admit-update:$id|")
+            Assert-Equal 1 $admitted.Count
+            Assert-Match '\|remote\|restart\|after-cycle\|7200\|\|1000$' $admitted[0]
+        } finally {
+            Remove-Item -LiteralPath $held, $recordPath -Force -ErrorAction SilentlyContinue
+            if (-not $hadUuid) { Remove-Item -LiteralPath $uuidPath -Force -ErrorAction SilentlyContinue }
+        }
     }
 
     It 'answers pending on repeated diagnostic requests without launching a second worker' {

@@ -584,11 +584,11 @@ func TestCommitCellsVerificationDisplay(t *testing.T) {
 		verification string
 		label        string
 	}{
-		{"origin-direct", "remote.origin"},
-		{"mirror-confirmed", "mirror.origin"},
-		{"mirror-stale", "mirror.stale"},
-		{"mirror-fresh", "mirror.fresh"},
-		{"not-applicable", "not.applicable"},
+		{"origin-direct", "remote"},
+		{"mirror-confirmed", "mirror"},
+		{"mirror-stale", "mirror stale"},
+		{"mirror-fresh", "mirror fresh"},
+		{"not-applicable", "not applicable"},
 		{"", ""},
 		{"unknown", ""},
 	} {
@@ -660,7 +660,7 @@ func TestGitSourceProvenanceRoundTrip(t *testing.T) {
 		t.Fatal("private proof was exposed")
 	}
 	display, _, _ := commitCells(&hostStatus{GitCommits: commits})
-	if !strings.Contains(display, "[mirror.stale]") {
+	if !strings.Contains(display, "[mirror stale]") {
 		t.Fatalf("pool commit cell hides unconfirmed freshness: %q", display)
 	}
 }

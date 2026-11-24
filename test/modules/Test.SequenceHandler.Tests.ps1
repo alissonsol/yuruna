@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -532,6 +532,13 @@ Describe 'waitForTextWithNudge preserves one OCR deadline' {
             Assert-True (& $retryHandler $retryContext) 'the attempt after an installer-media restart should pass'
             Assert-Equal -Expected 'attempt,cold-dvd,recovery,attempt' -Actual ($script:retryCall -join ',') `
                 -Because 'an unfinished install must not boot its partly installed target disk'
+
+            $script:retryCall.Clear()
+            $script:failOcrTail = 'curtin in-target --target=/target -- apt-get install -y iptables-persistent'
+            $script:Fail.WaitForTextInstallerStage = 'start: subiquity/Install/install/postinstall/restore_apt_config'
+            Assert-True (& $retryHandler $retryContext) 'the attempt after a retained-stage installer-media restart should pass'
+            Assert-Equal -Expected 'attempt,cold-dvd,recovery,attempt' -Actual ($script:retryCall -join ',') `
+                -Because 'scrolling past the installer marker must not select the partly installed target disk'
         } finally {
             foreach ($functionName in 'Test-Arm64HyperVColdPowerCycleMode', 'Invoke-Arm64HyperVColdPowerCycle',
                 'Get-SequenceAction', 'Get-PollDelay', 'Format-YurunaOperatorMessage', 'Send-CycleEventSafely') {
@@ -1238,6 +1245,55 @@ Describe 'Provider-neutral login-wait cold recovery' {
         $script:coldStub.Events[-2].reason | Should -BeExactly 'installer-media-selection-unsupported'
         $script:coldStub.Events[-2].requiredCommand | Should -BeExactly 'Set-VMInstallerMediaFirstBoot'
     }
+    It 'refuses unfinished installer recovery on <Provider> after the marker <Change>' -ForEach @(
+        @{Provider='host.ubuntu.kvm';Change='scrolls away';Tail='curtin in-target --target=/target -- apt-get install -y iptables-persistent'},
+        @{Provider='host.ubuntu.kvm';Change='becomes unreadable';Tail=''},
+        @{Provider='host.macos.utm';Change='scrolls away';Tail='curtin in-target --target=/target -- apt-get install -y iptables-persistent'},
+        @{Provider='host.macos.utm';Change='becomes unreadable';Tail=''}
+    ) {
+        $script:coldContext.HostType = $Provider
+        $script:coldStub.OcrTail = $Tail
+        $script:coldStub.InstallerStage = 'start: subiquity/Install/install/postinstall/restore_apt_config'
+        $script:coldStub.InstallerStageSeconds = 107
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence'
+        $script:coldStub.Attempts | Should -Be 1
+        $script:coldStub.Events[0].installerRunning | Should -BeTrue
+        $script:coldStub.Events[0].installerStage | Should -BeExactly $script:coldStub.InstallerStage
+        $script:coldStub.Events[-2].reason | Should -BeExactly 'installer-media-selection-unsupported'
+        $script:coldStub.Events[-2].requiredCommand | Should -BeExactly 'Set-VMInstallerMediaFirstBoot'
+        @($script:coldStub.Events | Where-Object event -EQ 'retry_vm_restart').Count | Should -Be 0
+    }
+    It 'requires installer-media selection before starting a guest with a retained installer stage (selection succeeds: <SelectionSucceeds>)' -ForEach @(
+        @{SelectionSucceeds=$true}, @{SelectionSucceeds=$false}
+    ) {
+        . $script:coldModule {
+            function Set-VMInstallerMediaFirstBoot {
+                [CmdletBinding(SupportsShouldProcess)]
+                [OutputType([bool])]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($VMName, 'Record fixture installer selection')
+                $script:ColdStub.Calls.Add('media')
+                $script:ColdStub.State | Should -BeExactly 'stopped'
+                return $script:ColdStub.SelectionSucceeds
+            }
+        }
+        try {
+            $script:coldContext.HostType = 'host.windows.hyper-v'
+            $script:coldStub.SelectionSucceeds = $SelectionSucceeds
+            $script:coldStub.OcrTail = 'curtin in-target --target=/target -- apt-get install -y iptables-persistent'
+            $script:coldStub.InstallerStage = 'start: subiquity/Install/install/postinstall/restore_apt_config'
+            (& $script:coldHandler $script:coldContext) | Should -Be $SelectionSucceeds
+            $expectedCalls = if ($SelectionSucceeds) { 'attempt,evidence,stop,media,start,console,ring,recovery,attempt' } else { 'attempt,evidence,stop,media' }
+            ($script:coldStub.Calls -join ',') | Should -BeExactly $expectedCalls
+            $script:coldStub.Events[0].installerRunning | Should -BeTrue
+            if (-not $SelectionSucceeds) {
+                $script:coldContext.ColdPowerCycleResult.reasonCode | Should -BeExactly 'installer-media-selection-failed'
+            }
+        } finally {
+            & $script:coldModule { Remove-Item -LiteralPath Function:\Set-VMInstallerMediaFirstBoot }
+        }
+    }
     It 'does not restart or replay an explicit installer error' {
         $script:coldStub.Pattern = 'install_fail.crash'
         (& $script:coldHandler $script:coldContext) | Should -BeFalse
@@ -1378,7 +1434,7 @@ Describe 'Provider-neutral login-wait cold recovery' {
         @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_attempt' })[0].guestDisplayStall | Should -BeNullOrEmpty
         @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_vm_restart' })[0].guestDisplayStall | Should -BeNullOrEmpty
     }
-    It 'names the attempt''s kernel-stall end, its processors and the installer stage on retry_attempt, and restarts as before' {
+    It 'names the attempt''s kernel-stall end, its processors and the installer stage when recovery is refused' {
         Import-Module (Join-Path $PSScriptRoot 'Test.EventSchema.psm1') -Force -DisableNameChecking
         # A two-processor guest whose wait ended on processor 1 servicing no
         # interrupt, with processor 0 in the storm shape too.
@@ -1390,8 +1446,8 @@ Describe 'Provider-neutral login-wait cold recovery' {
                     [pscustomobject]@{ Processor = '1'; Stormed = $true; NoInterruptsServicedSeconds = 195 }) } }
         $script:coldStub.InstallerStage = 'start: subiquity/Install/install/postinstall/restore_apt_config'
         $script:coldStub.InstallerStageSeconds = 250
-        (& $script:coldHandler $script:coldContext) | Should -BeTrue
-        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence,stop,start,console,ring,recovery,attempt' -Because 'the readings name the attempt and decide nothing'
+        (& $script:coldHandler $script:coldContext) | Should -BeFalse
+        ($script:coldStub.Calls -join ',') | Should -BeExactly 'attempt,evidence' -Because 'an unfinished installation cannot restart without installer-media selection'
         $attemptEvent = @($script:coldStub.Events | Where-Object { $_.event -eq 'retry_attempt' })[0]
         $attemptEvent.guestKernelStallEnd.basis | Should -BeExactly 'no-interrupts-serviced'
         $attemptEvent.guestKernelStallEnd.waitedSeconds | Should -Be 442
@@ -1401,6 +1457,8 @@ Describe 'Provider-neutral login-wait cold recovery' {
         $attemptEvent.longestNoInterruptsServicedSeconds | Should -Be 195
         $attemptEvent.installerStage | Should -BeExactly 'start: subiquity/Install/install/postinstall/restore_apt_config'
         $attemptEvent.installerStageUnchangedSeconds | Should -Be 250
+        $attemptEvent.installerRunning | Should -BeTrue
+        $script:coldStub.Events[-2].reason | Should -BeExactly 'installer-media-selection-unsupported'
         $attemptEvent.failureClass | Should -BeExactly 'ocr_timeout' -Because 'the attempt keeps the verb''s class'
         @(Test-CycleEventSchema -Record $attemptEvent) | Should -BeNullOrEmpty
     }
@@ -2083,6 +2141,86 @@ Describe 'retry stops on a send the host can never make' {
     }
 }
 
+Describe 'retry does not replay a click that may have landed' {
+    BeforeAll {
+        Import-Module (Join-Path $here 'Test.SequenceFailureState.psm1') -Force -DisableNameChecking -Global
+        $script:ClickRetryHandler = (Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'retry').ScriptBlock.GetScriptBlock()
+    }
+    BeforeEach {
+        $script:ClickRuntime = New-YurunaTestTempDir -Prefix 'yuruna-retry-click'
+        $script:SavedClickRuntimeDir = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $env:YURUNA_RUNTIME_DIR = $script:ClickRuntime
+        $script:ClickAttempts = 0
+        $script:ClickEvents = [Collections.Generic.List[object]]::new()
+        $script:ClickFaultReason = 'delivery-unknown'
+        $script:ClickFaultDelivered = -1
+        $script:Fail = [ordered]@{
+            LastFailureLabel = $null; LastFailureDescription = $null; LastFailedAction = $null; LastFailedStepNumber = 0
+            LastFailedStepInvocationId = ''; StepHandlerError = $null; StepHostInputFault = $null
+            WaitForTextMatchedFailurePattern = $null; WaitForTextConsoleFlood = $null
+        }
+        Set-Item -LiteralPath Function:\Test-Arm64HyperVColdPowerCycleMode -Value { return $false }
+        Set-Item -LiteralPath Function:\Get-SequenceAction -Value {
+            param([string]$Name)
+            $null = $Name
+            return [ordered]@{ FailureClass = 'ocr_timeout'; Severity = 'hard'; SuggestedRecoveries = @('restart_from_snapshot') }
+        }
+        Set-Item -LiteralPath Function:\Get-PollDelay -Value { param([int]$Attempt) $null = $Attempt; return 0 }
+        Set-Item -LiteralPath Function:\Format-YurunaOperatorMessage -Value {
+            param($Key, $FormatValues, $FormatBindings, $Arguments)
+            $null = $FormatValues, $FormatBindings, $Arguments
+            return [string]$Key
+        }
+        Set-Item -LiteralPath Function:\Send-CycleEventSafely -Value { param($EventRecord) $script:ClickEvents.Add($EventRecord) }
+        $script:ClickContext = @{
+            Step = [ordered]@{ maxAttempts = 3; steps = @([ordered]@{ action = 'tapOn'; label = 'Next' }) }
+            InvokeStepBlock = {
+                param($Steps, $ParentOrdinal, $ParentAction, $ParentAttempt)
+                $null = $Steps, $ParentOrdinal, $ParentAction, $ParentAttempt
+                $script:ClickAttempts++
+                $script:Fail.LastFailedAction = 'tapOn'
+                $script:Fail.LastFailureLabel = 'tapOn'
+                $script:Fail.LastFailedStepInvocationId = "leaf-$($script:ClickAttempts)"
+                $script:Fail.StepHostInputFault = [ordered]@{ action = 'Send-Click'; stepInvocationId = "leaf-$($script:ClickAttempts)"
+                    kind = 'transient'; reason = $script:ClickFaultReason; transport = 'KVM'; detail = 'press 1: fixture'
+                    delivered = $script:ClickFaultDelivered; total = 2 }
+                return $false
+            }
+            StepNum = 4; StepCount = 9; Description = 'press Next'; VMName = 'test-vm'; HostType = 'host.ubuntu.kvm'
+        }
+    }
+    AfterEach {
+        foreach ($functionName in 'Test-Arm64HyperVColdPowerCycleMode', 'Get-SequenceAction', 'Get-PollDelay',
+            'Format-YurunaOperatorMessage', 'Send-CycleEventSafely') {
+            Remove-Item -LiteralPath "Function:\$functionName" -ErrorAction SilentlyContinue
+        }
+        Restore-YurunaTestEnvironment -Saved $script:SavedClickRuntimeDir
+        Remove-YurunaTestTempDir $script:ClickRuntime
+    }
+
+    It 'makes one attempt when the delivery is unknown' {
+        Assert-False (& $script:ClickRetryHandler $script:ClickContext) 'the retry must fail'
+        Assert-Equal -Expected 1 -Actual $script:ClickAttempts -Because 'another attempt could click twice'
+        $exhausted = @($script:ClickEvents | Where-Object { $_.event -eq 'retry_exhausted' })
+        Assert-Equal -Expected 'uncertain-click-delivery' -Actual $exhausted[0].retrySuppressionReason
+        Assert-True ($script:Fail.LastFailureLabel -match 'uncertain-click-delivery') "the label says why: $($script:Fail.LastFailureLabel)"
+    }
+
+    It 'makes one attempt when part of a double click landed' {
+        $script:ClickFaultReason = 'send-failed'
+        $script:ClickFaultDelivered = 2
+        Assert-False (& $script:ClickRetryHandler $script:ClickContext) 'the retry must fail'
+        Assert-Equal -Expected 1 -Actual $script:ClickAttempts -Because 'the first press and release reached the guest'
+    }
+
+    It 'keeps retrying a click that sent nothing' {
+        $script:ClickFaultReason = 'send-failed'
+        $script:ClickFaultDelivered = 0
+        Assert-False (& $script:ClickRetryHandler $script:ClickContext) 'the retry must fail'
+        Assert-Equal -Expected 3 -Actual $script:ClickAttempts
+    }
+}
+
 Describe 'the sequence schema types the blank-console expectation on the pure waits' {
     # The declaration is a step key the engine honors, so the schema carries it
     # as a boolean on the verbs that forward it: a misspelled value is a schema
@@ -2213,5 +2351,385 @@ Describe 'A failed retry attempt keeps only OCR text its own step read' {
         $text = Get-Content -Raw -LiteralPath $copied
         $text | Should -Not -Match 'curtin_install' -Because 'the attempt read no text, so an earlier wait''s screen is not its evidence'
         $text | Should -Match 'No OCR text from this attempt'
+    }
+}
+
+Describe 'retry keeps a page step''s own class' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking
+        $script:pageRetry = (Get-SequenceAction -Name retry).Handler
+        $script:pageFail = Get-SequenceFailureState
+        # What the engine's step block does for a page step that failed in its
+        # transport: the leaf files its account, then names itself the failure.
+        $script:pageLeaf = {
+            param($Steps)
+            $null = $Steps
+            $script:pageFail.LastFailedStepInvocationId = 'leaf'
+            Set-StepWebFailure -Context @{ StepInvocationId = 'leaf'; Step = @{ action = 'webClick' } } -Kind transport -Dispatched $true
+            $script:pageFail.LastFailedAction = 'webClick'
+            $script:pageFail.OriginatingStepInvocationId = 'leaf'
+            $script:pageFail.OriginatingSequenceInvocationId = 'seq'
+            return $false
+        }
+        $script:newPageContext = {
+            param([scriptblock]$Leaf)
+            return @{
+                Step = @{ action = 'retry'; maxAttempts = 1; steps = @(@{ action = 'webClick' }) }
+                StepNum = 4; StepCount = 9; VMName = 'vm1'; HostType = 'host.ubuntu.kvm'; Description = 'retry page'
+                StepInvocationId = 'wrapper'; InvokeStepBlock = $Leaf
+            }
+        }
+    }
+    BeforeEach {
+        $script:pageSaved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR'
+        $script:pageRuntime = New-YurunaTestTempDir -Prefix 'yuruna-retry-page'
+        $env:YURUNA_RUNTIME_DIR = $script:pageRuntime
+        Reset-SequenceFailureSlot -Lifetime sequence
+    }
+    AfterEach {
+        Reset-SequenceFailureSlot -Lifetime sequence
+        Restore-YurunaTestEnvironment -Saved $script:pageSaved
+        Remove-YurunaTestTempDir $script:pageRuntime
+    }
+    AfterAll {
+        Remove-Module Test.SequenceHandler -Force
+    }
+
+    It 'carries the account''s class as the inner cause' {
+        $ctx = & $script:newPageContext $script:pageLeaf
+        $ok = & $script:pageRetry $ctx 3>$null 6>$null
+        Assert-False $ok 'the only attempt failed'
+        Assert-StringEqual -Expected 'network_timeout' -Actual ([string]$script:pageFail.LastInnerFailureClass) -Because 'the account names the class, not the verb''s web_step_failed'
+        Assert-StringEqual -Expected 'reconnect,retry_with_backoff' -Actual (@($script:pageFail.LastInnerSuggestedRecoveries) -join ',')
+    }
+    It 'keeps it through a retry nested in another' {
+        $nested = {
+            param($Steps)
+            $null = & $script:pageLeaf $Steps
+            # An inner retry that gave up: it names itself the failure and
+            # leaves the account and the originating id in place.
+            $script:pageFail.LastFailedAction = 'retry'
+            $script:pageFail.LastFailedStepInvocationId = 'inner-wrapper'
+            return $false
+        }
+        $ctx = & $script:newPageContext $nested
+        $ok = & $script:pageRetry $ctx 3>$null 6>$null
+        Assert-False $ok 'the only attempt failed'
+        Assert-StringEqual -Expected 'network_timeout' -Actual ([string]$script:pageFail.LastInnerFailureClass)
+    }
+    It 'leaves the registered class when the leaf gave no account' {
+        $bare = {
+            param($Steps)
+            $null = $Steps
+            $script:pageFail.LastFailedStepInvocationId = 'leaf'
+            $script:pageFail.LastFailedAction = 'webClick'
+            $script:pageFail.OriginatingStepInvocationId = 'leaf'
+            $script:pageFail.OriginatingSequenceInvocationId = 'seq'
+            return $false
+        }
+        $ctx = & $script:newPageContext $bare
+        $ok = & $script:pageRetry $ctx 3>$null 6>$null
+        Assert-False $ok 'the only attempt failed'
+        Assert-StringEqual -Expected 'web_step_failed' -Actual ([string]$script:pageFail.LastInnerFailureClass)
+        Assert-StringEqual -Expected 'pause_and_inspect' -Actual (@($script:pageFail.LastInnerSuggestedRecoveries) -join ',')
+    }
+}
+
+# The SSH start sequences of Ubuntu Server meet a guest whose seed expired the
+# account's password; a key login then runs no command until it changes. The
+# readiness wait, the rotation and the address lookup are stood in inside the
+# module, so these cases drive only the verb's own decisions.
+Describe 'sshWaitReady rotates an expired password once when the step carries both password fields' {
+    BeforeAll {
+        Import-Module $script:modulePath -Force -DisableNameChecking -Global
+        . (Get-Module Test.SequenceHandler) {
+            function Wait-SshReady {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                param($VMName, $GuestKey, $TimeoutSeconds, $PollSeconds, $OnExpiredLogin)
+                $script:WaitCalls.Add([string]$OnExpiredLogin)
+                $answer = $script:WaitAnswers.Dequeue()
+                # A wait that outlasts the step's budget leaves the rotation or set none.
+                if ($answer.sleepMs) { Start-Sleep -Milliseconds ([int]$answer.sleepMs) }
+                $script:StandInReadiness = @{ cause = $answer.cause }
+                return $answer.ok
+            }
+            function Get-LastSshReadiness { return $script:StandInReadiness }
+            function Get-GuestSshUser { return 'fixture' }
+            function Invoke-GuestSshPasswordRotation {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
+                    Justification = 'Stub of a function that types vault passwords into a guest.')]
+                param($VMName, $GuestKey, $CurrentPassword, $NewPassword, $TimeoutSeconds)
+                $script:RotationCalls.Add(@{ Current = $CurrentPassword; New = $NewPassword; TimeoutSeconds = $TimeoutSeconds })
+                return $script:RotationAnswer
+            }
+            function Set-GuestSshPassword {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real function so the caller binds.')]
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
+                    Justification = 'Stub of a function that writes a vault password to a guest.')]
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Stub: records the call and changes nothing.')]
+                param($VMName, $GuestKey, $NewPassword, $TimeoutSeconds)
+                $script:SetCalls.Add(@{ New = $NewPassword; TimeoutSeconds = $TimeoutSeconds })
+                return $script:SetAnswer
+            }
+        }
+        $script:rotationCurrent = 'Fixture-Current-7351'
+        $script:rotationNew = 'Fixture-New-9024'
+        function Set-RotationStandIn {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: sets the stand-in answers inside the module under test.')]
+            param([object[]]$Wait, [hashtable]$Rotation, [hashtable]$Set = @{ Ok = $true; Code = ''; Detail = '' })
+            & (Get-Module Test.SequenceHandler) {
+                param($Wait, $Rotation, $Set)
+                $script:WaitCalls = [System.Collections.Generic.List[string]]::new()
+                $script:WaitAnswers = [System.Collections.Generic.Queue[object]]::new()
+                foreach ($answer in $Wait) { $script:WaitAnswers.Enqueue($answer) }
+                $script:RotationCalls = [System.Collections.Generic.List[hashtable]]::new()
+                $script:RotationAnswer = $Rotation
+                $script:SetCalls = [System.Collections.Generic.List[hashtable]]::new()
+                $script:SetAnswer = $Set
+            } $Wait $Rotation $Set
+            (Get-SequenceFailureState).StepGuestChange = $null
+        }
+        function Get-RotationStandIn {
+            return (& (Get-Module Test.SequenceHandler) { @{ Wait = @($script:WaitCalls); Rotation = @($script:RotationCalls); Set = @($script:SetCalls) } }) +
+                @{ GuestChange = (Get-SequenceFailureState).StepGuestChange }
+        }
+        function Get-RotationContext {
+            param([hashtable]$Fields)
+            $step = [ordered]@{ action = 'sshWaitReady'; timeoutSeconds = 30 }
+            foreach ($key in $Fields.Keys) { $step[$key] = $Fields[$key] }
+            return @{
+                Step = $step; StepNum = 9; StepCount = 17
+                Vars = @{ username = 'fixture'; currentPassword = $script:rotationCurrent; newPassword = $script:rotationNew }
+                ExpandVariable = { param($Value, $Vars) $map = $Vars; [regex]::Replace([string]$Value, '\$\{([^}]+)\}', { param($m) [string]$map[$m.Groups[1].Value] }) }
+                DefaultTimeoutSeconds = 30; DefaultPollSeconds = 5; ShowSensitive = $false; VMName = 'vm1'; GuestKey = 'guest.ubuntu.server.26'
+                StepInvocationId = 'step-9'; SequenceInvocationId = 'seq-1'; SequencePath = 'start.guest.ubuntu.server.26.ssh.yml'
+            }
+        }
+        $script:bothFields = @{ currentPassword = '${currentPassword}'; newPassword = '${newPassword}' }
+        $script:expired = @{ ok = $false; cause = 'password_expired' }
+        $script:ready = @{ ok = $true; cause = 'ready' }
+    }
+    AfterAll { Remove-Module Test.SequenceHandler -Force }
+
+    It 'rotates once on the first expired answer and goes on waiting' {
+        Set-RotationStandIn -Wait @($script:expired, $script:ready) -Rotation @{ Ok = $true; Code = ''; Detail = '' }
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields $script:bothFields) 6>$null
+        Assert-True $ok 'the wait after the rotation reached a shell'
+        $seen = Get-RotationStandIn
+        Assert-StringEqual -Expected 'Return,Fail' -Actual ($seen.Wait -join ',') -Because 'the first expiry returns for the rotation, a second one fails'
+        Assert-Equal 1 $seen.Rotation.Count 'one rotation'
+        Assert-StringEqual -Expected $script:rotationCurrent -Actual $seen.Rotation[0].Current
+        Assert-StringEqual -Expected $script:rotationNew -Actual $seen.Rotation[0].New
+        Assert-True ($seen.Rotation[0].TimeoutSeconds -ge 1 -and $seen.Rotation[0].TimeoutSeconds -le 30) 'the rotation shares the step budget'
+        Assert-Equal 0 $seen.Set.Count 'the rotation already put the new password in place'
+    }
+
+    It 'waits exactly as before without the two fields' {
+        Set-RotationStandIn -Wait @($script:expired) -Rotation $null
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields @{}) 6>$null
+        Assert-False $ok 'the expired guest never became ready'
+        $seen = Get-RotationStandIn
+        Assert-StringEqual -Expected '' -Actual ($seen.Wait -join ',') -Because 'the wait keeps its default policy'
+        Assert-Equal 1 $seen.Wait.Count 'one wait'
+        Assert-Equal 0 $seen.Rotation.Count 'no rotation'
+        Assert-Equal 0 $seen.Set.Count 'no set'
+    }
+
+    It 'sets nothing on a guest that reaches a shell without the two fields' {
+        Set-RotationStandIn -Wait @($script:ready) -Rotation $null
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields @{}) 6>$null
+        Assert-True $ok 'the guest reached a shell'
+        $seen = Get-RotationStandIn
+        Assert-Equal 1 $seen.Wait.Count 'one wait'
+        Assert-Equal 0 $seen.Rotation.Count 'no rotation'
+        Assert-Equal 0 $seen.Set.Count 'no set'
+    }
+
+    # A replayed step meets a guest whose password is no longer expired, and a
+    # later step stores newPassword in the vault: the step passes only once the
+    # guest has that password too.
+    It 'sets the new password once when the login reaches a shell without expiry' {
+        Set-RotationStandIn -Wait @($script:ready) -Rotation $null
+        $information = @()
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields $script:bothFields) 6>&1 |
+            ForEach-Object { if ($_ -is [System.Management.Automation.InformationRecord]) { $information += [string]$_.MessageData } else { $_ } }
+        Assert-True $ok 'the password is in place'
+        $seen = Get-RotationStandIn
+        Assert-Equal 1 $seen.Wait.Count 'one wait'
+        Assert-Equal 0 $seen.Rotation.Count 'nothing to rotate'
+        Assert-Equal 1 $seen.Set.Count 'one set'
+        Assert-StringEqual -Expected $script:rotationNew -Actual $seen.Set[0].New
+        Assert-True ($seen.Set[0].TimeoutSeconds -ge 1 -and $seen.Set[0].TimeoutSeconds -le 30) 'the set shares the step budget'
+        Assert-StringEqual -Expected (Format-YurunaOperatorMessage -Key 'runner.ssh_password_set' -Arguments @{ user = 'fixture'; vmName = 'vm1' }) -Actual ($information -join "`n")
+    }
+
+    # The verb stays 'observe', so the rotation or set it ran is recorded as
+    # the step's own change to the guest, by step number (the context's 9).
+    It 'records the guest change of <Case>' -TestCases @(
+        @{ Case = 'a set that passed'; Wait = 'ready'; Rotation = $null; Set = @{ Ok = $true; Code = ''; Detail = ''; Dispatched = $true }; Change = 'applied' }
+        @{ Case = 'a set that failed after the client started'; Wait = 'ready'; Rotation = $null; Set = @{ Ok = $false; Code = 'chpasswd-failed'; Detail = ''; Dispatched = $true }; Change = 'uncertain' }
+        @{ Case = 'a set sudo refused'; Wait = 'ready'; Rotation = $null; Set = @{ Ok = $false; Code = 'sudo-refused'; Detail = ''; Dispatched = $true }; Change = '' }
+        @{ Case = 'a set that never started'; Wait = 'ready'; Rotation = $null; Set = @{ Ok = $false; Code = 'ssh-missing'; Detail = ''; Dispatched = $false }; Change = '' }
+        @{ Case = 'a rotation that passed'; Wait = 'expired,ready'; Rotation = @{ Ok = $true; Code = ''; Detail = ''; Answered = 3 }; Set = $null; Change = 'applied' }
+        @{ Case = 'a rotation refused after the last answer'; Wait = 'expired'; Rotation = @{ Ok = $false; Code = 'refused'; Detail = ''; Answered = 3 }; Set = $null; Change = 'uncertain' }
+        @{ Case = 'a rotation whose probe found the password still expired'; Wait = 'expired'; Rotation = @{ Ok = $false; Code = 'still-expired'; Detail = ''; Answered = 3 }; Set = $null; Change = '' }
+        @{ Case = 'a rotation stopped before the new password'; Wait = 'expired'; Rotation = @{ Ok = $false; Code = 'unexpected-prompt'; Detail = ''; Answered = 1 }; Set = $null; Change = '' }
+    ) {
+        param($Case, $Wait, $Rotation, $Set, $Change)
+        $null = $Case
+        $answers = @(foreach ($name in $Wait -split ',') { if ($name -eq 'expired') { $script:expired } else { $script:ready } })
+        Set-RotationStandIn -Wait $answers -Rotation $Rotation -Set $Set
+        $null = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields $script:bothFields) 6>$null 3>$null
+        $recorded = (Get-RotationStandIn).GuestChange
+        $actual = if ($null -eq $recorded) { '' } else { [string]$recorded['9'] }
+        Assert-StringEqual -Expected $Change -Actual $actual -Because 'the change recorded for step 9'
+    }
+
+    It 'records no guest change without the two fields' {
+        Set-RotationStandIn -Wait @($script:ready) -Rotation $null
+        $null = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields @{}) 6>$null
+        Assert-Null (Get-RotationStandIn).GuestChange
+    }
+
+    # With the step's budget spent the call still runs, with no time, so that
+    # the function itself reports and records how it ended.
+    It 'still calls the set with no time left when the wait spent the budget' {
+        $fields = $script:bothFields.Clone()
+        $fields.timeoutSeconds = 2
+        Set-RotationStandIn -Wait @(@{ ok = $true; cause = 'ready'; sleepMs = 2200 }) -Rotation $null -Set @{ Ok = $false; Code = 'timeout'; Detail = ''; Dispatched = $false }
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields $fields) 6>$null 3>$null
+        Assert-False $ok 'no time was left to set the password'
+        $seen = Get-RotationStandIn
+        Assert-Equal 1 $seen.Set.Count 'the set was called'
+        Assert-Equal 0 ([int]$seen.Set[0].TimeoutSeconds) 'with no time left'
+        Assert-Null $seen.GuestChange
+    }
+
+    It 'still calls the rotation with no time left when the wait spent the budget' {
+        $fields = $script:bothFields.Clone()
+        $fields.timeoutSeconds = 2
+        Set-RotationStandIn -Wait @(@{ ok = $false; cause = 'password_expired'; sleepMs = 2200 }) -Rotation @{ Ok = $false; Code = 'timeout'; Detail = ''; Answered = 0 }
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields $fields) 6>$null 3>$null
+        Assert-False $ok 'no time was left to rotate the password'
+        $seen = Get-RotationStandIn
+        Assert-Equal 1 $seen.Rotation.Count 'the rotation was called'
+        Assert-Equal 0 ([int]$seen.Rotation[0].TimeoutSeconds) 'with no time left'
+        Assert-Null $seen.GuestChange
+    }
+
+    It 'fails a set the guest refused, names it, and keeps both passwords out of everything it wrote' {
+        Set-RotationStandIn -Wait @($script:ready) -Rotation $null -Set @{ Ok = $false; Code = 'sudo-refused'; Detail = 'sudo: a password is required' }
+        $context = Get-RotationContext -Fields $script:bothFields
+        $warnings = @()
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler $context 6>$null 3>&1 |
+            ForEach-Object { if ($_ -is [System.Management.Automation.WarningRecord]) { $warnings += [string]$_.Message } else { $_ } }
+        Assert-False $ok 'a password the guest never received must not pass the step'
+        Assert-Equal 1 (Get-RotationStandIn).Set.Count 'one set'
+        Assert-Equal 1 (Get-RotationStandIn).Wait.Count 'no wait after a failed set'
+        Assert-StringEqual -Expected (Format-YurunaOperatorMessage -Key 'runner.ssh_password_set_failed' -Arguments @{
+                user = 'fixture'; vmName = 'vm1'; code = 'sudo-refused'; detail = 'sudo: a password is required' }) -Actual ($warnings -join "`n")
+        $state = Get-SequenceFailureState
+        $state.LastFailureLabel = Get-SequenceActionFailureLabel -Step $context.Step -Vars $context.Vars -ExpandVariable $context.ExpandVariable -VMName vm1 -GuestKey $context.GuestKey
+        $state.LastFailedAction = 'sshWaitReady'
+        $state.LastFailedStepNumber = 9
+        $state.LastFailedStepInvocationId = 'step-9'
+        try {
+            $record = New-SequenceFailureRecord -Reason step -VMName vm1 -GuestKey $context.GuestKey -HostType host.ubuntu.kvm -SequencePath $context.SequencePath -LogDir $TestDrive -TotalSteps 17
+            $text = (ConvertTo-Json -InputObject $record.File -Depth 12) + (ConvertTo-Json -InputObject $record.Event -Depth 12) + ($warnings -join "`n")
+            Assert-False $text.Contains($script:rotationCurrent) 'the current password leaked'
+            Assert-False $text.Contains($script:rotationNew) 'the new password leaked'
+        } finally {
+            Reset-SequenceFailureSlot -Lifetime sequence
+        }
+    }
+
+    It 'fails after a second expired answer without rotating again' {
+        Set-RotationStandIn -Wait @($script:expired, $script:expired) -Rotation @{ Ok = $true; Code = ''; Detail = '' }
+        $warnings = @()
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields $script:bothFields) 6>$null 3>&1 |
+            ForEach-Object { if ($_ -is [System.Management.Automation.WarningRecord]) { $warnings += [string]$_.Message } else { $_ } }
+        Assert-False $ok 'the password is still expired'
+        Assert-Equal 1 (Get-RotationStandIn).Rotation.Count 'one rotation'
+        Assert-StringEqual -Expected (Format-YurunaOperatorMessage -Key 'runner.ssh_password_still_expired' -Arguments @{ user = 'fixture'; vmName = 'vm1' }) -Actual ($warnings -join "`n")
+    }
+
+    It 'fails a rotation the guest refused and names it' {
+        Set-RotationStandIn -Wait @($script:expired) -Rotation @{ Ok = $false; Code = 'refused'; Detail = 'passwd: Authentication token manipulation error' }
+        $warnings = @()
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields $script:bothFields) 6>$null 3>&1 |
+            ForEach-Object { if ($_ -is [System.Management.Automation.WarningRecord]) { $warnings += [string]$_.Message } else { $_ } }
+        Assert-False $ok 'the rotation failed'
+        Assert-Equal 1 (Get-RotationStandIn).Wait.Count 'no wait after a failed rotation'
+        Assert-StringEqual -Expected (Format-YurunaOperatorMessage -Key 'runner.ssh_password_rotation_failed' -Arguments @{
+                user = 'fixture'; vmName = 'vm1'; code = 'refused'; detail = 'passwd: Authentication token manipulation error' }) -Actual ($warnings -join "`n")
+    }
+
+    It 'fails a step that names only <Field> before it waits' -TestCases @(
+        @{ Field = 'currentPassword' }, @{ Field = 'newPassword' }
+    ) {
+        param($Field)
+        Set-RotationStandIn -Wait @() -Rotation $null
+        $ok = & (Get-SequenceAction -Name sshWaitReady).Handler (Get-RotationContext -Fields @{ $Field = "`${$Field}" }) 3>$null
+        Assert-False $ok 'one password cannot rotate anything'
+        Assert-Equal 0 (Get-RotationStandIn).Wait.Count 'nothing waited'
+    }
+
+    It 'keeps both passwords out of the failure record, the label and the warnings' {
+        Set-RotationStandIn -Wait @($script:expired) -Rotation @{ Ok = $false; Code = 'refused'; Detail = 'Retype new password: ***' }
+        $context = Get-RotationContext -Fields $script:bothFields
+        $warnings = @()
+        $null = & (Get-SequenceAction -Name sshWaitReady).Handler $context 6>$null 3>&1 |
+            ForEach-Object { if ($_ -is [System.Management.Automation.WarningRecord]) { $warnings += [string]$_.Message } }
+        $state = Get-SequenceFailureState
+        $state.LastFailureLabel = Get-SequenceActionFailureLabel -Step $context.Step -Vars $context.Vars -ExpandVariable $context.ExpandVariable -VMName vm1 -GuestKey $context.GuestKey
+        $state.LastFailedAction = 'sshWaitReady'
+        $state.LastFailedStepNumber = 9
+        $state.LastFailedStepInvocationId = 'step-9'
+        try {
+            $record = New-SequenceFailureRecord -Reason step -VMName vm1 -GuestKey $context.GuestKey -HostType host.ubuntu.kvm -SequencePath $context.SequencePath -LogDir $TestDrive -TotalSteps 17
+            $text = (ConvertTo-Json -InputObject $record.File -Depth 12) + (ConvertTo-Json -InputObject $record.Event -Depth 12) + ($warnings -join "`n")
+            Assert-False $text.Contains($script:rotationCurrent) 'the current password leaked'
+            Assert-False $text.Contains($script:rotationNew) 'the new password leaked'
+            Assert-StringEqual -Expected 'sshWaitReady' -Actual ([string]$record.File.action)
+        } finally {
+            Reset-SequenceFailureSlot -Lifetime sequence
+        }
+    }
+}
+
+Describe 'the sequence schema takes the sshWaitReady password fields only together' {
+    BeforeAll {
+        Import-Module powershell-yaml -ErrorAction Stop
+        $schemaPath = Join-Path (Split-Path -Parent $here) 'schemas/sequence.schema.yml'
+        $script:rotationSchemaJson = Get-Content -Raw -LiteralPath $schemaPath | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 32
+        function ConvertTo-RotationSequenceJson {
+            param([hashtable]$Fields)
+            $step = [ordered]@{ action = 'sshWaitReady'; timeoutSeconds = 2400 }
+            foreach ($key in $Fields.Keys) { $step[$key] = $Fields[$key] }
+            return ([ordered]@{
+                description = 'schema probe'; keystrokeMechanism = 'ssh'
+                resource = [ordered]@{ 'ubuntu.server.26' = @() }
+                component = @($step)
+            } | ConvertTo-Json -Depth 32)
+        }
+    }
+    It 'accepts both fields or neither, and refuses <Case>' -TestCases @(
+        @{ Case = 'currentPassword alone'; Fields = @{ currentPassword = '${currentPassword}' } }
+        @{ Case = 'newPassword alone'; Fields = @{ newPassword = '${newPassword}' } }
+        @{ Case = 'a password that is not text'; Fields = @{ currentPassword = 7; newPassword = '${newPassword}' } }
+    ) {
+        param($Case, $Fields)
+        Assert-True (Test-Json -Json (ConvertTo-RotationSequenceJson -Fields @{ currentPassword = '${currentPassword}'; newPassword = '${newPassword}' }) -Schema $script:rotationSchemaJson -ErrorAction SilentlyContinue) `
+            'a step may carry both password fields'
+        Assert-True (Test-Json -Json (ConvertTo-RotationSequenceJson -Fields @{}) -Schema $script:rotationSchemaJson -ErrorAction SilentlyContinue) `
+            'a step may carry neither'
+        Assert-False (Test-Json -Json (ConvertTo-RotationSequenceJson -Fields $Fields) -Schema $script:rotationSchemaJson -ErrorAction SilentlyContinue) `
+            "a step with $Case is a schema violation"
     }
 }

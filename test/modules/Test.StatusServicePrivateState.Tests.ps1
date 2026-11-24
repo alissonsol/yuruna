@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42caaabc-fe31-4614-8998-b7a6aed945ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,9 +71,9 @@ BeforeAll {
         param([object]$Deadline)
         throw "Unmocked deadline: $Deadline"
     }
-    function Complete-RefreshSafeStart {
+    function Complete-NonDestructiveStart {
         param([string]$Outcome, [string]$Reason)
-        throw "Unmocked refresh result: $Outcome/$Reason"
+        throw "Unmocked non-destructive result: $Outcome/$Reason"
     }
     function Repair-YurunaStartupPrivateState {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
@@ -86,9 +86,9 @@ BeforeAll {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseDeclaredVarsMoreThanAssignments', '',
             Justification = 'The extracted production block reads these variables in the dot-sourced scope.')]
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-            Justification = 'The extracted production block reads the RefreshSafe parameter in this scope.')]
+            Justification = 'The extracted production block reads the NonDestructive parameter in this scope.')]
         [CmdletBinding()]
-        param([switch]$RefreshSafe)
+        param([switch]$NonDestructive)
         $RuntimeDir = $script:FixtureRuntime
         $Port = 8080
         $ServedRootSet = $script:FixtureServedRoots
@@ -102,7 +102,7 @@ Describe 'Status service startup private-state recovery' {
         $script:FixtureServedRoots = @((Join-Path $TestDrive 'checkout'), $script:FixtureRuntime)
         $script:FixtureLockPath = Join-Path $TestDrive 'private/status-service.0123456789abcdef.start.lock'
         $script:StatusStartupLock = $null
-        $script:RefreshSafeDeadline = [pscustomobject]@{ Label = 'bounded refresh' }
+        $script:NonDestructiveDeadline = [pscustomobject]@{ Label = 'bounded non-destructive start' }
         $script:PathAnswers = [Collections.Generic.Queue[object]]::new()
         $script:LockAnswers = [Collections.Generic.Queue[object]]::new()
         $script:RepairAnswers = [Collections.Generic.Queue[object]]::new()
@@ -128,9 +128,9 @@ Describe 'Status service startup private-state recovery' {
         }.GetNewClosure()
         Mock Get-StatusRuntimeKey { '0123456789abcdef' }
         Mock Get-YurunaDeadlineRemainingMs { 6000 }
-        Mock Complete-RefreshSafeStart {
+        Mock Complete-NonDestructiveStart {
             param($Outcome, $Reason)
-            throw "refresh:$Outcome/$Reason"
+            throw "non-destructive:$Outcome/$Reason"
         }
     }
 
@@ -223,34 +223,34 @@ Describe 'Status service startup private-state recovery' {
         Should -Invoke Enter-YurunaSingleFlightLock -Times 1 -Exactly
     }
 
-    It 'never repairs an unresolved private root during a refresh-safe start' {
+    It 'never repairs an unresolved private root during a non-destructive start' {
         $script:PathAnswers.Clear()
         $script:PathAnswers.Enqueue([pscustomobject]@{ Resolved = $false; Reason = 'owner-mismatch' })
-        { Invoke-StatusStartupSerialization -RefreshSafe } | Should -Throw '*refresh:invalid-invocation/private-state-owner-mismatch*'
-        Should -Invoke Complete-RefreshSafeStart -Times 1 -Exactly -ParameterFilter {
+        { Invoke-StatusStartupSerialization -NonDestructive } | Should -Throw '*non-destructive:invalid-invocation/private-state-owner-mismatch*'
+        Should -Invoke Complete-NonDestructiveStart -Times 1 -Exactly -ParameterFilter {
             $Outcome -eq 'invalid-invocation' -and $Reason -eq 'private-state-owner-mismatch'
         }
         Should -Invoke Repair-YurunaStartupPrivateState -Times 0 -Exactly
         Should -Invoke Enter-YurunaSingleFlightLock -Times 0 -Exactly
     }
 
-    It 'never repairs an access-denied lock during a refresh-safe start' {
+    It 'never repairs an access-denied lock during a non-destructive start' {
         $script:LockAnswers.Clear()
         $script:LockAnswers.Enqueue([pscustomobject]@{ Held = $false; Reason = 'access-denied' })
-        { Invoke-StatusStartupSerialization -RefreshSafe } | Should -Throw '*refresh:admission-busy/access-denied*'
+        { Invoke-StatusStartupSerialization -NonDestructive } | Should -Throw '*non-destructive:admission-busy/access-denied*'
         Should -Invoke Enter-YurunaSingleFlightLock -Times 1 -Exactly -ParameterFilter { $WaitMilliseconds -eq 5000 }
         Should -Invoke Repair-YurunaStartupPrivateState -Times 0 -Exactly
-        Should -Invoke Complete-RefreshSafeStart -Times 1 -Exactly -ParameterFilter {
+        Should -Invoke Complete-NonDestructiveStart -Times 1 -Exactly -ParameterFilter {
             $Outcome -eq 'admission-busy' -and $Reason -eq 'access-denied'
         }
     }
 
-    It 'accepts a refresh-safe lock within the remaining deadline without repair' {
-        Invoke-StatusStartupSerialization -RefreshSafe
+    It 'accepts a non-destructive lock within the remaining deadline without repair' {
+        Invoke-StatusStartupSerialization -NonDestructive
         [object]::ReferenceEquals($script:StatusStartupLock, $script:HeldLock) | Should -Be $true
         Should -Invoke Enter-YurunaSingleFlightLock -Times 1 -Exactly -ParameterFilter { $WaitMilliseconds -eq 5000 }
         Should -Invoke Repair-YurunaStartupPrivateState -Times 0 -Exactly
-        Should -Invoke Complete-RefreshSafeStart -Times 0 -Exactly
+        Should -Invoke Complete-NonDestructiveStart -Times 0 -Exactly
     }
 }
 
@@ -271,7 +271,7 @@ $ErrorActionPreference = 'Stop'
 Import-Module $ModulePath -Global -DisableNameChecking
 $RuntimeDir = [IO.Path]::GetDirectoryName($LockPath)
 $Port = 8080
-$RefreshSafe = $false
+$NonDestructive = $false
 $Restart = $false
 $PidFile = [IO.Path]::Combine($RuntimeDir, 'server.pid')
 $ServedRootSet = @($RuntimeDir)

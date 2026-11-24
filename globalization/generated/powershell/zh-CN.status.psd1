@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42bcda77-08ce-3c8e-a78b-3476cd1c4efc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,8 +110,8 @@
     'status.api_forbidden_not_served' = '禁止（不是提供的文件）'
     'status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac' = '禁止访问：探测目标必须是私有地址（loopback/RFC1918/link-local）或配置的缓存IP'
     'status.api_guest_channel_key_absent' = '此主机尚无来宾通道密钥；密钥会在主机首次生成来宾种子时创建'
-    'status.api_host_refresh_authorization_refused' = @(
-        '刷新授权被拒绝（'
+    'status.api_host_repair_authorization_refused' = @(
+        '修复授权被拒绝（'
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -119,8 +119,8 @@
         }
         '）'
     )
-    'status.api_host_refresh_busy' = '另一个宿主机操作正在进行中'
-    'status.api_host_refresh_request_closed' = @(
+    'status.api_host_repair_busy' = '另一个宿主机操作正在进行中'
+    'status.api_host_repair_request_closed' = @(
         '此请求ID已关闭（'
         @{
             'arg' = 'state'
@@ -129,15 +129,36 @@
         }
         '）'
     )
-    'status.api_host_refresh_request_conflict' = '此请求ID已用于不同的设置'
-    'status.api_host_refresh_unavailable' = @(
-        '此宿主机不支持宿主机刷新（'
+    'status.api_host_repair_request_conflict' = '此请求ID已用于不同的设置'
+    'status.api_host_repair_unavailable' = @(
+        '此宿主机不支持宿主机修复（'
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
         '）'
+    )
+    'status.api_host_update_authorization_refused' = @(
+        '宿主机更新授权被拒绝（'
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '）'
+    )
+    'status.api_host_update_busy' = '此宿主机上正在进行宿主机更新'
+    'status.api_host_update_controller_absent' = '此宿主机上没有正在运行的宿主机控制器；未排队任何请求'
+    'status.api_host_update_proof_missing' = '来自其他机器的宿主机更新需要pool-control提供的更新证明；未加入任何队列'
+    'status.api_host_update_scope_unavailable' = @(
+        '宿主机控制器不运行 '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' 范围；未排队任何请求'
     )
     'status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0' = '此宿主机未配置内部身份验证密钥'
     'status.api_internal_error' = '请求在宿主机上执行失败；请查看server.err'
@@ -317,8 +338,8 @@
     'status.config' = '配置'
     'status.config_field_alwaysredownload' = '始终重新下载（alwaysRedownload）'
     'status.config_field_armwindowhours' = '配置项armWindowHours'
-    'status.config_field_autorefreshafterstalls' = '停滞后自动刷新（autoRefreshAfterStalls）'
     'status.config_field_autoremediation' = '自动修复（autoRemediation）'
+    'status.config_field_autorepairafterstalls' = '停滞后自动修复（autoRepairAfterStalls）'
     'status.config_field_autoseed' = '配置项autoSeed'
     'status.config_field_bootdelayseconds' = '启动延迟秒数（bootDelaySeconds）'
     'status.config_field_cachingproxyip' = '缓存代理IP（cachingProxyIp）'
@@ -428,7 +449,7 @@
         }
         '）'
     )
-    'status.control_host_token_missing' = '此宿主机尚无实验室令牌。'
+    'status.control_host_token_missing' = '此宿主机尚无内部身份验证密钥。'
     'status.control_instructions' = @(
         '此宿主机仅接受来自宿主机本地浏览器（'
         @{
@@ -436,7 +457,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        "）或通过Yuruna宿主机仪表板链接打开的浏览器的控制（该链接会授予短期令牌）。要从其他计算机控制此宿主机，请通过仪表板打开；如果此宿主机从未注册，请使用仪表板`“实验室令牌`”卡片中的代码运行"
+        "）或通过Yuruna宿主机仪表板链接打开的浏览器的控制（该链接会授予短期控制证明）。要从其他计算机控制此宿主机，请通过仪表板打开；如果此宿主机从未注册，请使用仪表板`“实验室令牌`”卡片中的代码运行"
         @{
             'arg' = 'command'
             'type' = 'detail'
@@ -444,7 +465,7 @@
         }
         '。'
     )
-    'status.control_proof_expired' = '此页面的控制令牌已过期（有效期为15分钟）。'
+    'status.control_proof_expired' = '此页面的控制证明已过期（证明有效期为15分钟）。'
     'status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b' = '控制凭证已过期，请在保存前通过仪表板链接重新打开此宿主机。在此之前，所做的编辑会保留。'
     'status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_' = @(
         '控制凭证将在'
@@ -455,12 +476,12 @@
         }
         ' s后过期，请尽快保存，或通过仪表板链接重新打开此宿主机以获取新凭证。'
     )
-    'status.control_proof_invalid' = '此页面的控制令牌在此处验证失败，此宿主机存储的实验室令牌可能与实验室当前的令牌不同，请重新注册。'
-    'status.control_proof_missing' = '打开此页面时未携带控制令牌，因此未发送令牌。'
+    'status.control_proof_invalid' = '此页面的控制证明在此处验证失败，此宿主机的内部身份验证密钥可能与实验室当前的密钥不同，请使用实验室令牌重新注册。'
+    'status.control_proof_missing' = '打开此页面时未携带控制证明，因此未发送证明。'
     'status.control_refused' = '控制请求被拒绝。'
     'status.control_routes' = '控制路由设置'
     'status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80' = @(
-        '此宿主机没有lab-auth-token，因此远程控制仅限回环连接。请在宿主机上通过'
+        '此宿主机没有内部身份验证密钥，因此远程控制仅限回环连接。请在宿主机上通过'
         @{
             'arg' = 'address'
             'type' = 'token'
@@ -717,11 +738,11 @@
         }
         ' MB'
     )
-    'status.git_source_mirror_confirmed' = 'mirror.origin'
-    'status.git_source_mirror_fresh' = 'mirror.fresh'
-    'status.git_source_mirror_stale' = 'mirror.stale'
-    'status.git_source_not_applicable' = 'not.applicable'
-    'status.git_source_origin_direct' = 'remote.origin'
+    'status.git_source_mirror_confirmed' = 'mirror'
+    'status.git_source_mirror_fresh' = 'mirror fresh'
+    'status.git_source_mirror_stale' = 'mirror stale'
+    'status.git_source_not_applicable' = 'not applicable'
+    'status.git_source_origin_direct' = 'remote'
     'status.guest_not_found' = @(
         @{
             'arg' = 'guest'
@@ -777,24 +798,24 @@
             )
         }
     }
-    'status.host_refresh_action_dispose_obligations' = '下一步：查看宿主机上尚未完成的恢复项，并使用pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation进行处置。'
-    'status.host_refresh_action_elevate' = '下一步：修复需要管理员权限；请在宿主机上以提升权限的会话运行修复。'
-    'status.host_refresh_action_grant_automation' = '下一步：允许此宿主机的自动化程序访问UTM，然后再次刷新。'
-    'status.host_refresh_action_gui_session' = '下一步：登录宿主机的桌面会话，然后再次刷新。'
-    'status.host_refresh_action_install_client' = '下一步：在宿主机上安装虚拟机监控程序的命令行客户端，然后再次刷新。'
-    'status.host_refresh_action_resume_request' = '下一步：在宿主机上使用pwsh test/lab/Invoke-HostRefresh.ps1 -Resume继续此请求。'
-    'status.host_refresh_action_start_runner' = '下一步：在宿主机上启动运行器；没有可用于重启运行器的启动记录。'
-    'status.host_refresh_authorization_refused' = @(
-        '此次刷新需要刷新凭证，但此页面没有该凭证（'
+    'status.host_repair_action_dispose_obligations' = '下一步：查看宿主机上尚未完成的恢复项，并使用pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation进行处置。'
+    'status.host_repair_action_elevate' = '下一步：修复需要管理员权限；请在宿主机上以提升权限的会话运行修复。'
+    'status.host_repair_action_grant_automation' = '下一步：允许此宿主机的自动化程序访问UTM，然后再次修复。'
+    'status.host_repair_action_gui_session' = '下一步：登录宿主机的桌面会话，然后再次修复。'
+    'status.host_repair_action_install_client' = '下一步：在宿主机上安装虚拟机监控程序的命令行客户端，然后再次修复。'
+    'status.host_repair_action_resume_request' = '下一步：在宿主机上使用pwsh test/lab/Invoke-HostRepair.ps1 -Resume继续此请求。'
+    'status.host_repair_action_start_runner' = '下一步：在宿主机上启动运行器；没有可用于重启运行器的启动记录。'
+    'status.host_repair_authorization_refused' = @(
+        '此次修复需要修复证明，但此页面没有该证明（'
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '）。请使用宿主机本机上的状态页面，或pool-control刷新操作。'
+        '）。请使用宿主机本机上的状态页面，或pool-control修复操作。'
     )
-    'status.host_refresh_busy' = @(
-        '另一个宿主机刷新请求（'
+    'status.host_repair_busy' = @(
+        '另一个宿主机修复请求（'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -802,8 +823,8 @@
         }
         '）正在进行中；正在显示其进度。'
     )
-    'status.host_refresh_check_host' = '在宿主机上运行pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf以查看当前状态。'
-    'status.host_refresh_closed' = @(
+    'status.host_repair_check_host' = '在宿主机上运行pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf以查看当前状态。'
+    'status.host_repair_closed' = @(
         '请求'
         @{
             'arg' = 'requestId'
@@ -816,16 +837,16 @@
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '）；请发起新的刷新。'
+        '）；请发起新的修复。'
     )
-    'status.host_refresh_confirm' = @(
+    'status.host_repair_confirm' = @(
         '在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启，运行器也会重启。此过程最多需要'
         @{
             'arg' = 'minutes'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '分钟。是否刷新此宿主机，最多执行到'
+        '分钟。是否修复此宿主机，最多执行到'
         @{
             'arg' = 'ceiling'
             'type' = 'identifier'
@@ -833,18 +854,9 @@
         }
         '步骤？'
     )
-    'status.host_refresh_conflict' = @(
-        '请求'
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'external'
-        }
-        '已使用不同的设置发送；请发起新的刷新。'
-    )
-    'status.host_refresh_launcher_failed' = "宿主机无法启动刷新工作进程。请求已保留；请选择`“重试`”以再次启动。"
-    'status.host_refresh_lost' = @(
-        '刷新'
+    'status.host_repair_launcher_failed' = "宿主机无法启动修复工作进程。请求已保留；请选择`“重试`”以再次启动。"
+    'status.host_repair_lost' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -856,11 +868,11 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        "秒后仍无结果，或后续请求已替换其报告。选择`“重试`”以向宿主机查询其最终结果，或选择`“刷新宿主机`”以发起新的刷新。"
+        "秒后仍无结果，或后续请求已替换其报告。选择`“重试`”以向宿主机查询其最终结果，或选择`“修复宿主机`”以发起新的修复。"
     )
-    'status.host_refresh_note' = '修复此宿主机上停滞的运行器或虚拟机监控程序。在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启。'
-    'status.host_refresh_progress' = @(
-        '刷新'
+    'status.host_repair_note' = '修复此宿主机上停滞的运行器或虚拟机监控程序。在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启。'
+    'status.host_repair_progress' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -892,19 +904,11 @@
         }
         '秒。'
     )
-    'status.host_refresh_recovery_pending' = "服务或运行器仍需恢复。选择`“重试`”将继续同一请求。"
-    'status.host_refresh_rejected' = @(
-        '宿主机拒绝了刷新请求：'
-        @{
-            'arg' = 'detail'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'status.host_refresh_remote_viewer' = '此页面是从另一台计算机打开的，因此只能观察宿主机刷新，无法启动刷新。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRefresh.ps1。'
-    'status.host_refresh_retry' = '重试'
-    'status.host_refresh_stale' = @(
-        '刷新'
+    'status.host_repair_recovery_pending' = "服务或运行器仍需恢复。选择`“重试`”将继续同一请求。"
+    'status.host_repair_remote_viewer' = '此页面是从另一台计算机打开的，因此只能观察宿主机修复，无法启动修复。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRepair.ps1。'
+    'status.host_repair_retry' = '重试'
+    'status.host_repair_stale' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -918,12 +922,11 @@
         }
         '秒没有进度报告。工作进程可能已停止；请先检查宿主机，再发起另一次修复。'
     )
-    'status.host_refresh_start' = '刷新宿主机'
-    'status.host_refresh_start_cycle_busy' = '启动周期的请求正在进行中；请在其完成后重试。'
-    'status.host_refresh_submitting' = '正在发送刷新请求……'
-    'status.host_refresh_title' = '宿主机刷新'
-    'status.host_refresh_unavailable' = @(
-        '此宿主机不支持宿主机刷新（'
+    'status.host_repair_start' = '修复宿主机'
+    'status.host_repair_start_cycle_busy' = '启动周期的请求正在进行中；请在其完成后重试。'
+    'status.host_repair_title' = '宿主机修复'
+    'status.host_repair_unavailable' = @(
+        '此宿主机不支持宿主机修复（'
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -931,8 +934,8 @@
         }
         '）。'
     )
-    'status.host_refresh_verdict_abandoned' = @(
-        '刷新'
+    'status.host_repair_verdict_abandoned' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -940,8 +943,8 @@
         }
         '在多次尝试后已放弃；其恢复记录保留在宿主机上。'
     )
-    'status.host_refresh_verdict_already_healthy' = @(
-        '刷新'
+    'status.host_repair_verdict_already_healthy' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -949,8 +952,8 @@
         }
         '已完成：宿主机原本就处于正常状态，因此未做任何更改。'
     )
-    'status.host_refresh_verdict_failed' = @(
-        '刷新'
+    'status.host_repair_verdict_failed' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -964,8 +967,8 @@
         }
         '）。'
     )
-    'status.host_refresh_verdict_partial' = @(
-        '刷新'
+    'status.host_repair_verdict_partial' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -979,8 +982,8 @@
         }
         '）；部分服务或运行器仍需处理。'
     )
-    'status.host_refresh_verdict_refused' = @(
-        '刷新'
+    'status.host_repair_verdict_refused' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -994,8 +997,8 @@
         }
         '）。'
     )
-    'status.host_refresh_verdict_repaired' = @(
-        '刷新'
+    'status.host_repair_verdict_repaired' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1003,8 +1006,8 @@
         }
         '已完成：宿主机已修复，运行器已就绪。'
     )
-    'status.host_refresh_verdict_still_unresponsive' = @(
-        '刷新'
+    'status.host_repair_verdict_still_unresponsive' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1012,8 +1015,8 @@
         }
         '已结束：虚拟机监控程序仍无响应。'
     )
-    'status.host_refresh_verdict_unknown' = @(
-        '刷新'
+    'status.host_repair_verdict_unknown' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1027,8 +1030,8 @@
         }
         '）。'
     )
-    'status.host_refresh_waiting' = @(
-        '刷新'
+    'status.host_repair_waiting' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1036,8 +1039,8 @@
         }
         '已接受；正在等待工作进程的首份报告。'
     )
-    'status.host_refresh_waiting_long' = @(
-        '刷新'
+    'status.host_repair_waiting_long' = @(
+        '修复'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1051,6 +1054,543 @@
         }
         '秒后仍无报告。工作进程可能未能启动；请检查宿主机。'
     )
+    'status.host_request_conflict' = @(
+        '请求'
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '已使用不同的设置发送；请发起新的请求。'
+    )
+    'status.host_request_rejected' = @(
+        '宿主机拒绝了请求：'
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'status.host_request_submitting' = '正在发送请求……'
+    'status.host_update_action' = @{
+        'kind' = 'select'
+        'selector' = 'action'
+        'variants' = @{
+            'act_at_host' = '下一步：检查宿主机并在那里处理。'
+            'end_one_shot' = '下一步：在宿主机上结束一次性会话，然后再按一次。'
+            'other' = @(
+                '下一步：'
+                @{
+                    'arg' = 'action'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '。'
+            )
+            'provision_elevation' = '下一步：在宿主机上为运行器配置 sudo 规则，然后再按一次。'
+            'provision_elevation_macos' = @(
+                '下一步：在宿主机上，从桌面会话的终端运行 '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' 并回答其提示；它会安装宿主机更新所用的 sudoers 条目。然后再按一次。'
+            )
+            'read_remarks' = '下一步：阅读备注。'
+            'reboot_host' = '下一步：在宿主机上重启 Windows，然后启动运行器。'
+            'release' = @(
+                '下一步：要结束它，请在宿主机上运行：'
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'release_diagnostic_hold' = '下一步：释放为诊断保留的 VM，然后再按一次。'
+            'repair_checkout' = '下一步：修复宿主机上的代码检出；宿主机会继续尝试。'
+            'retry_or_drain_now' = @(
+                '下一步：再按一次，或在宿主机上立即结束周期：'
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'start_runner' = '下一步：在宿主机上启动运行器。'
+            'stop_runner_by_hand' = '下一步：在宿主机上手动停止运行器。'
+        }
+    }
+    'status.host_update_blocks' = @(
+        '宿主机更新（'
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '）正在进行；请在其完成后重试。'
+    )
+    'status.host_update_busy' = @{
+        'kind' = 'select'
+        'selector' = 'kind'
+        'variants' = @{
+            'host_repair' = @(
+                '宿主机修复（'
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                '）正在进行；请在其完成后重试。'
+            )
+            'host_update' = @(
+                '另一个宿主机更新（'
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                '）正在进行；正在显示其进度。'
+            )
+            'other' = '启动周期的请求正在进行中；请在其完成后重试。'
+        }
+    }
+    'status.host_update_confirm' = @(
+        '更新宿主机（'
+        @{
+            'arg' = 'scope'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        '）？运行器会在当前周期结束时停止，并在当前代码上重启；更新在 '
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 分钟后放弃。要立即结束周期，请在宿主机上运行：'
+        @{
+            'arg' = 'command'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'status.host_update_console' = @{
+        'kind' = 'select'
+        'selector' = 'console'
+        'variants' = @{
+            'none' = '运行器启动时没有控制台。'
+            'other' = @(
+                '运行器的控制台：'
+                @{
+                    'arg' = 'console'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '。'
+            )
+            'tmux' = @(
+                '要打开运行器的控制台，请在宿主机上运行：'
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'window' = '运行器的控制台是测试账户桌面上的一个独立窗口：请在本机上打开，或通过远程桌面连接到该会话打开。'
+        }
+    }
+    'status.host_update_countdown' = @(
+        '状态服务正在重启；预计 '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' 秒后恢复。'
+    )
+    'status.host_update_cycle_time' = @(
+        '当前周期已运行 '
+        @{
+            'arg' = 'elapsed'
+            'type' = 'duration'
+            'trust' = 'internal'
+        }
+        '；最近的周期约需 '
+        @{
+            'arg' = 'median'
+            'type' = 'duration'
+            'trust' = 'internal'
+        }
+        '。'
+    )
+    'status.host_update_debt' = @(
+        '宿主机上仍待处理：'
+        @{
+            'arg' = 'actions'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '。'
+    )
+    'status.host_update_first_cycle' = @{
+        'kind' = 'select'
+        'selector' = 'result'
+        'variants' = @{
+            'fail' = '更新后的第一个周期失败。'
+            'other' = '正在等待更新后的第一个周期。'
+            'pass' = '更新后的第一个周期已通过。'
+        }
+    }
+    'status.host_update_lost' = @(
+        '宿主机更新 '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '：宿主机已不再报告它，因此这里无法得知其结果；请检查宿主机。'
+    )
+    'status.host_update_note' = @(
+        '在当前周期结束时更新此宿主机的代码并重启运行器，'
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 分钟后放弃。要立即结束周期，请在宿主机上运行：'
+        @{
+            'arg' = 'command'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'status.host_update_progress' = @(
+        '宿主机更新 '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '：第 '
+        @{
+            'arg' = 'index'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' 阶段，共 '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' 个（'
+        @{
+            'arg' = 'phase'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '），上限 '
+        @{
+            'arg' = 'bound'
+            'type' = 'duration'
+            'trust' = 'external'
+        }
+        '。'
+    )
+    'status.host_update_queued' = @(
+        '宿主机更新 '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' 已排队；它会在当前周期结束时开始。'
+    )
+    'status.host_update_remarks' = @(
+        '备注：'
+        @{
+            'arg' = 'remarks'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        '。'
+    )
+    'status.host_update_remote_hint' = @(
+        "`“更新宿主机`”会打开 "
+        @{
+            'arg' = 'url'
+            'type' = 'token'
+            'trust' = 'external'
+        }
+        ' 上的 pool-control，由它签署请求并带您返回此处。'
+    )
+    'status.host_update_scope' = @{
+        'kind' = 'select'
+        'selector' = 'scope'
+        'variants' = @{
+            'full' = '重新安装依赖和设置，然后重启'
+            'other' = @(
+                @{
+                    'arg' = 'scope'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+            )
+            'restart' = '在当前代码上重启运行器'
+        }
+    }
+    'status.host_update_stale' = @(
+        '宿主机更新 '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '：已 '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' 秒没有报告；请检查宿主机。'
+    )
+    'status.host_update_start' = '更新宿主机'
+    'status.host_update_title' = '宿主机更新'
+    'status.host_update_unavailable' = @{
+        'kind' = 'select'
+        'selector' = 'reason'
+        'variants' = @{
+            'controller_absent' = @(
+                '此宿主机上没有运行宿主机控制器。要设置一个，请在宿主机上运行：'
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+            )
+            'controller_absent_gate' = @(
+                '一个宿主机更新占用此宿主机的运行器，且没有正在运行的宿主机控制器。请在桌面会话的终端中再运行一次 '
+                @{
+                    'arg' = 'runner'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                '，并保持正在运行的运行器不变：该启动会停在运行器门控处并启动控制器，由控制器继续此更新。'
+            )
+            'controller_absent_macos' = @(
+                '此宿主机上没有运行宿主机控制器。在 macOS 上由运行器的启动来启动它：请在桌面会话的终端中运行 '
+                @{
+                    'arg' = 'runner'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                '，或在正在运行的运行器完成当前周期后停止它，再以这种方式重新启动。对于从未为宿主机更新做过设置的宿主机，请先运行 '
+                @{
+                    'arg' = 'command'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                '。'
+            )
+            'host_type' = '此类宿主机尚不支持宿主机更新。'
+            'journal_unreadable' = '宿主机无法读取其操作日志；请检查宿主机。'
+            'listener_dependency_missing' = '状态服务未能加载宿主机更新所需的内容；请在宿主机上重启它。'
+            'other' = @(
+                '此宿主机不提供宿主机更新（'
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '）。'
+            )
+            'remote' = @(
+                '从其他机器打开时，此页面只能查看宿主机更新；在宿主机上安装 '
+                @{
+                    'arg' = 'file'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                " 之前，请在宿主机上按`“更新宿主机`”。"
+            )
+            'scope_unavailable' = '此宿主机目前无法运行所选范围。'
+            'session_unusable' = @(
+                '宿主机控制器的会话无法启动可正常工作的运行器：它不是桌面会话，或其中缺少某项隐私权限。请在宿主机上用 '
+                @{
+                    'arg' = 'tmux'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' 结束会话 yuruna-controller（使用 screen 时，结束 '
+                @{
+                    'arg' = 'screen'
+                    'type' = 'token'
+                    'trust' = 'internal'
+                }
+                ' 列出的 yuruna-controller 会话），在正在运行的运行器完成当前周期后停止它，然后从拥有这些权限的桌面会话终端重新启动运行器。'
+            )
+        }
+    }
+    'status.host_update_verdict' = @{
+        'kind' = 'select'
+        'selector' = 'verdict'
+        'variants' = @{
+            'drain_timeout' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 已放弃：当前周期超出了等待时间。没有任何更改。'
+            )
+            'failed_restored' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 未完成（'
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '）；宿主机已恢复。'
+            )
+            'other' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 以本页面无法识别的结果结束（'
+                @{
+                    'arg' = 'verdict'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '）。'
+            )
+            'reboot_required' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 已完成，但必须先重启 Windows，虚拟机监控程序才能运行，因此运行器未启动。'
+            )
+            'recovering' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                '：运行器尚未运行；宿主机会继续尝试（'
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '）。'
+            )
+            'recovering_without_controller' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                '：运行器尚未运行（'
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '），且没有正在运行的宿主机控制器来重试。'
+            )
+            'refused' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 被拒绝；没有任何更改（'
+                @{
+                    'arg' = 'reason'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+                '）。'
+            )
+            'released' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 已在宿主机上释放。'
+            )
+            'stop_failed' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                '：无法停止运行器，因此没有启动任何内容。'
+            )
+            'superseded' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 已被 '
+                @{
+                    'arg' = 'supersededBy'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 接管。'
+            )
+            'updated' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 已完成；运行器运行当前代码。'
+            )
+            'updated_not_started' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 已完成；运行器在更新前已停止，因此未启动。'
+            )
+            'updated_with_remarks' = @(
+                '宿主机更新 '
+                @{
+                    'arg' = 'requestId'
+                    'type' = 'identifier'
+                    'trust' = 'external'
+                }
+                ' 已完成但有备注；运行器运行当前代码。'
+            )
+        }
+    }
     'status.host_value1' = @(
         '宿主机：'
         @{
@@ -1420,8 +1960,8 @@
         }
         '的快照，重启虚拟机，然后继续执行序列'
     )
-    'status.start_cycle_blocked_by_refresh' = @(
-        '宿主机刷新（'
+    'status.start_cycle_blocked_by_repair' = @(
+        '宿主机修复（'
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1511,7 +2051,7 @@
     'status.testing_caching_proxy_service_from_host' = '正在从宿主机测试缓存代理服务……'
     'status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this' = '归档文件仅由服务器日志生成，并下载到本机。不包含本次浏览会话的任何数据。'
     'status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li' = '控制凭证已过期。请通过仪表板链接重新打开此宿主机，以获取新凭证。'
-    'status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif' = '控制凭证被拒绝。生成凭证时使用的lab-auth-token可能与此宿主机持有的不同；使用test/lab/Set-LabToken.ps1重新注册可使两者一致。'
+    'status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif' = '控制证明被拒绝。生成证明时使用的内部身份验证密钥可能与此宿主机持有的不同；使用test/lab/Set-LabToken.ps1重新注册可使两者一致。'
     'status.the_host_could_not_load_its_control_proof_verifier_check_the_stat' = '宿主机无法加载控制凭证验证器；请检查status service日志。'
     'status.the_share_sheet_expired_while_the_host_packed_the_folder' = '宿主机打包文件夹期间，分享面板已过期。 '
     'status.this_browser_could_not_attach_the_file_to_a_message_itself' = '此浏览器无法自动将文件附加到消息中。 '

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.GitHubSource.psm1') -Force -Disab
     miss would let a removed anchor leak the literal marker into the
     final user-data and confuse cloud-init.
 #>
+
 
 function Read-OverlaySection {
     <#

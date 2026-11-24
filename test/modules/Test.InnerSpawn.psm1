@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a27240-9228-4384-9324-f2bcf259469f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,7 +45,7 @@ function New-InnerRunnerArgList {
         the binder preserves the type.
     .PARAMETER ExcludeParameter
         Names that exist in $Parameters but must not be forwarded, such as
-        the outer runner's -RefreshResume and -RefreshHandoffToken switches.
+        the outer runner's -HandoffResume and -HandoffToken switches.
     .PARAMETER NonInteractive
         Insert -NonInteractive after -NoProfile, so a child that shares the
         launching terminal refuses any prompt instead of blocking on it.
@@ -373,6 +373,246 @@ function Wait-YurunaDetachHandshakeFile {
     return $null
 }
 
+# --- REGION: Console start
+# See https://yuruna.link/42f909ad-002c
+# A runner a host update starts runs in a tmux session of its own, on a socket
+# the caller names, so an operator can open it. A pane gets the tmux server's
+# environment, not the caller's, so the command carries its environment as an
+# /usr/bin/env vector, without the names below that a pane must never inherit.
+$script:ConsoleUnsetName = @('YURUNA_SG_RELAUNCH', 'YURUNA_RUNNER_RELAUNCH', 'YURUNA_HANDOFF_TOKEN', 'YURUNA_HANDOFF_PREFLIGHT',
+    'YURUNA_HANDOFF_BARRIER', 'YURUNA_CYCLE_GENERATION', 'STY', 'TMUX_PANE')
+# Where tmux is looked for when it is not on PATH: Homebrew's prefixes on
+# Apple silicon and on Intel macOS, which a process that never ran
+# `brew shellenv` does not have on its PATH.
+$script:ConsoleTmuxCandidate = @('/opt/homebrew/bin/tmux', '/usr/local/bin/tmux')
+# sun_path holds 108 bytes on Linux and 104 on macOS; the margin keeps tmux's
+# own suffixes inside both.
+$script:ConsoleSocketMaxBytes = 100
+$script:ConsoleSessionPattern = '\A[A-Za-z0-9._-]{1,64}\z'
+$script:ConsoleTimeoutSeconds = 10
+
+function ConvertTo-YurunaShellSingleQuoted {
+    <#
+    .SYNOPSIS
+        One /bin/sh word for a text: single-quoted, each ' written as '\''.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    return "'" + $Text.Replace("'", "'\''") + "'"
+}
+
+function Get-YurunaConsoleSessionArgument {
+    <#
+    .SYNOPSIS
+        The tmux arguments that create a detached console session running one
+        command vector, with its environment on the command line.
+    .DESCRIPTION
+        Several command arguments make tmux execute the vector without a
+        shell, and /usr/bin/env execs the last element, so the pane's process
+        is the command itself. env runs without -i: the pane keeps the TMUX
+        variable tmux sets, which is how the runner's session record learns
+        it runs in a multiplexer. No account configuration is read (-f
+        /dev/null).
+    .PARAMETER SocketPath
+        The tmux server socket.
+    .PARAMETER SessionName
+        The session's name.
+    .PARAMETER WorkingDirectory
+        The pane's working directory.
+    .PARAMETER Environment
+        Name/value pairs for the command, in addition to the fixed ones.
+    .PARAMETER Vector
+        The command and its arguments.
+    .OUTPUTS
+        [string[]] the arguments after the tmux executable.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][string]$SocketPath,
+        [Parameter(Mandatory)][string]$SessionName,
+        [Parameter(Mandatory)][string]$WorkingDirectory,
+        [hashtable]$Environment,
+        [Parameter(Mandatory)][string[]]$Vector
+    )
+    $arguments = [System.Collections.Generic.List[string]]::new()
+    foreach ($item in @('-S', $SocketPath, '-f', '/dev/null', 'new-session', '-d', '-P', '-F', '#{pane_pid}', '-s', $SessionName,
+            '-x', '200', '-y', '50', '-c', $WorkingDirectory, '/usr/bin/env')) { $arguments.Add($item) }
+    foreach ($name in $script:ConsoleUnsetName) { $arguments.Add('-u'); $arguments.Add($name) }
+    if ($Environment) {
+        foreach ($name in @($Environment.Keys | ForEach-Object { [string]$_ } | Sort-Object -CaseSensitive)) { $arguments.Add("$name=$([string]$Environment[$name])") }
+    }
+    foreach ($item in @('YURUNA_NONINTERACTIVE=1', 'YURUNA_DETACH_HANDSHAKE=', 'YURUNA_DETACH_HOP_PID=', 'YURUNA_DETACH_HOP_START=',
+            'YURUNA_DETACH_STDOUT=', 'YURUNA_DETACH_STDERR=')) { $arguments.Add($item) }
+    foreach ($item in $Vector) { $arguments.Add([string]$item) }
+    return [string[]]$arguments.ToArray()
+}
+
+function Get-YurunaConsoleTmuxPath {
+    <#
+    .SYNOPSIS
+        The tmux of the console: the first one on PATH, else the first
+        executable file among Homebrew's fixed locations, else $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $onPath = (Get-Command -Name tmux -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+    if ($onPath) { return [string]$onPath }
+    foreach ($candidate in $script:ConsoleTmuxCandidate) {
+        try {
+            if ([System.IO.File]::Exists($candidate) -and ([System.IO.File]::GetUnixFileMode($candidate) -band [System.IO.UnixFileMode]::UserExecute)) { return $candidate }
+        } catch { Write-Verbose "Get-YurunaConsoleTmuxPath: '$candidate' unreadable: $($_.Exception.Message)" }
+    }
+    return $null
+}
+
+function Invoke-YurunaConsoleTmux {
+    <#
+    .SYNOPSIS
+        One bounded tmux client call on the console socket.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Tmux, [Parameter(Mandatory)][string[]]$ArgumentList, [psobject]$Deadline)
+    $call = @{ FilePath = $Tmux; ArgumentList = $ArgumentList; TimeoutSeconds = $script:ConsoleTimeoutSeconds }
+    if ($Deadline) { $call.Deadline = $Deadline }
+    return (Invoke-BoundedNativeCommand @call)
+}
+
+function Read-YurunaConsolePanePid {
+    <#
+    .SYNOPSIS
+        The pane process id a complete tmux answer printed, or 0.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([AllowNull()][System.Collections.IDictionary]$Result)
+    $panePid = 0
+    if ((Test-BoundedNativeResultComplete -Result $Result) -and $Result.ExitCode -eq 0) {
+        $first = @(([string]$Result.StdOut).Trim() -split '\r?\n')[0]
+        if (-not [int]::TryParse(([string]$first).Trim(), [ref]$panePid)) { $panePid = 0 }
+    }
+    return [Math]::Max($panePid, 0)
+}
+
+function Start-YurunaConsoleSession {
+    <#
+    .SYNOPSIS
+        Create the console session for a detached launch, or say that the
+        caller must fall back to the launch without a console.
+    .DESCRIPTION
+        No tmux (on PATH or at a Homebrew location), a socket path tmux
+        cannot bind, or a session tmux confirms it did not create:
+        Fallback, and the caller launches as it does without a console. A
+        failure after which tmux cannot say whether the session exists is
+        not a fallback: launching beside a session that may run the command
+        would start it twice. A created session has its output copied to the
+        log file from then on.
+    .OUTPUTS
+        [pscustomobject] @{ Created; Fallback; Console tmux|none; ConsoleReason
+        created|no-multiplexer|socket-path-too-long|session-not-created|
+        console-state-unknown; PanePid; LauncherPid }
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Called only by Start-YurunaDetachedProcess, after it asked to launch.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$SocketPath,
+        [Parameter(Mandatory)][string]$SessionName,
+        [Parameter(Mandatory)][string]$LogPath,
+        [Parameter(Mandatory)][string]$WorkingDirectory,
+        [hashtable]$Environment,
+        [Parameter(Mandatory)][string[]]$Vector,
+        [psobject]$Deadline
+    )
+    $answer = {
+        param([bool]$Created, [bool]$Fallback, [string]$Console, [string]$Reason, [int]$PanePid, $LauncherPid)
+        [pscustomobject]@{ Created = $Created; Fallback = $Fallback; Console = $Console; ConsoleReason = $Reason; PanePid = $PanePid; LauncherPid = $LauncherPid }
+    }
+    $tmux = Get-YurunaConsoleTmuxPath
+    if (-not $tmux) { return (& $answer $false $true 'none' 'no-multiplexer' 0 $null) }
+    if ([System.Text.Encoding]::UTF8.GetByteCount($SocketPath) -gt $script:ConsoleSocketMaxBytes) { return (& $answer $false $true 'none' 'socket-path-too-long' 0 $null) }
+    $target = "=$SessionName"
+    $created = Invoke-YurunaConsoleTmux -Tmux $tmux -Deadline $Deadline -ArgumentList (Get-YurunaConsoleSessionArgument -SocketPath $SocketPath -SessionName $SessionName `
+        -WorkingDirectory $WorkingDirectory -Environment $Environment -Vector $Vector)
+    $launcherPid = if ($created.ProcessId) { [int]$created.ProcessId } else { $null }
+    $panePid = Read-YurunaConsolePanePid -Result $created
+    if ($panePid -le 0) {
+        $probe = Invoke-YurunaConsoleTmux -Tmux $tmux -Deadline $Deadline -ArgumentList @('-S', $SocketPath, 'has-session', '-t', $target)
+        $complete = Test-BoundedNativeResultComplete -Result $probe
+        if ($complete -and $probe.ExitCode -eq 0) {
+            $panePid = Read-YurunaConsolePanePid -Result (Invoke-YurunaConsoleTmux -Tmux $tmux -Deadline $Deadline -ArgumentList @('-S', $SocketPath, 'list-panes', '-t', $target, '-F', '#{pane_pid}'))
+            if ($panePid -le 0) { return (& $answer $false $false 'none' 'console-state-unknown' 0 $launcherPid) }
+        } elseif ($complete -and $probe.ExitCode -eq 1 -and [string]$probe.StdErr -match "no server running|can't find session") {
+            return (& $answer $false $true 'none' 'session-not-created' 0 $launcherPid)
+        } else {
+            return (& $answer $false $false 'none' 'console-state-unknown' 0 $launcherPid)
+        }
+    }
+    # tmux runs the pipe-pane command through /bin/sh -c, so the log path is
+    # one single-quoted shell word.
+    $copy = Invoke-YurunaConsoleTmux -Tmux $tmux -Deadline $Deadline -ArgumentList @('-S', $SocketPath, 'pipe-pane', '-o', '-t', $target,
+        "cat >> $(ConvertTo-YurunaShellSingleQuoted -Text $LogPath)")
+    if (-not (Test-BoundedNativeResultComplete -Result $copy) -or $copy.ExitCode -ne 0) {
+        Write-Verbose "Start-YurunaConsoleSession: the console copy of '$SessionName' did not start (exit $($copy.ExitCode))."
+    }
+    return (& $answer $true $false 'tmux' 'created' $panePid $launcherPid)
+}
+
+function Stop-YurunaConsoleCopy {
+    <#
+    .SYNOPSIS
+        End the copy of a console session's output to its log file, when the
+        session still exists; the log stays where it is.
+    .PARAMETER ConsoleSocketPath
+        The tmux server socket.
+    .PARAMETER ConsoleSessionName
+        The session's name.
+    .PARAMETER Deadline
+        Bounds both tmux calls.
+    .OUTPUTS
+        [bool] $true when the copy was ended.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Ends only the output copy of a session the caller created; the session and its process are untouched.')]
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$ConsoleSocketPath, [Parameter(Mandatory)][string]$ConsoleSessionName, [psobject]$Deadline)
+    $tmux = Get-YurunaConsoleTmuxPath
+    if (-not $tmux) { return $false }
+    $target = "=$ConsoleSessionName"
+    $probe = Invoke-YurunaConsoleTmux -Tmux $tmux -Deadline $Deadline -ArgumentList @('-S', $ConsoleSocketPath, 'has-session', '-t', $target)
+    if (-not (Test-BoundedNativeResultComplete -Result $probe) -or $probe.ExitCode -ne 0) { return $false }
+    $stop = Invoke-YurunaConsoleTmux -Tmux $tmux -Deadline $Deadline -ArgumentList @('-S', $ConsoleSocketPath, 'pipe-pane', '-t', $target)
+    return ((Test-BoundedNativeResultComplete -Result $stop) -and $stop.ExitCode -eq 0)
+}
+
+function Test-YurunaConsoleArgument {
+    <#
+    .SYNOPSIS
+        Validate the console parameters of a detached launch; returns '' when
+        valid or the name of the first offending argument.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([hashtable]$Console, [Parameter(Mandatory)][string]$PrivateDirectory, [hashtable]$Environment)
+    if ((Get-YurunaIdentityPlatform) -eq 'Windows') { return 'ConsoleSocketPath' }
+    foreach ($name in @('ConsoleSocketPath', 'ConsoleSessionName', 'ConsoleLogPath')) {
+        if ([string]::IsNullOrWhiteSpace([string]$Console[$name])) { return $name }
+    }
+    if (-not [System.IO.Path]::IsPathFullyQualified($Console.ConsoleSocketPath)) { return 'ConsoleSocketPath' }
+    if ($Console.ConsoleSessionName -cnotmatch $script:ConsoleSessionPattern) { return 'ConsoleSessionName' }
+    if (-not [System.IO.Path]::IsPathFullyQualified($Console.ConsoleLogPath) -or
+        -not (Test-YurunaPathInside -Path $Console.ConsoleLogPath -Directory $PrivateDirectory)) { return 'ConsoleLogPath' }
+    if ($Environment) {
+        foreach ($key in $Environment.Keys) { if ([string]$key -cnotmatch '\A[A-Za-z_][A-Za-z0-9_]*\z') { return 'Environment' } }
+    }
+    return ''
+}
+
 function Start-YurunaDetachedProcess {
     <#
     .SYNOPSIS
@@ -402,6 +642,23 @@ function Start-YurunaDetachedProcess {
         With -WaitForHandshakeMilliseconds the launcher waits for the final
         worker's own handshake and, on POSIX, asserts the worker leads a
         different process group than the launcher (group-not-detached).
+
+        With the three console parameters (POSIX only; Windows refuses them)
+        the worker runs in a detached tmux session instead, its streams in
+        the console and copied to -ConsoleLogPath, and FinalPid is the pane's
+        process. Without tmux, with a socket path too long to bind, or when
+        tmux confirms no session was created, the launch is the one without a
+        console, and Console reads none with the reason. When tmux cannot say
+        whether the session exists, nothing else is launched and the reason
+        is console-state-unknown. Without these parameters the launch and
+        its output are unchanged.
+
+        With -ConsoleWindow (Windows only; POSIX refuses it, and so does a
+        launch that also names the tmux parameters) the final worker gets a
+        console window of its own on the desktop of the launching session:
+        the hop starts it visible and redirects nothing, so its streams are
+        the console's and Ctrl+C in that window reaches it. Console then
+        reads window.
     .PARAMETER FilePath
         The script to run.
     .PARAMETER ArgumentList
@@ -425,11 +682,21 @@ function Start-YurunaDetachedProcess {
         How long to wait for that handshake; 0 does not wait.
     .PARAMETER Deadline
         Bounds the whole launch.
+    .PARAMETER ConsoleSocketPath
+        The tmux server socket of the console.
+    .PARAMETER ConsoleSessionName
+        The console session's name; never reused.
+    .PARAMETER ConsoleLogPath
+        Where the console's output is copied, inside -PrivateDirectory.
+    .PARAMETER ConsoleWindow
+        Give the worker a console window of its own (Windows only).
     .OUTPUTS
         [pscustomobject] @{ Launched; Reason launched|invalid-argument|
-        launcher-failed|hop-failed|handshake-timeout|group-not-detached|whatif;
-        LauncherPid; LauncherStartTimeUnixMs; FinalPid; FinalStartTimeUnixMs;
-        Handshake; Platform; Detail }
+        launcher-failed|hop-failed|handshake-timeout|group-not-detached|whatif|
+        console-state-unknown; LauncherPid; LauncherStartTimeUnixMs; FinalPid;
+        FinalStartTimeUnixMs; Handshake; Platform; Detail }, and with the
+        console parameters also Console (tmux or none) and ConsoleReason,
+        with -ConsoleWindow Console window.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
@@ -444,19 +711,33 @@ function Start-YurunaDetachedProcess {
         [Parameter(Mandatory)][string]$PrivateDirectory,
         [string]$HandshakePath,
         [ValidateRange(0, 600000)][int]$WaitForHandshakeMilliseconds = 0,
-        [psobject]$Deadline
+        [psobject]$Deadline,
+        [string]$ConsoleSocketPath,
+        [string]$ConsoleSessionName,
+        [string]$ConsoleLogPath,
+        [switch]$ConsoleWindow
     )
     $platform = Get-YurunaIdentityPlatform
     $out = [ordered]@{
         Launched = $false; Reason = $null; LauncherPid = $null; LauncherStartTimeUnixMs = $null
         FinalPid = $null; FinalStartTimeUnixMs = $null; Handshake = $null; Platform = $platform; Detail = $null
     }
+    $console = $null
+    foreach ($name in @('ConsoleSocketPath', 'ConsoleSessionName', 'ConsoleLogPath')) {
+        if ($PSBoundParameters.ContainsKey($name)) {
+            if (-not $console) { $console = @{} }
+            $console[$name] = [string]$PSBoundParameters[$name]
+        }
+    }
+    if ($console) { $out.Console = 'none'; $out.ConsoleReason = $null }
     $paths = @{
         FilePath = $FilePath; WorkingDirectory = $WorkingDirectory; StdOutPath = $StdOutPath; StdErrPath = $StdErrPath
         StdInPath = if ($StdInPath) { $StdInPath } else { $null }
         HandshakePath = if ($HandshakePath) { $HandshakePath } else { $null }
     }
     $bad = Test-YurunaDetachArgument -Path $paths -PrivateDirectory $PrivateDirectory -ArgumentList $ArgumentList
+    if (-not $bad -and $console) { $bad = Test-YurunaConsoleArgument -Console $console -PrivateDirectory $PrivateDirectory -Environment $Environment }
+    if (-not $bad -and $ConsoleWindow -and ($platform -ne 'Windows' -or $console)) { $bad = 'ConsoleWindow' }
     if ($bad) {
         $out.Reason = 'invalid-argument'; $out.Detail = $bad
         return [pscustomobject]$out
@@ -485,6 +766,27 @@ function Start-YurunaDetachedProcess {
     $childEnvironment['YURUNA_DETACH_STDOUT'] = $StdOutPath
     $childEnvironment['YURUNA_DETACH_STDERR'] = $StdErrPath
     $vector = @($pwsh, '-NoLogo', '-NoProfile', '-NonInteractive', '-File', $FilePath) + @($ArgumentList)
+    if ($console) {
+        $session = Start-YurunaConsoleSession -SocketPath $console.ConsoleSocketPath -SessionName $console.ConsoleSessionName -LogPath $console.ConsoleLogPath `
+            -WorkingDirectory $WorkingDirectory -Environment $Environment -Vector $vector -Deadline $launchDeadline
+        $out.Console = $session.Console
+        $out.ConsoleReason = $session.ConsoleReason
+        $out.LauncherPid = $session.LauncherPid
+        if ($session.Created) {
+            $out.FinalPid = $session.PanePid
+            try { $out.FinalStartTimeUnixMs = ConvertTo-YurunaUnixMs -Value ([System.Diagnostics.Process]::GetProcessById($session.PanePid).StartTime) } catch {
+                Write-Verbose "Start-YurunaDetachedProcess: start time of pane pid $($session.PanePid) unreadable: $($_.Exception.Message)"
+            }
+            $out.Launched = $true
+            $out.Reason = 'launched'
+            return [pscustomobject]$out
+        }
+        if (-not $session.Fallback) {
+            $out.Reason = 'console-state-unknown'
+            return [pscustomobject]$out
+        }
+        $out.LauncherPid = $null
+    }
     if ($platform -ne 'Windows') {
         $seconds = Get-YurunaDeadlineBoundedSeconds -Deadline $launchDeadline -Ceiling 10
         if (-not $seconds) { $out.Reason = 'launcher-failed'; $out.Detail = 'deadline-exhausted'; return [pscustomobject]$out }
@@ -516,6 +818,7 @@ function Start-YurunaDetachedProcess {
             stdin            = $stdin
             stdout           = $StdOutPath
             stderr           = $StdErrPath
+            console          = [bool]$ConsoleWindow
         }
         if (-not (Write-YurunaStateFileJson -Path $specPath -InputObject $spec -Confirm:$false)) {
             $out.Reason = 'launcher-failed'; $out.Detail = 'spec-unwritable'
@@ -565,6 +868,7 @@ function Start-YurunaDetachedProcess {
             }
         }
     }
+    if ($ConsoleWindow) { $out.Console = 'window' }
     $out.Launched = $true
     $out.Reason = 'launched'
     return [pscustomobject]$out
@@ -584,6 +888,8 @@ function Invoke-YurunaDetachedHop {
         (<spec>.ack.json: hopPid, hopStartTimeUnixMs, finalPid,
         finalStartTimeUnixMs, launched, error) is distinct from the worker's
         own handshake, and the hop never opens the worker's stream files.
+        A spec with console set starts the worker visible with nothing
+        redirected, so it gets a console window of its own.
     .PARAMETER SpecPath
         The spec Start-YurunaDetachedProcess wrote.
     .OUTPUTS
@@ -623,18 +929,25 @@ function Invoke-YurunaDetachedHop {
     [Environment]::SetEnvironmentVariable('YURUNA_DETACH_HOP_PID', [string]$PID)
     [Environment]::SetEnvironmentVariable('YURUNA_DETACH_HOP_START', [string]$self.StartTimeUnixMs)
     try {
-        if (-not [System.IO.File]::Exists($spec['stdin'])) { [System.IO.File]::WriteAllBytes($spec['stdin'], [byte[]]@()) }
         $start = @{
-            FilePath               = [string]$spec['pwsh']
-            ArgumentList           = (ConvertTo-YurunaWindowsCommandLine -Argument @($spec['argumentList']))
-            WorkingDirectory       = [string]$spec['workingDirectory']
-            RedirectStandardInput  = [string]$spec['stdin']
-            RedirectStandardOutput = [string]$spec['stdout']
-            RedirectStandardError  = [string]$spec['stderr']
-            PassThru               = $true
-            ErrorAction            = 'Stop'
+            FilePath         = [string]$spec['pwsh']
+            ArgumentList     = (ConvertTo-YurunaWindowsCommandLine -Argument @($spec['argumentList']))
+            WorkingDirectory = [string]$spec['workingDirectory']
+            PassThru         = $true
+            ErrorAction      = 'Stop'
         }
-        if ($IsWindows) { $start.WindowStyle = 'Hidden' }
+        if ($spec['console'] -eq $true) {
+            # Nothing redirected and not hidden: the worker's console is a
+            # window of its own, its streams are that window's, and Ctrl+C
+            # there reaches the worker and never this hop's launcher.
+            if ($IsWindows) { $start.WindowStyle = 'Normal' }
+        } else {
+            if (-not [System.IO.File]::Exists($spec['stdin'])) { [System.IO.File]::WriteAllBytes($spec['stdin'], [byte[]]@()) }
+            $start.RedirectStandardInput = [string]$spec['stdin']
+            $start.RedirectStandardOutput = [string]$spec['stdout']
+            $start.RedirectStandardError = [string]$spec['stderr']
+            if ($IsWindows) { $start.WindowStyle = 'Hidden' }
+        }
         $final = Start-Process @start
         $ack.finalPid = [int]$final.Id
         try { $ack.finalStartTimeUnixMs = ConvertTo-YurunaUnixMs -Value $final.StartTime } catch { $ack.finalStartTimeUnixMs = $null }
@@ -794,4 +1107,4 @@ function Wait-YurunaDetachedHopExit {
 
 Export-ModuleMember -Function New-InnerRunnerArgList, Get-PwshExePath, ConvertTo-YurunaUnixMs, Get-YurunaIdentityPlatform, Start-YurunaDetachedProcess, Invoke-YurunaDetachedHop, `
     ConvertTo-YurunaWindowsCommandLine, Test-YurunaWindowsPathArgument, Write-YurunaDetachedHandshake, `
-    Read-YurunaDetachedHandshake, Wait-YurunaDetachedHopExit
+    Read-YurunaDetachedHandshake, Wait-YurunaDetachedHopExit, Stop-YurunaConsoleCopy

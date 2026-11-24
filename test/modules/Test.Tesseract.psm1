@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -166,7 +166,8 @@ function Invoke-TesseractNative {
     param(
         [Parameter(Mandatory)][string]$FilePath,
         [Parameter(Mandatory)][string]$ImagePath,
-        [switch]$WordBoxes
+        [switch]$WordBoxes,
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 300
     )
     if (-not (Get-Command Invoke-BoundedNativeCommand -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -Verbose:$false
@@ -180,7 +181,7 @@ function Invoke-TesseractNative {
     if ($WordBoxes) { $arguments += 'tsv' }
     # Slow ARM hosts retain a generous allowance. An incomplete capture must
     # fail rather than become an empty screen or a cached partial OCR result.
-    $result = Invoke-BoundedNativeCommand -FilePath $FilePath -ArgumentList $arguments -TimeoutSeconds 300 `
+    $result = Invoke-BoundedNativeCommand -FilePath $FilePath -ArgumentList $arguments -TimeoutSeconds $TimeoutSeconds `
         -Environment $childEnvironment -MaxCapturedChars 4194304 -StreamEncoding ([Console]::OutputEncoding)
     $complete = $result.Started -eq $true -and $result.TimedOut -eq $false -and
         $result.DrainTimedOut -eq $false -and $result.OutputTruncated -eq $false -and $result.KillFailed -eq $false
@@ -252,14 +253,22 @@ function Get-TesseractWordBox {
         origin top-left -- the same space the caller captured the screenshot in.
     .PARAMETER ImagePath
         Path to a PNG or image file to OCR.
+    .PARAMETER TimeoutSeconds
+        Cap on the Tesseract run, from 1 to 300 seconds. A caller with a step
+        deadline passes the whole seconds it has left.
     .OUTPUTS
-        System.Collections.Hashtable[]. Each entry: @{ text; x; y; w; h; conf }.
+        System.Collections.Hashtable[]. Each entry: @{ text; x; y; w; h; conf;
+        block; par; line; word }, in Tesseract's row order. block, par, line
+        and word are the block, paragraph, line and word numbers of the TSV
+        row; line numbers restart in each paragraph and word numbers in each
+        line.
     #>
     [CmdletBinding()]
     [OutputType([System.Collections.Hashtable[]], [object[]])]
     param(
         [Parameter(Mandatory=$true)]
-        [string]$ImagePath
+        [string]$ImagePath,
+        [ValidateRange(1, 300)][int]$TimeoutSeconds = 300
     )
 
     $tesseractExe = Find-Tesseract
@@ -270,7 +279,7 @@ function Get-TesseractWordBox {
     $absPath = [string]$pathHandle.Path
 
     try {
-        $result = Invoke-TesseractNative -FilePath $tesseractExe -ImagePath $absPath -WordBoxes
+        $result = Invoke-TesseractNative -FilePath $tesseractExe -ImagePath $absPath -WordBoxes -TimeoutSeconds $TimeoutSeconds
         $exitCode = $result.ExitCode
         if ($exitCode -ne 0) {
             $errMsg = $result.StdErr
@@ -299,6 +308,10 @@ function Get-TesseractWordBox {
             w    = [int]$cols[8]
             h    = [int]$cols[9]
             conf = [int]$cols[10]
+            block = [int]$cols[2]
+            par  = [int]$cols[3]
+            line = [int]$cols[4]
+            word = [int]$cols[5]
         })
     }
     return ,$boxes.ToArray()

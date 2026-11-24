@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e220c4-9472-4e35-bf37-59a7e003196b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1087,7 +1087,7 @@ Describe 'Shared source regions' {
     }
 
     It 'uses the canonical recurring REGION vocabulary' {
-        $pattern = '(?m)^[ \t]*(?:#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:Install logging|Storage dirs|Cleanup temporary files|Log level from the environment|Elevation notice|Newer versions report)[ \t]*$'
+        $pattern = '(?m)^[ \t]*(?:#|//)[ \t]*---[ \t]+REGION:[ \t]*(?:Install logging|Storage dirs|Cleanup temporary files|Log level from the environment|Elevation notice|Newer versions report|Initialize|Single-instance lock[ \t]*\([^)\r\n]*\)|[^\r\n]*pointer transport[^\r\n]*)[ \t]*$'
         $findings = @()
         foreach ($file in Get-ConsistencySourceFile) {
             $text = Get-ConsistencySourceText -Path $file.FullName
@@ -1119,6 +1119,57 @@ Describe 'Shared source regions' {
             }
         }
         $findings | Should -BeNullOrEmpty -Because 'help discovery requires function help before attributes and param inside the function body'
+    }
+
+    It 'leaves no outside help block above a function that has its own help' {
+        # A help block that ends within one blank line of a function becomes
+        # that function's help even when the body opens with help of its own,
+        # so a stray block silently replaces the real help. Two blank lines
+        # end that association. Only the leading help of a body counts as its
+        # own; a nested function's help does not.
+        $helpPattern = '(?m)^[ \t]*(?:<#)?[ \t]*\.SYNOPSIS'
+        $findings = @()
+        foreach ($file in Get-ConsistencySourceFile | Where-Object Extension -in @('.ps1', '.psm1')) {
+            $text = Get-ConsistencySourceText -Path $file.FullName
+            if ($text -notmatch $helpPattern -or
+                $text -notmatch '#>[ \t]*\r?\n(?:[ \t]*\r?\n)?[ \t]*(?:function|filter)[ \t]') { continue }
+            $tokens = $null
+            $parseErrors = $null
+            $ast = [Management.Automation.Language.Parser]::ParseInput(
+                $text, [ref]$tokens, [ref]$parseErrors)
+            $blocks = @($tokens | Where-Object {
+                $_.Kind -eq 'Comment' -and $_.Text.StartsWith('<#') -and $_.Text -match $helpPattern
+            })
+            if ($blocks.Count -eq 0) { continue }
+            foreach ($function in $ast.FindAll({
+                param($node)
+                $node -is [Management.Automation.Language.FunctionDefinitionAst]
+            }, $true)) {
+                $functionStart = $function.Extent.StartOffset
+                $outside = @($blocks | Where-Object {
+                    $blockEnd = $_.Extent.EndOffset
+                    $_.Extent.EndLineNumber -ge $function.Extent.StartLineNumber - 2 -and
+                    $_.Extent.EndLineNumber -lt $function.Extent.StartLineNumber -and
+                    -not ($tokens | Where-Object {
+                        $_.Extent.StartOffset -ge $blockEnd -and
+                        $_.Extent.StartOffset -lt $functionStart -and
+                        $_.Kind -ne 'NewLine'
+                    })
+                })
+                if ($outside.Count -eq 0) { continue }
+                $bodyStart = $function.Body.Extent.StartOffset
+                $firstCode = $tokens | Where-Object {
+                    $_.Extent.StartOffset -gt $bodyStart -and $_.Kind -notin @('Comment', 'NewLine', 'LineContinuation')
+                } | Select-Object -First 1
+                $inside = @($blocks | Where-Object {
+                    $_.Extent.StartOffset -gt $bodyStart -and $_.Extent.StartOffset -lt $firstCode.Extent.StartOffset
+                })
+                if ($inside.Count -gt 0) {
+                    $findings += "$($file.FullName):$($function.Extent.StartLineNumber): $($function.Name)"
+                }
+            }
+        }
+        $findings | Should -BeNullOrEmpty -Because 'Get-Help takes an adjacent outside block over the function''s own help'
     }
 
     It 'keeps parameter descriptions out of metadata and on their own help lines' {

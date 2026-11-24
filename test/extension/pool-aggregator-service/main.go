@@ -123,8 +123,8 @@ const (
 	// Lab connection token: the 6-char enrollment code the dashboard's "Lab
 	// token" tile displays and POST /api/v1/lab-token exchanges for the shared
 	// internal authentication key (so enrolling a host never needs SSH into the proxy).
-	defaultLabRotate        = 60 * time.Second
-	refreshObservationFloor = poolstate.RefreshObservationFloor
+	defaultLabRotate       = 60 * time.Second
+	repairObservationFloor = poolstate.RepairObservationFloor
 	// Port a Windows pool host publishes machine metrics on: the Windows
 	// exporter's registered default. One number for the whole pool, because the
 	// collector and the hosts share no channel to negotiate it on;
@@ -189,7 +189,7 @@ type poolState struct {
 	crossWin    time.Duration // window for cross-host "failing together"
 	announceTtl time.Duration // reap an announce entry not refreshed within this window (0 disables /announce)
 	hostTtl     time.Duration // drop a hostId from the view this long after last contact
-	refreshTTL  time.Duration // how long a refresh capability reading stays current (RefreshView)
+	repairTTL   time.Duration // how long a repair capability reading stays current (RepairView)
 	// Push-ingest: the shared bearer token gating POST /ingest (empty ->
 	// ingest disabled, never an unauthenticated write route), plus the Loki push URL
 	// + client the handler needs.
@@ -250,7 +250,7 @@ func newPoolState(pool string, statusPort int) *poolState {
 		crossN: defaultCrossN, crossWin: defaultCrossWin,
 		announceTtl: defaultAnnounceTtl,
 		hostTtl:     defaultHostTtl,
-		refreshTTL:  refreshObservationFloor,
+		repairTTL:   repairObservationFloor,
 		eventCur:    map[string]*poll.EventCursor{},
 
 		hostMetricsPort: defaultHostMetricsPort,
@@ -307,7 +307,7 @@ func (s *poolState) rehydrator() *rehydrate.Reader {
 func (s *poolState) routeServer() *routes.Server {
 	return routes.New(routes.Config{
 		State: s.st, Pool: s.pool, AuthToken: s.authToken, LokiURL: s.lokiURL, HTTPClient: s.httpClient,
-		LabRotate: s.labRotate, Outbox: s.outbox, RefreshTTL: s.refreshTTL, AnnounceTTL: s.announceTtl,
+		LabRotate: s.labRotate, Outbox: s.outbox, RepairTTL: s.repairTTL, AnnounceTTL: s.announceTtl,
 		IncidentN: s.incidentN, IncidentWindow: s.incidentWin, CrossWindow: s.crossWin,
 		ArchiveRoot: s.archiveRoot, HostMetricsPort: s.hostMetricsPort, DeepLinkLookback: s.deepLinkLookback(),
 		FolderByIndex: s.resolveFolderByIndex, ParseListing: parseListing,
@@ -609,7 +609,7 @@ func main() {
 	state.announceTtl = *announceTtl
 	// Three polls without a fresh capability reading is the window; the floor
 	// keeps a short -interval from expiring a reading between two polls.
-	state.refreshTTL = max(refreshObservationFloor, 3**interval)
+	state.repairTTL = max(repairObservationFloor, 3**interval)
 	// A non-positive TTL would reap every host on the first tick, emptying the
 	// dashboard; fall back to the default rather than start in that state.
 	if *hostTtl > 0 {

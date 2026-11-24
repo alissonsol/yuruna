@@ -21,18 +21,21 @@ graph LR
 classDef Datatype fill:#9c6,stroke:#9c6;
 diagnostics:AlertNotification((diagnostics:AlertNotification)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 diagnostics:AlertRule((diagnostics:AlertRule)) -- subClassOf --> y:Policy[y:Policy]
+diagnostics:BootRecovery((diagnostics:BootRecovery)) -- subClassOf --> y:Process[y:Process]
 diagnostics:ClearStaleGitLock((diagnostics:ClearStaleGitLock)) -- subClassOf --> diagnostics:RecoveryAction((diagnostics:RecoveryAction))
 diagnostics:ContactPoint((diagnostics:ContactPoint)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 diagnostics:CounterMetric((diagnostics:CounterMetric)) -- subClassOf --> diagnostics:Metric((diagnostics:Metric))
 diagnostics:CrossHostIncident((diagnostics:CrossHostIncident)) -- subClassOf --> diagnostics:RepeatedFailureIncident((diagnostics:RepeatedFailureIncident))
 diagnostics:DashboardPanel((diagnostics:DashboardPanel)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 diagnostics:DataSourceError((diagnostics:DataSourceError)) -- subClassOf --> diagnostics:Failure((diagnostics:Failure))
+diagnostics:DeepDiagnosticsMode((diagnostics:DeepDiagnosticsMode)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 diagnostics:DiagnosticCheck -- diagnostics:checksElement --> y:SystemElement
 diagnostics:DiagnosticCheck -- diagnostics:observes --> diagnostics:DiagnosticEvidence
 diagnostics:DiagnosticCheck((diagnostics:DiagnosticCheck)) -- subClassOf --> y:Process[y:Process]
 diagnostics:DiagnosticEvidence((diagnostics:DiagnosticEvidence)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 diagnostics:DominantFailureClass((diagnostics:DominantFailureClass)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 diagnostics:EndFailurePauseEarly((diagnostics:EndFailurePauseEarly)) -- subClassOf --> diagnostics:RecoveryAction((diagnostics:RecoveryAction))
+diagnostics:EndFailurePauseOnProbe((diagnostics:EndFailurePauseOnProbe)) -- subClassOf --> diagnostics:RecoveryAction((diagnostics:RecoveryAction))
 diagnostics:EscalateRecommendation((diagnostics:EscalateRecommendation)) -- subClassOf --> diagnostics:RecoveryRecommendation((diagnostics:RecoveryRecommendation))
 diagnostics:EventRecord((diagnostics:EventRecord)) -- subClassOf --> diagnostics:DiagnosticEvidence((diagnostics:DiagnosticEvidence))
 diagnostics:Failure((diagnostics:Failure)) -- subClassOf --> diagnostics:Incident((diagnostics:Incident))
@@ -90,11 +93,13 @@ diagnostics:RecurringHostIncident((diagnostics:RecurringHostIncident)) -- subCla
 diagnostics:RecurringHostIncident((diagnostics:RecurringHostIncident)) -- subClassOf --> diagnostics:RecurringIncident((diagnostics:RecurringIncident))
 diagnostics:RecurringIncident((diagnostics:RecurringIncident)) -- subClassOf --> diagnostics:Incident((diagnostics:Incident))
 diagnostics:RecurringIncident((diagnostics:RecurringIncident)) -- subClassOf --> r_RecurringIncident_recursAfter_Incident_((Anonymous class))
+diagnostics:RemediationDispatcher((diagnostics:RemediationDispatcher)) -- subClassOf --> y:Process[y:Process]
 diagnostics:RepeatedFailureIncident((diagnostics:RepeatedFailureIncident)) -- subClassOf --> diagnostics:Incident((diagnostics:Incident))
 diagnostics:ResolvedIncidentState((diagnostics:ResolvedIncidentState)) -- subClassOf --> y:State[y:State]
 diagnostics:RestartFromSnapshotRecommendation((diagnostics:RestartFromSnapshotRecommendation)) -- subClassOf --> diagnostics:RecoveryRecommendation((diagnostics:RecoveryRecommendation))
 diagnostics:RetryImmediatelyRecommendation((diagnostics:RetryImmediatelyRecommendation)) -- subClassOf --> diagnostics:RecoveryRecommendation((diagnostics:RecoveryRecommendation))
 diagnostics:RetryWithBackoffRecommendation((diagnostics:RetryWithBackoffRecommendation)) -- subClassOf --> diagnostics:RecoveryRecommendation((diagnostics:RecoveryRecommendation))
+diagnostics:RunnerExitRecord((diagnostics:RunnerExitRecord)) -- subClassOf --> diagnostics:DiagnosticEvidence((diagnostics:DiagnosticEvidence))
 diagnostics:SoftFailureSeverity((diagnostics:SoftFailureSeverity)) -- subClassOf --> diagnostics:FailureSeverity((diagnostics:FailureSeverity))
 diagnostics:StatusDashboard((diagnostics:StatusDashboard)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 diagnostics:StructuredLog((diagnostics:StructuredLog)) -- subClassOf --> diagnostics:LogStream((diagnostics:LogStream))
@@ -139,6 +144,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

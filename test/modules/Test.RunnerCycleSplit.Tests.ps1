@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,6 +39,9 @@
 
 BeforeAll {
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# The private state root and the runner gate resolve under $HOME; a scratch
+# home keeps this suite and every process it starts off the operator's own.
+$script:TestHome = Enter-YurunaTestHome
 $ErrorActionPreference = 'Stop'
 $testRoot   = Split-Path -Parent $PSScriptRoot
 $script:cycleFile  = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
@@ -55,6 +58,8 @@ function Get-CommandNameList {
 }
 
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'Per-cycle runner never performs once-per-runner startup' {
     BeforeAll {
@@ -73,9 +78,9 @@ Describe 'Per-cycle runner never performs once-per-runner startup' {
     It 'does not re-initialize runner state (it would mint a new runId per cycle)' {
         ($cycleCommands -contains 'Initialize-RunnerState') | Should -Be $false
     }
-    It 'never removes a runner record or writes the refresh gate (only the runner and the repair do)' {
+    It 'never removes a runner record or writes the runner gate (only the runner and the repair do)' {
         ($cycleCommands -contains 'Remove-YurunaRunnerRecordGeneration') | Should -Be $false
-        ($cycleCommands -contains 'Set-YurunaRefreshGate') | Should -Be $false
+        ($cycleCommands -contains 'Set-YurunaRunnerGate') | Should -Be $false
         ($cycleCommands -contains 'Complete-YurunaRunnerHandoff') | Should -Be $false
     }
     It 'validates a preflight token for its own role before honoring it' {
@@ -449,7 +454,7 @@ Describe 'The runner reports the code it runs' {
         $elements[$commitAt + 1].Extent.Text | Should -Match 'Get-OuterCommitSha' -Because 'the commit is the checkout the runner started on'
         $existingOnly = @($elements | Where-Object { $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq 'ExistingOnly' })
         $existingOnly.Count | Should -Be 1
-        $existingOnly[0].Argument.Extent.Text | Should -BeExactly '$RefreshResume' -Because 'a resumed start''s preflight writes no new status document'
+        $existingOnly[0].Argument.Extent.Text | Should -BeExactly '$HandoffResume' -Because 'a resumed start''s preflight writes no new status document'
         (Get-CommandNameList -Path $script:cycleFile) -contains 'Set-StatusRunnerResident' | Should -BeFalse -Because 'a cycle process loads new code every cycle and is no runner'
     }
 }

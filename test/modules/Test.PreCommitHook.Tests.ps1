@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42cf4f7f-3c33-488c-8cc6-1cb70b8f8836
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -395,6 +395,33 @@ exit 0
         @([regex]::Matches($run.Text, "retired name '$([regex]::Escape($retiredPath))'")).Count | Should -Be 1
         $run.Text | Should -Not -Match 'expansion.txt'
         $run.Text | Should -Not -Match [regex]::Escape($lookalike)
+    }
+
+    It 'commits <Change> under dev-only/review.history, warning only for a rewritten line' -ForEach @(
+        @{ Key = 'prose'; Change = 'a rewritten prose line'; Path = 'dev-only/review.history/2026-01.closed/report.md'
+           Text = "# Closed report`n`nMeasured at version 2026.11.20.`n`nLast review: 2026.11.20`n"; Warns = $true }
+        @{ Key = 'stamp'; Change = 'a new Last review stamp alone'; Path = 'dev-only/review.history/2026-01.closed/report.md'
+           Text = "# Closed report`n`nMeasured at version 2026.11.18.`n`nLast review: 2026.11.20`n"; Warns = $false }
+        @{ Key = 'added'; Change = 'a new record'; Path = 'dev-only/review.history/2026-02.closed/report.md'
+           Text = "# New report`n`nMeasured at version 2026.11.20.`n`nLast review: 2026.11.20`n"; Warns = $false }
+    ) {
+        $fixture = New-HookRepository -Name "closed-record-$Key"
+        $closed = 'dev-only/review.history/2026-01.closed/report.md'
+        Write-FixtureFile -Path (Join-Path $fixture.Root $closed) -Text "# Closed report`n`nMeasured at version 2026.11.18.`n`nLast review: 2026.11.18`n"
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', $closed)
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('-c', 'core.hooksPath=', 'commit', '-q', '-m', 'closed record')
+        Write-FixtureFile -Path (Join-Path $fixture.Root $Path) -Text $Text
+        $null = Invoke-FixtureGit -Repository $fixture.Root -Argument @('add', '--', $Path)
+        $head = Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD')
+        $run = Invoke-HookCommit -Fixture $fixture
+        $run.Code | Should -Be 0 -Because $run.Text
+        Invoke-FixtureGit -Repository $fixture.Root -Argument @('rev-parse', 'HEAD') | Should -Not -Be $head
+        if ($Warns) {
+            $run.Text | Should -Match "WARNING: closed record\(s\) changed beyond the 'Last review:' line"
+            $run.Text | Should -Match ('(?m)^  ' + [regex]::Escape($Path) + '$')
+        } else {
+            $run.Text | Should -Not -Match 'closed record'
+        }
     }
 
     It 'points a stale sourceHash at retranslation without private paths' {

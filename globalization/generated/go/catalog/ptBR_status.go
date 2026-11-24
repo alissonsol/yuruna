@@ -139,8 +139,8 @@ const DataptBRstatus = `{
   "status.api_forbidden_not_served": "Proibido (não é um arquivo servido)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado",
   "status.api_guest_channel_key_absent": "este host ainda não possui chave do canal de convidados; ela é criada quando o host gera a primeira seed de convidado",
-  "status.api_host_refresh_authorization_refused": [
-    "autorização de atualização recusada (",
+  "status.api_host_repair_authorization_refused": [
+    "autorização de reparo recusada (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -148,8 +148,8 @@ const DataptBRstatus = `{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "outra operação do hospedeiro está em andamento",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "outra operação do hospedeiro está em andamento",
+  "status.api_host_repair_request_closed": [
     "este ID de solicitação já foi encerrado (",
     {
       "arg": "state",
@@ -158,15 +158,36 @@ const DataptBRstatus = `{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "este ID de solicitação já foi usado com configurações diferentes",
-  "status.api_host_refresh_unavailable": [
-    "a atualização do hospedeiro não está disponível neste hospedeiro (",
+  "status.api_host_repair_request_conflict": "este ID de solicitação já foi usado com configurações diferentes",
+  "status.api_host_repair_unavailable": [
+    "o reparo do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "autorização de atualização do hospedeiro recusada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "uma atualização do hospedeiro está em andamento neste hospedeiro",
+  "status.api_host_update_controller_absent": "nenhum controlador do hospedeiro está em execução neste hospedeiro; nada foi enfileirado",
+  "status.api_host_update_proof_missing": "uma atualização de hospedeiro vinda de outra máquina precisa de uma prova de atualização do pool-control; nada foi enfileirado",
+  "status.api_host_update_scope_unavailable": [
+    "o controlador do hospedeiro não executa o escopo ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; nada foi enfileirado"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "chave de autenticação interna não configurada nesta máquina",
   "status.api_internal_error": "a solicitação falhou no hospedeiro; consulte server.err",
@@ -345,8 +366,8 @@ const DataptBRstatus = `{
   "status.config": "Configuração",
   "status.config_field_alwaysredownload": "sempreRedownload",
   "status.config_field_armwindowhours": "BraçoWindowHours",
-  "status.config_field_autorefreshafterstalls": "AutoRefreshAfterStalls",
   "status.config_field_autoremediation": "AutoRemediação",
+  "status.config_field_autorepairafterstalls": "AutoRepairAfterStalls",
   "status.config_field_autoseed": "AutoSeed",
   "status.config_field_bootdelayseconds": "bootDelaySeconds",
   "status.config_field_cachingproxyip": "cachingProxyIp",
@@ -456,23 +477,23 @@ const DataptBRstatus = `{
     },
     ")"
   ],
-  "status.control_host_token_missing": "Este hospedeiro ainda não tem ficha de laboratório.",
+  "status.control_host_token_missing": "Este hospedeiro ainda não tem chave de autenticação interna.",
   "status.control_instructions": [
-    "Esta máquina só aceita o controle a partir de um navegador na própria máquina (",
+    "Este hospedeiro só aceita controle de um navegador no próprio hospedeiro (",
     {
       "arg": "address",
       "type": "detail",
       "trust": "external"
     },
-    "), ou um aberto através do link do painel de máquinas Yuruna (que concede um token de curta duração). o painel; se este host nunca foi matriculado, execute ",
+    ") ou de um navegador aberto pelo link do painel de hospedeiros Yuruna (que concede uma prova de controle de curta duração). Para controlá-lo de outra máquina, abra-o pelo painel; se este hospedeiro nunca foi inscrito, execute ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "external"
     },
-    " com o código do ladrilho de token Lab do painel."
+    " com o código do bloco do token do laboratório no painel."
   ],
-  "status.control_proof_expired": "O token de controle desta página expirou (duram 15 minutos).",
+  "status.control_proof_expired": "A prova de controle desta página expirou (as provas duram 15 minutos).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "A prova de controle expirou -- reabrir esta máquina do link do painel antes de salvar. Suas edições são mantidas até que você o faça.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "A prova de controle expira em ",
@@ -483,12 +504,12 @@ const DataptBRstatus = `{
     },
     "s -- salvar em breve, ou reabrir este host do link do painel para um novo."
   ],
-  "status.control_proof_invalid": "O token de controle desta página não verifica aqui – o token do laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza.",
-  "status.control_proof_missing": "Esta página foi aberta sem um token de controle, então nenhuma foi enviada.",
+  "status.control_proof_invalid": "A prova de controle desta página não é verificada aqui – a chave de autenticação interna deste hospedeiro provavelmente difere da atual do laboratório, então inscreva-o novamente com um token do laboratório.",
+  "status.control_proof_missing": "Esta página foi aberta sem uma prova de controle, então nenhuma foi enviada.",
   "status.control_refused": "Controle recusado.",
   "status.control_routes": "configuração da rota de controlo",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "Esta máquina não tem nenhum lab-auth-token, então o controle remoto é somente loopback. Abra esta página como ",
+    "Esta máquina não tem chave de autenticação interna, então o controle remoto é somente loopback. Abra esta página como ",
     {
       "arg": "address",
       "type": "token",
@@ -741,11 +762,11 @@ const DataptBRstatus = `{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "mirror.origin",
-  "status.git_source_mirror_fresh": "mirror.fresh",
-  "status.git_source_mirror_stale": "mirror.stale",
-  "status.git_source_not_applicable": "not.applicable",
-  "status.git_source_origin_direct": "remote.origin",
+  "status.git_source_mirror_confirmed": "mirror",
+  "status.git_source_mirror_fresh": "mirror fresh",
+  "status.git_source_mirror_stale": "mirror stale",
+  "status.git_source_not_applicable": "not applicable",
+  "status.git_source_origin_direct": "remote",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -818,33 +839,33 @@ const DataptBRstatus = `{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
-  "status.host_refresh_action_elevate": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada.",
-  "status.host_refresh_action_grant_automation": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e atualize novamente.",
-  "status.host_refresh_action_gui_session": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e atualize novamente.",
-  "status.host_refresh_action_install_client": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e atualize novamente.",
-  "status.host_refresh_action_resume_request": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
-  "status.host_refresh_action_start_runner": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo.",
-  "status.host_refresh_authorization_refused": [
-    "Esta atualização exige uma prova de atualização que esta página não tem (",
+  "status.host_repair_action_dispose_obligations": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.",
+  "status.host_repair_action_elevate": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada.",
+  "status.host_repair_action_grant_automation": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e repare novamente.",
+  "status.host_repair_action_gui_session": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e repare novamente.",
+  "status.host_repair_action_install_client": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e repare novamente.",
+  "status.host_repair_action_resume_request": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRepair.ps1 -Resume.",
+  "status.host_repair_action_start_runner": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo.",
+  "status.host_repair_authorization_refused": [
+    "Este reparo exige uma prova de reparo que esta página não tem (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Use a página de status no próprio hospedeiro ou a ação de atualização do controle do grupo."
+    "). Use a página de status no próprio hospedeiro ou a ação de reparo do controle do grupo."
   ],
-  "status.host_refresh_busy": [
-    "Outra atualização do hospedeiro (",
+  "status.host_repair_busy": [
+    "Outro reparo do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") está em andamento; exibindo o progresso dela."
+    ") está em andamento; exibindo o progresso dele."
   ],
-  "status.host_refresh_check_host": "No hospedeiro, execute pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf para ver o estado atual.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "No hospedeiro, execute pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf para ver o estado atual.",
+  "status.host_repair_closed": [
     "A solicitação ",
     {
       "arg": "requestId",
@@ -857,10 +878,10 @@ const DataptBRstatus = `{
       "type": "identifier",
       "trust": "external"
     },
-    "); inicie uma nova atualização."
+    "); inicie um novo reparo."
   ],
-  "status.host_refresh_confirm": [
-    "Atualizar este hospedeiro, até a etapa ",
+  "status.host_repair_confirm": [
+    "Reparar este hospedeiro, até a etapa ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -874,18 +895,9 @@ const DataptBRstatus = `{
     },
     " minutos."
   ],
-  "status.host_refresh_conflict": [
-    "A solicitação ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " já foi enviada com configurações diferentes; inicie uma nova atualização."
-  ],
-  "status.host_refresh_launcher_failed": "O hospedeiro não pôde iniciar o processo de atualização. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo.",
-  "status.host_refresh_lost": [
-    "Atualização ",
+  "status.host_repair_launcher_failed": "O hospedeiro não pôde iniciar o processo de reparo. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo.",
+  "status.host_repair_lost": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -897,11 +909,11 @@ const DataptBRstatus = `{
       "type": "integer",
       "trust": "internal"
     },
-    " segundos, ou uma solicitação posterior substituiu o relatório dela. Selecione Tentar novamente para perguntar ao hospedeiro como ela terminou, ou Atualizar hospedeiro para iniciar uma nova."
+    " segundos, ou uma solicitação posterior substituiu o relatório dele. Selecione Tentar novamente para perguntar ao hospedeiro como ele terminou, ou Reparar hospedeiro para iniciar um novo."
   ],
-  "status.host_refresh_note": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera.",
-  "status.host_refresh_progress": [
-    "Atualização ",
+  "status.host_repair_note": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera.",
+  "status.host_repair_progress": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -933,19 +945,11 @@ const DataptBRstatus = `{
     },
     " segundos restantes."
   ],
-  "status.host_refresh_recovery_pending": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação.",
-  "status.host_refresh_rejected": [
-    "O hospedeiro rejeitou a solicitação de atualização: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "Esta página está aberta em outra máquina, então ela pode acompanhar uma atualização do hospedeiro, mas não iniciá-la. Inicie-a no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRefresh.ps1.",
-  "status.host_refresh_retry": "Tentar novamente",
-  "status.host_refresh_stale": [
-    "Atualização ",
+  "status.host_repair_recovery_pending": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação.",
+  "status.host_repair_remote_viewer": "Esta página está aberta em outra máquina, então ela pode acompanhar um reparo do hospedeiro, mas não iniciá-lo. Inicie-o no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRepair.ps1.",
+  "status.host_repair_retry": "Tentar novamente",
+  "status.host_repair_stale": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -959,12 +963,11 @@ const DataptBRstatus = `{
     },
     " segundos. O processo de trabalho pode ter parado; verifique o hospedeiro antes de iniciar outro reparo."
   ],
-  "status.host_refresh_start": "Atualizar hospedeiro",
-  "status.host_refresh_start_cycle_busy": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar.",
-  "status.host_refresh_submitting": "Enviando a solicitação de atualização...",
-  "status.host_refresh_title": "Atualização do hospedeiro",
-  "status.host_refresh_unavailable": [
-    "A atualização do hospedeiro não está disponível neste hospedeiro (",
+  "status.host_repair_start": "Reparar hospedeiro",
+  "status.host_repair_start_cycle_busy": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar.",
+  "status.host_repair_title": "Reparo do hospedeiro",
+  "status.host_repair_unavailable": [
+    "O reparo do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -972,26 +975,26 @@ const DataptBRstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "A atualização ",
+  "status.host_repair_verdict_abandoned": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi abandonada após tentativas repetidas; o registro de recuperação dela é mantido no hospedeiro."
+    " foi abandonado após tentativas repetidas; o registro de recuperação dele é mantido no hospedeiro."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "Atualização ",
+  "status.host_repair_verdict_already_healthy": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " concluída: o hospedeiro já estava íntegro, então nada foi alterado."
+    " concluído: o hospedeiro já estava íntegro, então nada foi alterado."
   ],
-  "status.host_refresh_verdict_failed": [
-    "A atualização ",
+  "status.host_repair_verdict_failed": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1005,14 +1008,14 @@ const DataptBRstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "A atualização ",
+  "status.host_repair_verdict_partial": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " terminou incompleta (",
+    " terminou incompleto (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1020,14 +1023,14 @@ const DataptBRstatus = `{
     },
     "); alguns serviços ou o executor ainda precisam de atenção."
   ],
-  "status.host_refresh_verdict_refused": [
-    "A atualização ",
+  "status.host_repair_verdict_refused": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi recusada antes de qualquer alteração (",
+    " foi recusado antes de qualquer alteração (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1035,26 +1038,26 @@ const DataptBRstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "Atualização ",
+  "status.host_repair_verdict_repaired": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " concluída: o hospedeiro foi reparado e o executor está pronto."
+    " concluído: o hospedeiro foi reparado e o executor está pronto."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "Atualização ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " encerrada: o hipervisor ainda não responde."
+    " encerrado: o hipervisor ainda não responde."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "A atualização ",
+  "status.host_repair_verdict_unknown": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1068,17 +1071,17 @@ const DataptBRstatus = `{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "A atualização ",
+  "status.host_repair_waiting": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi aceita; aguardando o primeiro relatório do worker."
+    " foi aceito; aguardando o primeiro relatório do worker."
   ],
-  "status.host_refresh_waiting_long": [
-    "Atualização ",
+  "status.host_repair_waiting_long": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1092,6 +1095,543 @@ const DataptBRstatus = `{
     },
     " segundos. O worker pode ter falhado ao iniciar; verifique o hospedeiro."
   ],
+  "status.host_request_conflict": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já foi enviada com configurações diferentes; inicie uma nova solicitação."
+  ],
+  "status.host_request_rejected": [
+    "O hospedeiro rejeitou a solicitação: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "Enviando a solicitação...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "Próxima etapa: verifique o hospedeiro e aja nele.",
+      "end_one_shot": "Próxima etapa: encerre a sessão avulsa no hospedeiro e pressione novamente.",
+      "other": [
+        "Próxima etapa: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "Próxima etapa: dê ao executor sua regra de sudo no hospedeiro e pressione novamente.",
+      "provision_elevation_macos": [
+        "Próxima etapa: no hospedeiro, execute ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " em um terminal da sessão da área de trabalho e responda às perguntas; ele instala a entrada de sudoers que as atualizações de hospedeiro usam. Depois pressione novamente."
+      ],
+      "read_remarks": "Próxima etapa: leia as observações.",
+      "reboot_host": "Próxima etapa: reinicie o Windows no hospedeiro e depois inicie o executor.",
+      "release": [
+        "Próxima etapa: para encerrá-la, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "Próxima etapa: libere a VM mantida para diagnóstico e pressione novamente.",
+      "repair_checkout": "Próxima etapa: repare o checkout no hospedeiro; o hospedeiro continua tentando.",
+      "retry_or_drain_now": [
+        "Próxima etapa: pressione novamente, ou encerre o ciclo agora no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "Próxima etapa: inicie o executor no hospedeiro.",
+      "stop_runner_by_hand": "Próxima etapa: pare o executor no hospedeiro manualmente."
+    }
+  },
+  "status.host_update_blocks": [
+    "Uma atualização de hospedeiro (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") está em andamento; tente novamente quando ela terminar."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "Um reparo do hospedeiro (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") está em andamento; tente novamente quando ele terminar."
+      ],
+      "host_update": [
+        "Outra atualização de hospedeiro (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") está em andamento; mostrando o progresso dela."
+      ],
+      "other": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar."
+    }
+  },
+  "status.host_update_confirm": [
+    "Atualizar hospedeiro (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? O executor para quando o ciclo em execução termina e reinicia no código atual; a atualização desiste após ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos. Para encerrar o ciclo agora, execute no hospedeiro: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "O executor foi iniciado sem console.",
+      "other": [
+        "Console do executor: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "Para abrir o console do executor, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "O console do executor é uma janela própria na área de trabalho da conta de teste: abra-a na máquina ou por uma conexão de área de trabalho remota a essa sessão."
+    }
+  },
+  "status.host_update_countdown": [
+    "O serviço de status está reiniciando; previsto de volta em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " segundos."
+  ],
+  "status.host_update_cycle_time": [
+    "O ciclo em execução já dura ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; ciclos recentes levaram cerca de ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "Ainda pendente no hospedeiro: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "O primeiro ciclo após a atualização falhou.",
+      "other": "Aguardando o primeiro ciclo após a atualização.",
+      "pass": "O primeiro ciclo após a atualização passou."
+    }
+  },
+  "status.host_update_lost": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": o hospedeiro não a reporta mais, então o resultado é desconhecido aqui; verifique o hospedeiro."
+  ],
+  "status.host_update_note": [
+    "Atualiza o código deste hospedeiro e reinicia o executor quando o ciclo em execução termina, desistindo após ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos. Para encerrar o ciclo agora, execute no hospedeiro: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": fase ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " de ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), limitada a ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "A atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " está na fila; ela começa quando o ciclo em execução termina."
+  ],
+  "status.host_update_remarks": [
+    "Observações: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "Atualizar hospedeiro abre o pool-control em ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", que assina a solicitação e traz você de volta aqui."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstalar dependências e configurações, depois reiniciar",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Reiniciar o executor no código atual"
+    }
+  },
+  "status.host_update_stale": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": nenhum relatório há ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos; verifique o hospedeiro."
+  ],
+  "status.host_update_start": "Atualizar hospedeiro",
+  "status.host_update_title": "Atualização do hospedeiro",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "Nenhum controlador de hospedeiro está em execução aqui. Para configurar um, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "Uma atualização de hospedeiro retém o executor deste hospedeiro e nenhum controlador de hospedeiro está em execução. Execute ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " mais uma vez em um terminal da sessão da área de trabalho e deixe como está um executor em execução: esse início para no portão do executor e inicia o controlador, que continua a atualização."
+      ],
+      "controller_absent_macos": [
+        "Nenhum controlador de hospedeiro está em execução aqui. No macOS, o início do executor o inicia: execute ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " em um terminal da sessão da área de trabalho, ou pare um executor em execução após seu ciclo e inicie-o de novo dessa forma. Em um hospedeiro nunca preparado para atualizações de hospedeiro, execute ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " primeiro."
+      ],
+      "host_type": "Atualizações de hospedeiro ainda não estão disponíveis neste tipo de hospedeiro.",
+      "journal_unreadable": "O hospedeiro não consegue ler seu diário de operações; verifique o hospedeiro.",
+      "listener_dependency_missing": "O serviço de status não carregou o que as atualizações de hospedeiro exigem; reinicie-o no hospedeiro.",
+      "other": [
+        "Atualizações de hospedeiro não estão disponíveis neste hospedeiro (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "De outra máquina, esta página só acompanha uma atualização de hospedeiro; até que ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " esteja instalado no hospedeiro, pressione Atualizar hospedeiro lá."
+      ],
+      "scope_unavailable": "Este hospedeiro não pode executar o escopo escolhido agora.",
+      "session_unusable": [
+        "A sessão do controlador do hospedeiro não consegue iniciar um executor funcional: ela não é a sessão da área de trabalho, ou falta ali uma permissão de privacidade. No hospedeiro, encerre a sessão yuruna-controller com ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (no screen, encerre a sessão yuruna-controller que ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " lista), pare um executor em execução após seu ciclo e inicie o executor de novo em um terminal da sessão da área de trabalho que tenha as permissões."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " desistiu: o ciclo em execução durou mais que a espera. Nada mudou."
+      ],
+      "failed_restored": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " não foi concluída (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); o hospedeiro foi restaurado."
+      ],
+      "other": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou com um resultado que esta página não reconhece (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou, mas o Windows precisa reiniciar antes que o hipervisor possa ser executado, então o executor não foi iniciado."
+      ],
+      "recovering": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": o executor ainda não está em execução; o hospedeiro continua tentando (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": o executor ainda não está em execução (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), e nenhum controlador de hospedeiro está em execução para tentar de novo."
+      ],
+      "refused": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi recusada; nada mudou (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi liberada no hospedeiro."
+      ],
+      "stop_failed": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": não foi possível parar o executor, então nada foi iniciado."
+      ],
+      "superseded": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi assumida por ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou; o executor executa o código atual."
+      ],
+      "updated_not_started": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou; o executor estava parado antes dela, então não foi iniciado."
+      ],
+      "updated_with_remarks": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou com observações; o executor executa o código atual."
+      ]
+    }
+  },
   "status.host_value1": [
     "Máquina: ",
     {
@@ -1108,7 +1648,7 @@ const DataptBRstatus = `{
       "trust": "external"
     }
   ],
-  "status.images_refresh": "Actualizar as Imagens",
+  "status.images_refresh": "Atualização das imagens",
   "status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple": "Invocação inferida da ordem de passos legada; corridas simultâneas ou incompletas podem permanecer combinadas.",
   "status.ips": "IPs:",
   "status.lab_hold": [
@@ -1120,7 +1660,7 @@ const DataptBRstatus = `{
     }
   ],
   "status.lab_hold_unspecified": "Lab hold -- esperando por um serviço de laboratório",
-  "status.latest_cycle": "Último Ciclo",
+  "status.latest_cycle": "Último ciclo",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -1397,7 +1937,7 @@ const DataptBRstatus = `{
   "status.pill_new_vm_resource": "Nova VM",
   "status.pill_start_guestos": "Iniciar o SO",
   "status.pill_start_guestworkload": "Carga de trabalho",
-  "status.preflight_failed": "FALHA NA VERIFICAÇÃO PRÉVIA",
+  "status.preflight_failed": "Falha na verificação prévia",
   "status.process_environment_value_the_status_service_inherited_at_startup": "O valor do ambiente do processo do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio.",
   "status.quarantine_pinned": [
     "Quarentenado após falhas repetidas da mesma classe (esqueceu até um novo commit; fixado em ",
@@ -1414,7 +1954,7 @@ const DataptBRstatus = `{
   "status.recalculate": "Recalcular",
   "status.recalculating": "Recalculando...",
   "status.recalculating_perf_aggregates": "Recalculando os agregados perf...",
-  "status.recent_cycles": "Ciclos Recentes",
+  "status.recent_cycles": "Ciclos recentes",
   "status.refresh": "Actualizar",
   "status.results_folder": [
     "Abrir pasta de resultados para ",
@@ -1569,14 +2109,14 @@ const DataptBRstatus = `{
     },
     ", reiniciar a VM e, em seguida, retomar a sequência"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "Uma atualização do hospedeiro (",
+  "status.start_cycle_blocked_by_repair": [
+    "Um reparo do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") está em andamento; o ciclo não pode iniciar até que ela termine."
+    ") está em andamento; o ciclo não pode iniciar até que ele termine."
   ],
   "status.start_cycle_cycle_restarted": "Ciclo reiniciado",
   "status.start_cycle_failed": [
@@ -1660,7 +2200,7 @@ const DataptBRstatus = `{
   "status.testing_caching_proxy_service_from_host": "Testando o serviço de cache-proxy da máquina...",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "O arquivo é construído apenas a partir de registros do servidor e baixado para esta máquina. Nenhum dado desta sessão de navegação está incluído.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "A prova de controlo expirou.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com um lab-auth-token diferente do que este host mantém; o re-introdução com test/lab/Set-LabToken.ps1 realinha-os.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com uma chave de autenticação interna diferente da que este hospedeiro mantém; a nova inscrição com test/lab/Set-LabToken.ps1 as realinha.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registro do serviço de estado.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "A folha de partilha expirou enquanto a máquina embalava a pasta.",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "Este navegador não pôde anexar o arquivo a uma mensagem propriamente dita.",

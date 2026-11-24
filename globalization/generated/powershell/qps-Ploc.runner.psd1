@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42976c27-d626-a135-b784-9fafd7012fc9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,8 +40,50 @@
         }
         "`n  Ƒíẋ (éíţħéř): ğřáñţ ţħíš ħóšţ'š ĞĦ_ŢÓĶÉÑ áççéšš ţó ţħáţ řéƥó,`n                óř šéţ ţħé ƥóóļ'š ƥřóĵéçţ ÚŘĻ ţó á řéƥóšíţóřý éṽéřý ɱéɱƀéř çáñ řéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
     )
+    'runner.auth_state_users_restarted' = @(
+        '[users.yml çóúļď ñóţ ƀé řéáď áš á ɱáƥƥíñğ ('
+        @{
+            'arg' = 'problem'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'usersPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Íţš ƀýţéš ŵéřé ɱóṽéď ţó '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' áñď á ñéŵ users.yml ŵáš çóƥíéď ƒřóɱ ţħé ţéɱƥļáţé; řé-éñţéř áñý çóřƥóřáţé ɱáƥƥíñğš áñď ṽáúļţ ķéýš ƒřóɱ ţħé ɱóṽéď çóƥý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.auth_state_vault_restarted' = @(
+        '[vault.yml çóúļď ñóţ ƀé řéáď áš á ɱáƥƥíñğ ('
+        @{
+            'arg' = 'problem'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'vaultPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Íţš ƀýţéš ŵéřé ɱóṽéď ţó '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' áñď ţħé ṽáúļţ šţářţš éɱƥţý; éṽéřý ƥáššŵóřď íţ ħéļď ħáš ţó ƀé šéţ áğáíñ ŵíţħ Šéţ-Ƥáššŵóřď (šéé ďóçš/test-config.md). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.boot_recovery_preserved_controls' = @(
-        '[Ƀóóţ řéçóṽéřý (řéƒřéšħ ƥřéšéřṽáţíóñ) ķéƥţ '
+        '[Ƀóóţ řéçóṽéřý (ħáñďóƒƒ ƥřéšéřṽáţíóñ) ķéƥţ '
         @{
             'arg' = 'count'
             'type' = 'integer'
@@ -69,6 +111,29 @@
     'runner.capability_gate_host_command_missing' = '[  Šéʠúéñçéš řúñ ħóšţ çóɱɱáñďš ţħíš ħóšţ ďóéš ñóţ ħáṽé: ~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.capability_gate_host_command_remedy' = '[  Íñšţáļļ ţħé ɱíššíñğ çóɱɱáñďš óñ ţħíš ħóšţ, óř ďřóƥ ţħé šţéƥš ţħáţ řúñ ţħéɱ ƒřóɱ ţħé çýçļé''š šéʠúéñçé ÝÁⱮĻš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.capability_gate_host_command_step' = @(
+        '[        '
+        @{
+            'arg' = 'sequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', šţéƥ '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.capability_gate_ocr_engine_missing' = '[  Šéʠúéñçéš ļóçáţé ţéẋţ ţħřóúğħ ÓÇŘ éñğíñéš ţħíš ħóšţ ďóéš ñóţ ħáṽé: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.capability_gate_ocr_engine_remedy' = '[  Íñšţáļļ ţħé ɱíššíñğ éñğíñé óñ ţħíš ħóšţ, óř ďřóƥ ţħé šţéƥš ţħáţ ñééď íţ ƒřóɱ ţħé çýçļé''š šéʠúéñçé ÝÁⱮĻš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.capability_gate_ocr_engine_step' = @(
         '[        '
         @{
             'arg' = 'sequence'
@@ -121,6 +186,45 @@
             'trust' = 'external'
         }
         ' ~~~~~~~~~~~~~~~]'
+    )
+    'runner.config_naming_change' = @(
+        '['
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'old'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'current'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (ƥřéṽíóúš ƒíļé ķéƥţ áš '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.config_port_firewall_unconfirmed' = @(
         '[Ţħé çóñƒíğ šéřṽíçé çóúļď ñóţ çóñƒířɱ ţħáţ íñƀóúñď ŢÇƤ :'
@@ -750,6 +854,170 @@
         }
         ' ~~~~~~~~~~~~~]'
     )
+    'runner.handoff_barrier_held' = @(
+        '[Řéšúɱéď áƒţéř ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ħéļď ƀý '
+        @{
+            'arg' = 'controls'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        '. Řéļéášé ţħéɱ ƒřóɱ ţħé šţáţúš ƥáğé; ñó ṼⱮ íš çřéáţéď óř çħáñğéď úñţíļ ţħéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_barrier_released' = @(
+        '[Ħéļď çóñţřóļš řéļéášéď áƒţéř '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' š; ţħé řéšúɱéď çýçļé çóñţíñúéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_complete' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] řéáďíñéšš ṽéříƒíéď ƒóř ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; ļéáṽíñğ ţħé řúññéř ğáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_complete_action' = @(
+        '[Çóɱƥļéţé á řúññéř ħáñďóƒƒ ('
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') ~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_issue_action' = @(
+        '[Íššúé á řúññéř ħáñďóƒƒ ţóķéñ ('
+        @{
+            'arg' = 'purpose'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') ~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_preflight_cycle' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ħáñďóƒƒ ƥřéƒļíğħţ óñļý: ñó ğíţ ƥúļļ, ṼⱮ çħáñğé óř çóñţřóļ šŵééƥ íñ ţħíš çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_preflight_failed' = @(
+        '[Ħáñďóƒƒ ƥřéƒļíğħţ ƒáíļéď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ñóţħíñğ ŵáš çħáñğéď áñď ţħé řúññéř šţáýš ħéļď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_preflight_ready' = @(
+        '[Ħáñďóƒƒ ƥřéƒļíğħţ řéáďý ƒóř řéʠúéšţ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; ŵáíţíñğ ƒóř ţħé ħóšţ óƥéřáţíóñ ţó řéļéášé ţħé řúññéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_preflight_released' = @(
+        '[Ħáñďóƒƒ ƥřéƒļíğħţ éñďéď ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); éẋíţíñğ šó ţħé řúññéř çáñ çóñţíñúé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_preflight_result' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ħáñďóƒƒ ƥřéƒļíğħţ çýçļé ƒíñíšħéď ŵíţħ éẋíţ çóďé '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_resume_action' = '[Řéšţářţ ţħé řúññéř áƒţéř á ħóšţ óƥéřáţíóñ ~~~~~~~~~~~~~~~~~]'
+    'runner.handoff_resume_record_refused' = @(
+        '[Šţářţ-ŢéšţŘúññéř: '
+        @{
+            'arg' = 'pidFile'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' íš '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; á ħáñďóƒƒ řéšúɱé ñéṽéř ţáķéš óṽéř óř ďéļéţéš á ļíṽé óř úñķñóŵñ řúññéř řéçóřď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_resume_started' = @(
+        '[Šţářţ-ŢéšţŘúññéř: řéšúɱíñğ áƒţéř ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; óƥéřáţóř ƥáúšéš, ħóļďš áñď řéšţářţ řéʠúéšţš ářé ƥřéšéřṽéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_resume_switch_pair' = '[Šţářţ-ŢéšţŘúññéř: -ĦáñďóƒƒŘéšúɱé áñď -ĦáñďóƒƒŢóķéñ ɱúšţ ƀé ğíṽéñ ţóğéţħéř; ñóţ šţářţíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.handoff_resume_token_refused' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ţħé řúññéř ħáñďóƒƒ ŵáš řéƒúšéď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ñóţ šţářţíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.handoff_unverified' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] řéáďíñéšš ƒóř ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' çóúļď ñóţ ƀé ṽéříƒíéď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ţħé řúññéř šţáýš ħéļď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.host_action_exit_detail' = @(
         '[ħóšţ áçţíóñ '''
         @{
@@ -820,6 +1088,76 @@
         }
         ' ďíď ñóţ áñšŵéř, šó ţħé šéţţíñğ íš úñďéţéřɱíñéď, ñóţ ķñóŵñ ţó ƀé šáƒé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.host_controller_session_action' = '[Éñď ţħé ħóšţ çóñţřóļļéř''š šéššíóñ ýúřúñá-çóñţřóļļéř ~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_controller_start_error' = @(
+        '[Ħóšţ çóñţřóļļéř: ţħé šţářţ šţéƥ ƒáíļéď ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); ñó çóñţřóļļéř ŵáš šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_controller_start_lock_unreadable' = '[Ħóšţ çóñţřóļļéř: íţš ļóçķ çáññóţ ƀé řéáď, šó ñó šéçóñď çóñţřóļļéř íš říšķéď; ñóñé ŵáš šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_controller_start_no_multiplexer' = '[Ħóšţ çóñţřóļļéř: ñéíţħéř ţɱúẋ ñóř šçřééñ ŵáš ƒóúñď, šó ñó çóñţřóļļéř ŵáš šţářţéď; ţħé řúññéř šţářţš ŵíţħóúţ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_controller_start_not_deployed' = '[Ħóšţ çóñţřóļļéř: ñóţ ďéƥļóýéď óñ ţħíš ħóšţ; řúñ Éñáƀļé-ŢéšţÁúţóɱáţíóñ ţó ďéƥļóý íţ. Ñó çóñţřóļļéř ŵáš šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_controller_start_not_desktop_session' = '[Ħóšţ çóñţřóļļéř: ñóţ šţářţéď, ƀéçáúšé ţħíš řúññéř šţářţ íš ñóţ íñ ţħé ďéšķţóƥ šéššíóñ (áñ ŠŠĦ ļóğíñ óř á ƀáçķğřóúñď šéššíóñ). Šţářţ ţħé řúññéř ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ ţó šţářţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_controller_start_not_held' = @(
+        '[Ħóšţ çóñţřóļļéř: ţħé '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' šéššíóñ ýúřúñá-çóñţřóļļéř ŵáš çřéáţéď, ƀúţ ñó çóñţřóļļéř ţóóķ ţħé ļóçķ ŵíţħíñ 10 š. Ţó řéáď íţ: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_controller_start_running' = '[Ħóšţ çóñţřóļļéř: řúññíñğ. ~~~~~~~~~~]'
+    'runner.host_controller_start_session_exists' = @(
+        '[Ħóšţ çóñţřóļļéř: íţš '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' šéššíóñ ýúřúñá-çóñţřóļļéř áļřéáďý éẋíšţš; íţš šħíɱ šţářţš ţħé çóñţřóļļéř. Ţó řéáď íţ: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_controller_start_session_unknown' = '[Ħóšţ çóñţřóļļéř: çóúļď ñóţ ţéļļ ŵħéţħéř ţħé šéššíóñ ýúřúñá-çóñţřóļļéř éẋíšţš, šó ñóñé ŵáš šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_controller_start_start_failed' = @(
+        '[Ħóšţ çóñţřóļļéř: ţħé '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' šéššíóñ ýúřúñá-çóñţřóļļéř çóúļď ñóţ ƀé çřéáţéď; ñó çóñţřóļļéř ŵáš šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_controller_start_started' = @(
+        '[Ħóšţ çóñţřóļļéř: šţářţéď íñ íţš '
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' šéššíóñ ýúřúñá-çóñţřóļļéř. Ţó řéáď íţ: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.host_diagnostic_timeout' = '[Ħóšţ ďíáğñóšţíçš ţíɱéď óúţ áƒţéř 120š; šéé ţħé éářļíéř ħóšţ šáɱƥļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.host_diagnostic_worker_failed' = @(
         '[Ħóšţ ďíáğñóšţíç '
@@ -884,8 +1222,10 @@
         }
         ' š áñď ŵáš šţóƥƥéď; ţħé çýçļé šţíļļ řéƒúšéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_action_dispose_obligations' = @(
-        '[Ñéẋţ šţéƥ: áƒţéř çħéçķíñğ éáçħ íţéɱ ƀý ħáñď, řéçóřď íţ ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ĎíšƥóšéÓƀļíğáţíóñ '
+    'runner.host_operation_should_process_admission' = '[Řéçóřď ħóšţ-óƥéřáţíóñ áďɱíššíóñ ~~~~~~~~~~~~~]'
+    'runner.host_operation_should_process_listener' = '[Šţářţ ţħé šţáţúš ļíšţéñéř íñ ñóñ-ďéšţřúçţíṽé ɱóďé ~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_action_dispose_obligations' = @(
+        '[Ñéẋţ šţéƥ: áƒţéř çħéçķíñğ éáçħ íţéɱ ƀý ħáñď, řéçóřď íţ ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ĎíšƥóšéÓƀļíğáţíóñ '
         @{
             'arg' = 'obligations'
             'type' = 'detail'
@@ -893,31 +1233,40 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_action_elevate' = @(
+    'runner.host_repair_action_elevate' = @(
         '[Ñéẋţ šţéƥ: ğřáñţ ţħíš áççóúñţ ţħé ƥříṽíļéğé řúñğ '
         @{
             'arg' = 'rung'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' ñééďš (ţħé éẋáçţ çóɱɱáñď íš šħóŵñ áƀóṽé ŵħéñ óñé áƥƥļíéš), ţħéñ řúñ ţħé řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ñééďš (ţħé éẋáçţ çóɱɱáñď íš šħóŵñ áƀóṽé ŵħéñ óñé áƥƥļíéš), ţħéñ řúñ ţħé řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_action_grant_automation' = '[Ñéẋţ šţéƥ: áļļóŵ Áúţóɱáţíóñ áççéšš ţó ÚŢⱮ ƒóř ţħé áƥƥļíçáţíóñ ţħáţ řúñš ţħíš šħéļļ, ţħéñ řúñ ţħé řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_action_gui_session' = '[Ñéẋţ šţéƥ: řúñ ţħé řéƒřéšħ ƒřóɱ ţħé ļóğğéď-íñ ďéšķţóƥ šéššíóñ; ţħíš šéššíóñ çáñ óñļý óƀšéřṽé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_action_install_client' = @(
+    'runner.host_repair_action_grant_automation' = '[Ñéẋţ šţéƥ: áļļóŵ Áúţóɱáţíóñ áççéšš ţó ÚŢⱮ ƒóř ţħé áƥƥļíçáţíóñ ţħáţ řúñš ţħíš šħéļļ, ţħéñ řúñ ţħé řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_action_gui_session' = '[Ñéẋţ šţéƥ: řúñ ţħé řéƥáíř ƒřóɱ ţħé ļóğğéď-íñ ďéšķţóƥ šéššíóñ; ţħíš šéššíóñ çáñ óñļý óƀšéřṽé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_action_install_client' = @(
         '[Ñéẋţ šţéƥ: řéšţóřé ţħé ħýƥéřṽíšóř çóɱɱáñď-ļíñé çļíéñţ ('
         @{
             'arg' = 'client'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); řéƒřéšħ ďóéš ñóţ řéíñšţáļļ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); řéƥáíř ďóéš ñóţ řéíñšţáļļ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_action_resume_request' = '[Ñéẋţ šţéƥ: řéšúɱé ţħé úñřéšóļṽéď řéʠúéšţ ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_action_start_runner' = '[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř ƀý ħáñď: ƥŵšħ ţéšţ/Start-TestRunner.ps1 ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_auth_action_create_authority' = '[Çřéáţé ţħé řéƒřéšħ šíğñíñğ áúţħóříţý áñď óƥéřáţóř çřéďéñţíáļ ~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_auth_action_export_host_key' = @(
-        '[Ŵříţé ţħé řéƒřéšħ ṽéříƒíéř ķéý ƒóř ħóšţ '
+    'runner.host_repair_action_resume_request' = '[Ñéẋţ šţéƥ: řéšúɱé ţħé úñřéšóļṽéď řéʠúéšţ ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_action_start_runner' = '[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř ƀý ħáñď: ƥŵšħ ţéšţ/Start-TestRunner.ps1 ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_auth_action_create_authority' = '[Çřéáţé ţħé řéƥáíř šíğñíñğ áúţħóříţý áñď óƥéřáţóř çřéďéñţíáļ ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_auth_action_export_host_key' = @(
+        '[Ŵříţé ţħé řéƥáíř ṽéříƒíéř ķéý ƒóř ħóšţ '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_repair_auth_action_install_host_key' = @(
+        '[Íñšţáļļ ţħé řéƥáíř ṽéříƒíéř ķéý ƒóř ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
@@ -925,37 +1274,28 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auth_action_install_host_key' = @(
-        '[Íñšţáļļ ţħé řéƒřéšħ ṽéříƒíéř ķéý ƒóř ħóšţ '
-        @{
-            'arg' = 'hostId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.host_refresh_auth_action_remove_host_key' = '[Řéɱóṽé ţħé řéƒřéšħ ṽéříƒíéř ķéý ~~~~~~~~~~~~~]'
-    'runner.host_refresh_auto_action_admit' = @(
-        '[Áďɱíţ áñ áúţóɱáţíç ħóšţ řéƒřéšħ řéʠúéšţ ƒóř çýçļé ğéñéřáţíóñ '
+    'runner.host_repair_auth_action_remove_host_key' = '[Řéɱóṽé ţħé řéƥáíř ṽéříƒíéř ķéý ~~~~~~~~~~~~]'
+    'runner.host_repair_auto_action_admit' = @(
+        '[Áďɱíţ áñ áúţóɱáţíç ħóšţ řéƥáíř řéʠúéšţ ƒóř çýçļé ğéñéřáţíóñ '
         @{
             'arg' = 'generation'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_action_consume_evidence' = '[Çóñšúɱé ţħé ħóšţ řéƒřéšħ éṽíďéñçé ƒíļé ~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_auto_action_decide' = @(
-        '[Ďéçíďé ŵħéţħéř ţó řúñ áñ áúţóɱáţíç ħóšţ řéƒřéšħ áƒţéř óúţéř çýçļé '
+    'runner.host_repair_auto_action_consume_evidence' = '[Çóñšúɱé ţħé ħóšţ řéƥáíř éṽíďéñçé ƒíļé ~~~~~~~~~~~~~~~]'
+    'runner.host_repair_auto_action_decide' = @(
+        '[Ďéçíďé ŵħéţħéř ţó řúñ áñ áúţóɱáţíç ħóšţ řéƥáíř áƒţéř óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_action_record_outcome' = @(
-        '[Řéçóřď áúţóɱáţíç ħóšţ řéƒřéšħ óúţçóɱé '
+    'runner.host_repair_auto_action_record_outcome' = @(
+        '[Řéçóřď áúţóɱáţíç ħóšţ řéƥáíř óúţçóɱé '
         @{
             'arg' = 'verdict'
             'type' = 'identifier'
@@ -963,26 +1303,26 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_action_reserve' = @(
-        '[Řéšéřṽé ţħé áúţóɱáţíç ħóšţ řéƒřéšħ áţţéɱƥţ ƒóř ÚŢÇ ďáý '
+    'runner.host_repair_auto_action_reserve' = @(
+        '[Řéšéřṽé ţħé áúţóɱáţíç ħóšţ řéƥáíř áţţéɱƥţ ƒóř ÚŢÇ ďáý '
         @{
             'arg' = 'utcDay'
             'type' = 'text'
             'trust' = 'internal'
         }
-        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_action_run_worker' = @(
-        '[Řúñ ţħé ħóšţ řéƒřéšħ ŵóřķéř ƒóř řéʠúéšţ '
+    'runner.host_repair_auto_action_run_worker' = @(
+        '[Řúñ ţħé ħóšţ řéƥáíř ŵóřķéř ƒóř řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' ~~~~~~~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_action_update_streak' = @(
-        '[Šéţ ţħé ħóšţ řéƒřéšħ éṽíďéñçé çóúñţ ţó '
+    'runner.host_repair_auto_action_update_streak' = @(
+        '[Šéţ ţħé ħóšţ řéƥáíř éṽíďéñçé çóúñţ ţó '
         @{
             'arg' = 'streak'
             'type' = 'integer'
@@ -990,8 +1330,8 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_action_withdraw' = @(
-        '[Ŵíţħďřáŵ ţħé ʠúéúéď áúţóɱáţíç ħóšţ řéƒřéšħ řéʠúéšţ '
+    'runner.host_repair_auto_action_withdraw' = @(
+        '[Ŵíţħďřáŵ ţħé ʠúéúéď áúţóɱáţíç ħóšţ řéƥáíř řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -999,8 +1339,8 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_action_write_evidence' = @(
-        '[Řéçóřď ħóšţ řéƒřéšħ éṽíďéñçé ƒóř çýçļé ğéñéřáţíóñ '
+    'runner.host_repair_auto_action_write_evidence' = @(
+        '[Řéçóřď ħóšţ řéƥáíř éṽíďéñçé ƒóř çýçļé ğéñéřáţíóñ '
         @{
             'arg' = 'generation'
             'type' = 'token'
@@ -1008,14 +1348,14 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_dependency_missing' = @(
+    'runner.host_repair_auto_dependency_missing' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ íš úñáṽáíļáƀļé: '
+        '] áúţóɱáţíç ħóšţ řéƥáíř íš úñáṽáíļáƀļé: '
         @{
             'arg' = 'command'
             'type' = 'identifier'
@@ -1029,14 +1369,14 @@
         }
         ' çóúļď ñóţ ƀé ļóáďéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_error' = @(
+    'runner.host_repair_auto_error' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] ţħé áúţóɱáţíç ħóšţ řéƒřéšħ ďéçíšíóñ ƒáíļéď ('
+        '] ţħé áúţóɱáţíç ħóšţ řéƥáíř ďéçíšíóñ ƒáíļéď ('
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -1044,14 +1384,14 @@
         }
         '); ţħé řúññéř çóñţíñúéš ŵíţħóúţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_evidence_counted' = @(
+    'runner.host_repair_auto_evidence_counted' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] ħóšţ řéƒřéšħ éṽíďéñçé: '
+        '] ħóšţ řéƥáíř éṽíďéñçé: '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1071,14 +1411,14 @@
         }
         ' çýçļéš). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_evidence_reset' = @(
+    'runner.host_repair_auto_evidence_reset' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] ħóšţ řéƒřéšħ éṽíďéñçé çļéářéď: ţħé ħýƥéřṽíšóř áñšŵéřéď ďúříñğ '
+        '] ħóšţ řéƥáíř éṽíďéñçé çļéářéď: ţħé ħýƥéřṽíšóř áñšŵéřéď ďúříñğ '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1086,14 +1426,14 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_finished' = @(
+    'runner.host_repair_auto_finished' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1107,23 +1447,23 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_knob_invalid' = @(
-        '[testCycle.autoRefreshAfterStalls íš '''
+    'runner.host_repair_auto_knob_invalid' = @(
+        '[testCycle.autoRepairAfterStalls íš '''
         @{
             'arg' = 'value'
             'type' = 'text'
             'trust' = 'external'
         }
-        ''', ŵħíçħ íš ñóţ á ñóñ-ñéğáţíṽé ŵħóļé ñúɱƀéř; áúţóɱáţíç ħóšţ řéƒřéšħ šţáýš óƒƒ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ''', ŵħíçħ íš ñóţ á ñóñ-ñéğáţíṽé ŵħóļé ñúɱƀéř; áúţóɱáţíç ħóšţ řéƥáíř šţáýš óƒƒ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_operator_action' = @(
+    'runner.host_repair_auto_operator_action' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1141,40 +1481,49 @@
             'type' = 'text'
             'trust' = 'internal'
         }
-        '. Çħéçķ ţħé ħóšţ; ŵħíļé ţħíš řéʠúéšţ íš šţíļļ óƥéñ, ƒíñíšħ íţ ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé, óţħéřŵíšé řúñ ţéšţ/lab/Invoke-HostRefresh.ps1. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. Çħéçķ ţħé ħóšţ; ŵħíļé ţħíš řéʠúéšţ íš šţíļļ óƥéñ, ƒíñíšħ íţ ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé, óţħéřŵíšé řúñ ţéšţ/lab/Invoke-HostRepair.ps1. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_pause_skipped' = @(
+    'runner.host_repair_auto_pause_skipped' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ řéƥáířéď ţħé ħóšţ; ţħé ñéẋţ çýçļé šţářţš ŵíţħóúţ ţħé ƒáíļúřé ƥáúšé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '] áúţóɱáţíç ħóšţ řéƥáíř ƒíẋéď ţħé ħóšţ; ţħé ñéẋţ çýçļé šţářţš ŵíţħóúţ ţħé ƒáíļúřé ƥáúšé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_queued_revoked' = @(
+    'runner.host_repair_auto_pool_key_retired' = @(
+        '[Ţħé ƥóóļ çóñƒíğúřáţíóñ šéţš ţħé řéţířéď ķéý config.testCycle.autoRefreshAfterStalls ('
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); íţ íš ñó ļóñğéř řéáď. Šéţ config.testCycle.autoRepairAfterStalls íñ ţħé ƥóóļ řéƥóšíţóřý íñšţéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_repair_auto_queued_revoked' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] ţħé ʠúéúéď áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] ţħé ʠúéúéď áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' ŵáš ŵíţħďřáŵñ ƀéçáúšé ţħé ƥóóļ íš ďřáíñíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ŵáš ŵíţħďřáŵñ ƀéçáúšé ţħé ƥóóļ íš ďřáíñíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_refused' = @(
+    'runner.host_repair_auto_refused' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ ñóţ šţářţéď: '
+        '] áúţóɱáţíç ħóšţ řéƥáíř ñóţ šţářţéď: '
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1182,44 +1531,44 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_resume_caller_changed' = @(
+    'runner.host_repair_auto_resume_caller_changed' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' ŵáš šţářţéď ƒóř áñ éářļíéř řúññéř ƥřóçéšš, šó ţħíš řúññéř ďóéš ñóţ řéšúɱé íţ. Ƒíñíšħ íţ ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé, óř řéļéášé ŵħáţ íţ ħóļďš ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ĎíšƥóšéÓƀļíğáţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ŵáš šţářţéď ƒóř áñ éářļíéř řúññéř ƥřóçéšš, šó ţħíš řúññéř ďóéš ñóţ řéšúɱé íţ. Ƒíñíšħ íţ ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé, óř řéļéášé ŵħáţ íţ ħóļďš ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -ĎíšƥóšéÓƀļíğáţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_resume_disabled' = @(
+    'runner.host_repair_auto_resume_disabled' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' íš ñóţ řéšúɱéď ŵħíļé áúţóŘéƒřéšħÁƒţéřŠţáļļš íš 0. Áñ úñçļáíɱéď řéʠúéšţ éẋƥířéš óñ íţš óŵñ; ƒíñíšħ á šţářţéď óñé ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' íš ñóţ řéšúɱéď ŵħíļé áúţóŘéƥáířÁƒţéřŠţáļļš íš 0. Áñ úñçļáíɱéď řéʠúéšţ éẋƥířéš óñ íţš óŵñ; ƒíñíšħ á šţářţéď óñé ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_resuming' = @(
+    'runner.host_repair_auto_resuming' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] řéšúɱíñğ áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] řéšúɱíñğ áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1239,14 +1588,14 @@
         }
         ': řéšţóříñğ šéřṽíçéš óñļý, ñó ñéŵ ţéářďóŵñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_starting' = @(
+    'runner.host_repair_auto_starting' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1264,56 +1613,56 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); ţħé ħýƥéřṽíšóř ɱáý ƀé řéšţářţéď, áñď ţħé šéřṽíçéš íţ ďíšřúƥţš ářé řéšţóřéď áƒţéřŵářďš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); ţħé ħýƥéřṽíšóř ɱáý ƀé řéšţářţéď, áñď ţħé šéřṽíçéš íţ ďíšřúƥţš ářé řéšţóřéď áƒţéřŵářďš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_threshold_raised' = '[''testCycle.autoRefreshAfterStalls'' íš 1; ţħé řúññéř ñééďš ţħé ţíɱéóúţ íñ áţ ļéášţ ţŵó çýçļéš áñď ţřéáţš íţ áš 2. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_auto_unavailable' = @(
+    'runner.host_repair_auto_threshold_raised' = '[''testCycle.autoRepairAfterStalls'' íš 1; ţħé řúññéř ñééďš ţħé ţíɱéóúţ íñ áţ ļéášţ ţŵó çýçļéš áñď ţřéáţš íţ áš 2. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_auto_unavailable' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ íš çóñƒíğúřéď ƀúţ ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ ('
+        '] áúţóɱáţíç ħóšţ řéƥáíř íš çóñƒíğúřéď ƀúţ ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); ţħé řúññéř řéçóřďš ţħé éṽíďéñçé áñď ďóéš ñóţ áçţ óñ íţ. Řúñ ţéšţ/lab/Invoke-HostRefresh.ps1 ļóçáļļý íƒ ţħé ħýƥéřṽíšóř ñééďš řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); ţħé řúññéř řéçóřďš ţħé éṽíďéñçé áñď ďóéš ñóţ áçţ óñ íţ. Řúñ ţéšţ/lab/Invoke-HostRepair.ps1 ļóçáļļý íƒ ţħé ħýƥéřṽíšóř ñééďš řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_unavailable_on_host' = @(
-        '[''testCycle.autoRefreshAfterStalls'' íš '
+    'runner.host_repair_auto_unavailable_on_host' = @(
+        '[''testCycle.autoRepairAfterStalls'' íš '
         @{
             'arg' = 'value'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ', ƀúţ áúţóɱáţíç ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ ('
+        ', ƀúţ áúţóɱáţíç ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); ţħé řúññéř řéçóřďš ţħé éṽíďéñçé áñď ďóéš ñóţ áçţ óñ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); ţħé řúññéř řéçóřďš ţħé éṽíďéñçé áñď ďóéš ñóţ áçţ óñ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_value_not_integer' = @(
-        '[''testCycle.autoRefreshAfterStalls'' íš '''
+    'runner.host_repair_auto_value_not_integer' = @(
+        '[''testCycle.autoRepairAfterStalls'' íš '''
         @{
             'arg' = 'value'
             'type' = 'text'
             'trust' = 'external'
         }
-        ''' -- ñóţ á ŵħóļé ñúɱƀéř; ţħé řúññéř ţřéáţš íţ áš 0 (áúţóɱáţíç ħóšţ řéƒřéšħ ďíšáƀļéď). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ''' -- ñóţ á ŵħóļé ñúɱƀéř; ţħé řúññéř ţřéáţš íţ áš 0 (áúţóɱáţíç ħóšţ řéƥáíř ďíšáƀļéď). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_verdict_mismatch' = @(
+    'runner.host_repair_auto_verdict_mismatch' = @(
         '[[óúţéř çýçļé '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] áúţóɱáţíç ħóšţ řéƒřéšħ '
+        '] áúţóɱáţíç ħóšţ řéƥáíř '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1327,8 +1676,8 @@
         }
         '); ţřéáţíñğ íţ áš ƒáíļéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_waiting_on_worker' = @(
-        '[Šħúţďóŵñ řéʠúéšţéď; ŵáíţíñğ ƒóř ţħé ħóšţ řéƒřéšħ ŵóřķéř ƒóř áúţóɱáţíç řéʠúéšţ '
+    'runner.host_repair_auto_waiting_on_worker' = @(
+        '[Šħúţďóŵñ řéʠúéšţéď; ŵáíţíñğ ƒóř ţħé ħóšţ řéƥáíř ŵóřķéř ƒóř áúţóɱáţíç řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1340,10 +1689,10 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' ɱóřé šéçóñďš). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ɱóřé šéçóñďš). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_worker_launch_failed' = @(
-        '[Ħóšţ řéƒřéšħ ŵóřķéř ƒóř áúţóɱáţíç řéʠúéšţ '
+    'runner.host_repair_auto_worker_launch_failed' = @(
+        '[Ħóšţ řéƥáíř ŵóřķéř ƒóř áúţóɱáţíç řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1355,10 +1704,10 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_auto_worker_timeout' = @(
-        '[Ħóšţ řéƒřéšħ ŵóřķéř ƒóř áúţóɱáţíç řéʠúéšţ '
+    'runner.host_repair_auto_worker_timeout' = @(
+        '[Ħóšţ řéƥáíř ŵóřķéř ƒóř áúţóɱáţíç řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1370,10 +1719,57 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' šéçóñďš áñď ŵáš šţóƥƥéď; ţħé řéʠúéšţ šţáýš óƥéñ. Ţħé řúññéř ɱáý řéšúɱé íţ, óř ƒíñíšħ íţ ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' šéçóñďš áñď ŵáš šţóƥƥéď; ţħé řéʠúéšţ šţáýš óƥéñ. Ţħé řúññéř ɱáý řéšúɱé íţ, óř ƒíñíšħ íţ ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_command_missing' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řéʠúířéď çóɱɱáñď '
+    'runner.host_repair_boot_resume' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƥáíř '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ŵáš ļéƒţ úñƒíñíšħéď ƀý áñ éářļíéř ƀóóţ; řéšúɱíñğ íţ óñçé ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé (ƥíď '
+        @{
+            'arg' = 'pid'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). Ţħíš šţářţ šţíļļ řéƒúšéš; ţħé řéƥáíř šţářţš ţħé řúññéř ŵħéñ íţ çóɱƥļéţéš, áñď íţš éřřóřš ğó ţó '
+        @{
+            'arg' = 'stdErrPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_repair_boot_resume_failed' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƥáíř '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ŵáš ļéƒţ úñƒíñíšħéď ƀý áñ éářļíéř ƀóóţ, áñď řéšúɱíñğ íţ ƒáíļéď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); řéšúɱé íţ ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_repair_boot_resume_tried' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƥáíř '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', ļéƒţ úñƒíñíšħéď ƀý áñ éářļíéř ƀóóţ, ŵáš áļřéáďý řéšúɱéď óñçé íñ ţħíš ƀóóţ; řéšúɱé íţ áğáíñ ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_repair_capability_unverified_macos' = '[Řúññéř řéçļáɱáţíóñ áñď řéšţářţ ářé ñóţ ʠúáļíƒíéď óñ ɱáçÓŠ ýéţ: ţħé ƥš ƥřóçéšš ţáƀļé áñď ţħé ďéţáçħéď ļáúñçħ ářé ţéšţéď ŵíţħ ƒíẋţúřéš óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_capability_unverified_windows' = '[Řúññéř řéçļáɱáţíóñ áñď řéšţářţ ářé ñóţ ʠúáļíƒíéď óñ Ŵíñďóŵš ýéţ: ţħé ÇÍⱮ ƥřóçéšš ţáƀļé, šíñğļé-ƥřóçéšš ţéřɱíñáţíóñ áñď ţħé řéƥářéñţ ħóƥ ářé ţéšţéď ŵíţħ ƒíẋţúřéš óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_command_missing' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řéʠúířéď çóɱɱáñď '
         @{
             'arg' = 'command'
             'type' = 'identifier'
@@ -1385,10 +1781,10 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ') íš ñóţ áṽáíļáƀļé áƒţéř ļóáďíñğ ţħé řéƒřéšħ ɱóďúļé šéţ; řéƒúšíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ') íš ñóţ áṽáíļáƀļé áƒţéř ļóáďíñğ ţħé řéƥáíř ɱóďúļé šéţ; řéƒúšíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_config_ambiguous' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: '
+    'runner.host_repair_config_ambiguous' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: '
         @{
             'arg' = 'count'
             'type' = 'integer'
@@ -1400,10 +1796,10 @@
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' ñáɱé ďíƒƒéřéñţ šóúřçé ƒíļéš; ƥášš -ÇóñƒíğƤáţħ ţó çħóóšé óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ñáɱé ďíƒƒéřéñţ šóúřçé ƒíļéš; ƥášš -ÇóñƒíğƤáţħ ţó çħóóšé óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_config_conflict' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: -ÇóñƒíğƤáţħ '
+    'runner.host_repair_config_conflict' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: -ÇóñƒíğƤáţħ '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -1417,8 +1813,8 @@
         }
         '; řéƒúšíñğ řáţħéř ţħáñ řéšţářţ ţħé řúññéř óñ á ďíƒƒéřéñţ ƒíļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_config_missing' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé çóñƒíğúřáţíóñ řéçóřďéď ƒóř ţħíš řúñţíɱé ('
+    'runner.host_repair_config_missing' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ţħé çóñƒíğúřáţíóñ řéçóřďéď ƒóř ţħíš řúñţíɱé ('
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -1426,8 +1822,8 @@
         }
         ') ďóéš ñóţ éẋíšţ; ƥášš -ÇóñƒíğƤáţħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_convergence_skipped' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé ƒíñáļ ƥřóƀé řéáďš '
+    'runner.host_repair_convergence_skipped' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ţħé ƒíñáļ ƥřóƀé řéáďš '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1439,10 +1835,10 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); šéřṽíçéš áñď ţħé řúññéř ŵéřé ñóţ řéšúɱéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); šéřṽíçéš áñď ţħé řúññéř ŵéřé ñóţ řéšúɱéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_credential_authority_created' = @(
-        '[Šéţ-ĦóšţŘéƒřéšħÇřéďéñţíáļ: çřéáţéď á řéƒřéšħ šíğñíñğ áúţħóříţý (ţáğ '
+    'runner.host_repair_credential_authority_created' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: çřéáţéď á řéƥáíř šíğñíñğ áúţħóříţý (ţáğ '
         @{
             'arg' = 'authorityTag'
             'type' = 'token'
@@ -1460,19 +1856,19 @@
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '. Çóƥý authority.key áñď operator.credential ţó ţħé ƥóóļ-çóñţřóļ šéřṽíçé''š /etc/yuruna/host-refresh/ ŵíţħ óŵñéř-óñļý ƥéřɱíššíóñš; ñéṽéř çóƥý ţħéɱ ţó á ƥóóļ ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. Çóƥý authority.key áñď operator.credential ţó ţħé ƥóóļ-çóñţřóļ šéřṽíçé''š /etc/yuruna/host-repair/ ŵíţħ óŵñéř-óñļý ƥéřɱíššíóñš; ñéṽéř çóƥý ţħéɱ ţó á ƥóóļ ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_credential_authority_exists' = @(
-        '[Šéţ-ĦóšţŘéƒřéšħÇřéďéñţíáļ: á řéƒřéšħ áúţħóříţý áļřéáďý éẋíšţš úñďéř '
+    'runner.host_repair_credential_authority_exists' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: á řéƥáíř áúţħóříţý áļřéáďý éẋíšţš úñďéř '
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '; ƥášš -Řóţáţé ţó řéƥļáçé íţ, ŵħíçħ íñṽáļíďáţéš éṽéřý íñšţáļļéď ħóšţ ķéý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '; ƥášš -Řóţáţé ţó řéƥļáçé íţ, ŵħíçħ íñṽáļíďáţéš éṽéřý íñšţáļļéď ħóšţ ķéý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_credential_host_key_exported' = @(
-        '[Šéţ-ĦóšţŘéƒřéšħÇřéďéñţíáļ: ŵřóţé ţħé řéƒřéšħ ķéý ƒóř ħóšţ '
+    'runner.host_repair_credential_host_key_exported' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: ŵřóţé ţħé řéƥáíř ṽéříƒíéř ķéý ƒóř ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
@@ -1490,41 +1886,41 @@
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '. Ɱóṽé íţ ţó ţħáţ ħóšţ óṽéř á ƥříṽáţé çħáññéļ, řúñ ţħíš šçříƥţ ţħéřé ŵíţħ -ÍñšţáļļĦóšţĶéý -ĶéýƤáţħ, ţħéñ ďéļéţé ţħé ƒíļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. Ɱóṽé íţ ţó ţħáţ ħóšţ óṽéř á ƥříṽáţé çħáññéļ, řúñ ţħíš šçříƥţ ţħéřé ŵíţħ -ÍñšţáļļĦóšţĶéý -ĶéýƤáţħ, ţħéñ ďéļéţé ţħé ƒíļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_credential_host_key_installed' = @(
-        '[Šéţ-ĦóšţŘéƒřéšħÇřéďéñţíáļ: íñšţáļļéď ţħé řéƒřéšħ ķéý ƒóř ţħíš ħóšţ '
+    'runner.host_repair_credential_host_key_installed' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: íñšţáļļéď ţħíš ħóšţ''š řéƥáíř ṽéříƒíéř ķéý ('
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' (ţáğ '
+        ', ţáğ '
         @{
             'arg' = 'keyTag'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); řéɱóţé řéƒřéšħ řéʠúéšţš šíğñéď ƀý ţħé ɱáţçħíñğ áúţħóříţý ářé ñóŵ ṽéříƒíáƀļé ħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); řéɱóţé řéƥáíř řéʠúéšţš šíğñéď ƀý ţħé ɱáţçħíñğ áúţħóříţý ářé ñóŵ ṽéříƒíáƀļé ħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_credential_host_key_removed' = '[Šéţ-ĦóšţŘéƒřéšħÇřéďéñţíáļ: řéɱóṽéď ţħé řéƒřéšħ ķéý; ţħíš ħóšţ ñóŵ řéƒúšéš éṽéřý ñóñ-ļóóƥƀáçķ řéƒřéšħ řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_credential_output_exists' = @(
-        '[Šéţ-ĦóšţŘéƒřéšħÇřéďéñţíáļ: '
+    'runner.host_repair_credential_host_key_removed' = '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: řéɱóṽéď ţħíš ħóšţ''š řéƥáíř ṽéříƒíéř ķéý; ţħíš ħóšţ ñóŵ řéƒúšéš éṽéřý ñóñ-ļóóƥƀáçķ řéƥáíř řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_credential_output_exists' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: '
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' áļřéáďý éẋíšţš; çħóóšé áñóţħéř -ÓúţƥúţƤáţħ óř ďéļéţé íţ ƒířšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' áļřéáďý éẋíšţš; çħóóšé áñóţħéř -ÓúţƥúţƤáţħ óř ďéļéţé íţ ƒířšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_credential_status' = @(
-        '[Šéţ-ĦóšţŘéƒřéšħÇřéďéñţíáļ: ħóšţ '
+    'runner.host_repair_credential_status' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: ħóšţ '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': řéɱóţé řéƒřéšħ ķéý '
+        ': řéƥáíř ṽéříƒíéř ķéý '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1544,30 +1940,30 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_deadline_exhausted' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé ţíɱé ƀúďğéţ řáñ óúţ ďúříñğ '
+    'runner.host_repair_deadline_exhausted' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ţħé ţíɱé ƀúďğéţ řáñ óúţ ďúříñğ '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '; úñƒíñíšħéď ŵóřķ íš řéçóřďéď áš óúţšţáñďíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '; úñƒíñíšħéď ŵóřķ íš řéçóřďéď áš óúţšţáñďíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_disruption_warning' = '[Íñṽóķé-ĦóšţŘéƒřéšħ: řéšţářţíñğ ţħé ħýƥéřṽíšóř áƥƥļíçáţíóñ çáñ šúšƥéñď řúññíñğ ğúéšţš; á ħářď šţóƥ, áļļóŵéď óñļý ŵíţħ -ÁļļóŵĦářďŠţóƥ, çáñ ƥóŵéř ţħéɱ óƒƒ úñçļéáñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_evidence_write_failed' = @(
-        '[Çóúļď ñóţ řéçóřď ħóšţ řéƒřéšħ éṽíďéñçé ƒóř ţħíš çýçļé ('
+    'runner.host_repair_disruption_warning' = '[Íñṽóķé-ĦóšţŘéƥáíř: řéšţářţíñğ ţħé ħýƥéřṽíšóř áƥƥļíçáţíóñ çáñ šúšƥéñď řúññíñğ ğúéšţš; á ħářď šţóƥ, áļļóŵéď óñļý ŵíţħ -ÁļļóŵĦářďŠţóƥ, çáñ ƥóŵéř ţħéɱ óƒƒ úñçļéáñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_evidence_write_failed' = @(
+        '[Çóúļď ñóţ řéçóřď ħóšţ řéƥáíř éṽíďéñçé ƒóř ţħíš çýçļé ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); áúţóɱáţíç ħóšţ řéƒřéšħ ŵíļļ ñóţ çóúñţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); áúţóɱáţíç ħóšţ řéƥáíř ŵíļļ ñóţ çóúñţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_hung_hypervisor_manual_hyperv' = '[Ţħé ħýƥéřṽíšóř çóñţřóļ çħáññéļ íš ħúñğ áñď ñó řéáçħáƀļé řúñğ řéƥáířš ţħáţ óñ ţħíš ħóšţ. Řéšţářţ ţħé Ħýƥéř-Ṽ ɱáñáğéɱéñţ šéřṽíçé ƒřóɱ áñ éļéṽáţéď çóñšóļé (Řéšţářţ-Šéřṽíçé ṽɱɱš) óř řéƀóóţ ţħé ħóšţ ƀý ħáñď, ţħéñ řéšúɱé ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. Á řéšúɱé ŵíţħóúţ ţħáţ řéƥáíř óñļý řé-ƥřóƀéš áñď šƥéñďš óñé óƒ ţħé ƀóúñďéď áţţéɱƥţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_hung_hypervisor_manual_kvm' = '[Ţħé ħýƥéřṽíšóř çóñţřóļ çħáññéļ íš ħúñğ áñď ñó řéáçħáƀļé řúñğ řéƥáířš ţħáţ óñ ţħíš ħóšţ. Řéšţářţ ţħé ļíƀṽířţ ďáéɱóñš (šúďó šýšţéɱçţļ řéšţářţ ļíƀṽířţď) óř řéƀóóţ ţħé ħóšţ ƀý ħáñď, ţħéñ řéšúɱé ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. Á řéšúɱé ŵíţħóúţ ţħáţ řéƥáíř óñļý řé-ƥřóƀéš áñď šƥéñďš óñé óƒ ţħé ƀóúñďéď áţţéɱƥţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_hung_hypervisor_manual_utm' = '[Ţħé ħýƥéřṽíšóř çóñţřóļ çħáññéļ íš ħúñğ áñď ñó řéáçħáƀļé řúñğ řéƥáířš ţħáţ óñ ţħíš ħóšţ. ʠúíţ áñď řéóƥéñ ÚŢⱮ ƒřóɱ ţħé ļóğğéď-íñ ďéšķţóƥ šéššíóñ óř řéƀóóţ ţħé ħóšţ ƀý ħáñď, ţħéñ řéšúɱé ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. Á řéšúɱé ŵíţħóúţ ţħáţ řéƥáíř óñļý řé-ƥřóƀéš áñď šƥéñďš óñé óƒ ţħé ƀóúñďéď áţţéɱƥţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_identity_refused' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řéƒúšíñğ ţó řúñ áš '
+    'runner.host_repair_hung_hypervisor_manual_hyperv' = '[Ţħé ħýƥéřṽíšóř çóñţřóļ çħáññéļ íš ħúñğ áñď ñó řéáçħáƀļé řúñğ řéƥáířš ţħáţ óñ ţħíš ħóšţ. Řéšţářţ ţħé Ħýƥéř-Ṽ ɱáñáğéɱéñţ šéřṽíçé ƒřóɱ áñ éļéṽáţéď çóñšóļé (Řéšţářţ-Šéřṽíçé ṽɱɱš) óř řéƀóóţ ţħé ħóšţ ƀý ħáñď, ţħéñ řéšúɱé ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. Á řéšúɱé ŵíţħóúţ ţħáţ řéƥáíř óñļý řé-ƥřóƀéš áñď šƥéñďš óñé óƒ ţħé ƀóúñďéď áţţéɱƥţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_hung_hypervisor_manual_kvm' = '[Ţħé ħýƥéřṽíšóř çóñţřóļ çħáññéļ íš ħúñğ áñď ñó řéáçħáƀļé řúñğ řéƥáířš ţħáţ óñ ţħíš ħóšţ. Řéšţářţ ţħé ļíƀṽířţ ďáéɱóñš (šúďó šýšţéɱçţļ řéšţářţ ļíƀṽířţď) óř řéƀóóţ ţħé ħóšţ ƀý ħáñď, ţħéñ řéšúɱé ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. Á řéšúɱé ŵíţħóúţ ţħáţ řéƥáíř óñļý řé-ƥřóƀéš áñď šƥéñďš óñé óƒ ţħé ƀóúñďéď áţţéɱƥţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_hung_hypervisor_manual_utm' = '[Ţħé ħýƥéřṽíšóř çóñţřóļ çħáññéļ íš ħúñğ áñď ñó řéáçħáƀļé řúñğ řéƥáířš ţħáţ óñ ţħíš ħóšţ. ʠúíţ áñď řéóƥéñ ÚŢⱮ ƒřóɱ ţħé ļóğğéď-íñ ďéšķţóƥ šéššíóñ óř řéƀóóţ ţħé ħóšţ ƀý ħáñď, ţħéñ řéšúɱé ŵíţħ: ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. Á řéšúɱé ŵíţħóúţ ţħáţ řéƥáíř óñļý řé-ƥřóƀéš áñď šƥéñďš óñé óƒ ţħé ƀóúñďéď áţţéɱƥţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_identity_refused' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řéƒúšíñğ ţó řúñ áš '
         @{
             'arg' = 'identity'
             'type' = 'identifier'
@@ -1587,8 +1983,8 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_launcher_wait_timeout' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ļáúñçħéř ƥřóçéšš '
+    'runner.host_repair_launcher_wait_timeout' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ļáúñçħéř ƥřóçéšš '
         @{
             'arg' = 'launcherPid'
             'type' = 'integer'
@@ -1606,28 +2002,28 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' šţáýš ʠúéúéď ƒóř á řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' šţáýš ʠúéúéď ƒóř á řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_lock_busy' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: áñóţħéř řéƥáíř ħóļďš ţħé ļíƒéţíɱé ļóçķ ('
+    'runner.host_repair_lock_busy' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: áñóţħéř ħóšţ óƥéřáţíóñ ħóļďš ţħé ļíƒéţíɱé ļóçķ ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); řéƒúšíñğ ţó řúñ áļóñğšíďé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); řéƒúšíñğ ţó řúñ áļóñğšíďé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_manual_command' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řúñ ţħíš ƀý ħáñď, óř áļļóŵ íţ ŵíţħóúţ á ƥáššŵóřď ƥřóɱƥţ: šúďó '
+    'runner.host_repair_manual_command' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řúñ ţħíš ƀý ħáñď, óř áļļóŵ íţ ŵíţħóúţ á ƥáššŵóřď ƥřóɱƥţ: šúďó '
         @{
             'arg' = 'command'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_obligation_disposed' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: '
+    'runner.host_repair_obligation_disposed' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: '
         @{
             'arg' = 'obligation'
             'type' = 'identifier'
@@ -1647,8 +2043,8 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_obligation_unknown' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: '
+    'runner.host_repair_obligation_unknown' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: '
         @{
             'arg' = 'obligation'
             'type' = 'identifier'
@@ -1660,10 +2056,10 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_oneshot_active' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: á óñé-šħóţ řúñ (ƤÍĎ '
+    'runner.host_repair_oneshot_active' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: á óñé-šħóţ řúñ (ƤÍĎ '
         @{
             'arg' = 'pid'
             'type' = 'identifier'
@@ -1677,8 +2073,8 @@
         }
         ') íš úšíñğ ţħíš řúñţíɱé; ñó řéƥáíř šţéƥ řúñš ŵħíļé íţ ħóļďš ţħé ļéášé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_oneshot_unconfirmed' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé óñé-šħóţ ļéášé '
+    'runner.host_repair_oneshot_unconfirmed' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ţħé óñé-šħóţ ļéášé '
         @{
             'arg' = 'leasePath'
             'type' = 'detail'
@@ -1698,7 +2094,7 @@
         }
         '); řéƥáíříñğ áñýŵáý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_operator_instruction' = @(
+    'runner.host_repair_operator_instruction' = @(
         '[  Řéɱéďý: '
         @{
             'arg' = 'instruction'
@@ -1707,7 +2103,22 @@
         }
         ' ~~~~~~~~~~]'
     )
-    'runner.host_refresh_preview_group_relaunch' = @(
+    'runner.host_repair_other_kind' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řéʠúéšţ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' íš á ħóšţ úƥďáţé, ñóţ á řéƥáíř; íţš çóñţřóļļéř çóñţíñúéš íţ. Ţó éñď íţ óñ ţħíš ħóšţ, řúñ: ƥŵšħ ţéšţ/lab/Invoke-HostUpdate.ps1 -Řéļéášé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_repair_preview_group_relaunch' = @(
         '[  Áñ éẋéçúţíñğ řúñ ŵóúļď ƒířšţ řéļáúñçħ úñďéř ţħé ļíƀṽířţ ğřóúƥ ('
         @{
             'arg' = 'reason'
@@ -1716,8 +2127,8 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_preview_notice' = '[  Ƥřéṽíéŵ óñļý: ñóţħíñğ ŵáš ļóçķéď, ŵříţţéñ, šíğñáļéď óř šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_preview_would_consider' = @(
+    'runner.host_repair_preview_notice' = '[  Ƥřéṽíéŵ óñļý: ñóţħíñğ ŵáš ļóçķéď, ŵříţţéñ, šíğñáļéď óř šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_preview_would_consider' = @(
         '[  Řúñğš áñ éẋéçúţíñğ řúñ ŵóúļď çóñšíďéř, íñ óřďéř: '
         @{
             'arg' = 'rungs'
@@ -1726,18 +2137,18 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_private_root_unavailable' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé ƥříṽáţé šţáţé řóóţ úñďéř $ĦÓⱮÉ/.yuruna/host-refresh çóúļď ñóţ ƀé šéçúřéď ('
+    'runner.host_repair_private_root_unavailable' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ţħé ƥříṽáţé šţáţé řóóţ úñďéř $ĦÓⱮÉ/.yuruna/host-repair çóúļď ñóţ ƀé šéçúřéď ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); řéƒúšíñğ ŵíţħóúţ áñ óŵñéř-óñļý ƥříṽáţé řóóţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); řéƒúšíñğ ŵíţħóúţ áñ óŵñéř-óñļý ƥříṽáţé řóóţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_progress_degraded' = '[Íñṽóķé-ĦóšţŘéƒřéšħ: ƥřóğřéšš çóúļď ñóţ ƀé ƥúƀļíšħéď; ţħé řéƥáíř çóñţíñúéď áñď ţħé ƥříṽáţé ĵóúřñáļ šţáýš áúţħóříţáţíṽé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_protocol_mismatch' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: '
+    'runner.host_repair_progress_degraded' = '[Íñṽóķé-ĦóšţŘéƥáíř: ƥřóğřéšš çóúļď ñóţ ƀé ƥúƀļíšħéď; ţħé řéƥáíř çóñţíñúéď áñď ţħé ƥříṽáţé ĵóúřñáļ šţáýš áúţħóříţáţíṽé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_protocol_mismatch' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -1757,8 +2168,8 @@
         }
         '''. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_refused' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řéƒúšéď ƀéƒóřé áñý çħáñğé ('
+    'runner.host_repair_refused' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řéƒúšéď ƀéƒóřé áñý çħáñğé ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1766,8 +2177,8 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_request_refused' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řéʠúéšţ '
+    'runner.host_repair_request_refused' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1793,9 +2204,9 @@
         }
         '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_resume_none' = '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħéřé íš ñó úñřéšóļṽéď řéʠúéšţ ţó řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_resume_started' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řéšúɱíñğ řéʠúéšţ '
+    'runner.host_repair_resume_none' = '[Íñṽóķé-ĦóšţŘéƥáíř: ţħéřé íš ñó úñřéšóļṽéď řéʠúéšţ ţó řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_resume_started' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řéšúɱíñğ řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1815,8 +2226,8 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_rung_finished' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řúñğ '
+    'runner.host_repair_rung_finished' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řúñğ '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -1840,24 +2251,24 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_rung_reason_broker_recipe_missing' = '[řéʠúířéš á ṽéříƒíéď ÓŠ-ṽéřšíóñ-šƥéçíƒíç ļáƀéļ, ďóɱáíñ áñď óŵñéř řéçíƥé ŵíţħ çóļļáţéřáļ ţéšţš ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_daemon_layout_unqualified' = '[řéʠúířéš ďáéɱóñ-ļáýóúţ áñď ğúéšţ-ƥřéšéřṽáţíóñ ţéšţš ƥáššíñğ óñ á šúƥƥóřţéď ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_gui_launch_unqualified' = '[šţářţíñğ ÚŢⱮ ñééďš á šáɱé-úšéř áƀšéñçé çħéçķ áñď á ĞÚÍ ļáúñçħ ƥáţħ ţħáţ ħáṽé ñóţ ƀééñ ʠúáļíƒíéď óñ á řéáļ ɱáçÓŠ ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_lock_unqualified' = '[ţħé řéƥáíř ļóçķ''š éẋçļúšíóñ ħáš ñóţ ƀééñ ďéɱóñšţřáţéď óñ ţħíš ƥļáţƒóřɱ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_modular_daemon_recipe_missing' = '[řéʠúířéš á ṽáļíďáţéď řéçíƥé ƒóř ţħé ɱóďúļář ļíƀṽířţ ďáéɱóñš ~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_no_reboot_supervision' = '[ñó ṽéříƒíéď řúññéř áñď šţáţúš-šéřṽíçé šúƥéřṽíšíóñ éẋíšţš áçřóšš á ħóšţ řéƀóóţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_not_implemented' = '[ñó éẋéçúţóř ƒóř ţħíš řúñğ éẋíšţš íñ ţħíš çħéçķóúţ ~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_package_recovery_unqualified' = '[řéʠúířéš á šéļƒ-çóñţáíñéď šíğñéď ƀóóţšţřáƥ áñď á ţéšţéď ƥáçķáğé řéçóṽéřý ƥřóçéďúřé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_provider_recipe_missing' = '[řéʠúířéš á šéƥářáţé ƥřóṽíďéř-řéçóṽéřý řéçíƥé ţéšţéď óñ á šúƥƥóřţéď ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_runner_restart_unqualified' = '[řúññéř řéçļáɱáţíóñ áñď ṽéříƒíéď řéšţářţ ħáṽé ñóţ ƀééñ ʠúáļíƒíéď óñ á řéáļ ħóšţ óƒ ţħíš ƥļáţƒóřɱ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_settings_recipe_unsafe' = '[ţħé šéţţíñğš řéçíƥé šţíļļ řéáçħéš çóñšéñţ ďíáļóğš, ƥáçķáğé íñšţáļļš óř úñƀóúñďéď ñáţíṽé çáļļš ţħáţ áñ úñáţţéñďéď řéƥáíř ɱúšţ ñóţ řúñ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_unsupported_on_platform' = '[ñóţ óƒƒéřéď óñ ţħíš ƥļáţƒóřɱ ~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_utm_restart_unqualified' = '[řéšţářţíñğ ÚŢⱮ ñééďš á ţéšţéď ļáúñçħ áñď šéššíóñ ƥáţħ, çáƥţúřéď ğúéšţ řéçóṽéřý éṽíďéñçé, řúññéř éẋçļúšíóñ áñď ţħé ğřáçéƒúļ ʠúíţ ƥóļíçý, ṽáļíďáţéď óñ á řéáļ ɱáçÓŠ ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_reason_vmms_start_unqualified' = '[šţářţíñğ á šţóƥƥéď ṽɱɱš šéřṽíçé íš íɱƥļéɱéñţéď ƀúţ ħáš ñóţ ƀééñ ʠúáļíƒíéď óñ á řéáļ Ŵíñďóŵš Ħýƥéř-Ṽ ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_rung_started' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řúñğ '
+    'runner.host_repair_rung_reason_broker_recipe_missing' = '[řéʠúířéš á ṽéříƒíéď ÓŠ-ṽéřšíóñ-šƥéçíƒíç ļáƀéļ, ďóɱáíñ áñď óŵñéř řéçíƥé ŵíţħ çóļļáţéřáļ ţéšţš ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_daemon_layout_unqualified' = '[řéʠúířéš ďáéɱóñ-ļáýóúţ áñď ğúéšţ-ƥřéšéřṽáţíóñ ţéšţš ƥáššíñğ óñ á šúƥƥóřţéď ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_gui_launch_unqualified' = '[šţářţíñğ ÚŢⱮ ñééďš á šáɱé-úšéř áƀšéñçé çħéçķ áñď á ĞÚÍ ļáúñçħ ƥáţħ ţħáţ ħáṽé ñóţ ƀééñ ʠúáļíƒíéď óñ á řéáļ ɱáçÓŠ ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_lock_unqualified' = '[ţħé řéƥáíř ļóçķ''š éẋçļúšíóñ ħáš ñóţ ƀééñ ďéɱóñšţřáţéď óñ ţħíš ƥļáţƒóřɱ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_modular_daemon_recipe_missing' = '[řéʠúířéš á ṽáļíďáţéď řéçíƥé ƒóř ţħé ɱóďúļář ļíƀṽířţ ďáéɱóñš ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_no_reboot_supervision' = '[ñó ṽéříƒíéď řúññéř áñď šţáţúš-šéřṽíçé šúƥéřṽíšíóñ éẋíšţš áçřóšš á ħóšţ řéƀóóţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_not_implemented' = '[ñó éẋéçúţóř ƒóř ţħíš řúñğ éẋíšţš íñ ţħíš çħéçķóúţ ~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_package_recovery_unqualified' = '[řéʠúířéš á šéļƒ-çóñţáíñéď šíğñéď ƀóóţšţřáƥ áñď á ţéšţéď ƥáçķáğé řéçóṽéřý ƥřóçéďúřé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_provider_recipe_missing' = '[řéʠúířéš á šéƥářáţé ƥřóṽíďéř-řéçóṽéřý řéçíƥé ţéšţéď óñ á šúƥƥóřţéď ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_runner_restart_unqualified' = '[řúññéř řéçļáɱáţíóñ áñď ṽéříƒíéď řéšţářţ ħáṽé ñóţ ƀééñ ʠúáļíƒíéď óñ á řéáļ ħóšţ óƒ ţħíš ƥļáţƒóřɱ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_settings_recipe_unsafe' = '[ţħé šéţţíñğš řéçíƥé šţíļļ řéáçħéš çóñšéñţ ďíáļóğš, ƥáçķáğé íñšţáļļš óř úñƀóúñďéď ñáţíṽé çáļļš ţħáţ áñ úñáţţéñďéď řéƥáíř ɱúšţ ñóţ řúñ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_unsupported_on_platform' = '[ñóţ óƒƒéřéď óñ ţħíš ƥļáţƒóřɱ ~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_utm_restart_unqualified' = '[řéšţářţíñğ ÚŢⱮ ñééďš á ţéšţéď ļáúñçħ áñď šéššíóñ ƥáţħ, çáƥţúřéď ğúéšţ řéçóṽéřý éṽíďéñçé, řúññéř éẋçļúšíóñ áñď ţħé ğřáçéƒúļ ʠúíţ ƥóļíçý, ṽáļíďáţéď óñ á řéáļ ɱáçÓŠ ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_reason_vmms_start_unqualified' = '[šţářţíñğ á šţóƥƥéď ṽɱɱš šéřṽíçé íš íɱƥļéɱéñţéď ƀúţ ħáš ñóţ ƀééñ ʠúáļíƒíéď óñ á řéáļ Ŵíñďóŵš Ħýƥéř-Ṽ ħóšţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_rung_started' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řúñğ '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -1871,8 +2282,8 @@
         }
         ' š óƒ řéƥáíř ƀúďğéţ ļéƒţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_runner_not_ready' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé řéšţářţéď řúññéř ďíď ñóţ áçķñóŵļéďğé řéáďíñéšš ('
+    'runner.host_repair_runner_not_ready' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ţħé řéšţářţéď řúññéř ďíď ñóţ áçķñóŵļéďğé řéáďíñéšš ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1880,8 +2291,8 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_runtime_missing' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řúñţíɱé ďířéçţóřý '
+    'runner.host_repair_runtime_missing' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řúñţíɱé ďířéçţóřý '
         @{
             'arg' = 'runtimeDir'
             'type' = 'detail'
@@ -1889,8 +2300,8 @@
         }
         ' ďóéš ñóţ éẋíšţ; šéţ ÝÚŘÚÑÁ_ŘÚÑŢÍⱮÉ_ĎÍŘ ţó ţħé řúññéř''š řúñţíɱé ďířéçţóřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_runtime_owner_mismatch' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħíš áççóúñţ''š řéƒřéšħ šţáţé íš řéğíšţéřéď ţó řúñţíɱé '
+    'runner.host_repair_runtime_owner_mismatch' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ţħíš áççóúñţ''š řéƥáíř šţáţé íš řéğíšţéřéď ţó řúñţíɱé '
         @{
             'arg' = 'registeredRuntimeDir'
             'type' = 'detail'
@@ -1904,8 +2315,8 @@
         }
         '; óñé óŵñíñğ řúñţíɱé ƥéř áççóúñţ íš šúƥƥóřţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_service_unverified' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: šéřṽíçé '
+    'runner.host_repair_service_unverified' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: šéřṽíçé '
         @{
             'arg' = 'key'
             'type' = 'identifier'
@@ -1919,8 +2330,8 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_session_passive' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: šéššíóñ ķíñď íš '
+    'runner.host_repair_session_passive' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: šéššíóñ ķíñď íš '
         @{
             'arg' = 'sessionKind'
             'type' = 'identifier'
@@ -1928,19 +2339,17 @@
         }
         '; šţéƥš ţħáţ ñééď ţħé ďéšķţóƥ šéššíóñ ářé šķíƥƥéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_should_process_admission' = '[Řéçóřď ħóšţ-řéƒřéšħ áďɱíššíóñ ~~~~~~~~~~~~]'
-    'runner.host_refresh_should_process_listener' = '[Šţářţ ţħé šţáţúš ļíšţéñéř íñ řéƒřéšħ-šáƒé ɱóďé ~~~~~~~~~~~~~~~~~~~]'
-    'runner.host_refresh_should_process_publish' = '[Ƥúƀļíšħ ħóšţ-řéƒřéšħ ƥřóğřéšš ~~~~~~~~~~~~]'
-    'runner.host_refresh_should_process_run' = @(
-        '[Řúñ ħóšţ-řéƒřéšħ řéʠúéšţ '
+    'runner.host_repair_should_process_publish' = '[Ƥúƀļíšħ ħóšţ-řéƥáíř ƥřóğřéšš ~~~~~~~~~~~~]'
+    'runner.host_repair_should_process_run' = @(
+        '[Řúñ ħóšţ-řéƥáíř řéʠúéšţ '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' ~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_active_request' = @(
+    'runner.host_repair_summary_active_request' = @(
         '[  Úñřéšóļṽéď řéʠúéšţ: '
         @{
             'arg' = 'requestId'
@@ -1961,7 +2370,7 @@
         }
         ') ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_context' = @(
+    'runner.host_repair_summary_context' = @(
         '[  Řúñţíɱé:          '
         @{
             'arg' = 'runtimeDir'
@@ -1982,8 +2391,8 @@
         }
         ') ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_header' = @(
-        '[Ħóšţ řéƒřéšħ ('
+    'runner.host_repair_summary_header' = @(
+        '[Ħóšţ řéƥáíř ('
         @{
             'arg' = 'mode'
             'type' = 'identifier'
@@ -1997,7 +2406,7 @@
         }
         ' ~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_ladder' = @(
+    'runner.host_repair_summary_ladder' = @(
         '[  Řéƥáíř ļáďďéř, çéíļíñğ '
         @{
             'arg' = 'ceiling'
@@ -2006,7 +2415,7 @@
         }
         ': ~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_obligation' = @(
+    'runner.host_repair_summary_obligation' = @(
         '[  Óúţšţáñďíñğ:      '
         @{
             'arg' = 'obligation'
@@ -2015,7 +2424,7 @@
         }
         ' ~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_probe' = @(
+    'runner.host_repair_summary_probe' = @(
         '[  Ħýƥéřṽíšóř ƥřóƀé: '
         @{
             'arg' = 'state'
@@ -2036,7 +2445,7 @@
         }
         ' ɱš) ~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_rung_above_ceiling' = @(
+    'runner.host_repair_summary_rung_above_ceiling' = @(
         '[    ['
         @{
             'arg' = 'order'
@@ -2051,7 +2460,7 @@
         }
         ': áƀóṽé ţħé řéʠúéšţéď çéíļíñğ ~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_rung_available' = @(
+    'runner.host_repair_summary_rung_available' = @(
         '[    ['
         @{
             'arg' = 'order'
@@ -2066,7 +2475,7 @@
         }
         ': áṽáíļáƀļé ~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_rung_result' = @(
+    'runner.host_repair_summary_rung_result' = @(
         '[    ['
         @{
             'arg' = 'order'
@@ -2093,7 +2502,7 @@
         }
         ') ~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_rung_unavailable' = @(
+    'runner.host_repair_summary_rung_unavailable' = @(
         '[    ['
         @{
             'arg' = 'order'
@@ -2114,7 +2523,7 @@
         }
         ' ~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_runner' = @(
+    'runner.host_repair_summary_runner' = @(
         '[  Řúññéř:           '
         @{
             'arg' = 'status'
@@ -2123,7 +2532,7 @@
         }
         ' ~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_summary_verdict' = @(
+    'runner.host_repair_summary_verdict' = @(
         '[  Ṽéřďíçţ:          '
         @{
             'arg' = 'verdict'
@@ -2150,8 +2559,23 @@
         }
         ') ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_unexpected_error' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: úñéẋƥéçţéď éřřóř ďúříñğ '
+    'runner.host_repair_trigger_call_failed' = @(
+        '[Áúţóɱáţíç ħóšţ-řéƥáíř çáļļ áţ '
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ƒáíļéď áñď ŵáš šķíƥƥéď: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_repair_unexpected_error' = @(
+        '[Íñṽóķé-ĦóšţŘéƥáíř: úñéẋƥéçţéď éřřóř ďúříñğ '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -2165,7 +2589,380 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.host_refresh_verified_noop' = '[Íñṽóķé-ĦóšţŘéƒřéšħ: ţħé ħýƥéřṽíšóř áñšŵéřéď áñď ţħé řúññéř íš ħéáļţħý; ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_repair_verified_noop' = '[Íñṽóķé-ĦóšţŘéƥáíř: ţħé ħýƥéřṽíšóř áñšŵéřéď áñď ţħé řúññéř íš ħéáļţħý; ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_update_access_entry_action' = '[Íñšţáļļ óř řéɱóṽé ţħé šúďóéřš éñţřý ţħáţ ļéţš ţħé ħóšţ çóñţřóļļéř ŵříţé íţš ţéɱƥóřářý šúďó řúļé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_update_auth_action_create_signing_key' = '[Çřéáţé ţħé ħóšţ úƥďáţé šíğñíñğ ķéý ~~~~~~~~~~~~~~]'
+    'runner.host_update_auth_action_install_record' = @(
+        '[Íñšţáļļ ţħé ƥóóļ-çóñţřóļ řéçóřď ƒóř '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_auth_action_remove_record' = '[Řéɱóṽé ţħé ƥóóļ-çóñţřóļ řéçóřď ~~~~~~~~~~~~]'
+    'runner.host_update_busy' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ñóţħíñğ ŵáš ʠúéúéď; á '
+        @{
+            'arg' = 'activeKind'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óƥéřáţíóñ ħóļďš ţħé ħóšţ ('
+        @{
+            'arg' = 'activeRequestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). Ŵáíţ ƒóř íţ ţó éñď, óř éñď ţħé řúññíñğ çýçļé áţ ţħé řúññéř''š çóñšóļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_console_window' = '[á çóñšóļé ŵíñďóŵ óƒ íţš óŵñ óñ ţħé ďéšķţóƥ óƒ ţħé ţéšţ áççóúñţ, áţ ţħé ɱáçħíñé óř óṽéř á řéɱóţé ďéšķţóƥ çóññéçţíóñ ţó ţħáţ šéššíóñ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_update_controller_absent' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ñó ħóšţ çóñţřóļļéř íš řúññíñğ óñ ţħíš ħóšţ (ļóçķ '
+        @{
+            'arg' = 'lockState'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ñóţħíñğ ŵáš ʠúéúéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_credential_record_installed' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: íñšţáļļéď ţħíš ħóšţ''š ƥóóļ-çóñţřóļ řéçóřď (ƥóóļ-çóñţřóļ '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', ķéý ţáğ '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); ħóšţ úƥďáţéš šíğñéď ƀý ţħáţ ķéý ářé ñóŵ ṽéříƒíáƀļé ħéřé, áñď ţħíš ħóšţ''š Ďíáğñóšţíçš ƥáğé šéñďš á řéɱóţé ƥřéšš ţħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_credential_record_removed' = '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: řéɱóṽéď ţħíš ħóšţ''š ƥóóļ-çóñţřóļ řéçóřď; ţħíš ħóšţ ñóŵ řéƒúšéš éṽéřý ħóšţ úƥďáţé ƒřóɱ áñóţħéř ɱáçħíñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_update_credential_record_value_replaced' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: ƥóóļ-çóñţřóļ řéçóřď '
+        @{
+            'arg' = 'key'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' -> '
+        @{
+            'arg' = 'current'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. Ţħíš ļíñé ķééƥš ţħé ƥřéṽíóúš ṽáļúé; íñšţáļļ íţ áğáíñ ŵíţħ -ÍñšţáļļƤóóļÇóñţřóļŘéçóřď íƒ ţħé çħáñğé ŵáš ñóţ íñţéñďéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_credential_signing_key_created' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: çřéáţéď á ħóšţ úƥďáţé šíğñíñğ ķéý (ţáğ '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') áţ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. Çóƥý íţ ţó ţħé ƥóóļ-çóñţřóļ šéřṽíçé''š /etc/yuruna/host-repair/update-signing.key ŵíţħ óŵñéř-óñļý ƥéřɱíššíóñš; ñéṽéř çóƥý íţ ţó á ƥóóļ ħóšţ. Óñ éáçħ ƥóóļ ħóšţ řúñ: ƥŵšħ ţéšţ/lab/Set-HostRepairCredential.ps1 -ÍñšţáļļƤóóļÇóñţřóļŘéçóřď -ƤóóļÇóñţřóļÚřļ <pool-control URL> -ƤúƀļíçĶéý '
+        @{
+            'arg' = 'publicKey'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_credential_signing_key_exists' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: á ħóšţ úƥďáţé šíğñíñğ ķéý áļřéáďý éẋíšţš áţ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; ƥášš -Řóţáţé ţó řéƥļáçé íţ, áƒţéř ŵħíçħ éṽéřý ħóšţ''š ƥóóļ-çóñţřóļ řéçóřď ɱúšţ ƀé íñšţáļļéď áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_credential_status' = @(
+        '[Šéţ-ĦóšţŘéƥáířÇřéďéñţíáļ: ƥóóļ-çóñţřóļ řéçóřď '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; ƥóóļ-çóñţřóļ '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', ķéý ţáğ '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); ħóšţ úƥďáţé šíğñíñğ ķéý '
+        @{
+            'arg' = 'signingKeyState'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_elevated_work_action' = '[Éñď ţħé ƥřóçéššéš óƒ á ħóšţ úƥďáţé''š íñšţáļļ óř éñáƀļé ƥħášé, íñçļúďíñğ ţħóšé ţħáţ řúñ áš řóóţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_update_elevation_action' = '[Çħáñğé ţħé ţéɱƥóřářý šúďó řúļé, á ţřáñšíéñţ úñíţ óř áñ íñšţáļļéř çóƥý óƒ á ħóšţ úƥďáţé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.host_update_gate_controller_absent' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħíš ħóšţ''š řúññéř áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ; íţš šýšţéɱ šéřṽíçé šţářţš óñé ŵíţħíñ šéçóñďš ţó çóñţíñúé ţħé úƥďáţé. Ţó éñď ţħé úƥďáţé íñšţéáď, řúñ: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_gate_controller_absent_macos' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħíš ħóšţ''š řúññéř áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ. '
+        @{
+            'arg' = 'result'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' Šţářţ ţħé řúññéř ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ ţó šţářţ ţħé çóñţřóļļéř, ŵħíçħ çóñţíñúéš ţħé úƥďáţé; óř éñď ţħé úƥďáţé ŵíţħ: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_gate_controller_restarting_macos' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħíš ħóšţ''š řúññéř, áñď ţħé ħóšţ çóñţřóļļéř ţħíš šţářţ ƒóúñď íš ƀéţŵééñ ţŵó řúñš: ţħé šħíɱ íñ íţš šéššíóñ šţářţš íţ áğáíñ šħóřţļý, áñď íţ çóñţíñúéš ţħé úƥďáţé áñď šţářţš ţħé řúññéř íţšéļƒ. Ţó éñď ţħé úƥďáţé íñšţéáď, řúñ: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_gate_controller_running' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħíš ħóšţ''š řúññéř; ţħé ħóšţ çóñţřóļļéř çóñţíñúéš íţ áñď šţářţš ţħé řúññéř íţšéļƒ. Íţš çóñšóļé: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_gate_controller_unknown_macos' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħíš ħóšţ''š řúññéř. Ţħíš šţářţ''š ħóšţ çóñţřóļļéř šţéƥ ƒóúñď á çóñţřóļļéř řúññíñğ óř šţářţéď óñé, ƀúţ ţħé çóñţřóļļéř ļóçķ çáññóţ ƀé řéáď ñóŵ, šó ŵħéţħéř á çóñţřóļļéř çóñţíñúéš ţħé úƥďáţé íš ñóţ ķñóŵñ. Íƒ ñóñé ďóéš, šţářţ ţħé řúññéř ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ ţó šţářţ ţħé çóñţřóļļéř; óř éñď ţħé úƥďáţé ŵíţħ: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_queued' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' íš ʠúéúéď (šçóƥé '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', ďřáíñ '
+        @{
+            'arg' = 'drain'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). Ƥřóğřéšš: '
+        @{
+            'arg' = 'stateFile'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. Ţħé řúññéř''š çóñšóļé, óñçé íţ šţářţš: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_refused' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ŵáš ñóţ ʠúéúéď ('
+        @{
+            'arg' = 'decision'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_release_controller_running' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' íš íñ ƥřóğřéšš úñďéř ţħé ħóšţ çóñţřóļļéř (ƥíď '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); íţ çáñ ƀé řéļéášéď óñļý ŵħíļé íţ íš řéçóṽéříñğ óř ñó çóñţřóļļéř řúñš. Ŵáíţ ƒóř íţš ṽéřďíçţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_release_marked' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' íš ɱářķéď ƒóř řéļéášé; ţħé ħóšţ çóñţřóļļéř řéļéášéš íţ áƒţéř íţš çúřřéñţ áţţéɱƥţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_release_refused' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' çáññóţ ƀé řéļéášéď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_released' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ħóšţ úƥďáţé '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' éñďéď áš '
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; šţíļļ ţó šéţţļé: '
+        @{
+            'arg' = 'debt'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. Áñ óřďíñářý řúññéř šţářţ ŵóřķš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_scope_unavailable' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: ţħé ħóšţ çóñţřóļļéř řúñš '
+        @{
+            'arg' = 'scopes'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', ñóţ '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; ñóţħíñğ ŵáš ʠúéúéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_takeover' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: íţ ţáķéš óṽéř ħóšţ úƥďáţé '
+        @{
+            'arg' = 'supersededId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', ŵħíçħ ŵáš řéçóṽéříñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.host_update_unexpected_error' = @(
+        '[Íñṽóķé-ĦóšţÚƥďáţé: úñéẋƥéçţéď éřřóř ďúříñğ '
+        @{
+            'arg' = 'phase'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.hypervisor_control_unresponsive' = @(
         '[Ţħé ħýƥéřṽíšóř çóñţřóļ çħáññéļ óñ ţħíš ħóšţ áñšŵéřš šţáţé ʠúéříéš ƀúţ ñó ļóñğéř áçţš óñ ļíƒéçýçļé řéʠúéšţš (ƥřóƀé '
         @{
@@ -2185,7 +2982,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Ţħé çýçļé šţóƥš ƀéƒóřé ƀúíļďíñğ áñýţħíñğ, ƀéçáúšé éṽéřý ṼⱮ šţářţ áñď šţóƥ ŵóúļď ŵáíţ óúţ íţš ţíɱéóúţ. Řéšţářţ ţħé ħýƥéřṽíšóř áƥƥļíçáţíóñ óñ ţħíš ħóšţ (óñ ɱáçÓŠ ʠúíţ UTM.app ƒřóɱ ţħé ďéšķţóƥ šéššíóñ, óř řúñ ţéšţ/lab/Invoke-HostRefresh.ps1), ţħéñ řéšúɱé ţħé řúññéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '). Ţħé çýçļé šţóƥš ƀéƒóřé ƀúíļďíñğ áñýţħíñğ, ƀéçáúšé éṽéřý ṼⱮ šţářţ áñď šţóƥ ŵóúļď ŵáíţ óúţ íţš ţíɱéóúţ. Řéšţářţ ţħé ħýƥéřṽíšóř áƥƥļíçáţíóñ óñ ţħíš ħóšţ (óñ ɱáçÓŠ ʠúíţ UTM.app ƒřóɱ ţħé ďéšķţóƥ šéššíóñ, óř řúñ ţéšţ/lab/Invoke-HostRepair.ps1), ţħéñ řéšúɱé ţħé řúññéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.inner_attempt_exited' = @(
         '[Ţħé řúññéř áţţéɱƥţ éẋíţéď '
@@ -2226,7 +3023,67 @@
         }
         ''' ħáš ñó ''řéšóúřçé:'' ÓŠ ķéý; ñóţ á řúññáƀļé ğúéšţ šéʠúéñçé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.kvm_pointer_button_held' = @(
+        '[ĶṼⱮ ƥóíñţéř óñ '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': ţħé '
+        @{
+            'arg' = 'button'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ƀúţţóñ ŵáš ƥřéššéď áñď íţš řéļéášé çóúļď ñóţ ƀé çóñƒířɱéď; íţ ɱáý šţíļļ ƀé ħéļď íñ ţħé ğúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.kvm_pointer_event' = @(
+        '[ĶṼⱮ ƥóíñţéř óñ '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('
+        @{
+            'arg' = 'stage'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.kvm_pointer_no_device' = @(
+        '[ĶṼⱮ ƥóíñţéř óñ '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': ţħé ğúéšţ ħáš ñó áƀšóļúţé ƥóíñţéř ďéṽíçé (ʠÉⱮÚ: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ñóţħíñğ ŵáš šéñţ; áďď á ÚŠɃ ţáƀļéţ ţó ţħé ďóɱáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.launch_record_complete_action' = '[Ɱářķ ţħé řúññéř ļáúñçħ řéçóřď éñďéď ~~~~~~~~~~~~~~]'
+    'runner.launch_record_skipped' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ţħé řúññéř ļáúñçħ řéçóřď ŵáš ñóţ ŵříţţéñ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); á ħóšţ řéƥáíř óř ħóšţ úƥďáţé çáññóţ řéšţářţ ţħíš řúññéř, áñď ášķš ţħé óƥéřáţóř ţó šţářţ íţ íñšţéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.launch_record_write_action' = '[Ŵříţé ţħé řúññéř ļáúñçħ řéçóřď ~~~~~~~~~~~~]'
     'runner.m1ff7f8f2d1' = @(
         '['
@@ -2470,6 +3327,61 @@
         }
         ' ~~~~~~~~]'
     )
+    'runner.mcp_workload_action' = '[Řúñ óñé řéğíšţéřéď ṽéřƀ, ƒóř ŵħáţ ñó šéñţéñçé çóṽéřš. Řúñ ŵíţħ óƥéřáţíóñÍď áñď ţħé řúñ ƒíéļďš áçţíóñ, ƒíéļďš áñď íñţéñţ. Ƥóļļ ŵíţħ óƥéřáţíóñÍď áļóñé; çáñçéļ ŵíţħ óƥéřáţíóñÍď áñď çáñçéļ ţřúé. Á çáļļ áñšŵéřš ŵíţħíñ ţħé řéšƥóñšé ƀúďğéţ, áñď á ļóñğéř óƥéřáţíóñ ķééƥš řúññíñğ. Ţħé šáɱé íď áñď íñƥúţ ñéṽéř řúñ ţŵíçé. Á çļíéñţ ţħáţ áƀáñďóñš á řéʠúéšţ ďóéš ñóţ çáñçéļ ţħé óƥéřáţíóñ. Á çáñçéļ ţáķéš éƒƒéçţ ƀéƒóřé ţħé ñéẋţ ƥříɱíţíṽé áñď ďóéš ñóţ íñţéřřúƥţ óñé ţħáţ íš řúññíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_cancel_with_run_fields' = '[Á çáñçéļ ţáķéš óƥéřáţíóñÍď áļóñé; řéɱóṽé ţħé řúñ ƒíéļďš. ~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_failure' = '[Řéáď ţħé ļášţ ƒáíļúřé óƒ ţħé šéššíóñ áš á ƒíļţéřéď ṽíéŵ: ţħé çļášš, ţħé šţéƥ, ţħé šéñţéñçé, ţħé çáúšé ďéţáíļ áñď ţħé éṽíďéñçé ƥáţħš íţ ɱáý šħóŵ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_instructions' = @(
+        "[1. Ļóóķ ƀéƒóřé ýóú áçţ. Çáļļ ŵóřķļóáď_šñáƥšħóţ ƒóř ţħé šúřƒáçé ƀéƒóřé ýóú çħóóšé á šţéƥ, áñď çħóóšé ƒřóɱ ŵħáţ íţ šħóŵš. Á řéƒéřéñçé šúçħ áš š14 óř ƥ7 íš ğóóď óñļý úñţíļ ţħé ñéẋţ šñáƥšħóţ óř šţéƥ óñ ţħáţ šúřƒáçé.`n2. Šáý íţ áš á šéñţéñçé. Ƒíñď ţħé šéñţéñçé ŵíţħ ŵóřķļóáď_ƥħřášéš óř ŵóřķļóáď_šúğğéšţ_šţéƥ áñď řúñ íţ ŵíţħ ŵóřķļóáď_šţéƥ. Úšé ŵóřķļóáď_áçţíóñ óñļý ƒóř ŵħáţ ñó šéñţéñçé çóṽéřš.`n3. Ğíṽé éṽéřý šţéƥ íţš řéášóñ. íñţéñţ íš óñé ļíñé óƒ ƥļáíñ Éñğļíšħ ƒóř ţħé ƥéřšóñ ŵħó řéáďš ţħé ţéšţ ļáţéř; íţ ƀéçóɱéš ţħé šţéƥ'š ďéšçříƥţíóñ. Íţ ħóļďš ñó ƥáššŵóřď, ţóķéñ óř óţħéř šéçřéţ ṽáļúé áñď ñó ṽáříáƀļé řéƒéřéñçé.`n4. Ñéṽéř ţýƥé á šéçřéţ. Ŵħéřé á ƥáššŵóřď íš ñééďéď, ŵříţé ţħé řéƒéřéñçé, ƒóř éẋáɱƥļé "
+        @{
+            'arg' = 'reference'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ". Á ļíţéřáļ íñ á šéçřéţ ƥóšíţíóñ íš řéƒúšéď.`n5. Óñé šţéƥ áţ á ţíɱé, ñéṽéř ţŵíçé. Çħóóšé á ñéŵ óƥéřáţíóñÍď ƒóř éṽéřý ñéŵ šţéƥ. Ŵħéñ á çáļļ áñšŵéřš ŵóřķļóáď_šţíļļ_ŵáíţíñğ, çáļļ ţħé šáɱé ţóóļ áğáíñ ŵíţħ óñļý ţħáţ íď. Ďó ñóţ šéñď á šţéƥ áğáíñ ƀéçáúšé íţš áñšŵéř ŵáš šļóŵ óř ļóšţ.`n6. Šţóƥ áñď ášķ ţħé ƥéřšóñ ŵħéñ á řéšúļţ šáýš ţħé éƒƒéçţ íš úñçéřţáíñ, ŵħéñ ţŵó éļéɱéñţš ɱáţçħ áñď ñóţħíñğ óñ ţħé ƥáğé ţéļļš ţħéɱ áƥářţ, ŵħéñ á šţéƥ ŵóúļď ďéļéţé ďáţá óř ƥóŵéř óƒƒ ţħé ğúéšţ, ŵħéñ ţħé šçřééñ šħóŵš á çřéďéñţíáļ, óř ŵħéñ ţħé ƥřóďúçţ ñó ļóñğéř šħóŵš ŵħáţ ţħé ţéšţ éẋƥéçţš.`n7. Ƒíñíšħ íñ óřďéř: ŵóřķļóáď_ĵóúřñáļ, ŵóřķļóáď_šáṽé_šéʠúéñçé, ŵóřķļóáď_řúñ_šéʠúéñçé, ŵóřķļóáď_šéššíóñ_éñď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    )
+    'runner.mcp_workload_invalid_arguments' = @(
+        '[Ţħé ářğúɱéñţš óƒ '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ářé ñóţ ṽáļíď: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.mcp_workload_invalid_request' = '[Ţħé řéʠúéšţ íš ñóţ á ṽáļíď ĴŠÓÑ-ŘƤÇ řéʠúéšţ. ~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_journal' = '[Řéáď ţħé ĵóúřñáļ: ţħé šţéƥš ţħáţ šúççééďéď šó ƒář áš ÝÁⱮĻ, á šúɱɱářý óƒ éṽéřý óƥéřáţíóñ, áñď ţħé šţáţé çħáñğéš ţħé ÝÁⱮĻ ďóéš ñóţ çářřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_phrases' = '[Ļíšţ ţħé šéñţéñçéš íñ ƒóřçé, éáçħ ŵíţħ íţš íď, šúřƒáçéš, šļóţš áñď ţíéř. Óƥţíóñáļ: šéářçħ, ŵħíçħ ƒíļţéřš ţħé ļíšţ. Áñšŵéřš ƀéƒóřé á šéššíóñ éẋíšţš, ƒřóɱ ţħé ƒřáɱéŵóřķ ļíƀřářý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_request_too_large' = @(
+        '[Ţħé řéʠúéšţ íš ļóñğéř ţħáñ '
+        @{
+            'arg' = 'limit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' çħářáçţéřš. ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.mcp_workload_run_form_incomplete' = @(
+        '[Á çáļļ ţħáţ řúñš áñ óƥéřáţíóñ áļšó ñééďš: '
+        @{
+            'arg' = 'fields'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.mcp_workload_run_sequence' = '[Řéƥļáý ţħé ñáɱéď šéʠúéñçé''š óŵñ šţéƥš óñ ţħé áţţáçħéď ṼⱮ ţħřóúğħ Debug-TestSequence.ps1 íñ á çħíļď ƥřóçéšš. Řúñ ŵíţħ óƥéřáţíóñÍď áñď ţħé řúñ ƒíéļď šéʠúéñçé, óƥţíóñáļļý ţíɱéóúţŠéçóñďš (60 ţó 43200). Ƥóļļ ŵíţħ óƥéřáţíóñÍď áļóñé; çáñçéļ ŵíţħ óƥéřáţíóñÍď áñď çáñçéļ ţřúé. Á çáļļ áñšŵéřš ŵíţħíñ ţħé řéšƥóñšé ƀúďğéţ, áñď á ļóñğéř óƥéřáţíóñ ķééƥš řúññíñğ. Ţħé šáɱé íď áñď íñƥúţ ñéṽéř řúñ ţŵíçé. Á çļíéñţ ţħáţ áƀáñďóñš á řéʠúéšţ ďóéš ñóţ çáñçéļ ţħé óƥéřáţíóñ. Ƀéƒóřé íţš ƒířšţ šţéƥ ţħé řéƥļáý šţóƥš éṽéřý óţħéř řúññíñğ ṼⱮ óñ ţħé ħóšţ éẋçéƥţ ţħé šéřṽíçé ṼⱮš, áš áñý Debug-TestSequence.ps1 řúñ ďóéš; ţħé řéšúļţ óƒ ŵóřķļóáď_šéššíóñ_šţářţ ļíšţš ţħéɱ íñ óţħéřŘúññíñğṼɱš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_save_sequence' = '[Šáṽé ţħé ĵóúřñáļ áš á ñéŵ šéʠúéñçé ƒíļé. Ţħé ƒíļé íš ŵříţţéñ ţó ţħé ƒřáɱéŵóřķ''š ţéšţ/sequences ƒóļďéř, áñď áñ éẋíšţíñğ ƒíļé íš ñéṽéř řéƥļáçéď. Řéʠúířéď: ñáɱé, ďéšçříƥţíóñ áñď řéšóúřçé, ţħé ļíšţ óƒ šéʠúéñçéš íţ řúñš áƒţéř. Óƥţíóñáļ: çóɱƥóñéñţŠţéƥš, ħóŵ ɱáñý ļéáďíñğ šţéƥš ƀéçóɱé çóɱƥóñéñţ šţéƥš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_session_end' = '[Éñď ţħé šéššíóñ: šţóƥ á řúññíñğ óƥéřáţíóñ, çļóšé ţħé óŵñéř çýçļé, řéļéášé ţħé řúñţíɱé ļéášé áñď éñď ţħé ŵóřķéř. Ţħé ṼⱮ íš ļéƒţ řúññíñğ. Ŵíţħóúţ á šéššíóñ íţ áñšŵéřš éñďéď ƒáļšé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_session_start' = '[Áţţáçħ á ŵóřķļóáď šéššíóñ ţó á řúññíñğ ṼⱮ. Řéʠúířéď: ğúéšţĶéý áñď ṽɱÑáɱé. Óƥţíóñáļ: šéʠúéñçé, á ğúéšţ šéʠúéñçé ŵħóšé řéšóúřçé çħáíñ šúƥƥļíéš ţħé ṽáříáƀļéš áñď ŵħóšé ƥħřášé ļíƀřáříéš ářé íñ ƒóřçé, áñď ṽáříáƀļéš, áţ ɱóšţ 64 ṽáļúéš ļáíď óṽéř ţħéɱ. Á šţářţ ţħáţ óúţļíṽéš ţħé řéšƥóñšé ƀúďğéţ ķééƥš řúññíñğ áñď áñšŵéřš ŵóřķļóáď_šéššíóñ_šţářţíñğ; çáļļ áğáíñ ŵíţħ ţħé šáɱé íñƥúţ ţó řéáď íţš řéšúļţ. Ţħé řéšúļţ ļíšţš ţħé óţħéř řúññíñğ ṼⱮš íñ óţħéřŘúññíñğṼɱš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_snapshot' = '[Řéáď ŵħáţ á šúřƒáçé šħóŵš ñóŵ. Řéʠúířéď: šúřƒáçé (šçřééñ óř ƥáğé). Óƥţíóñáļ: ƒíñď, ŵħíçħ ƒíļţéřš ţħé řéţúřñéď ṽíéŵ, áñď íɱáğé, ŵħíçħ áļšó řéţúřñš ţħé šçřééñ ƒřáɱé. Éáçħ éñţřý çářříéš á řéƒéřéñçé šúçħ áš š14, ğóóď óñļý úñţíļ ţħé ñéẋţ šñáƥšħóţ óř šţéƥ óñ ţħáţ šúřƒáçé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_step' = '[Řúñ óñé šéñţéñçé áš á šţéƥ. Řúñ ŵíţħ óƥéřáţíóñÍď áñď ţħé řúñ ƒíéļďš šţéƥ áñď íñţéñţ, óƥţíóñáļļý óñ áñď ţíɱéóúţŠéçóñďš (1 ţó 7200). Ƥóļļ ŵíţħ óƥéřáţíóñÍď áļóñé; çáñçéļ ŵíţħ óƥéřáţíóñÍď áñď çáñçéļ ţřúé. Á çáļļ áñšŵéřš ŵíţħíñ ţħé řéšƥóñšé ƀúďğéţ, áñď á ļóñğéř óƥéřáţíóñ ķééƥš řúññíñğ. Ţħé šáɱé íď áñď íñƥúţ ñéṽéř řúñ ţŵíçé. Á çļíéñţ ţħáţ áƀáñďóñš á řéʠúéšţ ďóéš ñóţ çáñçéļ ţħé óƥéřáţíóñ. Á çáñçéļ ţáķéš éƒƒéçţ ƀéƒóřé ţħé ñéẋţ ƥříɱíţíṽé áñď ďóéš ñóţ íñţéřřúƥţ óñé ţħáţ íš řúññíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.mcp_workload_suggest_step' = '[Šúğğéšţ á šţéƥ ƒóř óñé éñţřý óƒ ţħé çúřřéñţ šñáƥšħóţ. Řéʠúířéď: řéƒ, á řéƒéřéñçé šúçħ áš š14. Řéţúřñš ţħé šéñţéñçéš ţħáţ ţářğéţ éẋáçţļý ţħáţ éñţřý, óř á ţáƥÓñ ƥříɱíţíṽé ŵíţħ ñţħ ŵħéñ ñó šéñţéñçé šíñğļéš íţ óúţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.mcp_yuruna_dependency_version' = '[Řéƥóřţ ţħé ƥíññéď ďéƥéñďéñçý ṽéřšíóñš áñď ŵħáţ íš íñšţáļļéď. Éɱíţš ĴŠÓÑ ñáţíṽéļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.mcp_yuruna_invoke_clear' = '[Çļéář ğéñéřáţéď šţáţé. ĎÉŠŢŘÚÇŢÍṼÉ: ŵħáţ íţ řéɱóṽéš íš ñóţ řéçóṽéřáƀļé ƀý çáļļíñğ íţ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.mcp_yuruna_set_component' = '[Áƥƥļý ţħé çóɱƥóñéñţ ďéƒíñíţíóñš. Ŵříţéš çóñƒíğúřáţíóñ; éẋíţš ñóñ-žéřó ŵíţħ á ţřáñšçříƥţ óñ ƒáíļúřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
@@ -2576,14 +3488,14 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.no_other_runner_refresh_active' = @(
+    'runner.no_other_runner_gate_held' = @(
         '['
         @{
             'arg' = 'callerName'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': ħóšţ řéƒřéšħ '
+        ': ħóšţ óƥéřáţíóñ '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -2595,7 +3507,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); řéƒúšíñğ ţó šţářţ. Ŵáíţ ƒóř íţ ţó ƒíñíšħ, óř řéšúɱé íţ ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); řéƒúšíñğ ţó šţářţ. Ŵáíţ ƒóř íţ ţó ƒíñíšħ, óř, ƒóř á ħóšţ řéƥáíř, řéšúɱé íţ ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.ocr_known_answer_degraded' = @(
         '[Áñ ÓÇŘ ƥřóṽíďéř çáññóţ řéáď á ķñóŵñ ƒřáɱé ('
@@ -4561,13 +5473,13 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' ñóţ óñ ħóšţ -- řúññíñğ ƒúļļ ƀášéļíñé çħáíñ (çóļď ƥáţħ; ṼⱮ ŵíļļ ƀé řéñáɱéď ţó '''
+        ''' ñóţ óñ ħóšţ -- řúññíñğ ţħé ƒúļļ řéšóúřçé çħáíñ (çóļď ƥáţħ; ṼⱮ ŵíļļ ƀé řéñáɱéď ţó '''
         @{
             'arg' = 'requiredSnapshotId'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' áţ šáṽéĎíšķŠñáƥšħóţ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ''' áţ šáṽéĎíšķŠñáƥšħóţ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_17689903bb502dcb' = @(
         '[ƥřóĵéçţÚřļ='''
@@ -4802,13 +5714,13 @@
     'runner.operator_1a355714114b86a7' = '[UTM.app ɱíššíñğ -- íñšţáļļ íţ: ƀřéŵ íñšţáļļ --çášķ úţɱ (óř https://mac.getutm.app) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_1a3ffa06ec11b7a6' = '[ṽířšħ ñóţ ƒóúñď óñ ƤÁŢĦ -- ţħé ļíƀṽířţ/QEMU ƥáçķáğéš ářé ñóţ íñšţáļļéď. Řúñ íñšţáļļ/ubuntu.kvm.sh, óř: šúďó áƥţ-ğéţ íñšţáļļ -ý ļíƀṽířţ-çļíéñţš ļíƀṽířţ-ďáéɱóñ-šýšţéɱ ṽířţíñšţ ʠéɱú-šýšţéɱ-ẋ86 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_1a5944a737ed4e90' = @(
-        '[  Ħóšţ řéƒřéšħ '
+        '[  Ħóšţ řéƥáíř '
         @{
             'arg' = 'report'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' ~~~~~~~~~~]'
+        ' ~~~~~~~~~]'
     )
     'runner.operator_1a6b347dfa6f5220' = '[ íɱáğé áñď ÓÇŘ-ƀášéď ŵáíţƑóřŢéẋţ šţéƥš ŵíļļ ţíɱé óúţ. ~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_1a88a78acf018f09' = '[ Óř ƀý ħáñď: ~~~~~]'
@@ -5931,7 +6843,7 @@
     'runner.operator_2911629c58691e3f' = '[  íţ á çýçļé ŵóúļď šţóƥ ɱíď-řúñ óñ á ƥáššŵóřď ƥřóɱƥţ ţħáţ ñóƀóďý íš ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_29160309e2dd574e' = '[/dev/kvm ƥřéšéñţ. ~~~~~~~]'
     'runner.operator_29205489a1013ab0' = '[host.windows.hyper-v řéʠúířéš éļéṽáţíóñ. Řé-řúñ Start-TestRunner.ps1 áš Áďɱíñíšţřáţóř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.operator_292bf0f1ef450037' = '[Íñṽóķé-ĦóšţŘéƒřéšħ: ħýƥéřṽíšóř íš řéšƥóñšíṽé; ţħé řúññéř íš ďéáď óř áƀšéñţ. Řúñğ 1 (řéçļáíɱ) íš ñóţ íɱƥļéɱéñţéď íñ ţħíš šļíçé -- šţářţ íţ ƀý ħáñď: ƥŵšħ ţéšţ/Start-TestRunner.ps1 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.operator_292bf0f1ef450037' = '[Íñṽóķé-ĦóšţŘéƥáíř: ħýƥéřṽíšóř íš řéšƥóñšíṽé; ţħé řúññéř íš ďéáď óř áƀšéñţ. Řúñğ 1 (řéçļáíɱ) íš ñóţ íɱƥļéɱéñţéď íñ ţħíš šļíçé -- šţářţ íţ ƀý ħáñď: ƥŵšħ ţéšţ/Start-TestRunner.ps1 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_29607e704f43acdc' = @(
         '[users.yml['
         @{
@@ -6558,7 +7470,7 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.operator_2fb31966478fca46' = '[Íñṽóķé-ĦóšţŘéƒřéšħ: çóúļď ñóţ řéšóļṽé/secure ţħé ƥříṽáţé ħóšţ-řéƒřéšħ šţáţé řóóţ ($ĦÓⱮÉ/.yuruna/host-refresh). Řéƒúšíñğ ţó ƥřóçééď ŵíţħóúţ á ďúřáƀļé, óŵñéř-óñļý ƥříṽáţé řóóţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.operator_2fb31966478fca46' = '[Íñṽóķé-ĦóšţŘéƥáíř: çóúļď ñóţ řéšóļṽé/secure ţħé ƥříṽáţé ħóšţ-řéƥáíř šţáţé řóóţ ($ĦÓⱮÉ/.yuruna/host-repair). Řéƒúšíñğ ţó ƥřóçééď ŵíţħóúţ á ďúřáƀļé, óŵñéř-óñļý ƥříṽáţé řóóţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_2fce8fc42e5b8f1f' = '[Řúññíñğ óñ ɱáçÓŠ ƀúţ ÚŢⱮ ñóţ ƒóúñď áţ /Applications/UTM.app. ~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_300e4e9499987ed4' = @(
         '[Ŵáíţ-ÝúřúñáÁğğřéğáţóřŘéáďý: ţħé ƥóóļ-áğğřéğáţóř šéřṽíçé ďíď ñóţ ƀéçóɱé řéáďý ŵíţħíñ '
@@ -7488,13 +8400,13 @@
         ' ƒóř ţħé ƥéř-çýçļé ļóğ. ~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_3d35ece66aa84b79' = @(
-        '[Ğúéšţ ķéý (ƒřóɱ ƀášéļíñé): '
+        '[Ğúéšţ ķéý (ƒřóɱ řéšóúřçé çħáíñ): '
         @{
             'arg' = 'guestKey'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' ~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_3d585575d8816432' = @(
         '[  ÉŘŘÓŘ ['
@@ -8328,13 +9240,13 @@
     'runner.operator_46e3cbe0614b1d51' = '[ƥóóļŠţóřáğé šéţúƥ: ñéţŵóřķƤáţħ/networkUser ɱúšţ ñóţ çóñţáíñ á šíñğļé ʠúóţé (íţ ŵóúļď ƀřéáķ ţħé ğúéšţ šééď). Ñóţħíñğ ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_46f30de3d812ddd8' = '[Šýšţéɱ Šéţţíñğš > Ƥříṽáçý & Šéçúříţý > Áúţóɱáţíóñ ~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_47371277eaeea492' = @(
-        '[Šţáţúš-šéřṽéř ƀóúñçé çóúļď ñóţ šţářţ: '
+        '[Šţáţúš-šéřṽíçé ƀóúñçé çóúļď ñóţ šţářţ: '
         @{
             'arg' = 'message'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' ~~~~~~~~~~~~~~~~~~~]'
+        ' ~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_47513825bfb62345' = '[ƥóóļ řéğíšţřý: ÑÓ řéğíšţéřéď šţášħ šéřṽíçé áñšŵéřš ƒřóɱ ţħíš ħóšţ. Á ƥřóĵéçţ ţħáţ úƥļóáďš ƀúíļď óúţƥúţ ţó ţħé šţášħ ħáš ñóŵħéřé ţó ƥúţ íţ, áñď íţš çýçļé ŵíļļ šţóƥ ƀéƒóřé ţħé ƥřóṽíšíóñíñğ šţáğéš. Šţářţ á šţášħ šéřṽíçé (Start-StashServiceVM.ps1), ƒíẋ ţħé óñé ţħé ƥóóļ áďṽéřţíšéš, óř ƥíñ áñ áďďřéšš ŵíţħ $éñṽ:ÝÚŘÚÑÁ_ŠŢÁŠĦ_ŠÉŘṼÍÇÉ_ĦÓŠŢ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_4775b1b7fa5ca368' = @(
@@ -11154,7 +12066,7 @@
         }
         ' Ļóóķ áţ ţħé ļíñķ áñď ţħé řéñéŵáļ ƥáţħ, ñóţ áţ ţħé ĎĦÇƤ íďéñţíţý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.operator_677303e3823afe8d' = '[''testCycle.autoRefreshAfterStalls'' ñóţ šéţ -- ďéƒáúļţš ţó 0 (áúţóɱáţíç ħóšţ řéƒřéšħ ďíšáƀļéď). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.operator_677303e3823afe8d' = '[''testCycle.autoRepairAfterStalls'' ñóţ šéţ -- ďéƒáúļţš ţó 0 (áúţóɱáţíç ħóšţ řéƥáíř ďíšáƀļéď). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_67a649b2f9792d49' = @(
         '[Ƒáíļéď ţó íñšţáļļ '
         @{
@@ -11697,13 +12609,13 @@
     'runner.operator_6e9385fec86f1e3d' = '[Çáçħíñğ-ƥřóẋý šéřṽíçé: á çáçħíñğ-ƥřóẋý-šéřṽíçé ƀříñğ-úƥ ħóļďš ţħé ļóçķ -- ļéáṽíñğ ţħé ƥóřţ ɱáƥ ţó íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_6ec6add9e9a298c1' = '[    Çóɱɱóñ çáúšé: ţħé çáçħé ṼⱮ íš úƥ ƀúţ šʠúíď íš řéšţářţíñğ -- á ƒřéšħļý řéƀúíļţ çáçħé ďóéš ţħíš óñçé ŵħíļé ƥřóṽíšíóñíñğ áƥƥļíéš íţš ššļ-ƀúɱƥ çóñƒíğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_6eca51811f4cfdd3' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: áñóţħéř řéƥáíř áļřéáďý ħóļďš ţħé ļíƒéţíɱé ļóçķ ('
+        '[Íñṽóķé-ĦóšţŘéƥáíř: áñóţħéř ħóšţ óƥéřáţíóñ áļřéáďý ħóļďš ţħé ļíƒéţíɱé ļóçķ ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Řéƒúšíñğ ţó řúñ áļóñğšíďé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '). Řéƒúšíñğ ţó řúñ áļóñğšíďé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_6f45c80f05654384' = @(
         '[Řéƒéřéñçé çóñƒíğ ƒřóɱ '
@@ -12912,19 +13824,19 @@
         '. ÑÁŠ řéçóřďš řéɱóṽéď; ɱéɱƀéřšħíƥš ÑÓŢ ţóúçħéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_7d74f75db443e9e2' = @(
-        '[Šţáţúš-šéřṽéř ƀóúñçé íš šţíļļ řúññíñğ áƒţéř '
+        '[Šţáţúš-šéřṽíçé ƀóúñçé íš šţíļļ řúññíñğ áƒţéř '
         @{
             'arg' = 'bounceTimeoutSeconds'
             'type' = 'detail'
             'trust' = 'external'
         }
-        'š; íţ ŵáš ļéƒţ áļóñé (ķíļļíñğ íţ ŵóúļď ţáķé ţħé šéřṽéř ďóŵñ ŵíţħ íţ). Ţřáñšçříƥţ: '
+        'š; íţ ŵáš ļéƒţ áļóñé (ķíļļíñğ íţ ŵóúļď ţáķé ţħé šéřṽíçé ďóŵñ ŵíţħ íţ). Ţřáñšçříƥţ: '
         @{
             'arg' = 'logPath'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '. Ţħé ţóķéñ íš šţóřéď áñď ţáķéš éƒƒéçţ áţ ţħé ñéẋţ çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. Ţħé ţóķéñ íš šţóřéď áñď ţáķéš éƒƒéçţ áţ ţħé ñéẋţ çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_7d810c19cbdcdd72' = @(
         '[Áúţħéñţíçáţíóñ éẋţéñšíóñ íñíţ ƒáíļéď: '
@@ -13126,7 +14038,7 @@
         ''' ~~~~~~~~~~~~~~]'
     )
     'runner.operator_7f5c0d3fa4f8cdf8' = @(
-        '[Šţáţúš-šéřṽéř ƀóúñçé éẋíţéď '
+        '[Šţáţúš-šéřṽíçé ƀóúñçé éẋíţéď '
         @{
             'arg' = 'exitCode'
             'type' = 'detail'
@@ -13859,7 +14771,7 @@
         ') ~~~~~~~~~]'
     )
     'runner.operator_88f502760b28fd59' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: ħýƥéřṽíšóř ƥřóƀé íš '
+        '[Íñṽóķé-ĦóšţŘéƥáíř: ħýƥéřṽíšóř ƥřóƀé íš '
         @{
             'arg' = 'state'
             'type' = 'detail'
@@ -13871,7 +14783,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). Ñó řúñğ áƀóṽé 0 íš áţţéɱƥţéď ƀý ţħíš šļíçé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '). Ñó řúñğ áƀóṽé 0 íš áţţéɱƥţéď ƀý ţħíš šļíçé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_88f8f80282f86157' = '[transports.resend.apiKey ďóéš ñóţ šţářţ ŵíţħ ''řé_'' -- Řéšéñď ÁƤÍ ķéýš ţýƥíçáļļý ƀéğíñ ŵíţħ ''řé_''. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_88fcb4dc7bd3cb87' = @(
@@ -16392,7 +17304,7 @@
         ''' íš řéğéñéřáţéď ŵíţħ ''ďħçƥ-íďéñţíƒíéř: ɱáç'', ţħéñ: šúďó ñéţƥļáñ áƥƥļý ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_a6cceb1dcf23a282' = @(
-        '[Íñṽóķé-ĦóšţŘéƒřéšħ: řéʠúéšţ řéƒúšéď ('
+        '[Íñṽóķé-ĦóšţŘéƥáíř: řéʠúéšţ řéƒúšéď ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
@@ -16896,7 +17808,7 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.operator_ae404c37892f11d1' = '[Ŵříţé ħóšţ-řéƒřéšħ řéʠúéšţ ĵóúřñáļ ~~~~~~~~~~~~~~]'
+    'runner.operator_ae404c37892f11d1' = '[Ŵříţé ħóšţ-óƥéřáţíóñ řéʠúéšţ ĵóúřñáļ ~~~~~~~~~~~~~~~]'
     'runner.operator_ae4e8052943a33cd' = @(
         '[Éñšúřéď Ŵíñďóŵš Ƒířéŵáļļ řúļé '''
         @{
@@ -20838,7 +21750,7 @@
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.operator_dfd19c97aaa9ff6e' = '[Íñṽóķé-ĦóšţŘéƒřéšħ: ħýƥéřṽíšóř řéšƥóñšíṽé áñď á řúññéř íš ƥřéšéñţ -- ṽéříƒíéď ñó-óƥ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.operator_dfd19c97aaa9ff6e' = '[Íñṽóķé-ĦóšţŘéƥáíř: ħýƥéřṽíšóř řéšƥóñšíṽé áñď á řúññéř íš ƥřéšéñţ -- ṽéříƒíéď ñó-óƥ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_dfd80a749d4fee8f' = '[  Áďď Get-Image.ps1 + New-VM.ps1 úñďéř ţħáţ ƥáţħ ţó éñáƀļé ţħíš ğúéšţ, óř ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_e00026446a75f063' = @(
         '[Ļóšţ ţħé ƥíďƒíļé řáçé áğáíñšţ á çóñçúřřéñţ Šţářţ-ŢéšţŘúññéř. Íñšƥéçţ '
@@ -23053,7 +23965,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' -- šķíƥƥíñğ ƀášéļíñé çħáíñ (ŵářɱ ƥáţħ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ''' -- šķíƥƥíñğ ţħé řéšóúřçé çħáíñ (ŵářɱ ƥáţħ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.operator_f8a43d6f86299328' = @(
         '[Çħéçķ ţħé šéřṽéř éřřóř ļóğ: '
@@ -23630,13 +24542,13 @@
     )
     'runner.operator_fff495323f51f508' = '[Windows.Media.Ocr íš íñšţáļļéď óñ éṽéřý Ŵíñďóŵš ɱáçħíñé, ƀúţ: ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.operator_fffaa1debcc46863' = @(
-        '[''testCycle.autoRefreshAfterStalls'' íš '
+        '[''testCycle.autoRepairAfterStalls'' íš '
         @{
             'arg' = 'arasVal'
             'type' = 'detail'
             'trust' = 'external'
         }
-        ' -- šħóúļď ƀé 0 (ďíšáƀļéď) óř á ƥóšíţíṽé íñţéğéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' -- šħóúļď ƀé 0 (ďíšáƀļéď) óř á ƥóšíţíṽé íñţéğéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.orchestration_before_seal_failed' = @(
         '[Ţħé šţéƥ ţħáţ řéçóřďš óřçħéšţřáţíóñ '
@@ -23719,6 +24631,30 @@
             'trust' = 'external'
         }
         ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.phrase_library_invalid' = @(
+        '[_phrases.yml: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~]'
+    )
+    'runner.phrase_library_valid' = @(
+        '[_phrases.yml: '
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ƥħřášé(š) íñ '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~]'
     )
     'runner.pool_configuration_library_removed' = '[Řéɱóṽéď test-sets.yml ƒřóɱ ţħé çóñƒíğúřáţíóñ šţóřé; ñóţħíñğ řéáďš íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'runner.pool_configuration_schema_already_current' = @(
@@ -23878,6 +24814,15 @@
         '. Šéé ţħé ñéţŵóřķ ďíáğñóšţíçš ƒóř áļļ áţţéɱƥţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.prior_runner_cleanup_action' = "[  Áçţíóñ:  šţóƥƥíñğ íţ áñď řúññíñğ`n           Remove-TestVMFiles.ps1 ƀéƒóřé šţářţ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    'runner.private_state_migration_blocked' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ţħé ƥříṽáţé šţáţé řóóţ çóúļď ñóţ ɱóṽé ƒřóɱ íţš éářļíéř ħóšţ-řéƒřéšħ ļóçáţíóñ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ñóţ šţářţíñğ. Šţóƥ ţħé óļď řúññéř, šţáţúš ļíšţéñéř áñď ħóšţ çóñţřóļļéř, ţħéñ šţářţ ţħé řúññéř áğáíñ. Šéé https://yuruna.link/42f909ad-0022 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.process_start_record_write_action' = '[Ŵříţé á ƥřóçéšš šţářţ-ţíɱé řéçóřď ~~~~~~~~~~~~~~]'
     'runner.project_checkout_replace_action' = @(
         '[Řéƥļáçé ŵíţħ á ƒřéšħ çħéçķóúţ óƒ '
@@ -23904,7 +24849,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '): á ďřáíñéď óř ƥáúšéď ƥóóļ, á ħóšţ řéƒřéšħ óř Ctrl+C ħéļď íţ ƀéƒóřé á ṽéřďíçţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '): á ďřáíñéď óř ƥáúšéď ƥóóļ, á ħóšţ óƥéřáţíóñ óř Ctrl+C ħéļď íţ ƀéƒóřé á ṽéřďíçţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.project_previous_cleanup_failed' = @(
         '[Çóúļď ñóţ ďéļéţé ţħé ďíšƥļáçéď ƥřóĵéçţ çħéçķóúţ áţ '
@@ -23987,8 +24932,8 @@
         }
         '), šó ţħáţ ÇÁ íš ñóţ ţřúšţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.readiness_ack_remove_action' = '[Řéɱóṽé á šţáļé řéƒřéšħ řéáďíñéšš áçķñóŵļéďğɱéñţ ~~~~~~~~~~~~~~~~~~~]'
-    'runner.readiness_ack_write_action' = '[Ŵříţé ţħé řéƒřéšħ řéáďíñéšš áçķñóŵļéďğɱéñţ ~~~~~~~~~~~~~~~~~]'
+    'runner.readiness_ack_remove_action' = '[Řéɱóṽé á šţáļé ħáñďóƒƒ řéáďíñéšš áçķñóŵļéďğɱéñţ ~~~~~~~~~~~~~~~~~~~]'
+    'runner.readiness_ack_write_action' = '[Ŵříţé ţħé ħáñďóƒƒ řéáďíñéšš áçķñóŵļéďğɱéñţ ~~~~~~~~~~~~~~~~~]'
     'runner.recovery_applied' = @(
         '[[óúţéř çýçļé '
         @{
@@ -24079,421 +25024,6 @@
         }
         '). Ţħé çýçļé óúţçóɱé íš úñáƒƒéçţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.refresh_barrier_held' = @(
-        '[Řéšúɱéď áƒţéř ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ': ħéļď ƀý '
-        @{
-            'arg' = 'controls'
-            'type' = 'text'
-            'trust' = 'internal'
-        }
-        '. Řéļéášé ţħéɱ ƒřóɱ ţħé šţáţúš ƥáğé; ñó ṼⱮ íš çřéáţéď óř çħáñğéď úñţíļ ţħéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_barrier_released' = @(
-        '[Ħéļď çóñţřóļš řéļéášéď áƒţéř '
-        @{
-            'arg' = 'seconds'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        ' š; ţħé řéšúɱéď çýçļé çóñţíñúéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_capability_unverified_macos' = '[Řúññéř řéçļáɱáţíóñ áñď řéšţářţ ářé ñóţ ʠúáļíƒíéď óñ ɱáçÓŠ ýéţ: ţħé ƥš ƥřóçéšš ţáƀļé áñď ţħé ďéţáçħéď ļáúñçħ ářé ţéšţéď ŵíţħ ƒíẋţúřéš óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.refresh_capability_unverified_windows' = '[Řúññéř řéçļáɱáţíóñ áñď řéšţářţ ářé ñóţ ʠúáļíƒíéď óñ Ŵíñďóŵš ýéţ: ţħé ÇÍⱮ ƥřóçéšš ţáƀļé, šíñğļé-ƥřóçéšš ţéřɱíñáţíóñ áñď ţħé řéƥářéñţ ħóƥ ářé ţéšţéď ŵíţħ ƒíẋţúřéš óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.refresh_cycle_held' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] ţħé íññéř šţóƥƥéď áţ '
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ƀéçáúšé á ħóšţ řéƒřéšħ ħóļďš ţħíš ħóšţ; ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_blocks_start' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ħóļďš ţħíš ħóšţ''š řúññéř (ğáţé '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); ñóţ šţářţíñğ á šéçóñď řúññéř. Ŵáíţ ƒóř íţ ţó ƒíñíšħ, óř řéšúɱé íţ ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_boot_resume' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ŵáš ļéƒţ úñƒíñíšħéď ƀý áñ éářļíéř ƀóóţ; řéšúɱíñğ íţ óñçé ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé (ƥíď '
-        @{
-            'arg' = 'pid'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '). Ţħíš šţářţ šţíļļ řéƒúšéš; ţħé řéƒřéšħ šţářţš ţħé řúññéř ŵħéñ íţ çóɱƥļéţéš, áñď íţš éřřóřš ğó ţó '
-        @{
-            'arg' = 'stdErrPath'
-            'type' = 'detail'
-            'trust' = 'internal'
-        }
-        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_boot_resume_failed' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ŵáš ļéƒţ úñƒíñíšħéď ƀý áñ éářļíéř ƀóóţ, áñď řéšúɱíñğ íţ ƒáíļéď ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); řéšúɱé íţ ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_boot_resume_tried' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ', ļéƒţ úñƒíñíšħéď ƀý áñ éářļíéř ƀóóţ, ŵáš áļřéáďý řéšúɱéď óñçé íñ ţħíš ƀóóţ; řéšúɱé íţ áğáíñ ŵíţħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_hold' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ħóļďš ţħé řúññéř (ğáţé '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); ñó çýçļé šţářţš úñţíļ íţ řéļéášéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_orphaned' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ļéƒţ ţħé řúññéř ħéļď (ğáţé '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') áñď íţš ŵóřķéř íš ñó ļóñğéř řúññíñğ. Řúñ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé ţó ƒíñíšħ íţš řéçóṽéřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_released' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] ţħé ħóšţ-řéƒřéšħ ğáţé řéļéášéď ţħé řúññéř; çýçļéš řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_status_ensure_failed' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ţħé šţáţúš šéřṽíçé çóúļď ñóţ ƀé šţářţéď ŵħíļé ţħé ğáţé ħóļďš: '
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_status_ensured' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ħáš ñó ļíṽé ŵóřķéř; ţħé šţáţúš šéřṽíçé ŵáš šţářţéď óñ ƥóřţ '
-        @{
-            'arg' = 'port'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        ' šó íţš ďášħƀóářď çáñ šħóŵ áñď řéšúɱé ţħé úñřéšóļṽéď řéʠúéšţ. Ţħé řúññéř šţářţ šţáýš řéƒúšéď úñţíļ ţħé řéʠúéšţ íš řéšóļṽéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_unreadable' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] ţħé ħóšţ-řéƒřéšħ ğáţé řéçóřď çóúļď ñóţ ƀé řéáď ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); ţħé řúññéř šţáýš ħéļď úñţíļ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé řéšóļṽéš íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_gate_write_action' = @(
-        '[Ŵříţé ţħé ħóšţ-řéƒřéšħ řúññéř ğáţé ('
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') ~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_handoff_complete' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] řéáďíñéšš ṽéříƒíéď ƒóř ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; ļéáṽíñğ ţħé řéƒřéšħ ğáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_handoff_complete_action' = @(
-        '[Çóɱƥļéţé á ħóšţ-řéƒřéšħ řúññéř ħáñďóƒƒ ('
-        @{
-            'arg' = 'verdict'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') ~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_handoff_issue_action' = @(
-        '[Íššúé á ħóšţ-řéƒřéšħ řúññéř ħáñďóƒƒ ţóķéñ ('
-        @{
-            'arg' = 'purpose'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') ~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_handoff_unverified' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] řéáďíñéšš ƒóř ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' çóúļď ñóţ ƀé ṽéříƒíéď ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); ţħé řúññéř šţáýš ħéļď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_launch_record_skipped' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ţħé řúññéř ļáúñçħ řéçóřď ŵáš ñóţ ŵříţţéñ ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); á ħóšţ řéƒřéšħ çáññóţ řéšţářţ ţħíš řúññéř, áñď ášķš ţħé óƥéřáţóř ţó šţářţ íţ íñšţéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_preflight_cycle' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] řéƒřéšħ ƥřéƒļíğħţ óñļý: ñó ğíţ ƥúļļ, ṼⱮ çħáñğé óř çóñţřóļ šŵééƥ íñ ţħíš çýçļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_preflight_failed' = @(
-        '[Řéƒřéšħ ƥřéƒļíğħţ ƒáíļéď ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); ñóţħíñğ ŵáš çħáñğéď áñď ţħé řúññéř šţáýš ħéļď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_preflight_ready' = @(
-        '[Řéƒřéšħ ƥřéƒļíğħţ řéáďý ƒóř řéʠúéšţ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; ŵáíţíñğ ƒóř ţħé řéƒřéšħ ŵóřķéř ţó řéļéášé ţħé řúññéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_preflight_released' = @(
-        '[Řéƒřéšħ ƥřéƒļíğħţ éñďéď ('
-        @{
-            'arg' = 'outcome'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); éẋíţíñğ šó ţħé řúññéř çáñ çóñţíñúé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_preflight_result' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] řéƒřéšħ ƥřéƒļíğħţ çýçļé ƒíñíšħéď ŵíţħ éẋíţ çóďé '
-        @{
-            'arg' = 'exitCode'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_resume_action' = '[Řéšţářţ ţħé řúññéř áƒţéř á ħóšţ řéƒřéšħ ~~~~~~~~~~~~~~~~]'
-    'runner.refresh_resume_record_refused' = @(
-        '[Šţářţ-ŢéšţŘúññéř: '
-        @{
-            'arg' = 'pidFile'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' íš '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; á řéƒřéšħ řéšúɱé ñéṽéř ţáķéš óṽéř óř ďéļéţéš á ļíṽé óř úñķñóŵñ řúññéř řéçóřď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_resume_started' = @(
-        '[Šţářţ-ŢéšţŘúññéř: řéšúɱíñğ áƒţéř ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; óƥéřáţóř ƥáúšéš, ħóļďš áñď řéšţářţ řéʠúéšţš ářé ƥřéšéřṽéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_resume_switch_pair' = '[Šţářţ-ŢéšţŘúññéř: -ŘéƒřéšħŘéšúɱé áñď -ŘéƒřéšħĦáñďóƒƒŢóķéñ ɱúšţ ƀé ğíṽéñ ţóğéţħéř; ñóţ šţářţíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'runner.refresh_resume_token_refused' = @(
-        '[Šţářţ-ŢéšţŘúññéř: ţħé řéƒřéšħ ħáñďóƒƒ ŵáš řéƒúšéď ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); ñóţ šţářţíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_site_gated' = @(
-        '[Çýçļé éñďéď ƀéƒóřé '
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ': ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ħóļďš ţħíš ħóšţ (ğáţé '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '). Ñóţħíñğ ŵáš çħáñğéď; ţħé řúññéř ŵáíţš ƒóř ţħé řéƒřéšħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_status_ensure_orphaned' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] ħóšţ řéƒřéšħ '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ħóļďš ţħé řúññéř (ğáţé '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') áñď íţš ŵóřķéř íš ñó ļóñğéř řúññíñğ; řé-éñšúříñğ ţħé šţáţúš šéřṽíçé šó íţš ďášħƀóářď çáñ šħóŵ áñď řéšúɱé ţħé úñřéšóļṽéď řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_status_ensure_skipped' = @(
-        '[[óúţéř çýçļé '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] šţáţúš-šéřṽíçé řé-éñšúřé šķíƥƥéď: á ħóšţ řéƒřéšħ ħóļďš ţħíš ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
-    'runner.refresh_trigger_call_failed' = @(
-        '[Áúţóɱáţíç ħóšţ-řéƒřéšħ çáļļ áţ '
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ƒáíļéď áñď ŵáš šķíƥƥéď: '
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    )
     'runner.resident_watchdog_kill_preamble' = @(
         '[[óúţéř çýçļé '
         @{
@@ -24553,6 +25083,186 @@
             'trust' = 'internal'
         }
         ' ŵíţħ íţš ƥřóçéšš ţřéé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_blocks_start' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħíš ħóšţ''š řúññéř (ğáţé '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ñóţ šţářţíñğ á šéçóñď řúññéř. Ŵáíţ ƒóř íţ ţó ƒíñíšħ, óř, ƒóř á ħóšţ řéƥáíř, řéšúɱé íţ ŵíţħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_cycle_held' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé íññéř šţóƥƥéď áţ '
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ƀéçáúšé á ħóšţ óƥéřáţíóñ ħóļďš ţħíš ħóšţ; ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_hold' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħé řúññéř (ğáţé '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ñó çýçļé šţářţš úñţíļ íţ řéļéášéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_orphaned' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ļéƒţ ţħé řúññéř ħéļď (ğáţé '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') áñď íţš ŵóřķéř íš ñó ļóñğéř řúññíñğ. Ƒóř á ħóšţ řéƥáíř, řúñ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé ţó ƒíñíšħ íţš řéçóṽéřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_released' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé řúññéř ğáţé řéļéášéď ţħé řúññéř; çýçļéš řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_site_held' = @(
+        '[Çýçļé éñďéď ƀéƒóřé '
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħíš ħóšţ (ğáţé '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). Ñóţħíñğ ŵáš çħáñğéď; ţħé řúññéř ŵáíţš ƒóř íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_status_ensure_failed' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ţħé šţáţúš šéřṽíçé çóúļď ñóţ ƀé šţářţéď ŵħíļé ţħé ğáţé ħóļďš: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_status_ensure_orphaned' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħóļďš ţħé řúññéř (ğáţé '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') áñď íţš ŵóřķéř íš ñó ļóñğéř řúññíñğ; řé-éñšúříñğ ţħé šţáţúš šéřṽíçé šó íţš ďášħƀóářď çáñ šħóŵ áñď řéšúɱé ţħé úñřéšóļṽéď řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_status_ensure_skipped' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] šţáţúš-šéřṽíçé řé-éñšúřé šķíƥƥéď: á ħóšţ óƥéřáţíóñ ħóļďš ţħíš ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_status_ensured' = @(
+        '[Šţářţ-ŢéšţŘúññéř: ħóšţ óƥéřáţíóñ '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ħáš ñó ļíṽé ŵóřķéř; ţħé šţáţúš šéřṽíçé ŵáš šţářţéď óñ ƥóřţ '
+        @{
+            'arg' = 'port'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' šó íţš ďášħƀóářď çáñ šħóŵ áñď řéšúɱé ţħé úñřéšóļṽéď řéʠúéšţ. Ţħé řúññéř šţářţ šţáýš řéƒúšéď úñţíļ ţħé řéʠúéšţ íš řéšóļṽéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_unreadable' = @(
+        '[[óúţéř çýçļé '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] ţħé řúññéř ğáţé řéçóřď çóúļď ñóţ ƀé řéáď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ţħé řúññéř šţáýš ħéļď úñţíļ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé řéšóļṽéš íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.runner_gate_write_action' = @(
+        '[Ŵříţé ţħé řúññéř ğáţé ('
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') ~~~~~~~~~~~~~]'
     )
     'runner.runner_process_signal_action' = @(
         '[Šíğñáļ á ṽéříƒíéď řúññéř ƥřóçéšš ('
@@ -25246,6 +25956,147 @@
         }
         '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.ssh_host_key_pin_unconfirmed_reset' = @(
+        '[Ţħé ŠŠĦ ħóšţ ķéý ƥíññéď ƒóř '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' ŵáš řéçóřďéď ďúříñğ ţħíš ŵáíţ áñď ñó ļóğíñ ħáš áúţħéñţíçáţéď áğáíñšţ íţ, áñď ţħé ğúéšţ áţ '
+        @{
+            'arg' = 'address'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ñóŵ ƥřéšéñţš áñóţħéř ķéý, áš á ƒřéšħ ğúéšţ ďóéš ŵħéñ íţš íñšţáļļéř''š ŠŠĦ šéřṽéř ğíṽéš ŵáý ţó ţħé íñšţáļļéď šýšţéɱ''š. Ţħé ƥíñ íš ƒóřğóţţéñ áñď ţħé ŵáíţ ğóéš óñ (řéšéţ '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' óƒ '
+        @{
+            'arg' = 'limit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '; ƥíñ: '
+        @{
+            'arg' = 'pin'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.ssh_password_rotated' = @(
+        '[ššħŴáíţŘéáďý çħáñğéď ţħé éẋƥířéď ƥáššŵóřď óƒ '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óṽéř ŠŠĦ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.ssh_password_rotation_failed' = @(
+        '[ššħŴáíţŘéáďý çóúļď ñóţ çħáñğé ţħé éẋƥířéď ƥáššŵóřď óƒ '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óṽéř ŠŠĦ ('
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), šó ţħé šţéƥ ƒáíļš. Ğúéšţ óúţƥúţ: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.ssh_password_set' = @(
+        '[ššħŴáíţŘéáďý šéţ ţħé ƥáššŵóřď óƒ '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óṽéř ŠŠĦ, ƀéçáúšé ţħé ļóğíñ ŵáš ñóţ éẋƥířéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.ssh_password_set_failed' = @(
+        '[ššħŴáíţŘéáďý çóúļď ñóţ šéţ ţħé ƥáššŵóřď óƒ '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óṽéř ŠŠĦ ('
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), šó ţħé šţéƥ ƒáíļš áñď ñó ļáţéř šţéƥ šţóřéš ţħé ñéŵ ƥáššŵóřď. Ğúéšţ óúţƥúţ: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.ssh_password_still_expired' = @(
+        '[Ţħé ğúéšţ šţíļļ řéƥóřţš áñ éẋƥířéď ƥáššŵóřď ƒóř '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' óñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' áƒţéř ššħŴáíţŘéáďý çħáñğéď íţ, šó ţħé šţéƥ ƒáíļš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.ssh_wait_rotation_fields_incomplete' = @(
+        '[ššħŴáíţŘéáďý řóţáţéš áñ éẋƥířéď ƥáššŵóřď óñļý ŵíţħ ƀóţħ çúřřéñţƤáššŵóřď áñď ñéŵƤáššŵóřď, áñď ţħíš šţéƥ ğíṽéš óñļý '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', šó ţħé šţéƥ ƒáíļš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.start_cycle_worker_cleanup_failed' = @(
         '[Šţářţ-çýçļé '
         @{
@@ -25548,7 +26399,7 @@
         }
         ''') áñď šţářţíñğ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.status_refresh_safe_existing_ready' = @(
+    'runner.status_non_destructive_existing_ready' = @(
         '[Šţáţúš šéřṽíçé ƤÍĎ '
         @{
             'arg' = 'processId'
@@ -25561,9 +26412,9 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '; ţħé řéƒřéšħ-šáƒé šţářţ ļéƒţ íţ řúññíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '; ţħé ñóñ-ďéšţřúçţíṽé šţářţ ļéƒţ íţ řúññíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.status_refresh_safe_not_ready' = @(
+    'runner.status_non_destructive_not_ready' = @(
         '[Ţħé šţáţúš šéřṽíçé šţářţéď áš ƤÍĎ '
         @{
             'arg' = 'processId'
@@ -25578,8 +26429,8 @@
         }
         ' šéçóñďš; íţ ŵáš ļéƒţ řúññíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.status_refresh_safe_partial' = @(
-        '[Řéƒřéšħ-šáƒé šţářţ óƒ ţħé šţáţúš šéřṽíçé óñ ƥóřţ '
+    'runner.status_non_destructive_partial' = @(
+        '[Ñóñ-ďéšţřúçţíṽé šţářţ óƒ ţħé šţáţúš šéřṽíçé óñ ƥóřţ '
         @{
             'arg' = 'port'
             'type' = 'integer'
@@ -25597,27 +26448,27 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.status_refresh_safe_refused' = @(
-        '[Start-StatusService.ps1 -ŘéƒřéšħŠáƒé řéƒúšéď: '
+    'runner.status_non_destructive_refused' = @(
+        '[Start-StatusService.ps1 -ÑóñĎéšţřúçţíṽé řéƒúšéď: '
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '. ~~~~~~~~~~~~~~~~~~~~~~]'
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.status_refresh_safe_result_unwritable' = @(
-        '[Ţħé řéƒřéšħ-šáƒé šţářţ çóúļď ñóţ ŵříţé íţš řéšúļţ řéçóřď ţó '
+    'runner.status_non_destructive_result_unwritable' = @(
+        '[Ţħé ñóñ-ďéšţřúçţíṽé šţářţ çóúļď ñóţ ŵříţé íţš řéšúļţ řéçóřď ţó '
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'runner.status_refresh_safe_started' = @(
+    'runner.status_non_destructive_started' = @(
         '[Šţáţúš šéřṽíçé šţářţéď áš ƤÍĎ '
         @{
             'arg' = 'processId'
@@ -25630,7 +26481,7 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' (řéƒřéšħ-šáƒé šţářţ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ' (ñóñ-ďéšţřúçţíṽé šţářţ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.status_restart_changed_head' = @(
         '[Řéšţářţíñğ šţáţúš šéřṽíçé (ƤÍĎ '
@@ -25673,6 +26524,21 @@
     )
     'runner.status_worker_directory_prepare_action' = '[Ƥřéƥářé ţħé ƥříṽáţé ŵóřķéř ďířéçţóřý ~~~~~~~~~~~~~~~]'
     'runner.status_worker_state_write_action' = '[Ƥúƀļíšħ ţħé ŵóřķéř šţáţé řéçóřď ~~~~~~~~~~~~~]'
+    'runner.step_form_invalid' = @(
+        '[Ţħé šţéƥ áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ɱúšţ ħáṽé éẋáçţļý óñé óƒ ''šţéƥ'', ''áçţíóñ'' áñď ''šñíƥƥéţ''; íţ ħáš: '
+        @{
+            'arg' = 'found'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
     'runner.step_handler_threw' = @(
         '[Šţéƥ '
         @{
@@ -25714,6 +26580,411 @@
             'trust' = 'external'
         }
         '. Ţħé ŵáţçħďóğ ĵúďğéš ţħé çýçļé ƀý ţħíš ƒíļé áñď šţóƥš íţ áš ŵéďğéď óñçé íţ ğóéš šţáļé; çħéçķ ƒřéé šƥáçé áñď ƒíļé ļóçķš ţħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_duplicate_id' = @(
+        '[Ƥħřášé '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' íš ďéƒíñéď íñ '
+        @{
+            'arg' = 'first'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' áñď áğáíñ íñ '
+        @{
+            'arg' = 'second'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Á ƥħřášé íď íš ďéƒíñéď óñçé; á ļíƀřářý áďďš ƥħřášéš áñď ñéṽéř řéďéƒíñéš óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_file_unreadable' = @(
+        '['
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çáññóţ ƀé řéáď: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Šéñţéñçé šţéƥš çáññóţ ƀé řéšóļṽéď ŵíţħóúţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_library_invalid' = @(
+        '[Ƥħřášé ļíƀřářý '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íš ñóţ ṽáļíď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') áţ '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_malformed' = @(
+        '[Ţħé šéñţéñçé áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çáññóţ ƀé řéáď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') áţ çħářáçţéř '
+        @{
+            'arg' = 'position'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Çļóšé éṽéřý ʠúóţé áñď éṽéřý ṽáříáƀļé éẋƥřéššíóñ, áñď ďóúƀļé á ʠúóţé ţó ŵříţé íţ íñšíďé á ʠúóţéď ṽáļúé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_no_library' = @(
+        '[Ţħé šéñţéñçé áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çáññóţ ƀé řéšóļṽéď: ñó ƥħřášé ļíƀřářý ŵáš ƒóúñď. Ţħé ƒřáɱéŵóřķ ļíƀřářý íš ţéšţ/sequences/_phrases.yml. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_no_match' = @(
+        '[Ñó ƥħřášé ɱáţçħéš ţħé šéñţéñçé áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', řéáď áš: '
+        @{
+            'arg' = 'shape'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Ñéářéšţ šéñţéñçéš: '
+        @{
+            'arg' = 'nearest'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Á ṽáļúé ţħáţ çóñţáíñš šƥáçéš ɱúšţ ƀé ʠúóţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_overlap' = @(
+        '[Ƥħřášéš '''
+        @{
+            'arg' = 'firstPhrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('''
+        @{
+            'arg' = 'firstSentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''', '
+        @{
+            'arg' = 'firstFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') áñď '''
+        @{
+            'arg' = 'secondPhrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('''
+        @{
+            'arg' = 'secondSentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''', '
+        @{
+            'arg' = 'secondFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') çáñ ɱáţçħ ţħé šáɱé šéñţéñçé. Á šéñţéñçé ħáš óñé ɱéáñíñğ; çħáñğé óř řéɱóṽé óñé óƒ ţħéɱ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_slot_empty' = @(
+        '[Ţħé ṽáļúé ƒóř <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> óƒ '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íš éɱƥţý. Ğíṽé íţ á ṽáļúé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_slot_not_integer' = @(
+        '[Ţħé ṽáļúé ƒóř <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> óƒ '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ɱúšţ ƀé á ŵħóļé ñúɱƀéř ƒřóɱ 0 ţó 999999999, ŵříţţéñ ŵíţħóúţ ʠúóţéš áñď ŵíţħóúţ á ļéáďíñğ žéřó. Á ṽáříáƀļé éẋƥřéššíóñ íš ñóţ áççéƥţéď ţħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_slot_not_key' = @(
+        '[Ţħé ṽáļúé ƒóř <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> óƒ '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ɱúšţ ƀé óñé óƒ ţħéšé ķéý ñáɱéš, ŵříţţéñ ŵíţħóúţ ʠúóţéš: '
+        @{
+            'arg' = 'keyNames'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Á ṽáříáƀļé éẋƥřéššíóñ íš ñóţ áççéƥţéď ţħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_surface_missing' = @(
+        '[Ţħé šéñţéñçé '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ħáš ñó šţéƥš ƒóř ţħé šúřƒáçé '''
+        @{
+            'arg' = 'surface'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. Íţ íš ďéƒíñéď ƒóř: '
+        @{
+            'arg' = 'surfaces'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_template_invalid' = @(
+        '[Šţéƥ '
+        @{
+            'arg' = 'index'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' óƒ ƥħřášé '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ƒóř ţħé šúřƒáçé '''
+        @{
+            'arg' = 'surface'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' íñ '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íš ñóţ á ṽáļíď '''
+        @{
+            'arg' = 'action'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' šţéƥ. Íţš ƒíéļďš ářé ďéƒíñéď íñ ţéšţ/schemas/sequence.schema.yml; ţħé áçţíóñ řéʠúířéš: '
+        @{
+            'arg' = 'required'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_phrase_timeout_unused' = @(
+        '[ţíɱéóúţŠéçóñďš íš šéţ óñ ţħé šéñţéñçé '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', áñď ñóñé óƒ íţš šţéƥš ţáķéš á ţíɱéóúţ. Řéɱóṽé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.step_sentence_invalid' = @(
+        '[Ţħé šéñţéñçé šţéƥ áţ '
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íš ñóţ ṽáļíď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Á šéñţéñçé šţéƥ ţáķéš ''šţéƥ'' áš ţéẋţ áñď, óƥţíóñáļļý, ''óñ'' (šçřééñ óř ƥáğé), ''ţíɱéóúţŠéçóñďš'' (á ŵħóļé ñúɱƀéř óƒ 1 óř ɱóřé), ''ďéšçříƥţíóñ'' áñď, ŵíţħ íţ, ''ďéšçříƥţíóñĻóçáļížéď''. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.tapon_argument_invalid' = @(
+        '[ţáƥÓñ çáññóţ řúñ: '
+        @{
+            'arg' = 'field'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' íš '''
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. Úšé óñé óƒ: '
+        @{
+            'arg' = 'allowed'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.tapon_click_kind_unsupported' = @(
+        '[ţáƥÓñ: ħóšţ '''
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' çáññóţ šéñď á '
+        @{
+            'arg' = 'click'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' çļíçķ. ~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.tapon_label_ambiguous' = @(
+        '[ţáƥÓñ: '''
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' íš óñ ţħé šçřééñ '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ţíɱéš: '
+        @{
+            'arg' = 'candidates'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Áďď ñţħ ţó ţħé šţéƥ ţó çħóóšé óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.tapon_label_unusable' = @(
+        '[ţáƥÓñ çáññóţ řúñ: ţħé ļáƀéļ '''
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ħáš ñó ļéţţéř óř ďíğíţ ţó ļóóķ ƒóř ŵíţħ ɱáţçħ: '
+        @{
+            'arg' = 'match'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.tapon_second_look_failed' = @(
+        '[ţáƥÓñ: ţħé šéçóñď ļóóķ áţ á ďóúƀļéď çóƥý óƒ ţħé ƒřáɱé ƒáíļéď ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ţħíš šţéƥ řéáďš ţħé ƒřáɱé áš çáƥţúřéď óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'runner.telemetry_event_dropped' = @(
         '[Á çýçļé éṽéñţ çóúļď ñóţ ƀé řéçóřďéď ('''
@@ -25788,6 +27059,13 @@
         }
         ' ~~~~~~]'
     )
+    'runner.verb_web_click' = '[Çļíçķ ţħé ƥáğé éļéɱéñţ ƒóúñď ƀý řóļé áñď ñáɱé, óř šéţ á çħéçķ ƀóẋ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.verb_web_close' = '[Çļóšé ţħé ğúéšţ''š ƀřóŵšéř ƥáğé áñď íţš çóññéçţíóñ. ~~~~~~~~~~~~~~~~~~~~]'
+    'runner.verb_web_expect' = '[Ŵáíţ úñţíļ áñ éļéɱéñţ óř á ţéẋţ íš óñ ţħé ƥáğé, óř ğóñé ƒřóɱ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.verb_web_fill' = '[Řéƥļáçé ţħé çóñţéñţ óƒ á ţéẋţ ƒíéļď óñ ţħé ƥáğé. ~~~~~~~~~~~~~~~~~~~~]'
+    'runner.verb_web_open' = '[Óƥéñ á ÚŘĻ íñ ţħé ğúéšţ''š ƀřóŵšéř ƥáğé áñď ŵáíţ ƒóř íţ ţó ļóáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.verb_web_press' = '[Ƥřéšš á ķéý íñ ţħé ƥáğé. ~~~~~~~~~~]'
+    'runner.verb_web_select' = '[Çħóóšé áñ óƥţíóñ óƒ á ñáţíṽé šéļéçţ ƀý íţš ļáƀéļ. ~~~~~~~~~~~~~~~~~~~~]'
     'runner.vm_admission_occupied' = @(
         '[Řéƒúšíñğ ţó šţářţ á çýçļé: ţħéšé ṼⱮš ářé řúññíñğ óñ ţħé ħóšţ áñď ŵóúļď ñóţ šţóƥ: '
         @{
@@ -26013,4 +27291,943 @@
         }
         ' š, ŵħéřé 0 ɱéáñš úñƀóúñďéď). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
+    'runner.web_session_close_incomplete' = @(
+        '[Ţħé ƀřóŵšéř šéššíóñ íñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ďíď ñóţ çļóšé çļéáñļý ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.web_session_open_failed' = @(
+        '[Ñó ƀřóŵšéř šéššíóñ íñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.web_session_opened' = @(
+        '[Ƀřóŵšéř šéššíóñ '
+        @{
+            'arg' = 'generation'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' íñ '
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'browser'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' óñ ğúéšţ ƥóřţ '
+        @{
+            'arg' = 'remotePort'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', řéáçħéď ţħřóúğħ 127.0.0.1:'
+        @{
+            'arg' = 'localPort'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_argument_invalid' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ářğúɱéñţ '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ɱúšţ ɱáţçħ '
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_busy' = @(
+        '[Óƥéřáţíóñ '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' íš šţíļļ řúññíñğ. Ƥóļļ íţ óř çáñçéļ íţ ƀéƒóřé ýóú šţářţ áñóţħéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_call_timeout' = @(
+        '[Ţħé šéššíóñ ŵóřķéř ďíď ñóţ áñšŵéř ŵíţħíñ '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' šéçóñďš. ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_candidate_invalid' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé ğéñéřáţéď šéʠúéñçé ƒáíļéď ţħé '
+        @{
+            'arg' = 'check'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' çħéçķ: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' Ñóţħíñğ ŵáš ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_capture_failed' = '[Ţħé šçřééñ ƒřáɱé çóúļď ñóţ ƀé çáƥţúřéď. ~~~~~~~~~~~~~~~~]'
+    'runner.workload_config_unreadable' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé çóñƒíğúřáţíóñ '
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çóúļď ñóţ ƀé řéáď. ~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_elevation_required' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ďříṽéš ṼⱮš óñļý ƒřóɱ áñ éļéṽáţéď ƥřóçéšš. Šţářţ ţħé ⱮÇƤ çļíéñţ éļéṽáţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_field_invalid' = @(
+        '[Ƒíéļď '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' óƒ ṽéřƀ '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ďóéš ñóţ ɱáţçħ ţħé šéʠúéñçé šçħéɱá: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_field_missing' = @(
+        '[Ṽéřƀ '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' řéʠúířéš ƒíéļď '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. ~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_field_reserved' = @(
+        '[Ƒíéļď '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš šéţ ƀý ţħé šéššíóñ áñď çáññóţ ƀé šúƥƥļíéď. ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_field_undeclared' = @(
+        '[Ƒíéļď '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš ñóţ ďéçļářéď ƒóř ṽéřƀ '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íñ ţħé šéʠúéñçé šçħéɱá; ţħé ħáñďļéř ɱáý íğñóřé íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_folder_outside' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' řéšóļṽéš óúţšíďé ţħé ƒřáɱéŵóřķ çħéçķóúţ ('
+        @{
+            'arg' = 'resolved'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). Ñóţħíñğ ŵáš ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_guest_unknown' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ğúéšţ '''
+        @{
+            'arg' = 'guestKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ħáš ñó ƒóļďéř ƒóř '
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_host_driver_failed' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé ħóšţ ďříṽéř ďíď ñóţ ļóáď: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_host_not_ready' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé ħóšţ íš ñóţ řéáďý ţó ďříṽé á ğúéšţ (çóñďíţíóñ '
+        @{
+            'arg' = 'condition'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_host_unsupported' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħíš ƥļáţƒóřɱ ħáš ñó ħóšţ ďříṽéř. ~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_intent_invalid' = '[Ţħé íñţéñţ ɱúšţ ƀé óñé ļíñé óƒ 1 ţó 200 çħářáçţéřš áñď ɱúšţ ñóţ çóñţáíñ á ṽáříáƀļé ţóķéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_internal_error' = @(
+        '[Ţħé šéššíóñ ŵóřķéř çóúļď ñóţ çóɱƥļéţé ţħé řéʠúéšţ: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_journal_empty' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé ĵóúřñáļ ħóļďš ñó šúççéššƒúļ šţéƥ ţó šáṽé. ~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_journal_write_failed' = @(
+        '[Ţħé ĵóúřñáļ ƒíļé çóúļď ñóţ ƀé ŵříţţéñ; ţħé éñţřý íš ķéƥţ íñ ɱéɱóřý: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_lease_incomplete' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé ļéášé '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ŵáš ŵříţţéñ ŵíţħóúţ íţš šţářţ řéçóřď áñď ŵáš řéļéášéď. Çáļļ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_libvirt_group_missing' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħíš ƥřóçéšš ďóéš ñóţ çářřý ţħé ļíƀṽířţ ğřóúƥ. Šţářţ ţħé ⱮÇƤ çļíéñţ ƒřóɱ á šéššíóñ ŵħéřé ''íď -ñĞ'' ļíšţš ļíƀṽířţ, óř ŵřáƥ ţħé šéřṽéř çóɱɱáñď íñ ''šğ ļíƀṽířţ -ç''. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_mask_failed' = '[Ţħé ƒřóñţ éñď ďíď ñóţ çóñƒířɱ ţħé ṽáļúéš ţó ħíďé. ~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_mask_unconfirmed' = '[Ţħé ƒřóñţ éñď ďíď ñóţ çóñƒířɱ ţħé ṽáļúéš ţó ħíďé; íţš ŵóřķéř ļóğš ɱáý šħóŵ ţħéɱ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_name_exists' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': á šéʠúéñçé ƒíļé ƒóř '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' áļřéáďý éẋíšţš: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. Ñóţħíñğ ŵáš ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_name_invalid' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ñáɱé '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ɱúšţ ɱáţçħ '
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ', šţářţ ŵíţħ '''
+        @{
+            'arg' = 'prefix'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' áñď ñóţ éñď íñ .ýɱļ, .ýáɱļ óř á ħóšţ šúƒƒíẋ (.ubuntu.kvm, .windows.hyper-v, .macos.utm). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_no_page' = '[Ñó ƥáğé íš óƥéñ íñ ţħíš šéššíóñ. Řúñ ţħé šéñţéñçé ''óƥéñ ƥáğé <url>'' ƒířšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_no_session' = '[Ñó ŵóřķļóáď šéššíóñ íš áţţáçħéď. Šţářţ óñé ŵíţħ ŵóřķļóáď_šéššíóñ_šţářţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_not_dispatched' = @(
+        '[Óƥéřáţíóñ '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' éñďéď ƀéƒóřé íţ ŵáš šéñţ ţó ţħé ŵóřķéř; ñóţħíñğ řáñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_operation_canceled' = @(
+        '[Ţħé óƥéřáţíóñ ŵáš çáñçéļéď áƒţéř '
+        @{
+            'arg' = 'completed'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' óƒ '
+        @{
+            'arg' = 'total'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ƥříɱíţíṽéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_operation_conflict' = @(
+        '[Óƥéřáţíóñ íď '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ŵáš áļřéáďý úšéď ƀý áñóţħéř ţóóļ óř ŵíţħ óţħéř íñƥúţ. Çħóóšé á ñéŵ óƥéřáţíóñÍď ƒóř á ñéŵ šţéƥ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_operation_unknown' = @(
+        '[Ñó óƥéřáţíóñ óƒ ţħíš šéššíóñ ħáš ţħé íď '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. ~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_ownership_lost' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħíš šéššíóñ ñó ļóñğéř óŵñš ţħé řúñţíɱé ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). Éñď ţħé šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_plan_invalid' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé çħáíñ óƒ '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' çóúļď ñóţ ƀé ƥļáññéď: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_publish_failed' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' çóúļď ñóţ ƀé ƥúƀļíšħéď: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' Ñóţħíñğ ŵáš ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_queue_full' = '[Šíẋţééñ çáļļš áļřéáďý ŵáíţ ƒóř ţħé ŵóřķéř. Çáļļ áğáíñ óñçé óñé óƒ ţħéɱ ħáš ƀééñ áñšŵéřéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_replay_spawn_failed' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé řéƥļáý ƥřóçéšš ďíď ñóţ šţářţ: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_resource_invalid' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': řéšóúřçé ɱúšţ ħóļď 1 ţó 16 šéʠúéñçé ñáɱéš ɱáţçħíñğ '
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_runtime_owned' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': áñóţħéř řúñ óŵñš ţħíš řúñţíɱé: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_secret_filter_failed' = '[Ţħé áñšŵéř ŵáš ŵíţħħéļď: áƒţéř ƒíļţéříñğ ƒóř šéçřéţš íţ šţíļļ ħéļď óñé óř çóúļď ñó ļóñğéř ƀé řéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_secret_found' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé ğéñéřáţéď šéʠúéñçé ŵóúļď çóñţáíñ á řéšóļṽéď šéçřéţ. Úšé á ṽáříáƀļé řéƒéřéñçé íñ ţħé šţéƥ. Ñóţħíñğ ŵáš ŵříţţéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_secret_literal' = '[Ţħé řéʠúéšţ çóñţáíñš á ṽáļúé ţħíš šéššíóñ ħóļďš áš á šéçřéţ. Řéƒéř ţó íţ ţħřóúğħ íţš ṽáříáƀļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_secret_reference_required' = @(
+        '[Ƒíéļď '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' çářříéš á šéçřéţ áñď ɱúšţ řéƒéř ţó íţ ţħřóúğħ á ṽáříáƀļé óř áñ éẋţéñšíóñ éẋƥřéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_secret_too_short' = @(
+        '[Ṽáříáƀļé '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ħóļďš á šéçřéţ šħóřţéř ţħáñ '
+        @{
+            'arg' = 'minimum'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' çħářáçţéřš, ŵħíçħ ţħé šéššíóñ çáññóţ ɱášķ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_secret_variable_unknown' = @(
+        '[Ƒíéļď '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' řéƒéřš ţó ṽáříáƀļé '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''', ŵħíçħ ţħíš šéššíóñ ďóéš ñóţ ďéƒíñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_sequence_not_found' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': šéʠúéñçé '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ŵáš ñóţ ƒóúñď. Šéářçħéď: '
+        @{
+            'arg' = 'list'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_sequence_not_guest' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš ñóţ á ğúéšţ šéʠúéñçé ŵíţħ á řéšóúřçé çħáíñ ƒóř '
+        @{
+            'arg' = 'osKey'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_session_active' = @(
+        '[Á šéššíóñ ŵíţħ óţħéř íñƥúţ íš áţţáçħéď ţó ṼⱮ '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. Éñď íţ ŵíţħ ŵóřķļóáď_šéššíóñ_éñď ƒířšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_session_detached' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé šéššíóñ ħáš ñó řúññíñğ ṼⱮ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). Éñď ţħé šéššíóñ, ƀříñğ ţħé ṼⱮ úƥ ŵíţħ ţéšţ/Debug-TestSequence.ps1 áñď áţţáçħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_session_starting' = '[Ţħé šéššíóñ íš šţíļļ šţářţíñğ. Çáļļ ŵóřķļóáď_šéššíóñ_šţářţ áğáíñ ŵíţħ ţħé šáɱé íñƥúţ ţó řéáď íţš řéšúļţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_split_invalid' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': çóɱƥóñéñţŠţéƥš '
+        @{
+            'arg' = 'value'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' ɱúšţ ƀé ƀéţŵééñ 0 áñď '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '. ~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_stale_reference' = @(
+        '[Řéƒéřéñçé '''
+        @{
+            'arg' = 'reference'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš ñóţ íñ ţħé çúřřéñţ šñáƥšħóţ. Ţáķé á ñéŵ šñáƥšħóţ áñď çħóóšé ƒřóɱ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_start_failed' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé šéššíóñ ďíď ñóţ šţářţ: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_step_failed' = @(
+        '[Ƥříɱíţíṽé '
+        @{
+            'arg' = 'index'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' óƒ '
+        @{
+            'arg' = 'total'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') ƒáíļéď: '
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_step_too_large' = @(
+        '[Ţħé šţéƥ íš ļářğéř ţħáñ '
+        @{
+            'arg' = 'maximum'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' çħářáçţéřš. ~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_step_unresolved' = @(
+        '[Ţħé šéñţéñçé ďíď ñóţ řéšóļṽé: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_still_waiting' = @(
+        '[Óƥéřáţíóñ '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' íš šţíļļ řúññíñğ. Çáļļ ţħé šáɱé ţóóļ áğáíñ ŵíţħ óñļý ţħíš óƥéřáţíóñÍď ţó řéáď íţš řéšúļţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_surface_unsupported' = @(
+        '[Ţħíš ŵóřķéř ďóéš ñóţ óƒƒéř ţħé šúřƒáçé '''
+        @{
+            'arg' = 'surface'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''. Íţ óƒƒéřš: '
+        @{
+            'arg' = 'surfaces'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_variable_reserved' = @(
+        '[Ṽáříáƀļé '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš šéţ ƀý ţħé šéššíóñ áñď çáññóţ ƀé šúƥƥļíéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_variables_failed' = @(
+        '[Ţħé šéššíóñ ṽáříáƀļéš çóúļď ñóţ ƀé řéšóļṽéď: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_verb_alias' = @(
+        '['''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš áñóţħéř šƥéļļíñğ óƒ '''
+        @{
+            'arg' = 'canonical'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. Úšé '''
+        @{
+            'arg' = 'canonical'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_verb_denied_composite' = @(
+        '['''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ŵřáƥš óţħéř šţéƥš. Áďď íţ ţó ţħé šáṽéď šéʠúéñçé ƀý ħáñď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_verb_denied_operator_hold' = @(
+        '['''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ŵáíţš ƒóř áñ óƥéřáţóř áñď çáññóţ řúñ íñ á ŵóřķļóáď šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_verb_denied_unclassified' = @(
+        '['''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ďéçļářéš ñó řéƥļáý çļášš áñď çáññóţ řúñ íñ á ŵóřķļóáď šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_verb_denied_vm_state' = @(
+        '['''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' çħáñğéš ţħé ƥóŵéř šţáţé óř ţħé ñáɱé óƒ ţħé ṼⱮ. Řúñ á šéʠúéñçé ŵíţħ ŵóřķļóáď_řúñ_šéʠúéñçé íñšţéáď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_verb_unregistered' = @(
+        '['''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš ñóţ á řéğíšţéřéď ṽéřƀ. ~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_vm_absent' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ṼⱮ '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ďóéš ñóţ éẋíšţ óñ ţħíš ħóšţ. Ƀúíļď áñď šţářţ íţ ŵíţħ ţéšţ/Debug-TestSequence.ps1, ţħéñ áţţáçħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_vm_stopped' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ṼⱮ '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' íš ñóţ řúññíñğ. Šţářţ íţ ŵíţħ ţéšţ/Debug-TestSequence.ps1, ţħéñ áţţáçħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_vm_unknown' = @(
+        '['
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ţħé ħýƥéřṽíšóř ďíď ñóţ řéƥóřţ ţħé šţáţé óƒ ṼⱮ '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. Ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_worker_lost' = '[Ţħé šéššíóñ ŵóřķéř éñďéď ŵħíļé íţ ħéļď ţħé šéššíóñ, šó ţħé šéššíóñ íš óṽéř. Šţářţ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'runner.workload_worker_start_failed' = @(
+        '[Ţħé šéššíóñ ŵóřķéř ďíď ñóţ šţářţ óř ďíď ñóţ áţţáçħ: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'runner.workload_yaml_mismatch' = '[Ţħé šţéƥ çáññóţ ƀé ŵříţţéñ áš ÝÁⱮĻ ţħáţ řéáďš ƀáçķ úñçħáñğéď, šó íţ ŵáš ñóţ řúñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
 }

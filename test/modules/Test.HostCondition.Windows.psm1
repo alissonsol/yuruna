@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -594,10 +594,11 @@ namespace Yuruna {
       return moved;
     }
 
-    // -- Live per-monitor DPI scale (undocumented CCD device-info, stable
-    //    since Windows 10 1607; the only way to set 100% without sign-out).
-    //    The minimum scale Windows offers is always 100%, so setting the
-    //    relative scale to its minimum is exactly 100% -- no DPI table needed.
+    // --- REGION: Live per-monitor DPI scale
+    // Undocumented CCD device-info, stable since Windows 10 1607; the only way
+    // to set 100% without sign-out. The minimum scale Windows offers is always
+    // 100%, so setting the relative scale to its minimum is exactly 100% -- no
+    // DPI table needed.
     [StructLayout(LayoutKind.Sequential)]
     public struct LUID { public uint LowPart; public int HighPart; }
     [StructLayout(LayoutKind.Sequential)]

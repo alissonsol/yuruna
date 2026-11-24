@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,6 +67,11 @@ function Register-SequenceAction {
         command this host does not have before any VM is built.
     .PARAMETER OcrRequired
         $true when this verb needs at least one enabled OCR provider.
+    .PARAMETER OcrEngineRequirement
+        The OCR providers, named as Register-OcrProvider names them, that the
+        Handler calls directly whatever providers are enabled (for example
+        tesseract). Consumed by Test-CyclePlanCapability, which refuses a
+        plan whose steps need an engine this host does not have.
     .PARAMETER Description
         Free-form note for the matrix dump / future docs page.
     .PARAMETER Aliases
@@ -122,6 +127,7 @@ function Register-SequenceAction {
         [string[]]$HostIORequirement = @(),
         [string[]]$HostCommandRequirement = @(),
         [bool]$OcrRequired = $false,
+        [string[]]$OcrEngineRequirement = @(),
         [string]$Description = '',
         [string[]]$Aliases = @(),
         [scriptblock]$Handler,
@@ -138,7 +144,7 @@ function Register-SequenceAction {
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
             'host_network_degraded','ip_not_discovered','payload_unavailable',
             'pool_storage_full','dhcp_identity_unbounded','lab_dependency_down','input_lost','hypervisor_unresponsive','source_integrity',
-            'vm_not_stopped','guest_run_lost','guest_kernel_stalled','guest_display_stalled','unknown')]
+            'vm_not_stopped','guest_run_lost','guest_kernel_stalled','guest_display_stalled','web_step_failed','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
@@ -173,6 +179,7 @@ function Register-SequenceAction {
         HostIORequirement           = @($HostIORequirement)
         HostCommandRequirement      = @($HostCommandRequirement)
         OcrRequired                 = $OcrRequired
+        OcrEngineRequirement        = @($OcrEngineRequirement)
         Description                 = $Description
         Aliases                     = @($Aliases)
         FailureClass                = $FailureClass
@@ -232,7 +239,12 @@ function Invoke-SequenceActionHandler {
     $entry = & $script:SequenceActionRegistry.Get $Name
     if (-not $entry)         { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_d4288d81f5c5acb3' -Arguments @{ name = "$Name" }) }
     if (-not $entry.Handler) { throw (Format-YurunaOperatorMessage -Key 'exceptions.runner_44419ed3590574a4' -Arguments @{ name = "$Name" }) }
-    return (& $entry.Handler $Context)
+    $secretStep = $Context.Step -is [System.Collections.IDictionary] -and
+        $Context.Step['sensitive'] -eq $true -and
+        (Get-Command Enter-SequenceSecretStep -ErrorAction SilentlyContinue)
+    if (-not $secretStep) { return (& $entry.Handler $Context) }
+    $null = Enter-SequenceSecretStep -Step $Context.Step -Variables $Context.Vars
+    try { return (& $entry.Handler $Context) } finally { $null = Exit-SequenceSecretStep }
 }
 
 function Get-SequenceAction {
@@ -347,8 +359,10 @@ function Get-SequenceActionFailureLabel {
 function Get-SequenceActionRequirementMap {
     <#
     .SYNOPSIS
-        Verb -> @{ HostIO; HostCommand; OcrRequired } map consumed by
-        Test-CyclePlanCapability.
+        Verb -> @{ HostIO; HostCommand; OcrRequired; OcrEngine } map consumed
+        by Test-CyclePlanCapability. OcrEngine lists the OCR providers the
+        verb calls by name; an entry registered without the requirement
+        lists none.
     .OUTPUTS
         System.Collections.Specialized.OrderedDictionary
     #>
@@ -363,6 +377,9 @@ function Get-SequenceActionRequirementMap {
             HostIO      = @($entry.HostIORequirement)
             HostCommand = @($entry.HostCommandRequirement)
             OcrRequired = [bool]$entry.OcrRequired
+            # Filtered: @($null) has one element, and an entry registered by
+            # older code in a resident runner lacks the key.
+            OcrEngine   = @($entry['OcrEngineRequirement'] | Where-Object { $_ })
         }
     }
     return $out

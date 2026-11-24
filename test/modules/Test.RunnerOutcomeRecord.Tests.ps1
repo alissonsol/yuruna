@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f816f3-f8fb-4c0a-84b9-8070c8990937
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,9 @@
 
 BeforeAll {
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# The private state root and the runner gate resolve under $HOME; a scratch
+# home keeps this suite and every process it starts off the operator's own.
+$script:TestHome = Enter-YurunaTestHome
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here '../../automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
@@ -49,6 +52,8 @@ function Write-OutcomeFixture {
     Set-Content -LiteralPath $Path -Value $Text -Encoding utf8 -NoNewline
 }
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'Read-CycleOutcomeRecord' {
     BeforeEach {
@@ -67,7 +72,7 @@ Describe 'Read-CycleOutcomeRecord' {
         $r.CycleGeneration | Should -Be $script:Generation
     }
     It 'accepts every outcome name the runner emits, and a negative exit code' -TestCases @(
-        @{ Name = 'completed' }, @{ Name = 'refresh-gated' }, @{ Name = 'refresh-preflight' }, @{ Name = 'pull-error' }
+        @{ Name = 'completed' }, @{ Name = 'gate-held' }, @{ Name = 'handoff-preflight' }, @{ Name = 'pull-error' }
         @{ Name = 'paused' }, @{ Name = 'drain' }, @{ Name = 'storage-full' }, @{ Name = 'spawn-failed' }
         @{ Name = 'cycle-aborted' }, @{ Name = 'shutdown' }, @{ Name = 'no-cycle-result' }
     ) {

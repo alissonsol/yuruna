@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e401e1-b46e-4123-be6e-fddcaac3185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,4 +31,9 @@ Register-HostIOProvider -HostType 'host.ubuntu.kvm' -Action 'Send-Key' -Implemen
 Register-HostIOProvider -HostType 'host.ubuntu.kvm' -Action 'Send-Text' -Implementation {
     param([hashtable]$a)
     return (Send-TextKvm -VMName $a.VMName -Text $a.Text -CharDelayMs $a.CharDelayMs)
+}
+# --- REGION: Register Send-Click
+Register-HostIOProvider -HostType 'host.ubuntu.kvm' -Action 'Send-Click' -Implementation {
+    param([hashtable]$a)
+    return (Send-ClickKvm -VMName $a.VMName -X $a.X -Y $a.Y -Capture $a.Capture -Click $a.Click)
 }

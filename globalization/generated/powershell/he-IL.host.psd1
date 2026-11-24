@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4241a322-99ef-c7cf-96e0-a7d07ed683f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -577,6 +577,7 @@
     )
     'host.enable_automation_no_prompt_confirm_conflict' = '⁦Enable-TestAutomation⁩: לא ניתן לשלב את ⁦-NoOperatorPrompt⁩ עם ⁦-Confirm⁩, שמבקש אישור לפני כל שינוי; דבר לא תועד או שונה.'
     'host.enable_automation_no_prompt_mode' = '⁦Enable-TestAutomation⁩: פועל עם ⁦-NoOperatorPrompt⁩ -- ללא תיבות דו-שיח להסכמה, ללא הפעלה מחדש של Dock או שומר המסך, ללא התקנת מודולים, ללא בקשת sudo וללא שאלון networkStorage. הגדרות הדורשות התערבות מפעיל מדווחות ככאלה שטרם מולאו.'
+    'host.enable_automation_no_prompt_mode_host' = 'Enable-TestAutomation: פועל עם -NoOperatorPrompt -- ללא הצעת חבילות, ללא התקנת מודולים, ללא בקשת סיסמה של sudo, ללא שאלון networkStorage וללא שינוי ברישום של בקר המארח. הגדרות שדורשות מפעיל מדווחות כעדיין לא מתקיימות.'
     'host.enable_automation_no_prompt_unsupported' = '⁦Enable-TestAutomation⁩: האפשרות ⁦-NoOperatorPrompt⁩ דורשת ⁦Set-MacHostConditionSet⁩ ⁦-NoGuiDisruption⁩, שאינו זמין בעותק קוד זה; דבר לא תועד או שונה. הריצו ללא ⁦-NoOperatorPrompt⁩ בהפעלה בנוכחות מפעיל.'
     'host.forwarder_identity_unverified' = @(
         '⁦Stop-CachingProxyServiceForwarder⁩: לא ניתן לקרוא את פרטי התהליך '
@@ -587,6 +588,336 @@
         }
         ' בזמן שהוקצב; קובץ מזהה התהליך נשמר ולא נשלח שום אות.'
     )
+    'host.host_controller_deployed_macos' = @(
+        '  בקר המארח: ה-shim ותמונת הקוד '
+        @{
+            'arg' = 'snapshot'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נפרסו. macOS לא רושם שום משימה: הפעלה רגילה של המריץ ממסוף של הפעלת שולחן העבודה מפעילה את הבקר.'
+    )
+    'host.host_controller_files_failed' = @(
+        '  בקר המארח: לא ניתן היה לפרוס את ה-shim או את תמונת הקוד תחת ~/.yuruna/host-repair/host-controller ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), ולכן yuruna-host-controller.service לא נרשם.'
+    )
+    'host.host_controller_files_failed_macos' = @(
+        '  בקר המארח: לא ניתן היה לפרוס את ה-shim או את תמונת הקוד תחת ~/.yuruna/host-repair/host-controller ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), ולכן שום הפעלה של המריץ לא יכולה להפעיל את הבקר.'
+    )
+    'host.host_controller_files_kept' = @(
+        'קובצי בקר המארח תחת '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (בקר עדיין מחזיק בנעילה שלו 30 שניות אחרי העצירה; הושארו כפי שהם)'
+    )
+    'host.host_controller_files_not_removed' = @(
+        'קובצי בקר המארח תחת '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (לא הוסרו: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.host_controller_files_removed' = @(
+        'קובצי בקר המארח (shim, תמונות, תיקיות עבודה) הוסרו תחת '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'host.host_controller_group_missing' = @(
+        '  בקר המארח: הקבוצה '''
+        @{
+            'arg' = 'grp'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' אינה קיימת, ולכן yuruna-host-controller.service לא יכול היה להתחיל (ה-SupplementaryGroups שלו נותן את שם הקבוצה). התקינו את חבילות libvirt ולאחר מכן הריצו את הסקריפט הזה שוב.'
+    )
+    'host.host_controller_no_sudo' = '  yuruna-host-controller.service אינו מותקן, מופעל ורץ עם היחידה של עותק העבודה הזה, ו-sudo אינו יכול לרוץ כאן ללא סיסמה, ולכן הוא רק נבדק. הריצו את הסקריפט הזה שוב ממסוף שיכול לענות לבקשת הסיסמה של sudo.'
+    'host.host_controller_not_running' = '  בקר המארח: אף בקר לא תפס את הנעילה שלו בתוך 15 שניות. קראו את ''systemctl status yuruna-host-controller'' ואת ''journalctl -u yuruna-host-controller'' כדי למצוא את הסיבה.'
+    'host.host_controller_not_verified' = @(
+        '  בקר המארח: הבקר הפרוס אינו זה שעותק הקוד הזה פורס ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); -NoOperatorPrompt משאיר את הרישום שלו כפי שהוא. הריצו את Enable-TestAutomation.ps1 בלי -NoOperatorPrompt כדי לרשום אותו מחדש.'
+    )
+    'host.host_controller_running' = @(
+        '  בקר המארח: רץ מתמונה '
+        @{
+            'arg' = 'snapshot'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' (yuruna-host-controller.service)'
+    )
+    'host.host_controller_session_end_failed' = '  בקר המארח: לא ניתן היה לסיים את ההפעלה yuruna-controller שלו, ולכן היא שומרת את ה-shim שאיתו התחילה עד שתסתיים. סיימו אותה עם: tmux -L yuruna-controller kill-session -t yuruna-controller (או, תחת screen: screen -ls, ואחר כך screen -S <pid>.yuruna-controller -X quit)'
+    'host.host_controller_session_ended' = 'ההפעלה yuruna-controller של בקר המארח הסתיימה'
+    'host.host_controller_session_ended_claimed' = @(
+        '  בקר המארח: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נתפס בזמן שההפעלה yuruna-controller שלו הסתיימה, ולכן אף בקר לא ממשיך אותו כעת. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל שוב את הבקר, שממשיך את העדכון, או סיימו את העדכון עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'host.host_controller_session_ended_unknown' = @(
+        '  בקר המארח: ההפעלה yuruna-controller שלו הסתיימה, אבל יומן עדכוני המארח נקרא אז במצב '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל את הבקר החדש, שממשיך כל עדכון כזה.'
+    )
+    'host.host_controller_session_kept' = @(
+        '  בקר המארח: ה-shim השתנה, אבל ההפעלה yuruna-controller שלו מריצה את עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' והושארה פועלת. ה-shim החדש ייכנס לתוקף כשההפעלה הזו תסתיים; הריצו את הסקריפט שוב אחרי שהעדכון יסתיים.'
+    )
+    'host.host_controller_session_kept_unknown' = @(
+        '  בקר המארח: ההפעלה yuruna-controller שלו עשויה עדיין להריץ shim שהוחלף, אבל יומן עדכוני המארח במצב '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', ולכן אי אפשר לדעת אם ההפעלה הזו מריצה עדכון מארח, והיא הושארה פועלת. הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן; הוא יסיים אז את ההפעלה.'
+    )
+    'host.host_controller_session_not_ended' = 'ההפעלה yuruna-controller של בקר המארח (לא הסתיימה; סיימו אותה עם: tmux -L yuruna-controller kill-session -t yuruna-controller, או screen -ls ואחר כך screen -S <pid>.yuruna-controller -X quit)'
+    'host.host_controller_session_restart_pending' = '  בקר המארח: ההפעלה yuruna-controller שלו הריצה shim שהוחלף, והיא הסתיימה; ההפעלה הבאה של המריץ ממסוף של הפעלת שולחן העבודה תפעיל את החדש.'
+    'host.host_controller_sudo_failed' = '  בקר המארח: שלב בהרשאות מוגברות נכשל (ראו את האזהרה למעלה), ולכן ייתכן ש-yuruna-host-controller.service אינו רשום. הריצו את הסקריפט הזה שוב.'
+    'host.host_controller_task_action' = 'רישום והפעלה של משימת בקר המארח'
+    'host.host_controller_task_claimed_not_restarted' = @(
+        'המשימה המתוזמנת Yuruna Host Controller (נעצרה בזמן שעדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' היה בתהליך, ולא הופעלה מחדש: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). המשימה וקובצי הבקר נשמרו. הפעילו אותה שוב באמצעות: ⁦Start-ScheduledTask -TaskName ''Yuruna Host Controller''⁩, או סיימו את העדכון באמצעות: ⁦pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '⁩'
+    )
+    'host.host_controller_task_failed' = @(
+        '  בקר המארח: לא ניתן היה לרשום או להפעיל את המשימה המתוזמנת Yuruna Host Controller ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). הריצו שוב את הסקריפט הזה.'
+    )
+    'host.host_controller_task_files_failed' = @(
+        '  בקר המארח: לא ניתן היה לפרוס את ה-shim או את תמונת הקוד תחת ⁦%ProgramData%\yuruna\host-controller⁩ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), ולכן המשימה המתוזמנת Yuruna Host Controller לא נרשמה.'
+    )
+    'host.host_controller_task_not_removed' = @(
+        'המשימה המתוזמנת Yuruna Host Controller (לא הוסרה: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.host_controller_task_not_running' = @(
+        '  בקר המארח: אף בקר לא תפס את הנעילה שלו בתוך 15 שניות. קראו את shim.log ואת controller.log תחת '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' כדי לברר את הסיבה.'
+    )
+    'host.host_controller_task_registered' = '  Yuruna Host Controller (משימה מתוזמנת): נרשמה'
+    'host.host_controller_task_removed' = 'המשימה המתוזמנת Yuruna Host Controller נעצרה והוסרה'
+    'host.host_controller_task_replaced' = '  Yuruna Host Controller (משימה מתוזמנת): הוחלפה'
+    'host.host_controller_task_running' = @(
+        '  בקר המארח: רץ מתמונה '
+        @{
+            'arg' = 'snapshot'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' (משימה מתוזמנת Yuruna Host Controller)'
+    )
+    'host.host_controller_task_unknown_not_restarted' = @(
+        'המשימה המתוזמנת Yuruna Host Controller (נעצרה, ואז יומן עדכוני המארח היה במצב '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים; לא הופעלה שוב: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). המשימה וקובצי הבקר נשמרו. הפעילו אותה שוב באמצעות: ⁦Start-ScheduledTask -TaskName ''Yuruna Host Controller''⁩, ואז הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן.'
+    )
+    'host.host_controller_unit_installed' = '  yuruna-host-controller.service: הותקן'
+    'host.host_controller_unit_not_removed' = @(
+        'yuruna-host-controller.service (לא הוסר: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
+    )
+    'host.host_controller_unit_removed' = 'yuruna-host-controller.service נעצר, הושבת והוסר'
+    'host.host_controller_unit_replaced' = '  yuruna-host-controller.service: הוחלף'
+    'host.host_controller_update_claimed' = @(
+        'עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מתבצע במארח הזה, ועצירת הבקר שלו עכשיו תשאיר את המריץ עצור בלי דבר שיפעיל אותו. המתינו לסיומו. כשהוא בהתאוששות, או כשאף בקר כבר לא פועל, סיימו אותו עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. דבר לא שונה.'
+    )
+    'host.host_controller_update_claimed_not_restarted' = @(
+        'yuruna-host-controller.service (נעצר בזמן שעדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' התבצע, ולא הופעל שוב: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). היחידה וקובצי הבקר נשמרו. הפעילו אותו שוב עם: sudo systemctl start yuruna-host-controller.service, או סיימו את העדכון עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'host.host_controller_update_claimed_session_ended' = @(
+        'עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נתפס בזמן שההפעלה של בקר המארח הסתיימה, ולכן אף בקר לא ממשיך אותו כעת. קבצי הבקר ורשומת ה-sudoers נשמרו. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל שוב את הבקר, שממשיך את העדכון, או סיימו את העדכון עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. אחר כך הריצו את הסקריפט שוב.'
+    )
+    'host.host_controller_update_unknown' = @(
+        'יומן עדכוני המארח במצב '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', ולכן אי אפשר לדעת אם מתבצע עדכון מארח במארח זה, ועצירת הבקר שלו במהלך עדכון תשאיר את המריץ עצור בלי שום דבר שיפעיל אותו. דבר לא שונה. הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן.'
+    )
+    'host.host_controller_update_unknown_not_restarted' = @(
+        'yuruna-host-controller.service (נעצר, ואז יומן עדכוני המארח היה במצב '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים; לא הופעל שוב: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). היחידה וקובצי הבקר נשמרו. הפעילו אותו שוב עם: sudo systemctl start yuruna-host-controller.service, ואז הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן.'
+    )
+    'host.host_controller_update_unknown_session_ended' = @(
+        'יומן עדכוני המארח נקרא במצב '
+        @{
+            'arg' = 'status'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' אחרי שההפעלה של בקר המארח הסתיימה, ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים. קבצי הבקר ורשומת ה-sudoers נשמרו. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל שוב את הבקר, שממשיך כל עדכון כזה, ואחר כך הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן.'
+    )
+    'host.host_update_access_entry_failed' = @(
+        '  הרשאות עדכון המארח: לא ניתן היה להתקין את /etc/sudoers.d/yuruna-host-update-access ('
+        @{
+            'arg' = 'detail'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), ולכן מארח זה מציע רק את היקף ה-restart של עדכון מארח. הריצו את הסקריפט שוב ממסוף שיכול לענות לבקשת ה-sudo.'
+    )
+    'host.host_update_access_entry_installed' = '  /etc/sudoers.d/yuruna-host-update-access: הותקן (הוא מאפשר לבקר המארח לכתוב ולהסיר את כלל ה-sudo הזמני של עדכון מארח מלא)'
+    'host.host_update_access_entry_kept' = '/etc/sudoers.d/yuruna-host-update-access וכל כלל זמני /etc/sudoers.d/yuruna-host-update (נשמרו כל עוד בקר מארח עשוי עדיין לפעול; הריצו את הסקריפט שוב כשהוא יסתיים)'
+    'host.host_update_access_entry_not_removed' = '/etc/sudoers.d/yuruna-host-update-access (לא הוסר; הסירו אותו עם: sudo rm -f /etc/sudoers.d/yuruna-host-update-access)'
+    'host.host_update_access_entry_removed' = 'הוסר /etc/sudoers.d/yuruna-host-update-access (רשומת ההרשאות של עדכון המארח)'
+    'host.host_update_access_entry_replaced' = '  /etc/sudoers.d/yuruna-host-update-access: הוחלף (הטקסט שלו היה שונה מזה שה-checkout הזה מתקין)'
+    'host.host_update_access_entry_unchanged' = '  /etc/sudoers.d/yuruna-host-update-access: ללא שינוי'
+    'host.host_update_rule_not_removed' = '⁦/etc/sudoers.d/yuruna-host-update⁩ (לא הוסר; הסירו אותו עם: ⁦sudo rm -f /etc/sudoers.d/yuruna-host-update⁩)'
     'host.hyperv_bounded_call_no_answer' = @(
         'הקריאה ל-⁦Hyper-V⁩ הסתיימה בלי להחזיר תשובה (קוד היציאה של תהליך הבן: ⁦'
         @{
@@ -850,6 +1181,21 @@
         }
         '''; התקינו כלל sudoers עבור ⁦/bin/kill⁩ או עצרו את התחום ידנית.'
     )
+    'host.kvm_frame_size_unreadable' = @(
+        'Get-VMScreenshot: לא ניתן היה לקרוא את גודל המסגרת מתוך '''
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''; לכידת החלון של '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' נמחקה.'
+    )
     'host.kvm_journal_group_missing' = 'הקבוצה ''systemd-journal'' אינה קיימת, ולכן האבחון של מריץ הבדיקות אינו יכול לקרוא את יומן המערכת או את יומן הליבה של האתחול הקודם. systemd יוצר אותה מתוך sysusers.d; הפקודה ''sudo systemd-sysusers'' משחזרת אותה, ולאחר מכן הריצו שוב את הסקריפט הזה.'
     'host.kvm_journal_group_session_stale' = '  החברות בקבוצה ''systemd-journal'' רשומה ב-/etc/group; קבוצות המעטפת הנוכחית אינן מעודכנות. התנתקו והתחברו מחדש, ואז הפעילו את מריץ הבדיקות מההפעלה החדשה כדי שהאבחון שלו יוכל לקרוא את יומן המערכת.'
     'host.kvm_rename_destination_dir_exists' = @(
@@ -931,27 +1277,6 @@
             'trust' = 'external'
         }
         '.'
-    )
-    'host.operator_00de7e0959068c8c' = @(
-        '⁦Send-Click⁩ על ⁦host.ubuntu.kvm⁩: לא מומש (כרגע זמין רק עבור Hyper-V). השתמשו בעומסי עבודה במצב SSH על KVM. (vm='''
-        @{
-            'arg' = 'vMName'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ''' התעלמות מהערכים x='
-        @{
-            'arg' = 'x'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ' y='
-        @{
-            'arg' = 'y'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-        ')'
     )
     'host.operator_00df328f839cec6c' = 'חברו מחדש את vmconnect'
     'host.operator_00e0e35404f36e5b' = @(
@@ -2339,7 +2664,7 @@
         }
     )
     'host.operator_266b54d6b96583f4' = '  מסיר את הגשר שנבנה חלקית כדי שהחלופה באמצעות netplan (או הרצה חוזרת) תתחיל ממצב נקי.'
-    'host.operator_2679edd915af22f8' = 'לא יבוצעו שינויים: כל הגדרת macOS אשר Enable משנה היא הגדרה קיימת, ולכן ללא תיעוד של ערכה הקודם אין מה לשחזר בבטחה.'
+    'host.operator_2679edd915af22f8' = 'שום הגדרה לא תשוחזר: כל כוונון macOS ש-Enable נוגע בו הוא הגדרה קיימת מראש, ולכן בלי תיעוד של ערכה הקודם אין שום דבר שבטוח לשחזר. בקר המארח, הקבצים שלו ורשומות ה-sudoers שלו עדיין מוסרים.'
     'host.operator_26843e669bc191ba' = @(
         'לא ניתן לזהות מתאם עבור InterfaceIndex '
         @{
@@ -4339,7 +4664,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '); היצירה מתבצעת עם אסימון ריק: השרת המתווך לא ינפיק הוכחות בקרה, push-ingest יישאר מושבת, ולוח הבקרה לא יציג אסימון מעבדה עד שיוקצה אסימון והשרת המתווך ייווצר מחדש.'
+        '); היצירה מתבצעת עם מפתח ריק: השרת המתווך לא ינפיק הוכחות בקרה, push-ingest יישאר מושבת, ולוח הבקרה לא יציג אסימון מעבדה עד שיוקצה מפתח והשרת המתווך ייווצר מחדש.'
     )
     'host.operator_641d4bde8dc788c6' = '  6. לחצו על הכפתור ''הורדה של 64 סיביות'''
     'host.operator_6424990f88c7f7bc' = @(
@@ -9910,7 +10235,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '''. utmctl עדיין הגיע אל ⁦UTM.app⁩ לשאילתות מצב, כך שהיישום פועל אך אינו מבצע עוד start, stop או delete, וניסיון חוזר רק מוסיף עוד פסק זמן. הפעילו מחדש את ⁦UTM.app⁩ במארח זה (צאו ממנו מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז הפעילו את המכונה הווירטואלית שוב. המכונה הווירטואלית לא הופעלה מעולם והדיסק שלה לא שונה.'
+        '''. utmctl עדיין הגיע אל ⁦UTM.app⁩ לשאילתות מצב, כך שהיישום פועל אך אינו מבצע עוד start, stop או delete, וניסיון חוזר רק מוסיף עוד פסק זמן. הפעילו מחדש את ⁦UTM.app⁩ במארח זה (צאו ממנו מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRepair.ps1⁩), ואז הפעילו את המכונה הווירטואלית שוב. המכונה הווירטואלית לא הופעלה מעולם והדיסק שלה לא שונה.'
     )
     'host.utm_start_dropped' = @(
         ''''

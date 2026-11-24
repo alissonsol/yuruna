@@ -70,7 +70,8 @@ requirements:
     releases: "https://kubernetes.io/releases/"
   - tool: "Visual Studio Code"
     # `code -v` prints three lines (version / commit / arch); first line
-    # is the version.
+    # is the version. winget's Microsoft.VisualStudioCode manifest stops at
+    # 1.146.0, so the floor cannot name a newer release.
     command: "(code -v | Select-Object -First 1)"
     version: "1.146.0"
     releases: "https://code.visualstudio.com/Download"
@@ -81,10 +82,8 @@ requirements:
     version: "v1.4.4"
     releases: "https://github.com/filosottile/mkcert/releases"
   - tool: "node"
-    # winget's Node 24 package stops at 24.22.1, so the floor cannot name the
-    # 24.22.3 security release that nvm, Homebrew and NodeSource provide.
     command: "node --version"
-    version: "v24.22.1"
+    version: "v24.22.3"
     releases: "https://nodejs.org/en/download"
   - tool: "npm"
     # Tracks whatever the pinned Node LTS bundles, NOT npm's newest
@@ -155,7 +154,7 @@ requirements:
     # the first whitespace is environment context, not version.
     command: |-
       ((aws --version) -replace '\s.*$','')
-    version: "aws-cli/2.40.2"
+    version: "aws-cli/2.42.2"
     releases: "https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html"
   - tool: "Azure cli"
     command: "($(az version) | ConvertFrom-Json).\"azure-cli\""
@@ -165,5 +164,5 @@ requirements:
     # No `-q` and no 2>&1 capture: a broken bundled-python install fails
     # silently rather than dumping a traceback into the version column.
     command: "(gcloud -v | Select-Object -First 1)"
-    version: "Google Cloud SDK 593.0.0"
+    version: "Google Cloud SDK 594.0.0"
     releases: "https://cloud.google.com/sdk/docs/install-sdk"

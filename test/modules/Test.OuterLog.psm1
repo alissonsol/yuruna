@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 429455f3-1fcb-426b-b968-5462970a2ff5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,7 @@
 #requires -version 7
 
 # The timestamped runtime/outer.log writer, in a module of its own so a
-# process that must not load the outer loop -- the host-refresh worker, whose
+# process that must not load the outer loop -- the host-repair worker, whose
 # closure excludes Test.RunnerOuterLoop and its tree-kill helpers -- can
 # still write the operator's log. Test.RunnerOuterLoop re-exports it, so every
 # caller that resolves Write-OuterLog by name keeps working.

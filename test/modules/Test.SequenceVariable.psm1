@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421a9ea0-8a3a-4785-ba40-4c509bf9d976
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,7 +92,11 @@ function Expand-ExtensionExpression {
                 $argList += $a.Replace($sentinel, '$')
             }
         }
-        return [string](Invoke-ExtensionExpression -Area $area -Method $method -ArgList $argList)
+        $value = [string](Invoke-ExtensionExpression -Area $area -Method $method -ArgList $argList)
+        if (Get-Command Register-SequenceSecretFromExtension -ErrorAction SilentlyContinue) {
+            $null = Register-SequenceSecretFromExtension -Area $area -Value $value
+        }
+        return $value
     })
 }
 

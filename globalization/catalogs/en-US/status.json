@@ -48,7 +48,7 @@
     },
     "status.api_admission_unavailable": {
       "message": "the host could not record the request ({reason})",
-      "description": "Host status HTTP error (error field, 503) from test/service/Start-StatusService.ps1 when the refresh journal or the start-cycle reservation could not be read or written; the reason is a machine code shown as inert text.",
+      "description": "Host status HTTP error (error field, 503) from test/service/Start-StatusService.ps1 when the host-operation journal or the start-cycle reservation could not be read or written; the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
@@ -186,26 +186,26 @@
       "description": "Status service read route: an archive digest was requested but the host has no guest-channel key to prove it with.",
       "lifecycle": "active"
     },
-    "status.api_host_refresh_authorization_refused": {
-      "message": "refresh authorization refused ({reason})",
-      "description": "Host status HTTP error (error field, 403) from test/service/Start-StatusService.ps1 when a non-loopback host-refresh request lacks a valid refresh proof; the reason is a refresh_* machine code shown as inert text.",
+    "status.api_host_repair_authorization_refused": {
+      "message": "repair authorization refused ({reason})",
+      "description": "Host status HTTP error (error field, 403) from test/service/Start-StatusService.ps1 when a non-loopback host-repair request lacks a valid repair proof; the reason is a repair proof code (repair_proof_*, repair_remote_*, repair_verifier_*, repair_tier_not_remote or repair_unavailable) shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
           "type": "identifier",
           "trust": "internal",
-          "example": "refresh_proof_missing"
+          "example": "repair_proof_missing"
         }
       }
     },
-    "status.api_host_refresh_busy": {
+    "status.api_host_repair_busy": {
       "message": "another host operation is in progress",
-      "description": "Host status HTTP error (error field, 409 busy) from test/service/Start-StatusService.ps1 when a host refresh or a start-cycle already holds the host; the reply's activeKind says which.",
+      "description": "Host status HTTP error (error field, 409 busy) from test/service/Start-StatusService.ps1 when a host repair or a start-cycle already holds the host; the reply's activeKind says which.",
       "lifecycle": "active"
     },
-    "status.api_host_refresh_request_closed": {
+    "status.api_host_repair_request_closed": {
       "message": "this request id is already closed ({state})",
-      "description": "Host status HTTP error (error field, 409 request_closed) from test/service/Start-StatusService.ps1 for a host-refresh request id that was refused, expired or abandoned; it is never run again. The state is a machine code shown as inert text.",
+      "description": "Host status HTTP error (error field, 409 request_closed) from test/service/Start-StatusService.ps1 for a host-repair request id that was refused, expired or abandoned; it is never run again. The state is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "state": {
@@ -215,20 +215,59 @@
         }
       }
     },
-    "status.api_host_refresh_request_conflict": {
+    "status.api_host_repair_request_conflict": {
       "message": "this request id was already used with different settings",
-      "description": "Host status HTTP error (error field, 409 request_conflict) from test/service/Start-StatusService.ps1 when a known host-refresh request id arrives with a different tier or ceiling.",
+      "description": "Host status HTTP error (error field, 409 request_conflict) from test/service/Start-StatusService.ps1 when a known host-repair request id arrives with a different tier or ceiling.",
       "lifecycle": "active"
     },
-    "status.api_host_refresh_unavailable": {
-      "message": "host refresh is not available on this host ({reason})",
-      "description": "Host status HTTP error (error field, 503 refresh_unavailable) from test/service/Start-StatusService.ps1 when this host advertises no refresh capability; the reason is a machine code shown as inert text.",
+    "status.api_host_repair_unavailable": {
+      "message": "host repair is not available on this host ({reason})",
+      "description": "Host status HTTP error (error field, 503 repair_unavailable) from test/service/Start-StatusService.ps1 when this host advertises no repair capability; the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
           "type": "identifier",
           "trust": "internal",
           "example": "no_qualified_rung"
+        }
+      }
+    },
+    "status.api_host_update_busy": {
+      "message": "a host update is in progress on this host",
+      "description": "Host status HTTP error (error field, 409 busy) from test/service/Start-StatusService.ps1 when a host update holds the host; the reply's activeKind is host_update.",
+      "lifecycle": "active"
+    },
+    "status.api_host_update_controller_absent": {
+      "message": "no host controller is running on this host; nothing was queued",
+      "description": "Host status HTTP error (error field, 503 controller_absent) from test/service/Start-StatusService.ps1 when no host controller holds its lock, so a host update would never run.",
+      "lifecycle": "active"
+    },
+    "status.api_host_update_proof_missing": {
+      "message": "a host update from another machine needs an update proof from pool-control; nothing was queued",
+      "description": "Host status HTTP error (error field, 403 update_proof_missing) from test/service/Start-StatusService.ps1 when a host-update request does not come from this host's loopback address under a loopback Host name and carries no update proof.",
+      "lifecycle": "active"
+    },
+    "status.api_host_update_authorization_refused": {
+      "message": "host update authorization refused ({reason})",
+      "description": "Host status HTTP error (error field, 403) from test/service/Start-StatusService.ps1 when a host-update request from another machine carries no valid update proof; the reason is an update proof code (update_proof_*, update_remote_* or update_verifier_failed) shown as inert text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "update_proof_expired"
+        }
+      }
+    },
+    "status.api_host_update_scope_unavailable": {
+      "message": "the host controller does not run the {scope} scope; nothing was queued",
+      "description": "Host status HTTP error (error field, 409 scope_unavailable) from test/service/Start-StatusService.ps1 when a host update asks for a scope the controller does not run; the scope is a machine code shown as inert text.",
+      "lifecycle": "active",
+      "placeholders": {
+        "scope": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "full"
         }
       }
     },
@@ -239,7 +278,7 @@
     },
     "status.api_internal_error": {
       "message": "the request failed on the host; see server.err",
-      "description": "Host status HTTP error (error field, 500 internal_error) from test/service/Start-StatusService.ps1 when a host-refresh, start-cycle or host-diagnostic handler failed; preserve the file name server.err.",
+      "description": "Host status HTTP error (error field, 500 internal_error) from test/service/Start-StatusService.ps1 when a host-repair, host-update, start-cycle or host-diagnostic handler failed; preserve the file name server.err.",
       "lifecycle": "active"
     },
     "status.api_invalid_json_detail_c907dfc3": {
@@ -261,7 +300,7 @@
     },
     "status.api_listener_busy": {
       "message": "too many request bodies are being read; retry shortly",
-      "description": "Host status HTTP error (error field, 503 listener_busy, with Retry-After) from test/service/Start-StatusService.ps1 when four host-refresh bodies are already being read.",
+      "description": "Host status HTTP error (error field, 503 listener_busy, with Retry-After) from test/service/Start-StatusService.ps1 when four request bodies (host repair, host update, uploads and configuration writes) are already being read.",
       "lifecycle": "active"
     },
     "status.api_listener_dependency_missing": {
@@ -355,7 +394,7 @@
     },
     "status.api_payload_too_large_4_kb": {
       "message": "payload too large (4 KB max)",
-      "description": "Host status HTTP error (error field, 413 payload_too_large) from test/service/Start-StatusService.ps1 for a host-refresh body over 4096 bytes.",
+      "description": "Host status HTTP error (error field, 413 payload_too_large) from test/service/Start-StatusService.ps1 for a host-repair or host-update body over 4096 bytes.",
       "lifecycle": "active"
     },
     "status.api_payload_too_large_4_mb_3455f869": {
@@ -419,7 +458,7 @@
     },
     "status.api_request_body_invalid": {
       "message": "invalid request body: {reason} ({field})",
-      "description": "Host status HTTP error (error field, 400) from test/service/Start-StatusService.ps1 for a host-refresh body that is not valid JSON, names an unsupported or forbidden field, or carries an invalid value; reason and field are shown as inert text.",
+      "description": "Host status HTTP error (error field, 400) from test/service/Start-StatusService.ps1 for a host-repair or host-update body that is not valid JSON, names an unsupported or forbidden field, or carries an invalid value; reason and field are shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
@@ -436,7 +475,7 @@
     },
     "status.api_request_body_timeout": {
       "message": "the request body did not arrive within 2 seconds",
-      "description": "Host status HTTP error (error field, 408 body_timeout) from test/service/Start-StatusService.ps1 when a host-refresh body is not complete two seconds after the request arrived.",
+      "description": "Host status HTTP error (error field, 408 body_timeout) from test/service/Start-StatusService.ps1 when a request body is not complete two seconds after the request arrived.",
       "lifecycle": "active"
     },
     "status.api_runner_script_missing": {
@@ -473,7 +512,7 @@
     },
     "status.api_unsupported_media_type": {
       "message": "Content-Type must be application/json",
-      "description": "Host status HTTP error (error field, 415) from test/service/Start-StatusService.ps1 for a host-refresh request whose Content-Type is not JSON; preserve the header name and media type.",
+      "description": "Host status HTTP error (error field, 415) from test/service/Start-StatusService.ps1 for a host-repair or host-update request whose Content-Type is not JSON; preserve the header name and media type.",
       "lifecycle": "active"
     },
     "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9": {
@@ -488,7 +527,7 @@
     },
     "status.api_worker_launcher_failed": {
       "message": "the worker could not be started ({reason}); the request can be retried",
-      "description": "Host status HTTP error (error field, 503 launcher_failed) from test/service/Start-StatusService.ps1 when a detached host-refresh, start-cycle or host-diagnostic worker could not be launched; the reason is a machine code shown as inert text.",
+      "description": "Host status HTTP error (error field, 503 launcher_failed) from test/service/Start-StatusService.ps1 when a detached host-repair, start-cycle or host-diagnostic worker could not be launched; the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
@@ -646,10 +685,10 @@
       "lifecycle": "active",
       "message": "armWindowHours"
     },
-    "status.config_field_autorefreshafterstalls": {
+    "status.config_field_autorepairafterstalls": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
       "lifecycle": "active",
-      "message": "autoRefreshAfterStalls"
+      "message": "autoRepairAfterStalls"
     },
     "status.config_field_autoremediation": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
@@ -1039,12 +1078,12 @@
     "status.control_host_token_missing": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
       "lifecycle": "active",
-      "message": "This host holds no lab token yet."
+      "message": "This host holds no internal authentication key yet."
     },
     "status.control_instructions": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
       "lifecycle": "active",
-      "message": "This host accepts control only from a browser on the host itself ({address}), or one opened through the Yuruna hosts dashboard link (which grants a short-lived token). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run {command} with the code from the dashboard’s Lab token tile.",
+      "message": "This host accepts control only from a browser on the host itself ({address}), or one opened through the Yuruna hosts dashboard link (which grants a short-lived control proof). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run {command} with the code from the dashboard’s Lab token tile.",
       "placeholders": {
         "address": {
           "type": "detail",
@@ -1061,7 +1100,7 @@
     "status.control_proof_expired": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
       "lifecycle": "active",
-      "message": "This page’s control token has expired (they last 15 minutes)."
+      "message": "This page’s control proof has expired (proofs last 15 minutes)."
     },
     "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": {
       "message": "Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.",
@@ -1083,12 +1122,12 @@
     "status.control_proof_invalid": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
       "lifecycle": "active",
-      "message": "This page’s control token does not verify here — this host’s stored lab token likely differs from the lab’s current one, so re-enroll."
+      "message": "This page’s control proof does not verify here — this host’s internal authentication key likely differs from the lab’s current one, so re-enroll with a Lab token."
     },
     "status.control_proof_missing": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
       "lifecycle": "active",
-      "message": "This page was opened without a control token, so none was sent."
+      "message": "This page was opened without a control proof, so none was sent."
     },
     "status.control_refused": {
       "description": "Status application presentation. Translate complete wording; named arguments are data and must retain their spelling. Unknown protocol values remain visible unchanged.",
@@ -1101,7 +1140,7 @@
       "message": "control-route setup"
     },
     "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": {
-      "message": "This host has no lab-auth-token, so remote control is loopback-only. Open this page as {address} on the host, or enroll it: {command} <code from the dashboard’s Lab token tile>. See {documentation}",
+      "message": "This host has no internal authentication key, so remote control is loopback-only. Open this page as {address} on the host, or enroll it: {command} <code from the dashboard’s Lab token tile>. See {documentation}",
       "description": "Remote-control refusal with exact URL/command arguments.",
       "lifecycle": "active",
       "placeholders": {
@@ -1662,56 +1701,56 @@
         }
       }
     },
-    "status.host_refresh_action_dispose_obligations": {
-      "message": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
-      "description": "Config page operator action dispose_obligations after a host refresh (test/status/yuruna.common.js); keep the command exactly as written.",
+    "status.host_repair_action_dispose_obligations": {
+      "message": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.",
+      "description": "Diagnostics page operator action dispose_obligations after a host repair (test/status/yuruna.common.js); keep the command exactly as written.",
       "lifecycle": "active"
     },
-    "status.host_refresh_action_elevate": {
+    "status.host_repair_action_elevate": {
       "message": "Next step: the repair needs administrator rights; run it on the host from an elevated session.",
-      "description": "Config page operator action elevate after a host refresh (test/status/yuruna.common.js).",
+      "description": "Diagnostics page operator action elevate after a host repair (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_action_grant_automation": {
-      "message": "Next step: allow this host's automation access to UTM, then refresh again.",
-      "description": "Config page operator action grant_automation after a host refresh (test/status/yuruna.common.js); UTM is a product name.",
+    "status.host_repair_action_grant_automation": {
+      "message": "Next step: allow this host's automation access to UTM, then repair again.",
+      "description": "Diagnostics page operator action grant_automation after a host repair (test/status/yuruna.common.js); UTM is a product name.",
       "lifecycle": "active"
     },
-    "status.host_refresh_action_gui_session": {
-      "message": "Next step: sign in to a desktop session on the host, then refresh again.",
-      "description": "Config page operator action gui_session after a host refresh (test/status/yuruna.common.js).",
+    "status.host_repair_action_gui_session": {
+      "message": "Next step: sign in to a desktop session on the host, then repair again.",
+      "description": "Diagnostics page operator action gui_session after a host repair (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_action_install_client": {
-      "message": "Next step: install the hypervisor's command-line client on the host, then refresh again.",
-      "description": "Config page operator action install_client after a host refresh (test/status/yuruna.common.js).",
+    "status.host_repair_action_install_client": {
+      "message": "Next step: install the hypervisor's command-line client on the host, then repair again.",
+      "description": "Diagnostics page operator action install_client after a host repair (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_action_resume_request": {
-      "message": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
-      "description": "Config page operator action resume_request after a host refresh (test/status/yuruna.common.js); keep the command exactly as written.",
+    "status.host_repair_action_resume_request": {
+      "message": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRepair.ps1 -Resume.",
+      "description": "Diagnostics page operator action resume_request after a host repair (test/status/yuruna.common.js); keep the command exactly as written.",
       "lifecycle": "active"
     },
-    "status.host_refresh_action_start_runner": {
+    "status.host_repair_action_start_runner": {
       "message": "Next step: start the runner on the host; no recorded launch could be reused to restart it.",
-      "description": "Config page operator action start_runner after a host refresh (test/status/yuruna.common.js).",
+      "description": "Diagnostics page operator action start_runner after a host repair (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_authorization_refused": {
-      "message": "This refresh needs a refresh proof that this page does not have ({reason}). Use the status page on the host itself, or the pool-control refresh action.",
-      "description": "Config page text for a 403 whose reason is a refresh_* code (test/status/yuruna.common.js, controlErrorText); the reason is a machine code shown as inert text.",
+    "status.host_repair_authorization_refused": {
+      "message": "This repair needs a repair proof that this page does not have ({reason}). Use the status page on the host itself, or the pool-control repair action.",
+      "description": "Diagnostics page text for a 403 whose reason is one of the repair proof codes (repair_proof_*, repair_remote_*, repair_verifier_*, repair_tier_not_remote, repair_unavailable), matched by an explicit list because update actions such as repair_checkout share the repair_ prefix (test/status/yuruna.common.js, controlErrorText); the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
           "type": "identifier",
           "trust": "external",
-          "example": "refresh_proof_missing"
+          "example": "repair_proof_missing"
         }
       }
     },
-    "status.host_refresh_busy": {
-      "message": "Another host refresh ({requestId}) is in progress; showing its progress.",
-      "description": "Config page status when the host answered busy with an active host refresh, which the page then follows (test/status/yuruna.common.js).",
+    "status.host_repair_busy": {
+      "message": "Another host repair ({requestId}) is in progress; showing its progress.",
+      "description": "Diagnostics page status when the host answered busy with an active host repair, which the page then follows (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1721,14 +1760,14 @@
         }
       }
     },
-    "status.host_refresh_check_host": {
-      "message": "On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state.",
-      "description": "Config page note after an unsuccessful host refresh (test/status/yuruna.common.js); keep the command exactly as written.",
+    "status.host_repair_check_host": {
+      "message": "On the host, run pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf to see the current state.",
+      "description": "Diagnostics page note after an unsuccessful host repair (test/status/yuruna.common.js); keep the command exactly as written.",
       "lifecycle": "active"
     },
-    "status.host_refresh_closed": {
-      "message": "Request {requestId} is already closed ({state}); start a new refresh.",
-      "description": "Config page status for the request_closed reply (test/status/yuruna.common.js); the state is a machine code shown as inert text.",
+    "status.host_repair_closed": {
+      "message": "Request {requestId} is already closed ({state}); start a new repair.",
+      "description": "Diagnostics page status for the request_closed reply (test/status/yuruna.common.js); the state is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1743,9 +1782,9 @@
         }
       }
     },
-    "status.host_refresh_confirm": {
-      "message": "Refresh this host, up to the {ceiling} step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to {minutes} minutes.",
-      "description": "Confirmation dialog before a host refresh is requested from the Config page (test/status/yuruna.common.js); ceiling is a rung name kept as written.",
+    "status.host_repair_confirm": {
+      "message": "Repair this host, up to the {ceiling} step? Guest VMs on this host can be suspended or restarted while the hypervisor recovers, and the runner is restarted. This can take up to {minutes} minutes.",
+      "description": "Confirmation dialog before a host repair is requested from the Diagnostics page (test/status/yuruna.common.js); ceiling is a rung name kept as written.",
       "lifecycle": "active",
       "placeholders": {
         "ceiling": {
@@ -1760,9 +1799,9 @@
         }
       }
     },
-    "status.host_refresh_conflict": {
-      "message": "Request {requestId} was already sent with different settings; start a new refresh.",
-      "description": "Config page status for the request_conflict reply (test/status/yuruna.common.js).",
+    "status.host_request_conflict": {
+      "message": "Request {requestId} was already sent with different settings; start a new request.",
+      "description": "Diagnostics page status for the request_conflict reply (test/status/yuruna.common.js). Used by the host repair and host update sections.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1772,14 +1811,14 @@
         }
       }
     },
-    "status.host_refresh_launcher_failed": {
-      "message": "The host could not start the refresh worker. The request is kept; select Retry to start it again.",
-      "description": "Config page status for the launcher_failed reply (test/status/yuruna.common.js); Retry resends the same request id.",
+    "status.host_repair_launcher_failed": {
+      "message": "The host could not start the repair worker. The request is kept; select Retry to start it again.",
+      "description": "Diagnostics page status for the launcher_failed reply (test/status/yuruna.common.js); Retry resends the same request id.",
       "lifecycle": "active"
     },
-    "status.host_refresh_lost": {
-      "message": "Refresh {requestId}: no outcome after {seconds} seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one.",
-      "description": "Config page host-refresh status (test/status/yuruna.common.js) when the page stops following a request: no terminal record appeared within the longest worker budget, or another request's terminal record shows this one is already resolved. Retry and Refresh host are the button labels status.host_refresh_retry and status.host_refresh_start; keep them matching those translations.",
+    "status.host_repair_lost": {
+      "message": "Repair {requestId}: no outcome after {seconds} seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Repair host to start a new one.",
+      "description": "Diagnostics page host-repair status (test/status/yuruna.common.js) when the page stops following a request: no terminal record appeared within the longest worker budget, or another request's terminal record shows this one is already resolved. Retry and Repair host are the button labels status.host_repair_retry and status.host_repair_start; keep them matching those translations.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1794,14 +1833,14 @@
         }
       }
     },
-    "status.host_refresh_note": {
+    "status.host_repair_note": {
       "message": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.",
-      "description": "Explanation under the host-refresh heading on the Config page (test/status/yuruna.common.js); it states the guest disruption before the button is used.",
+      "description": "Explanation under the host-repair heading on the Diagnostics page (test/status/yuruna.common.js); it states the guest disruption before the button is used.",
       "lifecycle": "active"
     },
-    "status.host_refresh_progress": {
-      "message": "Refresh {requestId}: step {step} of {count} ({stepName}), up to {remainingSeconds} seconds left.",
-      "description": "Config page progress line for a running host refresh (test/status/yuruna.common.js); stepName is a rung or phase name kept as written.",
+    "status.host_repair_progress": {
+      "message": "Repair {requestId}: step {step} of {count} ({stepName}), up to {remainingSeconds} seconds left.",
+      "description": "Diagnostics page progress line for a running host repair (test/status/yuruna.common.js); stepName is a rung or phase name kept as written.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1831,14 +1870,14 @@
         }
       }
     },
-    "status.host_refresh_recovery_pending": {
+    "status.host_repair_recovery_pending": {
       "message": "Services or the runner still need restoring. Retry resumes the same request.",
-      "description": "Config page note after a host refresh ends with recovery still pending (test/status/yuruna.common.js); Retry resends the same request id.",
+      "description": "Diagnostics page note after a host repair ends with recovery still pending (test/status/yuruna.common.js); Retry resends the same request id.",
       "lifecycle": "active"
     },
-    "status.host_refresh_rejected": {
-      "message": "The host rejected the refresh request: {detail}",
-      "description": "Config page status for any other refusal or a lost reply (test/status/yuruna.common.js); the detail is shown as inert, isolated text.",
+    "status.host_request_rejected": {
+      "message": "The host rejected the request: {detail}",
+      "description": "Diagnostics page status for any other refusal or a lost reply (test/status/yuruna.common.js); the detail is shown as inert, isolated text. Used by the host repair and host update sections.",
       "lifecycle": "active",
       "placeholders": {
         "detail": {
@@ -1848,19 +1887,19 @@
         }
       }
     },
-    "status.host_refresh_remote_viewer": {
-      "message": "This page is open from another machine, so it can watch a host refresh but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRefresh.ps1.",
-      "description": "Config page note when the control-status capability reports the viewer's connection as non-loopback (test/status/yuruna.common.js); a remote press cannot carry the refresh proof, so the Start button stays disabled; preserve command names, parameter names, codes and paths.",
+    "status.host_repair_remote_viewer": {
+      "message": "This page is open from another machine, so it can watch a host repair but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRepair.ps1.",
+      "description": "Diagnostics page note when the control-status capability reports the viewer's connection as non-loopback (test/status/yuruna.common.js); a remote press cannot carry the repair proof, so the Start button stays disabled; preserve command names, parameter names, codes and paths.",
       "lifecycle": "active"
     },
-    "status.host_refresh_retry": {
+    "status.host_repair_retry": {
       "message": "Retry",
-      "description": "Button that resends the same host-refresh request after a failed launch or while recovery is pending (test/status/yuruna.common.js).",
+      "description": "Button that resends the same host-repair request after a failed launch or while recovery is pending (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_stale": {
-      "message": "Refresh {requestId}: no progress report for {seconds} seconds. The worker may have stopped; check the host before starting another repair.",
-      "description": "Config page status when the worker's heartbeat is older than its allowance plus the current step bound (test/status/yuruna.common.js).",
+    "status.host_repair_stale": {
+      "message": "Repair {requestId}: no progress report for {seconds} seconds. The worker may have stopped; check the host before starting another repair.",
+      "description": "Diagnostics page status when the worker's heartbeat is older than its allowance plus the current step bound (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1875,29 +1914,29 @@
         }
       }
     },
-    "status.host_refresh_start": {
-      "message": "Refresh host",
-      "description": "Button that starts a host refresh on the Config page (test/status/yuruna.common.js).",
+    "status.host_repair_start": {
+      "message": "Repair host",
+      "description": "Button that starts a host repair (the host-repair route) on the Diagnostics page (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_start_cycle_busy": {
+    "status.host_repair_start_cycle_busy": {
       "message": "A start-cycle request is in progress; try again when it finishes.",
-      "description": "Config page status when a host refresh was refused because a start-cycle holds the host (test/status/yuruna.common.js).",
+      "description": "Diagnostics page status when a host repair was refused because a start-cycle holds the host (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_submitting": {
-      "message": "Sending the refresh request...",
-      "description": "Config page status while the host-refresh request is being sent (test/status/yuruna.common.js).",
+    "status.host_request_submitting": {
+      "message": "Sending the request...",
+      "description": "Diagnostics page status while a host repair or host update request is being sent (test/status/yuruna.common.js).",
       "lifecycle": "active"
     },
-    "status.host_refresh_title": {
-      "message": "Host refresh",
-      "description": "Heading of the host-refresh section on the Config page (test/status/yuruna.common.js, bootHostRefresh).",
+    "status.host_repair_title": {
+      "message": "Host repair",
+      "description": "Heading of the host-repair section on the Diagnostics page (test/status/yuruna.common.js, bootHostRepair).",
       "lifecycle": "active"
     },
-    "status.host_refresh_unavailable": {
-      "message": "Host refresh is not available on this host ({reason}).",
-      "description": "Config page status when the host no longer advertises a refresh it can run (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
+    "status.host_repair_unavailable": {
+      "message": "Host repair is not available on this host ({reason}).",
+      "description": "Diagnostics page status when the host no longer advertises a repair it can run (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
@@ -1907,9 +1946,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_abandoned": {
-      "message": "Refresh {requestId} was abandoned after repeated attempts; its recovery record is kept on the host.",
-      "description": "Config page outcome for the abandoned verdict (test/status/yuruna.common.js).",
+    "status.host_repair_verdict_abandoned": {
+      "message": "Repair {requestId} was abandoned after repeated attempts; its recovery record is kept on the host.",
+      "description": "Diagnostics page outcome for the abandoned verdict (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1919,9 +1958,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_already_healthy": {
-      "message": "Refresh {requestId} finished: the host was already healthy, so nothing was changed.",
-      "description": "Config page outcome for the already_healthy verdict (test/status/yuruna.common.js).",
+    "status.host_repair_verdict_already_healthy": {
+      "message": "Repair {requestId} finished: the host was already healthy, so nothing was changed.",
+      "description": "Diagnostics page outcome for the already_healthy verdict (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1931,9 +1970,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_failed": {
-      "message": "Refresh {requestId} failed ({reason}).",
-      "description": "Config page outcome for the failed verdict (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
+    "status.host_repair_verdict_failed": {
+      "message": "Repair {requestId} failed ({reason}).",
+      "description": "Diagnostics page outcome for the failed verdict (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1948,9 +1987,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_partial": {
-      "message": "Refresh {requestId} ended incomplete ({reason}); some services or the runner still need attention.",
-      "description": "Config page outcome for the partial verdict (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
+    "status.host_repair_verdict_partial": {
+      "message": "Repair {requestId} ended incomplete ({reason}); some services or the runner still need attention.",
+      "description": "Diagnostics page outcome for the partial verdict (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1965,9 +2004,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_refused": {
-      "message": "Refresh {requestId} was refused before any change ({reason}).",
-      "description": "Config page outcome for the refused verdict (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
+    "status.host_repair_verdict_refused": {
+      "message": "Repair {requestId} was refused before any change ({reason}).",
+      "description": "Diagnostics page outcome for the refused verdict (test/status/yuruna.common.js); the reason is a machine code shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1982,9 +2021,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_repaired": {
-      "message": "Refresh {requestId} finished: the host was repaired and the runner is ready.",
-      "description": "Config page outcome for the repaired verdict (test/status/yuruna.common.js).",
+    "status.host_repair_verdict_repaired": {
+      "message": "Repair {requestId} finished: the host was repaired and the runner is ready.",
+      "description": "Diagnostics page outcome for the repaired verdict (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -1994,9 +2033,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_still_unresponsive": {
-      "message": "Refresh {requestId} ended: the hypervisor still does not respond.",
-      "description": "Config page outcome for the still_unresponsive verdict (test/status/yuruna.common.js).",
+    "status.host_repair_verdict_still_unresponsive": {
+      "message": "Repair {requestId} ended: the hypervisor still does not respond.",
+      "description": "Diagnostics page outcome for the still_unresponsive verdict (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -2006,9 +2045,9 @@
         }
       }
     },
-    "status.host_refresh_verdict_unknown": {
-      "message": "Refresh {requestId} ended with an outcome this page does not recognize ({verdict}).",
-      "description": "Config page outcome for a verdict this page has no sentence for (test/status/yuruna.common.js); the verdict is shown as inert text.",
+    "status.host_repair_verdict_unknown": {
+      "message": "Repair {requestId} ended with an outcome this page does not recognize ({verdict}).",
+      "description": "Diagnostics page outcome for a verdict this page has no sentence for (test/status/yuruna.common.js); the verdict is shown as inert text.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -2023,9 +2062,9 @@
         }
       }
     },
-    "status.host_refresh_waiting": {
-      "message": "Refresh {requestId} was accepted; waiting for the worker's first report.",
-      "description": "Config page status while no progress record for this request exists yet (test/status/yuruna.common.js); a record for another request is never shown as this one.",
+    "status.host_repair_waiting": {
+      "message": "Repair {requestId} was accepted; waiting for the worker's first report.",
+      "description": "Diagnostics page status while no progress record for this request exists yet (test/status/yuruna.common.js); a record for another request is never shown as this one.",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -2035,9 +2074,9 @@
         }
       }
     },
-    "status.host_refresh_waiting_long": {
-      "message": "Refresh {requestId}: no report after {seconds} seconds. The worker may have failed to start; check the host.",
-      "description": "Config page status when a minute has passed with no progress record for this request (test/status/yuruna.common.js).",
+    "status.host_repair_waiting_long": {
+      "message": "Repair {requestId}: no report after {seconds} seconds. The worker may have failed to start; check the host.",
+      "description": "Diagnostics page status when a minute has passed with no progress record for this request (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -2049,6 +2088,421 @@
           "type": "integer",
           "trust": "internal",
           "example": "75"
+        }
+      }
+    },
+    "status.host_update_title": {
+      "message": "Host update",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the section title.",
+      "lifecycle": "active"
+    },
+    "status.host_update_start": {
+      "message": "Update host",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the button that starts a host update. The repair's button is status.host_repair_start.",
+      "lifecycle": "active"
+    },
+    "status.host_update_note": {
+      "message": "Updates this host's code and restarts the runner when the running cycle ends, giving up after {minutes} minutes. To end the cycle now, run on the host: {command}",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the note under the title; command is the host command that ends the running cycle at once; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "minutes": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "120"
+        },
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pwsh test/lab/Invoke-HostUpdate.ps1 -Scope restart -Drain now"
+        }
+      }
+    },
+    "status.host_update_scope": {
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the label of a scope option; the selector is the scope token, shown as written when this page does not know it.",
+      "lifecycle": "active",
+      "placeholders": {
+        "scope": {
+          "type": "token",
+          "trust": "external",
+          "example": "restart"
+        }
+      },
+      "select": {
+        "selector": "scope",
+        "variants": {
+          "restart": "Restart the runner on current code",
+          "full": "Reinstall dependencies and settings, then restart",
+          "other": "{scope}"
+        }
+      }
+    },
+    "status.host_update_confirm": {
+      "message": "Update host ({scope})? The runner stops when the running cycle ends and restarts on current code; the update gives up after {minutes} minutes. To end the cycle now instead, run on the host: {command}",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the confirmation before a host update is requested; scope is the translated scope label (status.host_update_scope); preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "scope": {
+          "type": "text",
+          "trust": "internal",
+          "example": "Restart the runner on current code"
+        },
+        "minutes": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "120"
+        },
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pwsh test/lab/Invoke-HostUpdate.ps1 -Scope restart -Drain now"
+        }
+      }
+    },
+    "status.host_update_cycle_time": {
+      "message": "The running cycle has run {elapsed}; recent cycles took about {median}.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): appended to the confirmation while a cycle runs; median is the median duration of the recent cycles.",
+      "lifecycle": "active",
+      "placeholders": {
+        "elapsed": {
+          "type": "duration",
+          "trust": "internal",
+          "example": 1800
+        },
+        "median": {
+          "type": "duration",
+          "trust": "internal",
+          "example": 5400
+        }
+      }
+    },
+    "status.host_update_unavailable": {
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): why Update host is disabled, or why an update it follows waits; the selector is the capability reason, controller_absent_macos for a macOS host with no controller (the runner's start starts it there; also for an update that is queued or in phase 1 there), controller_absent_gate for a macOS host whose controller ended while an update holds the runner gate (the drain or a later phase, or recovering), remote for a page opened from another machine, or host_type for a host type with no controller; tmux is the command that ends the controller's tmux session and screen the command that lists screen sessions; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "external",
+          "example": "controller_absent"
+        },
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pwsh test/lab/Enable-TestAutomation.ps1"
+        },
+        "runner": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pwsh test/Start-TestRunner.ps1"
+        },
+        "tmux": {
+          "type": "token",
+          "trust": "internal",
+          "example": "tmux -L yuruna-controller kill-session -t yuruna-controller"
+        },
+        "screen": {
+          "type": "token",
+          "trust": "internal",
+          "example": "screen -ls"
+        },
+        "file": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pool-control.record"
+        }
+      },
+      "select": {
+        "selector": "reason",
+        "variants": {
+          "controller_absent": "No host controller runs on this host. To set one up, run on the host: {command}",
+          "controller_absent_macos": "No host controller runs on this host. On macOS the runner's start starts it: run {runner} from a terminal of the desktop session, or stop a running runner after its cycle and start it again that way. On a host never set up for host updates, run {command} first.",
+          "controller_absent_gate": "A host update holds this host's runner and no host controller is running. Run {runner} once more from a terminal of the desktop session and leave a runner that is running alone: that start stops at the runner gate and starts the controller, which continues the update.",
+          "host_type": "Host updates are not yet available on this host type.",
+          "journal_unreadable": "The host cannot read its operation journal; check the host.",
+          "session_unusable": "The host controller's session cannot start a working runner: it is not the desktop session, or a privacy grant is missing there. On the host, end the session yuruna-controller with {tmux} (under screen, quit the yuruna-controller session that {screen} lists), stop a running runner after its cycle, and start the runner again from a terminal of the desktop session that holds the grants.",
+          "listener_dependency_missing": "The status service could not load what host updates need; restart it on the host.",
+          "remote": "From another machine this page can only watch a host update; until {file} is installed on the host, press Update host there.",
+          "scope_unavailable": "This host cannot run the chosen scope now.",
+          "other": "Host updates are not available on this host ({reason})."
+        }
+      }
+    },
+    "status.host_update_remote_hint": {
+      "message": "Update host opens pool-control at {url}, which signs the request and brings you back here.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): shown to a viewer on another machine when the host can take a remote update; url is pool-control's base URL from the host's pool-control record.",
+      "lifecycle": "active",
+      "placeholders": {
+        "url": {
+          "type": "token",
+          "trust": "external",
+          "example": "http://192.0.2.10"
+        }
+      }
+    },
+    "status.host_update_busy": {
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the reply to a press while another operation holds the host; the selector is its kind.",
+      "lifecycle": "active",
+      "placeholders": {
+        "kind": {
+          "type": "token",
+          "trust": "external",
+          "example": "host_update"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        }
+      },
+      "select": {
+        "selector": "kind",
+        "variants": {
+          "host_update": "Another host update ({requestId}) is in progress; showing its progress.",
+          "host_repair": "A host repair ({requestId}) is in progress; try again when it finishes.",
+          "other": "A start-cycle request is in progress; try again when it finishes."
+        }
+      }
+    },
+    "status.host_update_blocks": {
+      "message": "A host update ({requestId}) is in progress; try again when it finishes.",
+      "description": "Diagnostics page result when a host repair, or Config page result when a start-cycle, was refused because a host update holds the host (test/status/yuruna.common.js).",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        }
+      }
+    },
+    "status.host_update_queued": {
+      "message": "Host update {requestId} is queued; it starts when the running cycle ends.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the request waits for the host controller, which starts it when the running cycle ends.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        }
+      }
+    },
+    "status.host_update_progress": {
+      "message": "Host update {requestId}: phase {index} of {count} ({phase}), bounded at {bound}.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): progress of a running host update; phase is a phase token kept as written, bound the phase's time limit.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "index": {
+          "type": "integer",
+          "trust": "external",
+          "example": "2"
+        },
+        "count": {
+          "type": "integer",
+          "trust": "external",
+          "example": "6"
+        },
+        "phase": {
+          "type": "token",
+          "trust": "external",
+          "example": "drain"
+        },
+        "bound": {
+          "type": "duration",
+          "trust": "external",
+          "example": 7200
+        }
+      }
+    },
+    "status.host_update_stale": {
+      "message": "Host update {requestId}: no report for {seconds} seconds; check the host.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the host controller stopped publishing progress.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "seconds": {
+          "type": "integer",
+          "trust": "internal",
+          "example": "45"
+        }
+      }
+    },
+    "status.host_update_lost": {
+      "message": "Host update {requestId}: the host no longer reports it, so its outcome is unknown here; check the host.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the host reports nothing active and its progress file no longer shows this request.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        }
+      }
+    },
+    "status.host_update_countdown": {
+      "message": "The status service is restarting; expected back in {seconds} seconds.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the status service restarts during the update and does not answer meanwhile.",
+      "lifecycle": "active",
+      "placeholders": {
+        "seconds": {
+          "type": "integer",
+          "trust": "external",
+          "example": "40"
+        }
+      }
+    },
+    "status.host_update_verdict": {
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): how a host update ended, or that it is recovering; the selector is the verdict token, or recovering_without_controller for a recovering update on a macOS host where no host controller runs to retry it; reason is a reason token kept as written.",
+      "lifecycle": "active",
+      "placeholders": {
+        "verdict": {
+          "type": "token",
+          "trust": "external",
+          "example": "updated"
+        },
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "reason": {
+          "type": "token",
+          "trust": "external",
+          "example": "pull_failed"
+        },
+        "supersededBy": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "7d1e2f3a-4b5c-4d6e-8f7a-9b0c1d2e3f4a"
+        }
+      },
+      "select": {
+        "selector": "verdict",
+        "variants": {
+          "refused": "Host update {requestId} was refused; nothing changed ({reason}).",
+          "drain_timeout": "Host update {requestId} gave up: the running cycle outlasted the wait. Nothing changed.",
+          "stop_failed": "Host update {requestId}: the runner could not be stopped, so nothing was started.",
+          "recovering": "Host update {requestId}: the runner is not running yet; the host keeps trying ({reason}).",
+          "recovering_without_controller": "Host update {requestId}: the runner is not running yet ({reason}), and no host controller is running to try again.",
+          "released": "Host update {requestId} was released on the host.",
+          "superseded": "Host update {requestId} was taken over by {supersededBy}.",
+          "failed_restored": "Host update {requestId} did not complete ({reason}); the host was restored.",
+          "reboot_required": "Host update {requestId} finished, but Windows must restart before the hypervisor can run, so the runner was not started.",
+          "updated_not_started": "Host update {requestId} finished; the runner was stopped before it, so it was not started.",
+          "updated_with_remarks": "Host update {requestId} finished with remarks; the runner runs current code.",
+          "updated": "Host update {requestId} finished; the runner runs current code.",
+          "other": "Host update {requestId} ended with an outcome this page does not recognize ({verdict})."
+        }
+      }
+    },
+    "status.host_update_action": {
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): what the host asks of the operator; the selector is the operator action token, or provision_elevation_macos for provision_elevation on a macOS host, where the runner has no sudo rule and the attended Enable-TestAutomation in command installs the sudoers entry host updates use; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "action": {
+          "type": "token",
+          "trust": "external",
+          "example": "repair_checkout"
+        },
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "pwsh test/lab/Invoke-HostUpdate.ps1 -Release 0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        }
+      },
+      "select": {
+        "selector": "action",
+        "variants": {
+          "end_one_shot": "Next step: end the one-shot session on the host, then press again.",
+          "release_diagnostic_hold": "Next step: release the VM kept for diagnosis, then press again.",
+          "provision_elevation": "Next step: give the runner its sudo rule on the host, then press again.",
+          "provision_elevation_macos": "Next step: on the host, run {command} from a terminal of the desktop session and answer its prompts; it installs the sudoers entry host updates use. Then press again.",
+          "retry_or_drain_now": "Next step: press again, or end the cycle now on the host: {command}",
+          "stop_runner_by_hand": "Next step: stop the runner on the host by hand.",
+          "repair_checkout": "Next step: repair the checkout on the host; the host keeps trying.",
+          "act_at_host": "Next step: check the host and act there.",
+          "release": "Next step: to end it, run on the host: {command}",
+          "read_remarks": "Next step: read the remarks.",
+          "start_runner": "Next step: start the runner on the host.",
+          "reboot_host": "Next step: restart Windows on the host, then start the runner.",
+          "other": "Next step: {action}."
+        }
+      }
+    },
+    "status.host_update_remarks": {
+      "message": "Remarks: {remarks}.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the remark tokens of the update, kept as written.",
+      "lifecycle": "active",
+      "placeholders": {
+        "remarks": {
+          "type": "token",
+          "trust": "external",
+          "example": "runner_console_unavailable"
+        }
+      }
+    },
+    "status.host_update_debt": {
+      "message": "Still owed on the host: {actions}.",
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the actions still owed on the host after the update, as tokens kept as written.",
+      "lifecycle": "active",
+      "placeholders": {
+        "actions": {
+          "type": "token",
+          "trust": "external",
+          "example": "start_listener"
+        }
+      }
+    },
+    "status.host_update_console": {
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): where the started runner's console is; the selector is the console token: tmux (a session to attach to), window (a console window on the desktop of the test account on Windows) or none; preserve command names, parameter names, codes and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "console": {
+          "type": "token",
+          "trust": "external",
+          "example": "tmux"
+        },
+        "command": {
+          "type": "token",
+          "trust": "internal",
+          "example": "tmux -S ~/.yuruna/host-repair/host-controller/runner-console.sock attach"
+        }
+      },
+      "select": {
+        "selector": "console",
+        "variants": {
+          "tmux": "To open the runner's console, run on the host: {command}",
+          "window": "The runner's console is a window of its own on the desktop of the test account: open it at the machine, or over a remote desktop connection to that session.",
+          "none": "The runner started without a console.",
+          "other": "The runner's console: {console}."
+        }
+      }
+    },
+    "status.host_update_first_cycle": {
+      "description": "Diagnostics page host update (test/status/yuruna.common.js): the result of the first cycle after the update; the selector is pass, fail or pending.",
+      "lifecycle": "active",
+      "placeholders": {
+        "result": {
+          "type": "token",
+          "trust": "external",
+          "example": "pass"
+        }
+      },
+      "select": {
+        "selector": "result",
+        "variants": {
+          "pass": "The first cycle after the update passed.",
+          "fail": "The first cycle after the update failed.",
+          "other": "Waiting for the first cycle after the update."
         }
       }
     },
@@ -2109,7 +2563,7 @@
       "lifecycle": "active"
     },
     "status.latest_cycle": {
-      "message": "Latest Cycle",
+      "message": "Latest cycle",
       "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
@@ -2515,7 +2969,7 @@
       "lifecycle": "active"
     },
     "status.recent_cycles": {
-      "message": "Recent Cycles",
+      "message": "Recent cycles",
       "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
@@ -2805,9 +3259,9 @@
         }
       }
     },
-    "status.start_cycle_blocked_by_refresh": {
-      "message": "A host refresh ({requestId}) is in progress; the cycle cannot start until it finishes.",
-      "description": "Config page result when start-cycle was refused because a host refresh holds the host (test/status/yuruna.common.js).",
+    "status.start_cycle_blocked_by_repair": {
+      "message": "A host repair ({requestId}) is in progress; the cycle cannot start until it finishes.",
+      "description": "Config page result when start-cycle was refused because a host repair holds the host (test/status/yuruna.common.js).",
       "lifecycle": "active",
       "placeholders": {
         "requestId": {
@@ -2968,7 +3422,7 @@
       "lifecycle": "active"
     },
     "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": {
-      "message": "The control proof was rejected. It may have been minted with a different lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
+      "message": "The control proof was rejected. It may have been minted with a different internal authentication key than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
       "description": "Operator-facing browser message in test/status/yuruna.common.js. Values from services or configuration are untrusted display data; keep placeholders and protocol identifiers.",
       "lifecycle": "active"
     },
@@ -3263,12 +3717,12 @@
       "lifecycle": "active"
     },
     "status.yuruna_status": {
-      "message": "Yuruna Status",
+      "message": "Yuruna status",
       "description": "Visible text in test/status/index.html; preserve product names, protocol tokens and keyboard shortcuts.",
       "lifecycle": "active"
     },
     "status.preflight_failed": {
-      "message": "PREFLIGHT FAILED",
+      "message": "Preflight failed",
       "description": "Host state and badge for configuration validation failure before a new test cycle starts.",
       "lifecycle": "active"
     },
@@ -3293,28 +3747,28 @@
       "lifecycle": "active"
     },
     "status.git_source_mirror_confirmed": {
-      "message": "mirror.origin",
-      "description": "Git provenance display identifier beside a cycle commit. Keep mirror.origin exactly in every locale; the underlying protocol value remains mirror-confirmed.",
+      "message": "mirror",
+      "description": "Git provenance display label shown in brackets beside a cycle commit. Keep the English word mirror exactly in every locale, matching the pool dashboard; the underlying protocol value remains mirror-confirmed.",
       "lifecycle": "active"
     },
     "status.git_source_mirror_fresh": {
-      "message": "mirror.fresh",
-      "description": "Legacy Git provenance display identifier. Keep mirror.fresh exactly in every locale; the underlying legacy protocol value remains mirror-fresh.",
+      "message": "mirror fresh",
+      "description": "Legacy Git provenance display label shown in brackets beside a cycle commit. Keep the English words mirror fresh exactly in every locale, matching the pool dashboard; the underlying legacy protocol value remains mirror-fresh.",
       "lifecycle": "active"
     },
     "status.git_source_mirror_stale": {
-      "message": "mirror.stale",
-      "description": "Git provenance display identifier beside a cycle commit. Keep mirror.stale exactly in every locale; the underlying protocol value remains mirror-stale. Freshness is unconfirmed, so the code does not necessarily differ from GitHub.",
+      "message": "mirror stale",
+      "description": "Git provenance display label shown in brackets beside a cycle commit. Keep the English words mirror stale exactly in every locale, matching the pool dashboard; the underlying protocol value remains mirror-stale. Freshness is unconfirmed, so the code does not necessarily differ from GitHub.",
       "lifecycle": "active"
     },
     "status.git_source_origin_direct": {
-      "message": "remote.origin",
-      "description": "Git provenance display identifier beside a cycle commit. Keep remote.origin exactly in every locale; the underlying protocol value remains origin-direct.",
+      "message": "remote",
+      "description": "Git provenance display label shown in brackets beside a cycle commit. Keep the English word remote exactly in every locale, matching the pool dashboard; the underlying protocol value remains origin-direct.",
       "lifecycle": "active"
     },
     "status.git_source_not_applicable": {
-      "message": "not.applicable",
-      "description": "Git provenance display identifier beside a cycle commit. Keep not.applicable exactly in every locale; the underlying protocol value remains not-applicable.",
+      "message": "not applicable",
+      "description": "Git provenance display label shown in brackets beside a cycle commit. Keep the English words not applicable exactly in every locale, matching the pool dashboard; the underlying protocol value remains not-applicable.",
       "lifecycle": "active"
     },
     "status.banner_unguarded": {

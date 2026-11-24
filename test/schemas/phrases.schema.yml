@@ -1,0 +1,60 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 428db2fb-8119-42cf-966a-0f3d3b9a1043
+$schema: https://json-schema.org/draft/2020-12/schema
+$id: https://yuruna.com/schemas/phrases.schema.yml
+title: Yuruna step phrase library
+description: >
+  A _phrases.yml library: a map of phrase id -> one sentence and the action
+  steps it stands for on each surface (screen, page). A sequence step written as
+  `step: "<sentence>"` (see sequence.schema.yml) is replaced by those steps when
+  the file is read. Lives alongside the sequences -- test/sequences/_phrases.yml
+  (framework) or <...>/test/_phrases.yml (project). This schema covers structure
+  only; slot use, verbs, field validity, duplicate ids and overlapping sentences
+  are checked by the reader in test/modules/Test.StepPhrase.psm1.
+
+type: object
+required: [phrases]
+additionalProperties: false
+properties:
+  phrases:
+    type: object
+    minProperties: 1
+    propertyNames:
+      pattern: "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+    additionalProperties:
+      $ref: "#/$defs/phrase"
+$defs:
+  phrase:
+    type: object
+    additionalProperties: false
+    required: [sentence]
+    anyOf:
+      - required: [screen]
+      - required: [page]
+    properties:
+      sentence:
+        type: string
+        pattern: "^[A-Za-z][A-Za-z0-9-]*( ([A-Za-z][A-Za-z0-9-]*|<[A-Za-z][A-Za-z0-9]*(:(secret|int|key))?>)){0,11}$"
+      screen: { $ref: "#/$defs/template" }
+      page: { $ref: "#/$defs/template" }
+  template:
+    type: array
+    minItems: 1
+    items: { $ref: "#/$defs/templateStep" }
+  templateStep:
+    type: object
+    required: [action]
+    properties:
+      action:
+        type: string
+        pattern: "^[A-Za-z][A-Za-z0-9]*$"
+      steps: { $ref: "#/$defs/template" }
+      stepsAfterVmRestart: { $ref: "#/$defs/template" }
+    not:
+      anyOf:
+        - required: [step]
+        - required: [snippet]
+        - required: [description]
+        - required: [descriptionLocalized]
+        - required: [fromStep]

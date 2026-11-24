@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.16
+# Version: 2026.11.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42c18f3d-326c-467e-a500-0668e518bf56
@@ -24,6 +24,34 @@ for _yuruna_arg in "$@"; do
 done
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
+# --- REGION: Unattended mode
+# --unattended is the host update's install phase on a host that already runs
+# the framework: no prompt, no standard input, no git command, nothing stopped,
+# no status folder or recovery capsule touched, no baseline reset, and elevation
+# that must already be there. The step that runs it reads the marker below
+# before it starts this file, because an older copy ignores the switch and would
+# run an attended install. --request-id and --attempt go into the result record,
+# which the step matches to its own attempt.
+# shellcheck disable=SC2034 # read from this file's text by the install step
+YURUNA_UNATTENDED_PROTOCOL_VERSION=1
+YURUNA_UNATTENDED=0
+YURUNA_REQUEST_ID=""
+YURUNA_REQUEST_ATTEMPT=""
+YURUNA_RESULT_REASON=""
+_yuruna_expect=""
+for _yuruna_arg in "$@"; do
+  case "$_yuruna_expect" in
+    request-id) [[ "$_yuruna_arg" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] && YURUNA_REQUEST_ID="$_yuruna_arg"; _yuruna_expect=""; continue ;;
+    attempt) [[ "$_yuruna_arg" =~ ^[1-9][0-9]{0,3}$ ]] && YURUNA_REQUEST_ATTEMPT="$_yuruna_arg"; _yuruna_expect=""; continue ;;
+  esac
+  case "$_yuruna_arg" in
+    --unattended) YURUNA_UNATTENDED=1 ;;
+    --request-id) _yuruna_expect=request-id ;;
+    --attempt) _yuruna_expect=attempt ;;
+  esac
+done
+if (( YURUNA_UNATTENDED )); then exec </dev/null; fi
+
 # Pinned apt signing-key fingerprints, verified before each key is trusted as
 # an apt anchor (a MITM that swaps the key fetch otherwise plants a permanent
 # trust root). Refresh on a vendor key rotation: re-fetch the key, confirm the
@@ -37,6 +65,8 @@ _yuruna_step="<starting up>"
 log()  { _yuruna_step="$*"; printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
+# A failure whose cause the result record names with a token of its own.
+refuse() { YURUNA_RESULT_REASON="$1"; shift; die "$@"; }
 
 # --- REGION: Deferred issues
 # Every non-fatal problem is recorded here as well as printed where it happens:
@@ -122,6 +152,132 @@ _yuruna_on_err() {
 }
 trap _yuruna_on_err ERR
 
+# --- REGION: EXIT trap
+# Every temp path this installer creates is registered here and removed by the
+# EXIT trap, whatever ends the run: a die(), a set -e abort, the ERR trap, or a
+# signal. Removing a path on each function's own success path is not enough --
+# those paths are exactly the ones a failure skips. A subshell that may exit
+# early sets yuruna_cleanup_tmp_paths as its own EXIT trap, because the parent's
+# registry never sees what the subshell adds. The ${arr[@]+...} form keeps an
+# empty array safe under set -u on bash 3.2, which macOS still ships.
+YURUNA_TMP_PATHS=()
+yuruna_track_tmp() {
+  [[ -n "${1:-}" ]] && YURUNA_TMP_PATHS+=("$1")
+  return 0
+}
+yuruna_cleanup_tmp_paths() {
+  local p
+  for p in ${YURUNA_TMP_PATHS[@]+"${YURUNA_TMP_PATHS[@]}"}; do
+    [[ -n "$p" && ( -e "$p" || -L "$p" ) ]] || continue
+    # Completed recovery capsules survive until the operator removes them:
+    # restart and rollback can happen after this installer process exits.
+    if [[ "$p" == "${YURUNA_INSTALLER_STATE_DIR:-}" && "${YURUNA_INSTALLER_STATE_RETAINED:-0}" -eq 1 ]]; then continue; fi
+    # A build tree can hold root-owned files; sudo is primed for the whole run.
+    rm -rf -- "$p" 2>/dev/null || sudo -n rm -rf -- "$p" 2>/dev/null || true
+  done
+  YURUNA_TMP_PATHS=()
+}
+# --- REGION: Machine-readable outcome
+# One JSON record of how the run ended, at a fixed path and beside the log, so a
+# caller (automation, a nested host) reads the outcome instead of parsing the
+# closing text: outcome succeeded | succeeded-with-issues | failed, the exit code,
+# the last step, every deferred issue, the installed VERSION and the log path.
+# Best-effort: it runs from the EXIT trap and never changes the exit code.
+# The record also names the host update's request and attempt, whether the run
+# was unattended, the reason token of a failure, a PowerShell that the run
+# moved to another version (pwshUpgrade), which an unattended caller acts on,
+# and the remark tokens of known conditions the run went on past (remarks).
+yuruna_json_string() {
+  # A character loop rather than ${s//...}: bash 3.2 (macOS) and 5.x treat a
+  # backslash in a pattern replacement differently, while double-quote escaping
+  # below means the same in every version.
+  local s="$1" out="" c i
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      '\') out="$out\\\\" ;;
+      '"') out="$out\\\"" ;;
+      $'\n') out="$out\\n" ;;
+      $'\r') out="$out\\r" ;;
+      $'\t') out="$out\\t" ;;
+      *) out="$out$c" ;;
+    esac
+  done
+  out="$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
+  printf '"%s"' "$out"
+}
+yuruna_pwsh_version() {
+  local v
+  hash -r 2>/dev/null || true
+  command -v pwsh >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # a PowerShell expression, expanded by pwsh
+  v="$(pwsh -NoLogo -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()' 2>/dev/null </dev/null | tr -d '\r' | head -n 1 || true)"
+  [[ "$v" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.]+)?$ ]] && printf '%s' "$v"
+  return 0
+}
+YURUNA_PWSH_BEFORE=""
+if (( YURUNA_UNATTENDED )); then YURUNA_PWSH_BEFORE="$(yuruna_pwsh_version)"; fi
+write_install_result() {
+  local rc="$1" installer="$2" outcome dir file issues_json="" issue remarks_json="" remark version="" reason="null" upgrade="null" after="" attempt="null" unattended=false
+  if [[ "$rc" -ne 0 ]]; then
+    outcome="failed"
+  elif [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    outcome="succeeded-with-issues"
+  else
+    outcome="succeeded"
+  fi
+  if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    for issue in "${YURUNA_ISSUES[@]}"; do
+      [[ -z "$issues_json" ]] || issues_json="$issues_json,"
+      issues_json="$issues_json$(yuruna_json_string "$issue")"
+    done
+  fi
+  # The ${arr[@]+...} form: an installer that never records a remark defines no
+  # array, and set -u on bash 3.2 refuses an empty one too.
+  for remark in ${YURUNA_REMARKS[@]+"${YURUNA_REMARKS[@]}"}; do
+    [[ -z "$remarks_json" ]] || remarks_json="$remarks_json,"
+    remarks_json="$remarks_json$(yuruna_json_string "$remark")"
+  done
+  if [[ -n "${YURUNA_DIR:-}" && -r "${YURUNA_DIR:-}/VERSION" ]]; then
+    version="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION" 2>/dev/null || true)"
+  fi
+  if [[ "${YURUNA_UNATTENDED:-0}" -eq 1 ]]; then
+    unattended=true
+    if [[ "$rc" -ne 0 ]]; then reason="$(yuruna_json_string "${YURUNA_RESULT_REASON:-installer_failed}")"; fi
+    after="$(yuruna_pwsh_version)"
+    if [[ -n "${YURUNA_PWSH_BEFORE:-}" && -n "$after" && "$after" != "${YURUNA_PWSH_BEFORE:-}" ]]; then
+      upgrade="{\"from\":$(yuruna_json_string "$YURUNA_PWSH_BEFORE"),\"to\":$(yuruna_json_string "$after"),\"pending\":false}"
+    fi
+  fi
+  if [[ -n "${YURUNA_REQUEST_ATTEMPT:-}" ]]; then attempt="$YURUNA_REQUEST_ATTEMPT"; fi
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  file="$dir/install-result.json"
+  if printf '{"schema":1,"installer":%s,"version":%s,"outcome":"%s","exitCode":%d,"step":%s,"issues":[%s],"log":%s,"finishedUtc":"%s","requestId":%s,"attempt":%s,"unattended":%s,"reason":%s,"pwshUpgrade":%s,"restartRequired":false,"remarks":[%s]}\n' \
+       "$(yuruna_json_string "$installer")" "$(yuruna_json_string "$version")" "$outcome" "$rc" \
+       "$(yuruna_json_string "${_yuruna_step:-}")" "$issues_json" "$(yuruna_json_string "${YURUNA_INSTALL_LOG:-}")" \
+       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(if [[ -n "${YURUNA_REQUEST_ID:-}" ]]; then yuruna_json_string "$YURUNA_REQUEST_ID"; else printf null; fi)" \
+       "$attempt" "$unattended" "$reason" "$upgrade" "$remarks_json" > "$file.tmp" 2>/dev/null && mv -f "$file.tmp" "$file" 2>/dev/null; then
+    if [[ -n "${YURUNA_INSTALL_LOG:-}" ]]; then cp -f "$file" "${YURUNA_INSTALL_LOG%.log}.result.json" 2>/dev/null || true; fi
+  fi
+  return 0
+}
+
+yuruna_install_cleanup() {
+  local rc=$? command="${BASH_COMMAND:-?}"
+  if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true; fi
+  yuruna_cleanup_tmp_paths
+  if [[ $rc -ne 0 ]]; then
+    printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
+    printf '   step    : %s\n' "${_yuruna_step:-?}" >&2
+    printf '   command : %s\n' "$command" >&2
+    printf '   log     : %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
+  fi
+  write_install_result "$rc" "ubuntu.kvm"
+  _yuruna_flush_log
+}
+trap yuruna_install_cleanup EXIT
+
 # --- REGION: Preflight: Linux only
 [[ "$(uname -s)" == "Linux" ]] || die "This installer only supports Linux."
 [[ -r /etc/os-release ]] || die "/etc/os-release missing -- not a recognized Linux."
@@ -135,7 +291,11 @@ group_names() {
   { id -Gn ${1:+"$1"} 2>/dev/null || true; } | tr ' ' '\n'
 }
 _yuruna_whoami="${USER:-$(id -un)}"
-if ! sudo -n -v 2>/dev/null && ! group_names | grep -xE 'sudo|wheel' >/dev/null; then
+# Unattended, elevation must already be in force: sudo -n true, never sudo -v,
+# which asks for a password while any rule of the account lacks NOPASSWD.
+if (( YURUNA_UNATTENDED )); then
+  sudo -n true 2>/dev/null || refuse not_elevated "$_yuruna_whoami cannot elevate without a password, and an unattended run never prompts."
+elif ! sudo -n -v 2>/dev/null && ! group_names | grep -xE 'sudo|wheel' >/dev/null; then
   die "$_yuruna_whoami cannot elevate: this session is in neither the 'sudo' nor the 'wheel' group, so sudo will refuse and the installer cannot continue.
 
    From an account that can already elevate, run:
@@ -162,6 +322,89 @@ log "  distro : ${PRETTY_NAME:-${ID:-unknown} ${VERSION_ID:-unknown}}"
 log "  arch   : $ARCH"
 log "  repo   : $YURUNA_REPO ($YURUNA_BRANCH)"
 log "  target : $YURUNA_DIR"
+
+# --- REGION: Process identity
+# Defined ahead of the unattended preflight, which asks whether a runner is alive.
+# A recycled PID can pass the comm check below, so a PID-file entry must also run
+# a Yuruna script or have started within two seconds of its .start record (ps -o
+# lstart= has one-second precision).
+# See https://yuruna.link/429fb30b-000b
+yuruna_epoch_from_utc() {
+  local stamp="${1%Z}"
+  stamp="${stamp%%.*}"
+  [[ "$stamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]] || return 1
+  if date --version >/dev/null 2>&1; then
+    date -u -d "$stamp" +%s 2>/dev/null
+  else
+    date -j -u -f '%Y-%m-%dT%H:%M:%S' "$stamp" +%s 2>/dev/null
+  fi
+}
+
+yuruna_process_start_epoch() {
+  local started
+  started="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null || true)"
+  [[ -n "$started" ]] || return 1
+  if date --version >/dev/null 2>&1; then
+    LC_ALL=C date -d "$started" +%s 2>/dev/null
+  else
+    LC_ALL=C date -j -f '%a %b %d %T %Y' "$started" +%s 2>/dev/null
+  fi
+}
+
+# pid_file_owner_ok <pid> <start-record> <script pattern>...
+pid_file_owner_ok() {
+  local pid="$1" start_file="$2" args pat recorded live delta
+  shift 2
+  args="$(ps -ww -p "$pid" -o args= 2>/dev/null || true)"
+  if [[ -n "$args" ]]; then
+    for pat in "$@"; do
+      case "$args" in *"$pat"*) return 0 ;; esac
+    done
+  fi
+  [[ -f "$start_file" ]] || return 1
+  recorded="$(yuruna_epoch_from_utc "$(tr -d ' \r\n' < "$start_file" 2>/dev/null || true)")" || return 1
+  live="$(yuruna_process_start_epoch "$pid")" || return 1
+  [[ -n "$recorded" && -n "$live" ]] || return 1
+  delta=$((live - recorded))
+  [[ ${delta#-} -le 2 ]]
+}
+
+# A runner of this checkout is alive: its pid file names a live owner, or a
+# PowerShell process runs one of its scripts.
+yuruna_runner_alive() {
+  local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}" pidname raw pat p pcomm
+  local -a patterns=("Start-TestRunner.ps1" "Invoke-TestRunnerInnerLoop.ps1" "Debug-TestSequence.ps1")
+  for pidname in runner.pid inner.pid; do
+    [[ -f "$runtime_dir/$pidname" ]] || continue
+    raw=$(tr -dc '0-9' < "$runtime_dir/$pidname" 2>/dev/null || true)
+    if [[ -n "$raw" ]] && kill -0 "$raw" 2>/dev/null && pid_file_owner_ok "$raw" "$runtime_dir/${pidname%.pid}.start" "${patterns[@]}"; then
+      return 0
+    fi
+  done
+  for pat in "${patterns[@]}"; do
+    while IFS= read -r p; do
+      [[ -n "$p" && "$p" != "$$" ]] || continue
+      pcomm="$(ps -p "$p" -o comm= 2>/dev/null || true)"
+      case "$pcomm" in *pwsh*) return 0 ;; esac
+    done < <(pgrep -f "$pat" 2>/dev/null || true)
+  done
+  return 1
+}
+
+# --- REGION: Preflight: an unattended run needs a provisioned host
+# A first install asks things of a person; an unattended run refuses it. Every
+# refusal here comes before the first change. A live runner is a refusal too: the
+# host controller stops what must stop, with its identity check, and the
+# installer stops nothing.
+if (( YURUNA_UNATTENDED )); then
+  log "  mode   : unattended (request ${YURUNA_REQUEST_ID:-<none>}, attempt ${YURUNA_REQUEST_ATTEMPT:-<none>})"
+  if [[ ! -d "$YURUNA_DIR/.git" || ! -f "$YURUNA_DIR/test/Start-TestRunner.ps1" ]] || ! command -v pwsh >/dev/null 2>&1; then
+    refuse not_provisioned "No framework checkout with PowerShell at $YURUNA_DIR; an unattended run only updates a host that already runs the framework."
+  fi
+  if yuruna_runner_alive; then
+    refuse runner_present "A Yuruna runner is still running; an unattended run stops nothing."
+  fi
+fi
 
 # --- REGION: Preflight: system requirements
 preflight_system_requirements() {
@@ -200,6 +443,11 @@ preflight_system_requirements() {
     log "System OK: $cores cores, ${mem_gb}GB RAM, ${disk_gb}GB free on /"
     return 0
   fi
+  # A host in service already runs below whatever it misses: recorded, not asked.
+  if (( ${YURUNA_UNATTENDED:-0} )); then
+    local u; for u in "${issues[@]}"; do note_issue "Below the tested baseline: $u"; done
+    return 0
+  fi
   warn ''
   warn '========'
   warn '  System does not meet Yuruna TESTED requirements:'
@@ -224,6 +472,11 @@ preflight_system_requirements
 # --- REGION: Elevation announcement
 # Prime sudo once and keep its timestamp alive for the whole run.
 # See https://yuruna.link/429fb30b-002b
+# Unattended, the preflight above found sudo -n in force; nothing is primed.
+SUDO_KEEPALIVE_PID=""
+if (( YURUNA_UNATTENDED )); then
+  export YURUNA_SUDO_PRIMED=1
+else
 cat <<'SUDO_NOTICE'
 
   +---------------------------------------------------------------+
@@ -240,105 +493,7 @@ sudo -v || die "sudo did not authorize this run; the installer needs root for ap
 export YURUNA_SUDO_PRIMED=1
 ( while true; do sudo -n true 2>/dev/null || true; sleep 30; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!
-
-# --- REGION: EXIT trap
-YURUNA_STATUS_BACKUP=""
-# Every temp path this installer creates is registered here and removed by the
-# EXIT trap, whatever ends the run: a die(), a set -e abort, the ERR trap, or a
-# signal. Removing a path on each function's own success path is not enough --
-# those paths are exactly the ones a failure skips. A subshell that may exit
-# early sets yuruna_cleanup_tmp_paths as its own EXIT trap, because the parent's
-# registry never sees what the subshell adds. The ${arr[@]+...} form keeps an
-# empty array safe under set -u on bash 3.2, which macOS still ships.
-YURUNA_TMP_PATHS=()
-yuruna_track_tmp() {
-  [[ -n "${1:-}" ]] && YURUNA_TMP_PATHS+=("$1")
-  return 0
-}
-yuruna_cleanup_tmp_paths() {
-  local p
-  for p in ${YURUNA_TMP_PATHS[@]+"${YURUNA_TMP_PATHS[@]}"}; do
-    [[ -n "$p" && ( -e "$p" || -L "$p" ) ]] || continue
-    # Completed recovery capsules survive until the operator removes them:
-    # restart and rollback can happen after this installer process exits.
-    if [[ "$p" == "${YURUNA_INSTALLER_STATE_DIR:-}" && "${YURUNA_INSTALLER_STATE_RETAINED:-0}" -eq 1 ]]; then continue; fi
-    # A build tree can hold root-owned files; sudo is primed for the whole run.
-    rm -rf -- "$p" 2>/dev/null || sudo -n rm -rf -- "$p" 2>/dev/null || true
-  done
-  YURUNA_TMP_PATHS=()
-}
-# --- REGION: Machine-readable outcome
-# One JSON record of how the run ended, at a fixed path and beside the log, so a
-# caller (automation, a nested host) reads the outcome instead of parsing the
-# closing text: outcome succeeded | succeeded-with-issues | failed, the exit code,
-# the last step, every deferred issue, the installed VERSION and the log path.
-# Best-effort: it runs from the EXIT trap and never changes the exit code.
-yuruna_json_string() {
-  # A character loop rather than ${s//...}: bash 3.2 (macOS) and 5.x treat a
-  # backslash in a pattern replacement differently, while double-quote escaping
-  # below means the same in every version.
-  local s="$1" out="" c i
-  for (( i = 0; i < ${#s}; i++ )); do
-    c="${s:i:1}"
-    case "$c" in
-      '\') out="$out\\\\" ;;
-      '"') out="$out\\\"" ;;
-      $'\n') out="$out\\n" ;;
-      $'\r') out="$out\\r" ;;
-      $'\t') out="$out\\t" ;;
-      *) out="$out$c" ;;
-    esac
-  done
-  out="$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
-  printf '"%s"' "$out"
-}
-write_install_result() {
-  local rc="$1" installer="$2" outcome dir file issues_json="" issue version=""
-  if [[ "$rc" -ne 0 ]]; then
-    outcome="failed"
-  elif [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
-    outcome="succeeded-with-issues"
-  else
-    outcome="succeeded"
-  fi
-  if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
-    for issue in "${YURUNA_ISSUES[@]}"; do
-      [[ -z "$issues_json" ]] || issues_json="$issues_json,"
-      issues_json="$issues_json$(yuruna_json_string "$issue")"
-    done
-  fi
-  if [[ -n "${YURUNA_DIR:-}" && -r "${YURUNA_DIR:-}/VERSION" ]]; then
-    version="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION" 2>/dev/null || true)"
-  fi
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna"
-  mkdir -p "$dir" 2>/dev/null || return 0
-  file="$dir/install-result.json"
-  if printf '{"schema":1,"installer":%s,"version":%s,"outcome":"%s","exitCode":%d,"step":%s,"issues":[%s],"log":%s,"finishedUtc":"%s"}\n' \
-       "$(yuruna_json_string "$installer")" "$(yuruna_json_string "$version")" "$outcome" "$rc" \
-       "$(yuruna_json_string "${_yuruna_step:-}")" "$issues_json" "$(yuruna_json_string "${YURUNA_INSTALL_LOG:-}")" \
-       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$file.tmp" 2>/dev/null && mv -f "$file.tmp" "$file" 2>/dev/null; then
-    if [[ -n "${YURUNA_INSTALL_LOG:-}" ]]; then cp -f "$file" "${YURUNA_INSTALL_LOG%.log}.result.json" 2>/dev/null || true; fi
-  fi
-  return 0
-}
-
-yuruna_install_cleanup() {
-  local rc=$? command="${BASH_COMMAND:-?}"
-  kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
-  if [[ -n "${YURUNA_STATUS_BACKUP:-}" && -d "${YURUNA_STATUS_BACKUP:-}" ]]; then
-    rm -rf "$YURUNA_STATUS_BACKUP" 2>/dev/null || true
-  fi
-  yuruna_cleanup_tmp_paths
-  if [[ $rc -ne 0 ]]; then
-    printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
-    printf '   step    : %s\n' "${_yuruna_step:-?}" >&2
-    printf '   command : %s\n' "$command" >&2
-    printf '   log     : %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
-  fi
-  write_install_result "$rc" "ubuntu.kvm"
-  _yuruna_flush_log
-}
-trap yuruna_install_cleanup EXIT
+fi
 
 # --- REGION: Preflight: CPU virtualization
 # See https://yuruna.link/429fb30b-002f
@@ -484,7 +639,15 @@ function Invoke-YurunaInstallerState {
     if ($Action -eq 'Capture') {
         if ([IO.File]::Exists($snapshot)) { throw "Installer snapshot already exists: $snapshot" }
         $launch = $null
-        if (-not $PrivateRoot) { $PrivateRoot = Join-Path $HOME '.yuruna/host-refresh' }
+        if (-not $PrivateRoot) {
+            $PrivateRoot = Join-Path $HOME '.yuruna/host-repair'
+            # Code that predates the host-repair root keeps its launch records
+            # under host-refresh until a later resolver moves that root, and the
+            # runner being upgraded may be that code, so the earlier root is read
+            # when it is the only one.
+            $earlierRoot = Join-Path $HOME '.yuruna/host-refresh'
+            if (-not [IO.Directory]::Exists($PrivateRoot) -and [IO.Directory]::Exists($earlierRoot)) { $PrivateRoot = $earlierRoot }
+        }
         if (([IO.DirectoryInfo]::new($PrivateRoot)).LinkTarget) { throw 'Installer launch state root is linked.' }
         if (-not $runtimeExplicit -and [IO.Directory]::Exists($PrivateRoot)) {
             $recordMatches = @()
@@ -636,6 +799,7 @@ capture_installer_state() {
     # A configured checkout without PowerShell can still preserve its default
     # config, but an existing launch record must never be replaced by guesses.
     if [[ -f "${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}/runner.pid" ]] || \
+       compgen -G "$HOME/.yuruna/host-repair/runner-launch.*.record*" >/dev/null || \
        compgen -G "$HOME/.yuruna/host-refresh/runner-launch.*.record*" >/dev/null; then
       die "PowerShell is required to validate the existing runner launch record before upgrade."
     fi
@@ -669,50 +833,6 @@ restore_installer_state() {
 }
 
 # --- REGION: https://yuruna.link/429fb30b-000a
-# A recycled PID can pass the comm check below, so a PID-file entry must also run
-# a Yuruna script or have started within two seconds of its .start record (ps -o
-# lstart= has one-second precision).
-# See https://yuruna.link/429fb30b-000b
-yuruna_epoch_from_utc() {
-  local stamp="${1%Z}"
-  stamp="${stamp%%.*}"
-  [[ "$stamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]] || return 1
-  if date --version >/dev/null 2>&1; then
-    date -u -d "$stamp" +%s 2>/dev/null
-  else
-    date -j -u -f '%Y-%m-%dT%H:%M:%S' "$stamp" +%s 2>/dev/null
-  fi
-}
-
-yuruna_process_start_epoch() {
-  local started
-  started="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null || true)"
-  [[ -n "$started" ]] || return 1
-  if date --version >/dev/null 2>&1; then
-    LC_ALL=C date -d "$started" +%s 2>/dev/null
-  else
-    LC_ALL=C date -j -f '%a %b %d %T %Y' "$started" +%s 2>/dev/null
-  fi
-}
-
-# pid_file_owner_ok <pid> <start-record> <script pattern>...
-pid_file_owner_ok() {
-  local pid="$1" start_file="$2" args pat recorded live delta
-  shift 2
-  args="$(ps -ww -p "$pid" -o args= 2>/dev/null || true)"
-  if [[ -n "$args" ]]; then
-    for pat in "$@"; do
-      case "$args" in *"$pat"*) return 0 ;; esac
-    done
-  fi
-  [[ -f "$start_file" ]] || return 1
-  recorded="$(yuruna_epoch_from_utc "$(tr -d ' \r\n' < "$start_file" 2>/dev/null || true)")" || return 1
-  live="$(yuruna_process_start_epoch "$pid")" || return 1
-  [[ -n "$recorded" && -n "$live" ]] || return 1
-  delta=$((live - recorded))
-  [[ ${delta#-} -le 2 ]]
-}
-
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
 stop_yuruna_processes() {
   local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}"
@@ -838,10 +958,17 @@ stop_yuruna_processes() {
 # --- REGION: Preserve running service VMs
 # See https://yuruna.link/429fb30b-000c
 # VMs (the yuruna-caching-proxy-service cache, a libvirt domain) are never touched
-# here: this installer issues no domain stop/destroy.
-log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
-capture_installer_state
-stop_yuruna_processes
+# here: this installer issues no domain stop/destroy. Unattended, nothing is
+# stopped and no recovery state is captured: the host controller stopped what
+# had to stop, with its identity check, and holds the launch record; the
+# listener keeps serving. A live runner was refused by the preflight.
+if (( YURUNA_UNATTENDED )); then
+  log "Leaving the status service running (unattended)"
+else
+  log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
+  capture_installer_state
+  stop_yuruna_processes
+fi
 
 # --- REGION: Microsoft's Ubuntu 24.04 suite for PowerShell
 # Restrict the fallback suite to PowerShell and remove only this installer's
@@ -957,6 +1084,7 @@ APT_PACKAGES=(
   python3 python3-pip
   jq
   unzip
+  tmux             # console of a runner the host controller starts (none without it)
 )
 case "$ARCH" in
   x86_64)   APT_PACKAGES+=(ovmf) ;;
@@ -1497,44 +1625,12 @@ ensure_default_network() {
 ensure_default_network
 
 # --- REGION: Preserve test/status runtime state
+# See https://yuruna.link/429fb30b-0012
+# The test/status subfolders hold this host's runtime state: cycle history, logs,
+# perf, the vault, captures and SSH keys. git ignores them, so an update in place
+# leaves them where they are; only a re-clone starts without them, and
+# carry_test_status moves them in from the checkout moved aside.
 TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
-preserve_test_status() {
-  local src="$YURUNA_DIR/test/status"
-  [[ -d "$src" ]] || return 0
-  local has_runtime=""
-  local sub
-  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
-    [[ -d "$src/$sub" ]] || continue
-    if find "$src/$sub" -mindepth 1 -not -name '.gitkeep' -print -quit 2>/dev/null | grep -q .; then
-      has_runtime=1; break
-    fi
-  done
-  [[ -n "$has_runtime" ]] || return 0
-  YURUNA_STATUS_BACKUP=$(mktemp -d) || { warn "  could not create temp dir; skipping test/status preservation"; return 0; }
-  log "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
-  log "  source : $src"
-  log "  backup : $YURUNA_STATUS_BACKUP"
-  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
-    if [[ -d "$src/$sub" ]]; then
-      mkdir -p "$YURUNA_STATUS_BACKUP/$sub"
-      cp -a "$src/$sub/." "$YURUNA_STATUS_BACKUP/$sub/" 2>/dev/null || true
-    fi
-  done
-}
-restore_test_status() {
-  [[ -n "${YURUNA_STATUS_BACKUP:-}" && -d "${YURUNA_STATUS_BACKUP:-}" ]] || return 0
-  local dst="$YURUNA_DIR/test/status"
-  log "Restoring preserved test/status runtime state"
-  local sub
-  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
-    if [[ -d "$YURUNA_STATUS_BACKUP/$sub" ]]; then
-      mkdir -p "$dst/$sub"
-      cp -a "$YURUNA_STATUS_BACKUP/$sub/." "$dst/$sub/" 2>/dev/null || true
-    fi
-  done
-  rm -rf "$YURUNA_STATUS_BACKUP"
-  YURUNA_STATUS_BACKUP=""
-}
 
 # --- REGION: Tolerate a v / no-v tag mismatch
 # See https://yuruna.link/429fb30b-0007
@@ -1594,15 +1690,37 @@ unique_backup_path() {
   printf '%s\n' "$candidate"
 }
 
-# Re-clones into $YURUNA_DIR after the existing checkout was moved to $1. A clone
-# that cannot finish (the remote unreachable, a pinned tag not published yet)
-# would otherwise end the run with no checkout at all, and the exit trap would
-# delete the preserved test status with it. The moved checkout goes back
-# instead, and the run continues on it as it does when the pull is skipped.
+# Moves the test/status runtime state from the checkout at $1 into the fresh
+# clone at $YURUNA_DIR. The checkout at $1 sits beside $YURUNA_DIR, so each move
+# is a rename on the same file system: it needs no free space and takes no time,
+# however large the cycle history is, where a copy needs room for all of it a
+# second time. git ignores test/status/*/, so the clone has none of these
+# folders; one that is there anyway is left alone, because `mv` onto a directory
+# would move the folder inside it. A folder that does not move stays at $1.
+carry_test_status() {
+  local from="$1/test/status" dst="$YURUNA_DIR/test/status" sub
+  [[ -d "$from" ]] || return 0
+  log "Moving test/status runtime state from $1"
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
+    [[ -d "$from/$sub" ]] || continue
+    if [[ -e "$dst/$sub" || -L "$dst/$sub" ]]; then
+      note_issue "Did not move test/status/$sub from $1: the fresh clone already has $dst/$sub. The state is still at $from/$sub."
+    elif ! { mkdir -p "$dst" && mv "$from/$sub" "$dst/$sub"; }; then
+      note_issue "Could not move test/status/$sub from $1 into the fresh clone; it is still at $from/$sub."
+    fi
+  done
+}
+
+# Re-clones into $YURUNA_DIR after the existing checkout was moved to $1, then
+# carries its test/status runtime state across. A clone that cannot finish (the
+# remote unreachable, a pinned tag not published yet) would otherwise end the
+# run with no checkout at all. The moved checkout goes back instead, with its
+# state inside, and the run continues on it as it does when the pull is skipped.
 reclone_checkout() {
   local backup="$1" remote="$2"
   log "Cloning fresh Yuruna into $YURUNA_DIR from $remote"
   if git clone --branch "$YURUNA_BRANCH" "$remote" "$YURUNA_DIR"; then
+    carry_test_status "$backup"
     return 0
   fi
   rm -rf "$YURUNA_DIR" 2>/dev/null || true
@@ -1648,10 +1766,13 @@ renormalize_checkout() {
 }
 
 # --- REGION: Clone / update the repo
+# Unattended, the host update's source phase owns the checkout: no git command
+# runs here or below, which keeps a pin, a ring hold and -NoGitPull intact.
 YURUNA_BACKUP_CREATED=""
-preserve_test_status
 mkdir -p "$(dirname "$YURUNA_DIR")"
-if [[ -d "$YURUNA_DIR/.git" ]]; then
+if (( YURUNA_UNATTENDED )); then
+  log "Using the checkout at $YURUNA_DIR as it is (unattended: no fetch, pull, clone or renormalize)"
+elif [[ -d "$YURUNA_DIR/.git" ]]; then
   log "Updating existing Yuruna checkout at $YURUNA_DIR"
   actual_remote="$(git -C "$YURUNA_DIR" remote get-url origin 2>/dev/null || true)"
   remote_normalized="${actual_remote%/}"
@@ -1719,14 +1840,14 @@ else
 fi
 
 # --- REGION: Renormalize line endings under .gitattributes
-if [[ -d "$YURUNA_DIR/.git" ]]; then
+if (( ! YURUNA_UNATTENDED )) && [[ -d "$YURUNA_DIR/.git" ]]; then
   renormalize_checkout
 fi
 
 # --- REGION: Pin to the current release
 # Opt-in through PIN_VERSION=1 or --pin-version.
 # See https://yuruna.link/429fb30b-0006
-if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
+if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_UNATTENDED" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"
     log "Pinning to release $pin_tag (from VERSION) -- this host will NOT auto-update"
@@ -1737,7 +1858,6 @@ if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DI
     warn "No VERSION file in $YURUNA_DIR -- cannot resolve a release to pin; leaving the host on 'main'."
   fi
 fi
-restore_test_status
 restore_installer_state
 
 # --- REGION: PowerShell floor repair
@@ -2227,8 +2347,13 @@ log "Installing the bridge DHCP-identity sudoers grant"
 install_bridge_pin_sudoers
 
 # --- REGION: Baseline reset: remove test-* VMs
+# Unattended, skipped: a cycle that ended has removed its VMs, a VM kept for
+# diagnosis must stay, and the VMs of a cycle the update ended are the next
+# cycle's to remove.
 REMOVE_TEST_VMS="$YURUNA_DIR/test/Remove-TestVMFiles.ps1"
-if [[ -f "$REMOVE_TEST_VMS" ]]; then
+if (( YURUNA_UNATTENDED )); then
+  log "Leaving test-* VMs to the next cycle (unattended)"
+elif [[ -f "$REMOVE_TEST_VMS" ]]; then
   log "Removing test-* VMs left over from previous cycles (cache VM preserved)"
   libvirt_members="$(getent group libvirt 2>/dev/null | awk -F: '{print $4}')"
   if command -v sg >/dev/null 2>&1 && \

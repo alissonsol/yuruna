@@ -354,7 +354,7 @@ func TestCycleStatusRequiresMatchingTerminalHistory(t *testing.T) {
 	for _, tc := range []struct{ name, historyStart, historyStatus, want string }{
 		{"fault overlay", "cycle", "pass", "pass"},
 		{"failed cycle keeps cause", "cycle", "fail", "fail"},
-		{"aborted refresh stays skipped", "cycle", "skipped", "skipped"},
+		{"a held cycle stays skipped", "cycle", "skipped", "skipped"},
 		{"different cycle", "older", "pass", "fail"},
 		{"unfinished history", "cycle", "running", "fail"},
 	} {
@@ -735,7 +735,7 @@ func TestPollNamesTheCycleOfALostRunnerOnlyWhileOneIsInProgress(t *testing.T) {
 	finished := fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":"2026-11-11T22:47:10Z","overallStatus":"pass","finishedAt":"2026-11-11T23:01:20Z","cycleFolderUrl":%q}`, hid, folder)
 	for name, status := range map[string]string{
 		"a finished cycle": finished,
-		// The host-refresh gate ends a cycle before its first VM change.
+		// The runner gate ends a cycle before its first VM change.
 		"a skipped cycle":      fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":"2026-11-11T22:47:10Z","overallStatus":"skipped","finishedAt":"2026-11-11T22:48:00Z","cycleFolderUrl":%q}`, hid, folder),
 		"the interim document": fmt.Sprintf(`{"hostId":%q,"cycleStartUtc":"2026-11-11T23:01:35Z","startedAt":"2026-11-11T23:01:35Z","finishedAt":null,"overallStatus":"running"}`, hid),
 	} {

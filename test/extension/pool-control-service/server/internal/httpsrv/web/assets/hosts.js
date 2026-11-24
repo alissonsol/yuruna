@@ -6,6 +6,7 @@
   var pools = [];
   var targetPoolId = '';
   var goBaseUrl = '';
+  var hostUpdate = false;
   // The last answer, kept so a header click re-sorts what is on screen instead
   // of costing a round trip, and so the countdown's reload does not throw the
   // operator's chosen order away.
@@ -342,6 +343,14 @@
     return box;
   }
 
+  // The update action opens the confirmation page, which reads the host's own
+  // capability before it offers anything. A discovered host has no pool
+  // address to send the update to.
+  function updateLink(h) {
+    if (!hostUpdate || h.discovered || !h.hostId) { return null; }
+    return Y.el('a', { class: 'host-update', href: '/host/update?host=' + encodeURIComponent(h.hostId), text: t('pool.host_update_action') });
+  }
+
   function reportHostFeedback(hostId, message) {
     var rows = document.getElementById('host-rows').children;
     Y.notice('ok', message);
@@ -404,7 +413,7 @@
     var factErr = f && !f.ok ? (f.error || '') : '';
     return Y.el('tr', { 'data-host-id': h.hostId || '' }, [
       Y.numCell(n),
-      Y.el('td', {}, [hostCell(h)]),
+      Y.el('td', {}, [hostCell(h), updateLink(h)].filter(Boolean)),
       Y.el('td', {}, [hostnameCell(h.hostname)]),
       Y.el('td', { class: 'host-type' }, [typeCell(h.type)]),
       Y.el('td', {}, [factCell(fmtBytes(factValue(h, 'memory')), factErr)]),
@@ -470,6 +479,7 @@
       var d = both[0];
       chrome.markLoaded();
       goBaseUrl = both[1].goBaseUrl || '';
+      hostUpdate = both[1].hostUpdate === true;
       pools = d.pools || [];
       targetPoolId = d.targetPoolId || '';
       hosts = d.hosts || [];

@@ -120,6 +120,28 @@ def require_directory(entry):
         raise Refusal("unsafe-file-type")
 
 
+ROOT_LEAF = "host-repair"
+# Code older than the host-repair root keeps the private root at host-refresh;
+# the resolver moves it the first time it runs. Until then that directory is
+# the one to restore: creating host-repair beside it would leave two roots,
+# which the resolver refuses.
+EARLIER_ROOT_LEAF = "host-refresh"
+
+
+def state_leaf(parent_fd):
+    def present(name):
+        try:
+            os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            return False
+        return True
+    if present(ROOT_LEAF):
+        if present(EARLIER_ROOT_LEAF):
+            raise Refusal("migration-conflict")
+        return ROOT_LEAF
+    return EARLIER_ROOT_LEAF if present(EARLIER_ROOT_LEAF) else ROOT_LEAF
+
+
 def scan(parent_fd, name, uid, device, entries, prefix=()):
     entry = inspect_at(parent_fd, name, uid, device)
     key = prefix + (name,)
@@ -135,7 +157,7 @@ def scan(parent_fd, name, uid, device, entries, prefix=()):
         raise Refusal("privilege-required", 2)
     with open_entry(parent_fd, name, entry, uid, device) as (descriptor, _):
         if len(key) == 1:
-            scan(descriptor, "host-refresh", uid, device, entries, key)
+            scan(descriptor, state_leaf(descriptor), uid, device, entries, key)
         elif entry.directory:
             for child in sorted(os.listdir(descriptor)):
                 scan(descriptor, child, uid, device, entries, key)
@@ -172,10 +194,11 @@ def apply(parent_fd, name, uid, gid, device, entries, prefix=()):
     with open_entry(parent_fd, name, expected, uid, device) as (descriptor, opened):
         changed = secure_entry(descriptor, opened, uid, gid, parent=len(key) == 1) or changed
         if len(key) == 1:
-            child_key = key + ("host-refresh",)
+            leaf = next((path[-1] for path in entries if path[:-1] == key), ROOT_LEAF)
+            child_key = key + (leaf,)
             if child_key not in entries:
                 entries[child_key] = None
-            changed = apply(descriptor, "host-refresh", uid, gid, device, entries, key) or changed
+            changed = apply(descriptor, leaf, uid, gid, device, entries, key) or changed
         elif opened.directory:
             children = {path[-1] for path in entries if path[:-1] == key}
             if set(os.listdir(descriptor)) != children:

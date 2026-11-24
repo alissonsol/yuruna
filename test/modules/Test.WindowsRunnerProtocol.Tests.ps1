@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f56ee0-83ba-488d-ab51-753cfedca196
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test windows runner native host-refresh
+.TAGS yuruna test windows runner native host-operation
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -218,17 +218,17 @@ if ($Role -eq 'cycle') {
     [IO.File]::WriteAllText((Join-Path $fixture.runtime "$stem.pid"), [string]$PID)
     [IO.File]::WriteAllText((Join-Path $fixture.runtime "$stem.start"), [DateTimeOffset]::FromUnixTimeMilliseconds($identity.startTimeUnixMs).UtcDateTime.ToString('o'))
 }
-$admitted = Test-YurunaRunnerHandoffToken -TokenId $RefreshHandoffToken -Role $Role -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private
+$admitted = Test-YurunaRunnerHandoffToken -TokenId $HandoffToken -Role $Role -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private
 if (-not $admitted.Valid) { throw "role $Role refused: $($admitted.Reason)" }
 if ($Role -eq 'inner') {
     $chain = @{}
     foreach ($name in @('outer', 'cycle', 'inner')) { $chain[$name] = Get-Content -LiteralPath (Join-Path $fixture.capture "$name.json") -Raw | ConvertFrom-Json -AsHashtable }
-    $written = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role inner -State ready -Chain $chain -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private -Confirm:$false
+    $written = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role inner -State ready -Chain $chain -RuntimeDir $fixture.runtime -PrivateRoot $fixture.private -Confirm:$false
     if (-not $written) { throw 'readiness acknowledgment was not written' }
 } else {
     $nextRole = if ($Role -eq 'outer') { 'cycle' } else { 'inner' }
     $psi = [Diagnostics.ProcessStartInfo]::new([Environment]::ProcessPath)
-    foreach ($arg in @('-NoProfile', '-NonInteractive', '-File', (Join-Path $PSScriptRoot 'native-chain.ps1'), '-Role', $nextRole, '-RefreshHandoffToken', $RefreshHandoffToken)) { $psi.ArgumentList.Add($arg) }
+    foreach ($arg in @('-NoProfile', '-NonInteractive', '-File', (Join-Path $PSScriptRoot 'native-chain.ps1'), '-Role', $nextRole, '-HandoffToken', $HandoffToken)) { $psi.ArgumentList.Add($arg) }
     $psi.UseShellExecute = $false
     $psi.CreateNoWindow = $true
     $null = [Diagnostics.Process]::Start($psi)
@@ -238,16 +238,16 @@ Start-Sleep -Seconds 120
             $runner = Join-Path $testDir 'Start-TestRunner.ps1'
             $real = Get-YurunaTestFileAst -Path (Join-Path $script:Here '../Start-TestRunner.ps1')
             [IO.File]::WriteAllText($runner, "#requires -version 7`n" + $real.ParamBlock.Extent.Text + "`n`$Role = 'outer'`n" + $body)
-            [IO.File]::WriteAllText((Join-Path $testDir 'native-chain.ps1'), "param([string]`$Role, [string]`$RefreshHandoffToken)`n" + $body)
+            [IO.File]::WriteAllText((Join-Path $testDir 'native-chain.ps1'), "param([string]`$Role, [string]`$HandoffToken)`n" + $body)
             $config = Join-Path $repo 'runner.config.yml'
             [IO.File]::WriteAllText($config, "x: 1`n")
             $record = Write-YurunaRunnerLaunchRecord -ScriptPath $runner -BoundParameters ([ordered]@{}) -ResolvedConfigPath $config -RuntimeDir $paths.Runtime `
                 -RepoRoot $repo -WorkingDirectory $repo -ForwardEnvironment @{} -AllowedEnvironmentName @('YURUNA_LOG_LEVEL') -PrivateRoot $paths.Private -Confirm:$false
             Assert-True $record.Written "launch record: $($record.Reason)"
-            $closed = Set-YurunaRefreshGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -ExpectedGeneration '' -PrivateRoot $paths.Private -OwnerPid $PID -Confirm:$false
+            $closed = Set-YurunaRunnerGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -ExpectedGeneration '' -PrivateRoot $paths.Private -OwnerPid $PID -Confirm:$false
             try {
                 $launch = Read-YurunaRunnerLaunchRecord -RuntimeDir $paths.Runtime -PrivateRoot $paths.Private
-                $result = Invoke-YurunaRunnerRefreshResume -LaunchRecord $launch -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -RepoRoot $repo `
+                $result = Invoke-YurunaRunnerHandoffResume -LaunchRecord $launch -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -RepoRoot $repo `
                     -ExpectedGateGeneration $closed.Generation -Reclaimed @{} -PrivateDirectory $streams -Deadline (New-YurunaDeadline -TotalMilliseconds 60000) -PrivateRoot $paths.Private -Confirm:$false
                 $detail = ''
                 if ($result.Outcome -ne 'ready') {
@@ -255,7 +255,7 @@ Start-Sleep -Seconds 120
                 }
                 Assert-Equal 'ready' $result.Outcome "native detached handoff: $($result.Reason) $detail"
                 Assert-Equal 'released' $result.GateState
-                Assert-Equal 'open' (Get-YurunaRefreshGateState -RuntimeDir $paths.Runtime -PrivateRoot $paths.Private).State
+                Assert-Equal 'open' (Get-YurunaRunnerGateState -RuntimeDir $paths.Runtime -PrivateRoot $paths.Private).State
             } finally {
                 foreach ($name in @('outer', 'cycle', 'inner')) {
                     $path = Join-Path $testDir "$name.json"
@@ -283,7 +283,7 @@ Start-Sleep -Seconds 120
                 [IO.File]::WriteAllText((Join-Path $paths.Runtime "$stem.start"), [DateTimeOffset]::FromUnixTimeMilliseconds($chain[$role].startTimeUnixMs).UtcDateTime.ToString('o'))
             }
             [IO.File]::WriteAllText((Join-Path $paths.Runtime 'runner.cycle.json'), (@{ schemaVersion = 1; pid = $chain.cycle.pid; startTimeUnixMs = $chain.cycle.startTimeUnixMs; cycle = 1 } | ConvertTo-Json))
-            $closed = Set-YurunaRefreshGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -ExpectedGeneration '' -PrivateRoot $paths.Private -OwnerPid $PID -Confirm:$false
+            $closed = Set-YurunaRunnerGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -ExpectedGeneration '' -PrivateRoot $paths.Private -OwnerPid $PID -Confirm:$false
             Assert-True $closed.Written "closed gate: $($closed.Reason)"
             $token = New-YurunaRunnerHandoffToken -RequestId $script:RequestId -Attempt 1 -RuntimeDir $paths.Runtime -Purpose new-outer -ExpiresInMilliseconds 60000 `
                 -ExpectedGeneration $closed.Generation -PrivateRoot $paths.Private -Confirm:$false

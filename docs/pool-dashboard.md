@@ -105,11 +105,11 @@ There is no status-page link here, because `/go/host` cannot serve this table: a
 can run an extension service without running cycles, and such a host has no status page
 for that redirect to resolve -- it would answer "host not known to the pool". Open a
 host from the *Pool hosts* table instead: its rows are exactly the hosts that have a
-status page, and that link carries the short-lived control token.
+status page, and that link carries the short-lived control proof.
 
 **Extension** names the function (e.g. Stash service) and links to that service's UI via
 the aggregator's `/go/stash` redirect, which resolves the host-advertised address
-server-side and hands the browser the same short-lived control token the *Pool hosts*
+server-side and hands the browser the same short-lived control proof the *Pool hosts*
 link carries. A service UI opened from here therefore arrives with its actions already
 unlocked, and only falls back to its ordinary Lab token prompt when the proxy mints no
 token at all. The proof mechanics -- fragment delivery, minting, verification -- are in
@@ -174,20 +174,21 @@ the host verified that repository's selected revision:
 
 | Label | `verification` in saved records | Meaning |
 |---|---|---|
-| `mirror.origin` | `mirror-confirmed` | The host accepted a signed mirror response confirming the selected commit against GitHub. Object fetches try the local mirror first and can fall back to the origin. |
-| `remote.origin` | `origin-direct` | The host successfully checked the requested ref directly against GitHub, the upstream origin. This can be a normal fallback when the mirror is unavailable, unsupported, still populating, or not trusted by that host; origin-first mode can also produce it. |
-| `mirror.stale` | `mirror-stale` | The mirror's latest GitHub check failed, so the host ran the signed revision the mirror last confirmed, within the configured age and rollback limits, without contacting GitHub itself. Treat this as degraded mirror connectivity; it does not confirm the latest upstream revision. |
-| `mirror.fresh` | `mirror-fresh` | Legacy freshness terminology. Current hosts report `mirror.origin` for a revision confirmed through the mirror; this label is retained for records using the older wording. |
-| `not.applicable` | `not-applicable` | Mirror verification does not apply: mirroring is disabled or the repository URL is outside the supported GitHub mirror scope. |
+| `mirror` | `mirror-confirmed` | The host accepted a signed mirror response confirming the selected commit against GitHub. Object fetches try the local mirror first and can fall back to the origin. |
+| `remote` | `origin-direct` | The host successfully checked the requested ref directly against GitHub, the upstream origin. This can be a normal fallback when the mirror is unavailable, unsupported, still populating, or not trusted by that host; origin-first mode can also produce it. |
+| `mirror stale` | `mirror-stale` | The mirror's latest GitHub check failed, so the host ran the signed revision the mirror last confirmed, within the configured age and rollback limits, without contacting GitHub itself. Treat this as degraded mirror connectivity; it does not confirm the latest upstream revision. |
+| `mirror fresh` | `mirror-fresh` | Legacy freshness terminology. Current hosts report `mirror` for a revision confirmed through the mirror; this label is retained for records using the older wording. |
+| `not applicable` | `not-applicable` | Mirror verification does not apply: mirroring is disabled or the repository URL is outside the supported GitHub mirror scope. |
 
-`remote.origin` describes **verification**, so it does not by itself mean an
+`remote` describes **verification**, so it does not by itself mean an
 update failed or the running checkout is stale. Git objects can still come from
 the mirror when it holds the exact commit independently verified by the host.
 The labels record the source selection reported with that commit, rather than a
 continuous check of mirror health. A plain hash without a label means the host
 did not report a recognized verification state; older hosts may do this.
-The dotted names are display labels; saved records retain their protocol values
-so older hosts and existing cycle history remain readable.
+The bracketed names are display labels; saved records retain their protocol
+values so older hosts and existing cycle history remain readable. The host
+status page shows the same `id [label]` form.
 
 To learn why a particular host used the origin, open its status page through
 **Control** and hover over the provenance label beside the commit. The tooltip
@@ -210,7 +211,7 @@ drive the host:
 
 The link itself works in every state -- it opens the host's status page **read-only** --
 and routes through the aggregator's `/go/host` redirect, which resolves the host's
-**current** IP server-side and hands the browser the short-lived control token.
+**current** IP server-side and hands the browser the short-lived control proof.
 Enrolling a host, and what to do with a 403, are covered in
 [control-routes](https://yuruna.link/42185271).
 
@@ -240,10 +241,10 @@ default.
 
 <a id="422226cb-0007"></a>
 
-## Cycle outcome over time (host x UTC time)
+## Host state over time (host x UTC time)
 
 Each row is a host, labeled with the first 8 characters of its Host ID; color is the
-cycle status the pool-aggregator-service observed at that time. Times are UTC, the
+host state the pool-aggregator-service observed at that time. Times are UTC, the
 dashboard's timezone, so a block lines up with the UTC log times in the drill-down
 below.
 
@@ -251,11 +252,14 @@ Click a block for a menu. Its first entry is that host's full id, GUID-formatted
 (8-4-4-4-12), checkable by eye and copyable into a command -- it names the host and
 navigates nowhere. The rest are the row's actions:
 
-- **Open cycle results** -- the link resolves the host's **current** IP server-side (it
-  survives a host IP change) and the cycle covering that time. Cycle results that a
-  host has archived to the pool share are served from the share by the collector, so
-  these links keep resolving after a host has moved its logs off local disk -- or has
-  been switched off entirely.
+- **Open results or diagnostics for this host at this time** -- the link resolves the
+  host's **current** IP server-side (it survives a host IP change) and the cycle covering
+  that time, or, for a preflight or runner fault, that attempt's retained diagnostics.
+  Cycle results that a host has archived to the pool share are served from the share by
+  the collector, so these links keep resolving after a host has moved its logs off local
+  disk -- or has been switched off entirely.
+- **Open host status page** -- the host's status page, through the same `/go/host`
+  redirect as the **Control** link.
 - **Share cycle results** -- resolves the same cycle and lands on the host's own share
   page, which packs the whole results folder into one archive named
   `SHORTID.UTCSTART.tar.gz` and hands it to your mail client. The archive is built on
@@ -458,7 +462,7 @@ readings show `n/a`.
   also show `n/a`; **Exporter** reports scrape health separately from the byte
   readings.
 
-**Host ID** shows the first 8 characters, just as in *Pool hosts*. Click it to see the
+**Host ID** shows the first 8 characters, as in *Pool hosts*. Click it to see the
 full GUID and open that host's status page. **Type** identifies the host platform.
 **Minimum** is the lowest reading in the selected time window; **Latest** shows the
 last reading in that window, with a sparkline of its history. These are recorded
@@ -498,7 +502,7 @@ means the installed release lacks the endpoint. Those hosts need the next public
 release containing native memory metrics; a proxy rebuild alone cannot add the
 host endpoint. Keep their configured repository and branch when updating them.
 
-Host Refresh preserves an already-running status listener. After the framework
+A host repair preserves an already-running status listener. After the framework
 update, a normal test cycle restarts it when the installed commit changes;
 copied working-tree changes require an explicit status-service restart using the
 host's existing configuration. Updating files alone does not activate `/metrics`.
@@ -597,6 +601,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

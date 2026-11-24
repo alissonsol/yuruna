@@ -34,7 +34,7 @@ class PrivateStateRepairTests(unittest.TestCase):
         self.uid = os.geteuid()
         self.gid = os.getegid()
         self.parent = self.home / ".yuruna"
-        self.root = self.parent / "host-refresh"
+        self.root = self.parent / "host-repair"
 
     def make_tree(self):
         self.root.mkdir(parents=True)
@@ -115,6 +115,29 @@ class PrivateStateRepairTests(unittest.TestCase):
         self.invoke()
         self.assertEqual(0o644, stat.S_IMODE(sibling.stat().st_mode))
         self.assertTrue(alias.is_symlink())
+
+    def test_restores_the_earlier_root_in_place_without_creating_a_second_one(self):
+        earlier = self.parent / "host-refresh"
+        earlier.mkdir(parents=True)
+        self.parent.chmod(0o700)
+        earlier.chmod(0o755)
+        journal = earlier / "host-refresh.journal"
+        journal.write_bytes(b"journal")
+        journal.chmod(0o644)
+        self.assertEqual({"repaired": True, "reason": "ok"}, self.invoke())
+        self.assertEqual([earlier], list(self.parent.iterdir()))
+        self.assertEqual(0o700, stat.S_IMODE(earlier.stat().st_mode))
+        self.assertEqual(0o600, stat.S_IMODE(journal.stat().st_mode))
+        self.assertEqual(b"journal", journal.read_bytes())
+
+    def test_refuses_both_roots_without_changing_either(self):
+        self.make_tree().chmod(0o755)
+        earlier = self.parent / "host-refresh"
+        earlier.mkdir()
+        earlier.chmod(0o755)
+        self.assert_refused("migration-conflict")
+        self.assertEqual(0o755, stat.S_IMODE(self.root.stat().st_mode))
+        self.assertEqual(0o755, stat.S_IMODE(earlier.stat().st_mode))
 
     def test_permission_repair_keeps_an_existing_flight_lock_held(self):
         import fcntl
@@ -278,7 +301,7 @@ class PrivateStateRepairTests(unittest.TestCase):
     def test_refuses_identity_change_between_scan_and_repair(self):
         self.make_tree()
         real_apply = REPAIR.apply
-        moved = self.parent / "old-host-refresh"
+        moved = self.parent / "old-host-repair"
         swapped = False
 
         def swap(parent_fd, name, uid, gid, device, entries, prefix=()):

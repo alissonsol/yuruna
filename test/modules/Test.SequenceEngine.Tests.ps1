@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -461,7 +461,7 @@ Describe 'Module export surface' {
     }
     It 'still exports the core dispatch surface and pure helpers' {
         $exported = (Get-Module Test.SequenceEngine).ExportedFunctions.Keys
-        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace', 'Get-ConsoleFloodVerdict', 'Get-ConsoleTextSignature', 'Get-ConsoleLineSignature', 'Select-ConsoleTextSinceBaseline', 'Get-LastWaitVerdict', 'Wait-ForConsoleChange', 'Get-LastConsoleChangeVerdict') {
+        foreach ($fn in 'Invoke-Sequence', 'New-SequenceVariableScope', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace', 'Get-ConsoleFloodVerdict', 'Get-ConsoleTextSignature', 'Get-ConsoleLineSignature', 'Select-ConsoleTextSinceBaseline', 'Get-LastWaitVerdict', 'Wait-ForConsoleChange', 'Get-LastConsoleChangeVerdict') {
             Assert-True ($exported -contains $fn) "expected export missing: $fn"
         }
     }
@@ -720,5 +720,66 @@ Describe 'The input dispatcher keeps how the step''s last send failed' {
         Assert-False (Send-Click -HostType 'test.seq.dispatch' -VMName 'vm' -X 1 -Y 1 3>$null) 'the click failed'
         Assert-Equal -Expected 'deterministic' -Actual $script:FailState.StepHostInputFault.kind
         Assert-Equal -Expected 'action-unavailable' -Actual $script:FailState.StepHostInputFault.reason
+    }
+}
+
+Describe 'The KVM driver click contract reaches the dispatcher' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.DriverSource.psm1') -DisableNameChecking
+        . ([scriptblock]::Create((Get-YurunaDriverFunction -Driver ubuntu.kvm -Name 'Send-Click')))
+        function Resolve-HostTag { return 'test.kvm.driver' }
+        function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Arguments; return $Key }
+        function Get-VMScreenshot {
+            param([string]$VMName, [string]$Source)
+            $null = $VMName, $Source
+            if ($script:CaptureFails) { return $null }
+            $script:LastCapturePath = Join-Path $TestDrive ('capture-' + [guid]::NewGuid().ToString('N') + '.png')
+            [IO.File]::WriteAllText($script:LastCapturePath, 'frame')
+            return @{ ImagePath = $script:LastCapturePath; Width = 1280; Height = 800 }
+        }
+        $script:TestModulesDir = $PSScriptRoot
+        $script:DriverStore = Get-Variable -Name 'YurunaHostIOProviders' -Scope Global -ValueOnly
+        Register-HostIOProvider -HostType 'test.kvm.driver' -Action 'Send-Click' -Implementation {
+            param([hashtable]$a)
+            $script:DriverClicks.Add($a)
+            return $true
+        }
+    }
+    AfterAll { $script:DriverStore.Remove('test.kvm.driver') }
+    BeforeEach {
+        $script:CaptureFails = $false
+        $script:DriverClicks = [System.Collections.Generic.List[object]]::new()
+    }
+
+    It 'captures the frame, forwards it and removes the capture file' {
+        Assert-True (Send-Click -VMName 'vm' -X 5 -Y 6) 'the click was forwarded'
+        Assert-Equal 1 $script:DriverClicks.Count
+        $table = $script:DriverClicks[0]
+        Assert-StringEqual 'vm' $table.VMName
+        Assert-Equal 5 $table.X
+        Assert-Equal 6 $table.Y
+        Assert-StringEqual 'left' $table.Click
+        Assert-Equal 1280 $table.Capture.Width
+        Assert-False (Test-Path -LiteralPath $script:LastCapturePath) 'the capture file was left behind'
+    }
+
+    It 'sends nothing when the capture fails' {
+        $script:CaptureFails = $true
+        Assert-False (Send-Click -VMName 'vm' -X 5 -Y 6) 'a click without a frame went out'
+        Assert-Equal 0 $script:DriverClicks.Count
+    }
+
+    It 'warns and sends nothing when the engine module is missing' {
+        try {
+            $script:TestModulesDir = Join-Path $TestDrive 'no-engine'
+            $null = New-Item -ItemType Directory -Path $script:TestModulesDir -Force
+            $result = Send-Click -VMName 'vm' -X 5 -Y 6 -WarningVariable w -WarningAction SilentlyContinue
+        } finally {
+            $script:TestModulesDir = $PSScriptRoot
+        }
+        Assert-False $result 'a click went out without the engine'
+        Assert-Equal 1 @($w).Count
+        Assert-StringEqual 'host.operator_0c2172f8af698467' $w[0]
+        Assert-Equal 0 $script:DriverClicks.Count
     }
 }

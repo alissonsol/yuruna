@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42994830-6205-4cf7-a39c-84254b1669c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -521,7 +521,7 @@ Describe 'ConvertTo-RunnerRecoveryResult' {
         $r['reason'] | Should -Match 'index\.lock'
     }
     It 'produces no result for an outcome that is not a verdict' -TestCases @(
-        @{ Name = 'drain' }, @{ Name = 'refresh-gated' }, @{ Name = 'refresh-preflight' }, @{ Name = 'paused' }, @{ Name = 'shutdown' }
+        @{ Name = 'drain' }, @{ Name = 'gate-held' }, @{ Name = 'handoff-preflight' }, @{ Name = 'paused' }, @{ Name = 'shutdown' }
     ) {
         param($Name)
         Convert-Dispatch @{ Outcome = $Name; ExitCode = 0 } | Should -BeNullOrEmpty
@@ -583,7 +583,7 @@ Describe 'ConvertTo-ExitRecoveryResult and Save-RecoveryResult' {
         @{ Outcome = 'storage-full'; Exit = 1; Code = 1 }
         @{ Outcome = 'drain'; Exit = 0; Code = 2 }
         @{ Outcome = 'paused'; Exit = 0; Code = 2 }
-        @{ Outcome = 'refresh-gated'; Exit = 0; Code = 2 }
+        @{ Outcome = 'gate-held'; Exit = 0; Code = 2 }
         @{ Outcome = 'shutdown'; Exit = 0; Code = 2 }
     ) {
         param($Outcome, $Exit, $Code)

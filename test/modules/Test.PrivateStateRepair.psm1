@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 420d0ea8-9177-435e-9354-be537258454f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,7 +125,11 @@ function Repair-YurunaStartupPrivateState {
     }
     # Validate containment without entering a possibly root-owned directory.
     # The helper refuses links and mount crossings before changing permissions.
-    $candidate = Join-Path $homeCanonical.Path '.yuruna/host-refresh'
+    # Repair-PrivateState.py restores an earlier host-refresh root in place
+    # while it is the only one, so that is the directory checked here.
+    $candidate = Join-Path $homeCanonical.Path '.yuruna/host-repair'
+    $earlier = Join-Path $homeCanonical.Path '.yuruna/host-refresh'
+    if (-not [IO.Directory]::Exists($candidate) -and [IO.Directory]::Exists($earlier)) { $candidate = $earlier }
     $comparison = if ($IsMacOS) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
     foreach ($served in @($ServedRoot | Where-Object { $_ })) {
         $canonical = Resolve-YurunaCanonicalPath -Path $served

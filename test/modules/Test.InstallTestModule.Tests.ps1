@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42318205-4701-4ec4-97ce-64b0837ff71b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ BeforeAll {
     if (-not $pinTable) { throw 'YurunaGalleryModulePin not found in tools/Install-TestModule.ps1' }
     . ([scriptblock]::Create($pinTable.Extent.Text))
     $preflight = Join-Path $script:RepoRoot 'tools/Invoke-Preflight.ps1'
-    foreach ($name in @('Select-ModuleVersion', 'Get-VersionBoundProblem')) {
+    foreach ($name in @('Select-ModuleVersion', 'Get-VersionBoundProblem', 'Get-PowerShellFloor')) {
         $ast = Get-YurunaTestFunctionAst -Path $preflight -Name $name
         if (-not $ast) { throw "$name not found in tools/Invoke-Preflight.ps1" }
         . ([scriptblock]::Create($ast.Extent.Text))
@@ -456,5 +456,80 @@ Describe 'Invoke-Preflight bounds for Pester' {
         $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'tools/Invoke-Preflight.ps1') -Raw
         Assert-Match "Module = 'Pester';[^\r\n]*\r?\n\s*MinVersion = '6\.0'; MaxVersion = '7\.0'" $text `
             'the preflight must refuse a Pester the runner will not load'
+    }
+}
+
+Describe 'Invoke-Preflight floor for pwsh' {
+    BeforeAll {
+        $script:Preflight = Join-Path $script:RepoRoot 'tools/Invoke-Preflight.ps1'
+        $script:Floor = Get-PowerShellFloor -Path (Join-Path $script:RepoRoot 'automation/Yuruna.Requirement.yml')
+
+        # Runs the preflight with a stand-in pwsh first on PATH that reports
+        # $Version, and returns the pwsh row's line with the run's exit code.
+        # PATH is set inside the child: pwsh puts its own directory first on
+        # PATH as it starts, which would hide a stand-in placed there earlier.
+        function Invoke-PreflightWithPwsh {
+            param([Parameter(Mandatory)][string]$Version, [switch]$Release)
+            $bin = Join-Path $TestDrive ('pwsh-' + $Version)
+            $null = New-Item -ItemType Directory -Force -Path $bin
+            if ($IsWindows) {
+                [IO.File]::WriteAllText((Join-Path $bin 'pwsh.cmd'), "@echo PowerShell $Version`r`n")
+            } else {
+                $fake = Join-Path $bin 'pwsh'
+                [IO.File]::WriteAllText($fake, "#!/bin/sh`necho 'PowerShell $Version'`n")
+                & chmod +x $fake
+            }
+            $mode = if ($Release) { ' -Release' } else { '' }
+            $command = "`$env:PATH = '$bin' + [IO.Path]::PathSeparator + `$env:PATH; & '$script:Preflight'$mode; exit `$LASTEXITCODE"
+            $output = & (Get-Process -Id $PID).Path -NoProfile -Command $command 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            $row = [regex]::Match($output, '(?m)^\S+\s+pwsh\s.*$').Value
+            return [pscustomobject]@{ Code = $code; Row = $row; Output = $output }
+        }
+    }
+
+    It 'reads the floor from the requirement list' {
+        $yml = Join-Path $TestDrive 'Yuruna.Requirement.yml'
+        [IO.File]::WriteAllText($yml, "requirements:`n  - tool: `"git`"`n    version: `"2.53.0`"`n" +
+            "  - tool: `"PowerShell`"`n    command: |-`n      x`n    version: `"7.7.0 (Core)`"`n")
+        Assert-StringEqual -Expected '7.7.0' -Actual (Get-PowerShellFloor -Path $yml) 'the floor is the number in the PowerShell entry'
+        [IO.File]::WriteAllText($yml, "requirements:`n  - tool: `"git`"`n    version: `"2.53.0`"`n")
+        { Get-PowerShellFloor -Path $yml } | Should -Throw -ExpectedMessage '*No PowerShell version floor*'
+    }
+
+    It 'holds the patch level a three-part floor names' {
+        Assert-StringEqual -Expected 'found 7.6.10, needs 7.7.0 or newer' `
+            -Actual (Get-VersionBoundProblem -Version '7.6.10' -MinVersion '7.7.0') 'a 7.6 patch is below a 7.7.0 floor'
+        Assert-StringEqual -Expected 'found 7.7.0, needs 7.7.1 or newer' `
+            -Actual (Get-VersionBoundProblem -Version '7.7.0' -MinVersion '7.7.1') 'the patch level is compared'
+        foreach ($version in @('7.7.0', '7.7.1', '7.10.0', '8.0.0')) {
+            Assert-StringEqual -Expected '' -Actual (Get-VersionBoundProblem -Version $version -MinVersion '7.7.0') `
+                "$version meets a 7.7.0 floor"
+        }
+    }
+
+    It 'degrades a workstation and blocks a release on a pwsh below the floor' {
+        $dev = Invoke-PreflightWithPwsh -Version '7.6.10'
+        Assert-Match '^DEGRADED\s+pwsh\s+7\.6\.10\s' $dev.Row "the developer run reports the gap:`n$($dev.Output)"
+        Assert-Match ([regex]::Escape("found 7.6.10, needs $script:Floor or newer")) $dev.Output `
+            'the row names the floor from the requirement list'
+        $release = Invoke-PreflightWithPwsh -Version '7.6.10' -Release
+        Assert-Match '^MISSING\s+pwsh\s+7\.6\.10\s' $release.Row "the release run blocks on the gap:`n$($release.Output)"
+        Assert-Equal -Expected 1 -Actual $release.Code 'a release on a pwsh below the floor must not pass'
+    }
+
+    It 'blocks a workstation on a pwsh below the oldest supported line' {
+        foreach ($version in @('7.3.12', '6.2.7')) {
+            $dev = Invoke-PreflightWithPwsh -Version $version
+            Assert-Match ('^MISSING\s+pwsh\s+' + [regex]::Escape($version) + '\s') $dev.Row `
+                "the developer run blocks on $($version):`n$($dev.Output)"
+            Assert-Equal -Expected 1 -Actual $dev.Code "a developer run on pwsh $version must not pass"
+        }
+    }
+
+    It 'passes a pwsh at the floor' {
+        $result = Invoke-PreflightWithPwsh -Version $script:Floor -Release
+        Assert-Match ('^OK\s+pwsh\s+' + [regex]::Escape($script:Floor) + '\s') $result.Row `
+            "a pwsh at the floor satisfies the row:`n$($result.Output)"
     }
 }

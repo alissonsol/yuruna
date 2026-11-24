@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4220bbab-79ca-404d-a1ce-4cb14b7a89c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,41 +77,6 @@ function Get-CacheVmCandidateIp {
     ($kvpIps + $arpIps) | Select-Object -Unique
 }
 
-<#
-.SYNOPSIS
-    $true when the host's default-route uplink cannot carry a bridged
-    guest MAC -- the signal to build guests on NAT instead of a bridge.
-.DESCRIPTION
-    A Hyper-V External vSwitch L2-bridges the guest's own MAC onto the
-    host's physical uplink. Two uplink classes cannot forward frames for
-    that guest MAC, so a bridged guest never gets a DHCP lease and boots
-    with eth0 DOWN:
-
-      * Wi-Fi (Native 802.11) -- the AP refuses to forward frames for a
-        MAC it never authenticated.
-      * USB Ethernet adapters (PnP bus 'USB') -- the miniport does not
-        support the promiscuous / MAC-spoofing mode Hyper-V bridging
-        needs, so the guest MAC never reaches the wire even though the
-        host itself uses the adapter normally.
-
-    When either holds the caller must fall back to the Default Switch
-    (NAT + DHCP, the equivalent of UTM Shared NAT) and export any service
-    via host port-forwarders rather than a bridged LAN IP. This is the
-    Windows counterpart of host.macos.utm Test-MacUplinkNotBridgeable,
-    but the criteria differ by hypervisor: macOS/vmnet and Linux/KVM
-    bridge USB Ethernet fine (it is plain wired Ethernet to them), so
-    only Hyper-V's External vSwitch rejects it.
-
-    Resolves the physical NIC behind the default route. With
-    -AllowManagementOS the route rides a `vEthernet (<switch>)` virtual
-    adapter, so when the default-route adapter is a Hyper-V vEthernet we
-    follow the External vSwitch back to its underlying physical NIC and
-    test that adapter -- otherwise a Wi-Fi- or USB-backed External switch
-    would masquerade as a bridgeable wired NIC and defeat the whole check.
-.OUTPUTS
-    [bool] -- $false on non-Windows, no default route, or a bridgeable
-    (PCI-attached, wired) uplink.
-#>
 function Get-WindowsDefaultIPv4Route {
     <#
     .SYNOPSIS
@@ -148,7 +113,38 @@ function Get-WindowsDefaultRoutePhysicalAdapter {
 function Test-WindowsUplinkNotBridgeable {
     <#
     .SYNOPSIS
-        Identifies Wi-Fi and USB uplinks behind the default route.
+        $true when the host's default-route uplink cannot carry a bridged
+        guest MAC -- the signal to build guests on NAT instead of a bridge.
+    .DESCRIPTION
+        A Hyper-V External vSwitch L2-bridges the guest's own MAC onto the
+        host's physical uplink. Two uplink classes cannot forward frames for
+        that guest MAC, so a bridged guest never gets a DHCP lease and boots
+        with eth0 DOWN:
+
+          * Wi-Fi (Native 802.11) -- the AP refuses to forward frames for a
+            MAC it never authenticated.
+          * USB Ethernet adapters (PnP bus 'USB') -- the miniport does not
+            support the promiscuous / MAC-spoofing mode Hyper-V bridging
+            needs, so the guest MAC never reaches the wire even though the
+            host itself uses the adapter normally.
+
+        When either holds the caller must fall back to the Default Switch
+        (NAT + DHCP, the equivalent of UTM Shared NAT) and export any service
+        via host port-forwarders rather than a bridged LAN IP. This is the
+        Windows counterpart of host.macos.utm Test-MacUplinkNotBridgeable,
+        but the criteria differ by hypervisor: macOS/vmnet and Linux/KVM
+        bridge USB Ethernet fine (it is plain wired Ethernet to them), so
+        only Hyper-V's External vSwitch rejects it.
+
+        Resolves the physical NIC behind the default route. With
+        -AllowManagementOS the route rides a `vEthernet (<switch>)` virtual
+        adapter, so when the default-route adapter is a Hyper-V vEthernet we
+        follow the External vSwitch back to its underlying physical NIC and
+        test that adapter -- otherwise a Wi-Fi- or USB-backed External switch
+        would masquerade as a bridgeable wired NIC and defeat the whole check.
+    .OUTPUTS
+        [bool] -- $false on non-Windows, no default route, or a bridgeable
+        (PCI-attached, wired) uplink.
     #>
     [CmdletBinding()]
     [OutputType([bool])]

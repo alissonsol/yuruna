@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d9d074-28e8-46bf-a0d7-68b45ee5ec8c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,7 +169,11 @@ Describe 'Standalone installer recovery state' {
     It 'captures before process stop and restores before config seeding in all installers' {
         foreach ($path in @('install/ubuntu.kvm.sh', 'install/macos.utm.sh')) {
             $text = Get-Content (Join-Path $script:RepoRoot $path) -Raw
-            $text.IndexOf("`ncapture_installer_state`n") | Should -BeLessThan $text.IndexOf("`nstop_yuruna_processes`n")
+            # The KVM installer takes both on its attended branch, indented.
+            $capture = [regex]::Match($text, '\n[ ]*capture_installer_state\n')
+            $stop = [regex]::Match($text, '\n[ ]*stop_yuruna_processes\n')
+            Assert-True ($capture.Success -and $stop.Success) "$path captures and stops"
+            $capture.Index | Should -BeLessThan $stop.Index
             $text.IndexOf("`nrestore_installer_state`n") | Should -BeLessThan $text.IndexOf('# --- REGION: Seed test.config.yml')
         }
         $text = Get-Content (Join-Path $script:RepoRoot 'install/windows.hyper-v.ps1') -Raw

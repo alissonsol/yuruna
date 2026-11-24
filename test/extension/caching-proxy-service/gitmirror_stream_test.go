@@ -115,7 +115,7 @@ func TestMirrorRawUsesOnlyRetainedCommitAndRejectsLargeBlob(t *testing.T) {
 }
 
 func TestMirrorGitCancellationDoesNotWaitForSilentTransport(t *testing.T) {
-	h := newMirrorHarness(t)
+	h := newMirrorHarnessWithCancelGrace(t, 50*time.Millisecond)
 	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { <-r.Context().Done() }))
 	defer silent.Close()
 	appendMirrorGitConfig(t, "url."+silent.URL+"/.insteadOf", "https://github.com/timeout/")
@@ -135,7 +135,7 @@ func TestMirrorGitCancellationDoesNotWaitForSilentTransport(t *testing.T) {
 }
 
 func TestMirrorGitCancellationStopsConnectedTransport(t *testing.T) {
-	h := newMirrorHarness(t)
+	h := newMirrorHarnessWithCancelGrace(t, 50*time.Millisecond)
 	connected := make(chan struct{}, 1)
 	disconnected := make(chan struct{}, 1)
 	silent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

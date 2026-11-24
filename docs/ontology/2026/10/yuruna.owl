@@ -2982,7 +2982,7 @@
     </rdfs:subClassOf>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/10/examples#TextSQLMonthlyRecurringRevenue" />
     <y:codeToken>subscription</y:codeToken>
-    <y:codeToken>cancelled_at</y:codeToken>
+    <y:codeToken>canceled_at</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/10/examples#WebsiteFrontend">
     <rdfs:label xml:lang="en">website frontend</rdfs:label>

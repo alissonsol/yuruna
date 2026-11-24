@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 424e6b7b-ee0a-4ebd-a491-d47db10eedbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
     the acronym's casing would then be undetectable and unmigratable.
 #>
 
+
 function Get-RetiredConfigKeyMap {
     <#
     .SYNOPSIS
@@ -74,6 +75,9 @@ function Get-RetiredConfigKeyMap {
     $map['networkStorage.stashLocalPath']                = @{ New = 'networkStorage.stashStorageLocalPath';          Factor = 1 }
     $map['networkStorage.stashNetworkPath']              = @{ New = 'networkStorage.stashStorageNetworkPath';        Factor = 1 }
     $map['networkStorage.stashNetworkUser']              = @{ New = 'networkStorage.stashStorageNetworkUser';        Factor = 1 }
+    # The repair the threshold starts is a host repair; "refresh" names
+    # neither host operation.
+    $map['testCycle.autoRefreshAfterStalls']             = @{ New = 'testCycle.autoRepairAfterStalls';               Factor = 1 }
     return $map
 }
 
@@ -332,7 +336,9 @@ function ConvertTo-ConfigNamingMigration {
         Obsolete entries are removed only from the returned rendering, so the
         caller can back up and atomically replace the original file together.
     .OUTPUTS
-        Config, Obsolete, and Changes. No input object is mutated.
+        Config, Obsolete, and Changes. No input object is mutated. Each change
+        is @{ Old; New; Factor; Previous (the value as found); Value (the value
+        written under New); Action migrated|recovered }.
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -375,6 +381,7 @@ function ConvertTo-ConfigNamingMigration {
                 throw (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_invalid_parked_scalar' -Arguments @{ old = $old })
             }
         }
+        $previous = $candidates[0]
         for ($i = 0; $i -lt $candidates.Count; $i++) {
             if ([int]$entry.Factor -eq 1 -or -not (Test-ConfigNamingValuePopulated $candidates[$i])) { continue }
             $number = 0.0
@@ -406,22 +413,52 @@ function ConvertTo-ConfigNamingMigration {
         if ($parkedKey) { [void]$obsolete.Remove($parkedKey) }
         [void]$changes.Add([pscustomobject]@{
             Old = [string]$old; New = [string]$entry.New; Factor = [int]$entry.Factor
-            Value = $value; Action = $(if ($parkedKey) { 'recovered' } else { 'migrated' })
+            Previous = $previous; Value = $value; Action = $(if ($parkedKey) { 'recovered' } else { 'migrated' })
         })
     }
     return [pscustomobject]@{ Config = $copy; Obsolete = $obsolete; Changes = [object[]]@($changes) }
 }
 
 function New-ConfigNamingBackup {
-    <# .SYNOPSIS
-        Preserve the exact migration input without overwriting an earlier backup. #>
+    <#
+    .SYNOPSIS
+        Preserve the exact migration input without overwriting an earlier
+        backup, and report what the migration is about to change.
+    .DESCRIPTION
+        Every writer of a migrated file calls this before its write, so the
+        report lands before the file changes: each migrated key as
+        `old: previous -> new: current`, naming the backup that keeps the
+        previous file. Once the file is rewritten the run reads only the new
+        name, so this line is where an operator can still compare the two.
+    .PARAMETER ConfigPath
+        The configuration file about to be rewritten.
+    .PARAMETER Change
+        The Changes records of ConvertTo-ConfigNamingMigration.
+    .OUTPUTS
+        [string] the backup path, or $null under -WhatIf.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
-    param([Parameter(Mandatory)][string]$ConfigPath)
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [AllowEmptyCollection()][object[]]$Change = @()
+    )
     $backupPath = "$ConfigPath.pre-renaming"
     if (Test-Path -LiteralPath $backupPath) { $backupPath += '.' + [guid]::NewGuid().ToString('N') }
     if (-not $PSCmdlet.ShouldProcess($ConfigPath, (Format-YurunaOperatorMessage -Key 'runner.config_naming_backup' -Arguments @{ backupPath = $backupPath }))) { return $null }
     Copy-Item -LiteralPath $ConfigPath -Destination $backupPath -ErrorAction Stop
+    # A credential is named, never printed: the report goes to logs.
+    $show = {
+        param([string]$Path, $Value)
+        if (($Path -split '\.')[-1] -match '(?i)token|password|secret|credential|apikey') { return '<redacted>' }
+        if ($null -eq $Value -or "$Value" -eq '') { return "''" }
+        return [string]$Value
+    }
+    foreach ($item in @($Change | Where-Object { $null -ne $_ })) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.config_naming_change' -Arguments @{
+                configPath = $ConfigPath; old = [string]$item.Old; new = [string]$item.New
+                previous = (& $show $item.Old $item.Previous); current = (& $show $item.New $item.Value); backupPath = $backupPath })
+    }
     return $backupPath
 }
 

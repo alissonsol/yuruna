@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b4e120-ffe3-4090-9478-c0444af48a73
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,6 +119,10 @@ Describe 'Test.SequenceRunner value-returning functions avoid Write-Output' {
     It 'Get-FirstExecutedStepAction emits no Write-Output (return value decides whether the VM is pre-started)' {
         Assert-Equal -Expected 0 -Actual (Get-FunctionWriteOutputCount -Path $modulePath -FunctionName 'Get-FirstExecutedStepAction') -Because `
             'Write-Output would join the returned action name into an object[], and the -eq test against it would stop matching.'
+    }
+    It 'Write-SequenceCompletionSidecar emits no Write-Output' {
+        Assert-Equal -Expected 0 -Actual (Get-FunctionWriteOutputCount -Path $modulePath -FunctionName 'Write-SequenceCompletionSidecar') -Because `
+            'the parent reads the record, and the returned [bool] decides nothing if text joins it.'
     }
 }
 
@@ -246,5 +250,137 @@ Describe 'Resolve-TestSequencePlan snapshot probe distinguishes absent from coul
     It 'fails the plan loudly on an undetermined probe rather than assuming cold' {
         Assert-True ($script:planText -match 'Write-Warning') 'an undetermined probe surfaces a warning, not just Write-Verbose'
         Assert-True ($script:planText -notmatch 'assuming cold path') 'a swallowed probe exception must not silently fall through to the cold path'
+    }
+}
+
+Describe 'Write-SequenceCompletionSidecar' {
+    BeforeAll {
+        # The function calls Write-YurunaStateFileJson by name, and
+        # Test.SequenceRunner.psm1 does not import that module: a module
+        # function sees only what the suite imported with -Global.
+        Import-Module (Join-Path $here 'Test.StateFile.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $here '../../automation/Yuruna.Globalization.psm1') -Force -Global -DisableNameChecking
+    }
+
+    It 'Write-SequenceCompletionSidecar writes the record a parent matches by invocation id' {
+        $folder = Join-Path $TestDrive 'completion'
+        $null = New-Item -ItemType Directory -Path $folder -Force
+        $path = Join-Path $folder 'r0001.completion.json'
+        $written = Write-SequenceCompletionSidecar -Path $path -InvocationId 'f00dfeedf00dfeedf00dfeedf00dfeed' -SequenceName 'workload.guest.ubuntu.server.24' `
+            -Outcome 'fail' -Reason "chain 'x' (StartStep=3)" -FinishedVmName 'test-guest.ubuntu.server.24-01'
+        Assert-True ($written -eq $true) "the write answered '$written'"
+        $record = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path)) -AsHashtable -DateKind String
+        Assert-StringEqual 'schema,invocationId,sequenceName,outcome,reason,finishedVmName,completedAtUtc' (@($record.Keys) -join ',')
+        Assert-True ($record.schema -ceq 'yuruna.sequence-completion/v1') "schema '$($record.schema)'"
+        Assert-True ($record.invocationId -ceq 'f00dfeedf00dfeedf00dfeedf00dfeed')
+        Assert-StringEqual 'workload.guest.ubuntu.server.24' $record.sequenceName
+        Assert-StringEqual 'fail' $record.outcome
+        Assert-StringEqual "chain 'x' (StartStep=3)" $record.reason
+        Assert-StringEqual 'test-guest.ubuntu.server.24-01' $record.finishedVmName
+        Assert-Match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$' $record.completedAtUtc
+    }
+
+    It 'Write-SequenceCompletionSidecar writes nothing and returns $false without its folder' {
+        $path = Join-Path (Join-Path $TestDrive 'no-such-folder') 'r0002.completion.json'
+        $written = Write-SequenceCompletionSidecar -Path $path -InvocationId 'id' -Outcome 'pass'
+        Assert-True ($written -eq $false) "the write answered '$written'"
+        Assert-False (Test-Path -LiteralPath (Split-Path -Parent $path)) 'the folder was created'
+    }
+}
+
+Describe 'Debug-TestSequence.ps1 reports its completion to a parent that asks' {
+    BeforeAll {
+        $script:DebugAst = Get-YurunaTestFileAst -Path $script:testSequenceScript
+        function Get-DebugCommand {
+            <#
+            .SYNOPSIS
+                Every command of the given name in Debug-TestSequence.ps1.
+            #>
+            param([Parameter(Mandatory)][string]$Name)
+            $wanted = $Name
+            return @($script:DebugAst.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq $wanted }, $true))
+        }
+        function Get-EnclosingIf {
+            <#
+            .SYNOPSIS
+                The nearest if statement around a node, and the clause body that holds it.
+            #>
+            param([Parameter(Mandatory)][Management.Automation.Language.Ast]$Node)
+            $child = $Node
+            $parent = $Node.Parent
+            while ($null -ne $parent) {
+                if ($parent -is [Management.Automation.Language.IfStatementAst]) {
+                    foreach ($clause in $parent.Clauses) {
+                        if ([object]::ReferenceEquals($clause.Item1, $child)) { return @{ If = $parent; Part = 'condition'; Condition = $clause.Item1.Extent.Text } }
+                        if ([object]::ReferenceEquals($clause.Item2, $child)) { return @{ If = $parent; Part = 'body'; Condition = $clause.Item1.Extent.Text } }
+                    }
+                    if ([object]::ReferenceEquals($parent.ElseClause, $child)) { return @{ If = $parent; Part = 'else'; Condition = $parent.Clauses[0].Item1.Extent.Text } }
+                }
+                $child = $parent
+                $parent = $parent.Parent
+            }
+            return $null
+        }
+    }
+
+    It 'Debug-TestSequence.ps1 reads the completion names once and removes them' {
+        $text = $script:DebugAst.Extent.Text
+        foreach ($variable in @('YURUNA_SEQUENCE_COMPLETION_SIDECAR', 'YURUNA_SEQUENCE_INVOCATION_ID')) {
+            Assert-Equal 1 ([regex]::Matches($text, [regex]::Escape("`$env:$variable")).Count) "`$env:$variable is read more than once"
+        }
+        $reExec = @(Get-DebugCommand -Name 'Invoke-LibvirtGroupReExecIfNeeded')
+        $claim = @(Get-DebugCommand -Name 'Initialize-YurunaOneShotEntryPoint')
+        Assert-Equal 1 $reExec.Count
+        Assert-Equal 1 $claim.Count
+        $removes = @(Get-DebugCommand -Name 'Remove-Item' | Where-Object { $_.Extent.Text -match 'YURUNA_SEQUENCE_' })
+        foreach ($variable in @('YURUNA_SEQUENCE_COMPLETION_SIDECAR', 'YURUNA_SEQUENCE_INVOCATION_ID')) {
+            $target = @($removes | Where-Object { $_.Extent.Text.Contains("Env:\$variable") })
+            Assert-Equal 1 $target.Count "Env:\$variable is not removed exactly once"
+            Assert-True ($target[0].Extent.StartOffset -gt $reExec[0].Extent.EndOffset) "Env:\$variable is removed before the libvirt relaunch"
+            Assert-True ($target[0].Extent.EndOffset -lt $claim[0].Extent.StartOffset) "Env:\$variable is removed after the lease claim"
+        }
+    }
+
+    It 'Debug-TestSequence.ps1 reports completion from the finally that releases the lease' {
+        $writes = @(Get-DebugCommand -Name 'Write-SequenceCompletionSidecar')
+        Assert-Equal 1 $writes.Count 'one completion write'
+        $releases = @(Get-DebugCommand -Name 'Exit-YurunaOneShotLease')
+        $finally = $null
+        foreach ($try in @($script:DebugAst.FindAll({ param($node) $node -is [Management.Automation.Language.TryStatementAst] -and $null -ne $node.Finally }, $true))) {
+            foreach ($release in $releases) {
+                if ($release.Extent.StartOffset -ge $try.Finally.Extent.StartOffset -and $release.Extent.EndOffset -le $try.Finally.Extent.EndOffset) { $finally = $try.Finally }
+            }
+        }
+        Assert-NotNull $finally 'no finally releases the lease'
+        $first = $finally.Statements[0]
+        Assert-True ($first -is [Management.Automation.Language.IfStatementAst]) "the first statement of the finally is $($first.GetType().Name)"
+        Assert-True ($writes[0].Extent.StartOffset -ge $first.Extent.StartOffset -and $writes[0].Extent.EndOffset -le $first.Extent.EndOffset) `
+            'the completion write is not inside the first statement of the finally that releases the lease'
+    }
+
+    It 'Debug-TestSequence.ps1 claims the lease and restarts the status service only outside a nested run, and refreshes the project only without -NoProjectClone' {
+        $claim = @(Get-DebugCommand -Name 'Initialize-YurunaOneShotEntryPoint')
+        Assert-Equal 1 $claim.Count
+        $claimIf = Get-EnclosingIf -Node $claim[0]
+        Assert-StringEqual 'condition' $claimIf.Part 'the claim is not part of an if condition'
+        Assert-True ($claimIf.Condition.StartsWith('-not $isNested -and', [StringComparison]::Ordinal)) "the claim condition is '$($claimIf.Condition)'"
+
+        $release = @(Get-DebugCommand -Name 'Exit-YurunaOneShotLease')
+        Assert-Equal 1 $release.Count
+        $releaseIf = Get-EnclosingIf -Node $release[0]
+        Assert-StringEqual 'body' $releaseIf.Part 'the release is not in the body of an if'
+        Assert-True ($releaseIf.Condition.StartsWith('-not $isNested -and', [StringComparison]::Ordinal)) "the release condition is '$($releaseIf.Condition)'"
+
+        $status = @(Get-DebugCommand -Name 'Start-YurunaStatusServiceIfEnabled')
+        Assert-Equal 1 $status.Count
+        $statusIf = Get-EnclosingIf -Node $status[0]
+        Assert-StringEqual 'body' $statusIf.Part 'the status service start is not in the body of an if'
+        Assert-True ($statusIf.Condition -ceq '-not $isNested') "the status service condition is '$($statusIf.Condition)'"
+
+        $checkout = @(Get-DebugCommand -Name 'Invoke-CycleCheckoutStep')
+        Assert-Equal 1 $checkout.Count
+        $checkoutIf = Get-EnclosingIf -Node $checkout[0]
+        Assert-StringEqual 'else' $checkoutIf.Part 'the project refresh is not in an else clause'
+        Assert-True ($checkoutIf.Condition -ceq '$NoProjectClone') "the project refresh condition is '$($checkoutIf.Condition)'"
     }
 }

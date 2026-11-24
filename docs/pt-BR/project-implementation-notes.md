@@ -218,13 +218,14 @@ acompanhando o mesmo encaminhamento do executor.
 
 <a id="42010605-000e"></a>
 
-<a id="derive-guestkey-from-the-sequences-baseline-map"></a>
+<a id="derive-guestkey-from-the-sequences-resource-map"></a>
 
-### Derive GuestKey do mapa de baseline da sequência
+### Derive GuestKey do mapa de recursos da sequência
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-A fonte de verdade é o campo `baseline:` da sequência — as chaves de SO nele
+A fonte de verdade é o campo `resource:` da sequência (normalizado
+internamente para `baseline`) — as chaves de SO nele
 listadas informam qual VM de convidado a sequência tem como destino. O nome do
 arquivo NÃO é a autoridade: caso contrário, um erro de digitação ou uma
 renomeação poderia desviar silenciosamente toda a cadeia (e uma sequência de
@@ -261,7 +262,7 @@ nomeado como destino; portanto, não há nada a isentar.
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Uma sequência de orquestração não tem `baseline:`, e suas etapas invocam
+Uma sequência de orquestração não tem `resource:`, e suas etapas invocam
 sequências internas (de convidado ou de ação no hospedeiro) em ordem. Ela é
 detectada aqui — depois de preparar o driver do hospedeiro, os diretórios de
 runtime, a proteção de instância única e o OCR, mas antes do caminho GuestKey + VM
@@ -325,7 +326,7 @@ Initialize-YurunaOneShotEntryPoint (Test.Prelude) publica os diretórios de
 runtime e de log, assume a concessão de execução avulsa (`oneshot.pid` +
 `oneshot.start`, o mesmo formato de par de `runner.pid`) e então executa
 Assert-NoOtherRunner, que recusa ao lado de um Start-TestRunner ativo, de outra
-execução avulsa ativa ou de uma atualização do hospedeiro. A concessão vem
+execução avulsa ativa ou de uma operação do hospedeiro. A concessão vem
 primeiro, e Start-TestRunner lê a concessão depois de gravar `runner.pid`;
 assim, de duas inicializações no mesmo instante, pelo menos uma vê a outra. Uma
 concessão cujo detentor terminou, ou cujo PID agora nomeia outro processo, é
@@ -606,7 +607,7 @@ executado informa o próprio código de saída por meio de
 nada falhou mas um convidado planejado foi pulado, 78 a verificação de
 configuração recusou, 70 o ciclo não deixou um registro de resultado utilizável.
 Um despacho que reteve ou parou o ciclo antes de um veredito — um pool drenado
-ou pausado, uma atualização do host, Ctrl+C — encerra com 2. Um consumidor de CI
+ou pausado, uma operação do hospedeiro, Ctrl+C — encerra com 2. Um consumidor de CI
 que precise distinguir entre as etapas da checagem prévia lê a mensagem
 Stop-WithReason ("STOP (exit 1) at <Step>"). O $Step + $Reason da mensagem
 fornecem o motivo.
@@ -1015,7 +1016,7 @@ Todos os switches aqui são encaminhados, inclusive -NoConfigGate: o executor
 interno verifica cada ciclo que executa; caso contrário, um operador que ignorou
 a verificação inicial durante uma edição seria parado pela mesma verificação
 uma camada abaixo, justamente na execução em que pediu para ignorá-la.
-Os parâmetros do transporte de atualização pertencem a este script e nunca chegam
+Os parâmetros do transporte da transferência pertencem a este script e nunca chegam
 ao executor interno, cuja vinculação estrita os recusaria.
 
 <a id="42010605-0035"></a>
@@ -1052,18 +1053,18 @@ da chamada (resolvido por Initialize-YurunaRuntimeDir acima).
 
 <a id="42010605-0037"></a>
 
-<a id="host-refresh-gate-at-startup"></a>
+<a id="runner-gate-at-startup"></a>
 
-### Verificação de atualização do hospedeiro na inicialização
+### Barreira do executor na inicialização
 
 `yuruna/test/Start-TestRunner.ps1`
 
-Uma inicialização normal é recusada enquanto uma atualização do hospedeiro mantém
+Uma inicialização normal é recusada enquanto uma operação do hospedeiro mantém
 seu executor retido: haveria concorrência com o reparo, e o próprio reparo reinicia
 o executor ao terminar. Uma inicialização retomada (iniciada pelo worker de
-atualização) deve apresentar um token de transferência válido para este runtime;
+reparo) deve apresentar um token de transferência válido para este runtime;
 um token recusado grava a confirmação de falha que o worker aguarda, quando a
-verificação ainda mantém esse token.
+barreira ainda mantém esse token.
 
 <a id="42010605-0038"></a>
 
@@ -1573,6 +1574,10 @@ desconhecido ou duplicado, ou ciclo de snippets produz FAIL aqui — antes do
 início de um ciclo —, em vez de descartar etapas ou interromper no meio do
 convidado. A estrutura das bibliotecas de snippets também é verificada diretamente,
 para que uma biblioteca quebrada, mas não referenciada, não fique oculta até o primeiro uso.
+As sentenças de etapa (entradas `step:`) são resolvidas pela mesma leitura, com as bibliotecas
+`_phrases.yml`, de modo que uma sentença desconhecida ou malformada, ou uma biblioteca quebrada,
+produz FAIL na verificação da mesma forma. Cada `_phrases.yml` também é validado diretamente, com
+todas as outras bibliotecas em vigor para sua pasta, mesmo quando nenhuma sequência o usa.
 
 <a id="42010605-0054"></a>
 
@@ -2137,10 +2142,10 @@ aguardada](../network.md#4220a755-0048).
 
 ### Repare um hipervisor local travado e deixe o executor, seus serviços e o listener novamente ativos —
 
-`yuruna/test/lab/Invoke-HostRefresh.ps1`
+`yuruna/test/lab/Invoke-HostRepair.ps1`
 
 Uma tentativa de reparo com limites, com a mesma implementação usada por todos
-os canais: shell do operador, despacho de atualização do bootstrap do macOS,
+os canais: shell do operador, despacho de reparo do bootstrap do macOS,
 listener de status, solicitação pool-control e acionamento automático do executor
 externo. Ela sobe uma escada de ações (verificar, recuperar, iniciar se parado,
 reiniciar se travado, ...), até o teto solicitado, executando apenas ações que
@@ -2151,7 +2156,7 @@ separada.
 Propriedades de segurança:
   * Um reparo por conta de hospedeiro de cada vez (trava mantida aberta durante
     a operação), um journal durável de solicitações e um registro de recuperação
-    em $HOME/.yuruna/host-refresh, fora de qualquer diretório servido.
+    em $HOME/.yuruna/host-repair, fora de qualquer diretório servido.
   * Nada solicita resposta: sem pergunta no console, diálogo de consentimento
     ou sudo interativo. Toda chamada nativa é limitada pelo orçamento de
     915 segundos da invocação (60 s para iniciar, 600 s para a escada,
@@ -2472,31 +2477,49 @@ este mesmo script específico do hospedeiro em seguida.
 
 <a id="42010605-007c"></a>
 
-<a id="provision-the-secrets-remote-host-refresh-needs-the-signing-authority-and-operator-credential-for-p"></a>
+<a id="provision-the-secrets-remote-host-repair-needs-the-signing-authority-and-operator-credential-for-p"></a>
 
-### Provisione os segredos necessários à atualização remota do hospedeiro: a autoridade de assinatura e a credencial do operador para p
+### Provisione os segredos necessários ao reparo remoto do hospedeiro: a autoridade de assinatura e a credencial do operador para p
 
-`yuruna/test/lab/Set-HostRefreshCredential.ps1`
+`yuruna/test/lab/Set-HostRepairCredential.ps1`
 
-A atualização remota é autorizada por segredos próprios, nunca pelo token do
+O reparo remoto é autorizado por segredos próprios, nunca pelo token do
 laboratório, por uma sessão do laboratório nem pela chave de autenticação interna,
 todos acessíveis pelo caminho de inscrição do painel. Este script os cria e
 transporta sem solicitar respostas:
 
   1. -NewAuthority, na máquina do operador: cria authority.key (a autoridade
      de assinatura) e operator.credential (o que os chamadores enviam em
-     X-Yuruna-Refresh-Credential), acessíveis apenas ao proprietário, no
+     X-Yuruna-Operator-Credential), acessíveis apenas ao proprietário, no
      diretório authority da raiz privada. Copie ambos para
-     /etc/yuruna/host-refresh/ de pool-control, com permissões exclusivas do
+     /etc/yuruna/host-repair/ de pool-control, com permissões exclusivas do
      proprietário; nunca os copie para um hospedeiro do grupo.
   2. -ExportHostKey -HostId <id> -OutputPath <file>, na mesma máquina:
      deriva a chave de verificação de um hospedeiro e a grava para transporte.
   3. -InstallHostKey -KeyPath <file>, nesse hospedeiro: instala a chave na
      raiz privada dele. Um hospedeiro que também seja a máquina da autoridade
      pode usar -InstallHostKey -AuthorityDirectory <dir>.
-  4. -RemoveHostKey em um hospedeiro retira sua participação na atualização remota.
+  4. -RemoveHostKey em um hospedeiro retira sua participação no reparo remoto.
 
-Sem um switch, o script informa o estado da chave do hospedeiro e da autoridade.
+A atualização remota do hospedeiro precisa de uma chave própria, nunca de um segredo em um hospedeiro:
+
+  5. -NewUpdateSigningKey, na máquina do operador: cria update-signing.key
+     (uma chave RSA de 3072 bits, restrita ao dono) no diretório da
+     autoridade e imprime a linha da chave pública. Copie a chave para
+     /etc/yuruna/host-repair/update-signing.key do pool-control com
+     permissões restritas ao dono; nunca a copie para um hospedeiro do pool.
+  6. -InstallPoolControlRecord -PoolControlUrl <url> -PublicKey <line>, em
+     cada hospedeiro: grava o registro do pool-control, com o endereço para
+     onde a página Diagnósticos envia um acionamento vindo de outra máquina e a
+     chave pública com que as provas de atualização são verificadas. Cada
+     valor substituído é impresso como previous -> new antes de o registro
+     ser gravado. Um hospedeiro que também é a máquina da autoridade pode
+     usar -AuthorityDirectory <dir> no lugar de -PublicKey.
+     -RemovePoolControlRecord retira o hospedeiro.
+
+Sem um switch, o script informa o estado da chave do hospedeiro e da autoridade,
+depois o estado do registro do pool-control e se há uma chave de assinatura de
+atualização.
 Segredos nunca chegam à saída: apenas tags (nomes não secretos) e caminhos.
 O ID do hospedeiro é lido de runtime/host.uuid e nunca criado aqui.
 Código de saída 0 no sucesso, 1 em uma recusa.

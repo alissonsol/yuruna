@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d5c8e4-fc67-48d0-a8eb-71baa6f478be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@ BeforeAll {
     function New-RootAnswer {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Returns only a mock response record.')]
         param([string]$Reason = 'owner-mismatch', [string]$HomeVerified = 'verified')
-        [pscustomobject]@{ Resolved = ($Reason -eq 'ok'); Reason = $Reason; HomeVerified = $HomeVerified; Path = (Join-Path $TestDrive 'account/.yuruna/host-refresh') }
+        [pscustomobject]@{ Resolved = ($Reason -eq 'ok'); Reason = $Reason; HomeVerified = $HomeVerified; Path = (Join-Path $TestDrive 'account/.yuruna/host-repair') }
     }
 
     function New-NativeAnswer {
@@ -288,7 +288,7 @@ Describe 'Startup private-state permission recovery' {
     }
 
     It 'refuses containment in either direction even when the resolver supplied an ownership error' -ForEach @('parent', 'same', 'child') {
-        $candidate = Join-Path $script:FixtureHome '.yuruna/host-refresh'
+        $candidate = Join-Path $script:FixtureHome '.yuruna/host-repair'
         $served = switch ($_) { parent { $script:FixtureHome } same { $candidate } child { Join-Path $candidate 'runtime' } }
         $result = Repair-YurunaStartupPrivateState -ServedRoot @($served) -Confirm:$false
         $result.Reason | Should -Be 'served-tree'
@@ -305,7 +305,7 @@ Describe 'Startup private-state permission recovery' {
 
     It 'uses case-insensitive containment for macOS' {
         InModuleScope Test.PrivateStateRepair { Set-Variable -Name IsMacOS -Value $true -Scope Script }
-        $served = (Join-Path $script:FixtureHome '.yuruna/host-refresh').ToUpperInvariant()
+        $served = (Join-Path $script:FixtureHome '.yuruna/host-repair').ToUpperInvariant()
         $result = Repair-YurunaStartupPrivateState -ServedRoot @($served) -Confirm:$false
         $result.Reason | Should -Be 'served-tree'
         Should -Invoke -ModuleName Test.PrivateStateRepair Invoke-BoundedNativeCommand -Times 0 -Exactly
@@ -518,14 +518,14 @@ Describe 'Private-state recovery entry-point boundaries' {
         $repair[0].Extent.StartOffset | Should -BeLessThan $record[0].Extent.StartOffset
         $repair[0].Extent.Text | Should -Match '-AllowPrompt'
         $repair[0].Extent.Text | Should -Match '-RepairFileAccess:'
-        (Get-NearestIfCondition -Node $repair[0]) | Should -Match '-not\s+\$RefreshResume'
+        (Get-NearestIfCondition -Node $repair[0]) | Should -Match '-not\s+\$HandoffResume'
     }
 
-    It 'keeps both status-service repair paths outside refresh-safe starts' {
+    It 'keeps both status-service repair paths outside non-destructive starts' {
         $repairs = @(Get-CommandNode -Ast $script:StatusAst -Name 'Repair-YurunaStartupPrivateState')
         $repairs.Count | Should -Be 2
         foreach ($repair in $repairs) {
-            (Get-NearestIfCondition -Node $repair) | Should -Match '-not\s+\$RefreshSafe'
+            (Get-NearestIfCondition -Node $repair) | Should -Match '-not\s+\$NonDestructive'
             $repair.Extent.Text | Should -Match '-ServedRoot\s+\$ServedRootSet'
         }
         $lockRepair = @($repairs | Where-Object { $_.Extent.Text -match '-RepairFileAccess' })

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 # Bounded native calls for the evidence a host restart leaves behind.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -DisableNameChecking
-# The refresh-preservation mode classifies records with the strict identity
+# The handoff-preservation mode classifies records with the strict identity
 # rules; imported here so that mode never runs without them.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
 
@@ -82,8 +82,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameC
     has a marker that this sweep can act on, or is reconstructible
     from the artifacts the cycle folder preserved.
 
-    Refresh preservation is a stricter mode for a runner restarted by a
-    host refresh. The operator's controls outlive the repair: pauses, lab
+    Handoff preservation is a stricter mode for a runner restarted by a
+    host operation. The operator's controls outlive the operation: pauses, lab
     holds and a pending cycle restart stay until their normal consumer
     handles them. Nothing is deleted on a failed lookup or an unreadable
     record -- inner.pid goes only as the exact generation proven dead,
@@ -94,8 +94,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameC
     proven gone.
 #>
 
-# Operator control files a refresh-preservation sweep leaves in place.
-$script:RefreshPreservedControlName = @(
+# Operator control files a handoff-preservation sweep leaves in place.
+$script:HandoffPreservedControlName = @(
     'control.step-pause', 'control.cycle-pause', 'control.pause',
     'control.lab-hold', 'lab-hold.json', 'control.lab-hold-release', 'control.cycle-restart'
 )
@@ -1363,8 +1363,8 @@ function Clear-StaleControlState {
         and pause flags untouched.
     .PARAMETER RuntimeDir
         test/status/runtime/. Defaults to $env:YURUNA_RUNTIME_DIR.
-    .PARAMETER RefreshPreservation
-        A chain resumed after a host refresh: neither scope consumes
+    .PARAMETER HandoffPreservation
+        A chain resumed after a handoff: neither scope consumes
         control.cycle-restart or sweeps interactive state; the controls
         present are reported under preserved and left for their consumers.
     .OUTPUTS
@@ -1373,7 +1373,7 @@ function Clear-StaleControlState {
             cycleRestartAgeSeconds = [int] or $null  (age of the consumed flag)
             breakActive = archive result or $null
             pauseFlags = string[] basenames cleared
-            preserved = string[] control basenames left in place (refresh preservation)
+            preserved = string[] control basenames left in place (handoff preservation)
             warnings = string[]
         }
     #>
@@ -1383,7 +1383,7 @@ function Clear-StaleControlState {
         [Parameter(Mandatory)][ValidateSet('Startup','PreSpawn')][string]$Scope,
         [switch]$SkipInteractiveState,
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
-        [switch]$RefreshPreservation
+        [switch]$HandoffPreservation
     )
     $summary = @{
         cycleRestartCleared    = $false
@@ -1394,8 +1394,8 @@ function Clear-StaleControlState {
         warnings               = @()
     }
     if (-not $RuntimeDir -or -not (Test-Path -LiteralPath $RuntimeDir)) { return $summary }
-    if ($RefreshPreservation) {
-        $summary.preserved = @($script:RefreshPreservedControlName + @('break-active.json') | Where-Object {
+    if ($HandoffPreservation) {
+        $summary.preserved = @($script:HandoffPreservedControlName + @('break-active.json') | Where-Object {
             Test-Path -LiteralPath (Join-Path $RuntimeDir $_)
         })
         return $summary
@@ -1468,10 +1468,10 @@ function ConvertTo-YurunaRecoveryIdentity {
     return [pscustomobject]@{ Pid = [int]$idPid; StartTimeUnixMs = if ($null -ne $idStart) { [long]$idStart } else { $null } }
 }
 
-function Invoke-YurunaRefreshPreservationSweep {
+function Invoke-YurunaHandoffPreservationSweep {
     <#
     .SYNOPSIS
-        The refresh-preservation half of Invoke-YurunaBootRecovery.
+        The handoff-preservation half of Invoke-YurunaBootRecovery.
     .DESCRIPTION
         Every removal needs positive proof, and anything that cannot be
         classified is preserved and reported: the strict classifier and
@@ -1489,11 +1489,11 @@ function Invoke-YurunaRefreshPreservationSweep {
         [AllowNull()][psobject]$ReclaimedInner,
         [AllowNull()][psobject]$ProcessTable
     )
-    $Summary.Mode = 'refresh-preservation'
+    $Summary.Mode = 'handoff-preservation'
     $strict = @('Get-YurunaProcessTable', 'Get-YurunaRunnerRecordState', 'Remove-YurunaRunnerRecordGeneration', 'Get-YurunaProcessIdentityState')
     $available = @($strict | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue }).Count -eq $strict.Count
     if (-not $available) {
-        $Summary.Warnings += 'refresh preservation: strict identity helpers unavailable; nothing removed'
+        $Summary.Warnings += 'handoff preservation: strict identity helpers unavailable; nothing removed'
     }
     $table = $null
     if ($available) {
@@ -1535,7 +1535,7 @@ function Invoke-YurunaRefreshPreservationSweep {
                 }
             }
         }
-        $Summary.PreservedControls = @($script:RefreshPreservedControlName | Where-Object { Test-Path -LiteralPath (Join-Path $RuntimeDir $_) })
+        $Summary.PreservedControls = @($script:HandoffPreservedControlName | Where-Object { Test-Path -LiteralPath (Join-Path $RuntimeDir $_) })
     }
     if ($LogDir -and (Test-Path -LiteralPath $LogDir)) {
         foreach ($marker in (Find-OrphanIncompleteCycle -LogDir $LogDir)) {
@@ -1579,7 +1579,7 @@ function Invoke-YurunaRefreshPreservationSweep {
         Send-BootRecoveryEvent -RuntimeDir $RuntimeDir -EventRecord @{
             timestamp              = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
             event                  = 'boot_recovery_completed'
-            mode                   = 'refresh-preservation'
+            mode                   = 'handoff-preservation'
             archivedCycleCount     = [int]$Summary.ArchivedCycles.Count
             clearedPidFileCount    = [int]$Summary.ClearedPidFiles.Count
             archivedBreakActive    = [bool]($null -ne $Summary.ArchivedBreakActive)
@@ -1628,15 +1628,15 @@ function Invoke-YurunaBootRecovery {
         test/status/runtime/. Defaults to $env:YURUNA_RUNTIME_DIR.
     .PARAMETER LogDir
         test/status/log/. Defaults to $env:YURUNA_LOG_DIR.
-    .PARAMETER RefreshPreservation
-        Sweep for a runner restarted by a host refresh: no pause, hold or
+    .PARAMETER HandoffPreservation
+        Sweep for a runner restarted by a handoff: no pause, hold or
         restart sweep; inner.pid removed only as a generation proven dead;
         runner.pid deferred to the resume path; server.pid and
         config-server.pid untouched; break-active.json archived only for a
         dead reclaimed inner; an orphaned cycle archived only when its
         writer is proven gone.
     .PARAMETER ReclaimedInner
-        { Pid; StartTimeUnixMs } of the inner the refresh reclaimed.
+        { Pid; StartTimeUnixMs } of the inner the host operation reclaimed.
     .PARAMETER ProcessTable
         A process-table snapshot for the preservation mode's checks; one is
         taken when omitted.
@@ -1644,7 +1644,7 @@ function Invoke-YurunaBootRecovery {
         Hashtable summary: ArchivedCycles, ClearedPidFiles,
         ArchivedBreakActive, ClearedPauseFlags (basenames) with
         ClearedPauseFlagRecords (when each was set), Warnings,
-        StartedAtUtc, CompletedAtUtc, Mode (default|refresh-preservation),
+        StartedAtUtc, CompletedAtUtc, Mode (default|handoff-preservation),
         PreservedControls, PreservedPidFiles ({ file; state }),
         PreservedOrphans, PreviousRunner: what the previous runner's
         session and exit records say (Get-YurunaRunnerExitReport), or $null,
@@ -1657,7 +1657,7 @@ function Invoke-YurunaBootRecovery {
     param(
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
         [string]$LogDir     = $env:YURUNA_LOG_DIR,
-        [switch]$RefreshPreservation,
+        [switch]$HandoffPreservation,
         [psobject]$ReclaimedInner,
         [psobject]$ProcessTable
     )
@@ -1678,8 +1678,8 @@ function Invoke-YurunaBootRecovery {
         $summary.CompletedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
         return $summary
     }
-    if ($RefreshPreservation) {
-        return (Invoke-YurunaRefreshPreservationSweep -Summary $summary -RuntimeDir $RuntimeDir -LogDir $LogDir `
+    if ($HandoffPreservation) {
+        return (Invoke-YurunaHandoffPreservationSweep -Summary $summary -RuntimeDir $RuntimeDir -LogDir $LogDir `
             -ReclaimedInner $ReclaimedInner -ProcessTable $ProcessTable)
     }
 

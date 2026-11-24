@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 427b88d4-4d56-450c-83da-be82e70cf397
-  Version: 2026.11.16
+  Version: 2026.11.23
   See https://yuruna.link/42fa6f45-0018
   See https://yuruna.link/42fa6f45-001d
   See https://yuruna.link/42fa6f45-0019
@@ -371,9 +371,15 @@ footer.app a { color: var(--chrome-muted); }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
   body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); padding-bottom: calc(var(--footer-h, calc(5.75rem + env(safe-area-inset-bottom))) + .75rem); }
 }
-@media (pointer: coarse) {
+/* any-pointer, not pointer: a touch screen beside a mouse or touchpad
+   reports a fine primary pointer, so a (pointer: coarse) rule misses it at
+   desktop width, where the phone block above does not apply either. */
+@media (any-pointer: coarse) {
   .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
   .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
+  textarea#footer-ip-list { min-height: var(--touch-min); }
+}
+@media (pointer: coarse) {
   /* iOS zooms into a text control under 16px when it takes focus. That is a
      property of the device, not the width: a landscape phone is wider than
      the 600px block above. */
@@ -523,7 +529,8 @@ button {
 /* Quarantine and the stale-mirror provenance draw from the warning pair, which
    holds its contrast in both color schemes; fixed colors did not. */
 .badge.quarantined { background: var(--warn-bg); color: var(--warn-fg); }
-.source-provenance { display: block; color: var(--fg-muted); }
+/* Inline after its commit as "[label]"; nowrap keeps a two-word label together. */
+.source-provenance { white-space: nowrap; color: var(--fg-muted); }
 .source-provenance.is-stale { color: var(--warn-fg); }
 .badge.skipped, .step-pill.skipped, .skipped-bg { background: var(--skipped-bg); color: var(--skipped-fg); }
 .badge.paused,  .step-pill.paused,  .paused-bg  { background: var(--pending-bg); color: var(--pending-fg); }
@@ -592,8 +599,8 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
    their JS handler decides which variant to show. */
 .hidden { display: none; }
 
-/* Section heading shared across status pages: small uppercase muted
-   label over a soft underline. `.with-controls` lays the heading row
+/* Section heading for status pages: small muted label over a soft
+   underline. `.with-controls` lays the heading row
    out as a flex container so a CTA / button can sit at the right
    margin and tighten the underline space to taste. */
 /* Visually hidden, still in the accessibility tree. clip-path rather than
@@ -609,20 +616,18 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
 .section-title h2 { font: inherit; letter-spacing: inherit; color: inherit; margin: 0; }
 
 .section-title {
-  font-size: .6875rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .07em; color: var(--fg-muted);
+  font-size: .6875rem; font-weight: 700; color: var(--fg-muted);
   border-bottom: 1px solid var(--border); padding-bottom: .4rem; margin-bottom: .875rem;
 }
 .section-title.with-controls {
   display: flex; justify-content: space-between; align-items: center;
-  text-transform: none; letter-spacing: normal; color: inherit;
+  color: inherit;
   padding-bottom: .15rem; margin-bottom: .5rem;
 }
 .section-title.with-controls > * + * { margin-inline-start: .75rem; }
 .section-title.with-controls .section-title-link {
   margin-inline-start: auto; flex: 0 0 auto;
   font-size: .8125rem; font-weight: 500;
-  text-transform: none; letter-spacing: normal;
   color: var(--section-link); text-decoration: underline dotted;
 }
 .section-title.with-controls .section-title-link:hover { text-decoration: underline; }

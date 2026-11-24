@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -368,8 +368,8 @@ Describe 'One gate per cycle, at the front of it' {
     # A start that refused after stopping the runner it would replace left the
     # host with no runner at all, and the old one's runtime state cleared.
     It 'a fresh start refuses before it stops another runner or clears runtime state' {
-        $refuseAt = $script:outerText.IndexOf('if (-not $RefreshResume) { . $refuseStart }')
-        $recoverAt = $script:outerText.IndexOf('if (-not $RefreshResume) { & $runStartupRecovery }')
+        $refuseAt = $script:outerText.IndexOf('if (-not $HandoffResume) { . $refuseStart }')
+        $recoverAt = $script:outerText.IndexOf('if (-not $HandoffResume) { & $runStartupRecovery }')
         $stopAt = $script:outerText.IndexOf('Stop-StaleRunner -ProcessId')
         $launchAt = $script:outerText.IndexOf('$launchRecord = & $writeLaunchRecord')
         Assert-True ($refuseAt -gt 0) 'the refusals must run on a fresh start'
@@ -541,7 +541,7 @@ Import-Module (Join-Path $ModuleRoot 'Test.RecoveryContract.psm1') -DisableNameC
 function Write-ConfigGateArtifact { throw 'artifact storage is unavailable' }
 function Write-RunnerPhase { param($Phase) Set-Content -LiteralPath (Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase') -Value $Phase }
 $env:YURUNA_RUNTIME_DIR = $RuntimeDir
-$RefreshMode = @{ Mode = 'ordinary' }
+$HandoffMode = @{ Mode = 'ordinary' }
 $NoConfigGate = $false
 '@
         Set-Content -LiteralPath $stubPath -Value ($stub + "`n" + $block.Extent.Text)

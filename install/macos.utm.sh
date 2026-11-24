@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.16
+# Version: 2026.11.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42f9c4ac-c6ad-4def-81e6-8822c5a6abdb
@@ -23,6 +23,35 @@ for _yuruna_arg in "$@"; do
 done
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
+# --- REGION: Unattended mode
+# --unattended is the host update's install phase on a host that already runs
+# the framework: no prompt, no standard input, no git command, nothing stopped
+# or quit (UTM included), no status folder or recovery capsule touched, no
+# baseline reset, no host configuration, and elevation that must already be
+# there. The step that runs it reads the marker below before it starts this
+# file, because an older copy ignores the switch and would run an attended
+# install. --request-id and --attempt go into the result record, which the step
+# matches to its own attempt.
+# shellcheck disable=SC2034 # read from this file's text by the install step
+YURUNA_UNATTENDED_PROTOCOL_VERSION=1
+YURUNA_UNATTENDED=0
+YURUNA_REQUEST_ID=""
+YURUNA_REQUEST_ATTEMPT=""
+YURUNA_RESULT_REASON=""
+_yuruna_expect=""
+for _yuruna_arg in "$@"; do
+  case "$_yuruna_expect" in
+    request-id) [[ "$_yuruna_arg" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]] && YURUNA_REQUEST_ID="$_yuruna_arg"; _yuruna_expect=""; continue ;;
+    attempt) [[ "$_yuruna_arg" =~ ^[1-9][0-9]{0,3}$ ]] && YURUNA_REQUEST_ATTEMPT="$_yuruna_arg"; _yuruna_expect=""; continue ;;
+  esac
+  case "$_yuruna_arg" in
+    --unattended) YURUNA_UNATTENDED=1 ;;
+    --request-id) _yuruna_expect=request-id ;;
+    --attempt) _yuruna_expect=attempt ;;
+  esac
+done
+if (( YURUNA_UNATTENDED )); then exec </dev/null; fi
+
 # Where a tool is linked when it has to be reachable by name from the whole
 # machine rather than from a shell that ran `brew shellenv`: the stock
 # /etc/paths lists this directory, so a login shell, a LaunchAgent and an
@@ -36,25 +65,29 @@ PATH_LINK_DIR="/usr/local/bin"
 UTM_APP="/Applications/UTM.app"
 UTMCTL_BUNDLE="$UTM_APP/Contents/MacOS/utmctl"
 
-log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
+_yuruna_step="<starting up>"
+log()  { _yuruna_step="$*"; printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 
 # Every destructive region calls this before it acts. It sits next to die() so
-# it exists before its first call, and it dies unless the refresh dispatch took
+# it exists before its first call, and it dies unless the repair dispatch took
 # its explicit install branch: a region reached any other way is a run whose
-# intent was never confirmed, and guessing "install" there is how a refresh
+# intent was never confirmed, and guessing "install" there is how a repair
 # request ends up rewriting the checkout.
 yuruna_require_install_mode() {
   [[ "${YURUNA_INSTALL_MODE:-0}" == "1" ]] || die "Internal error: a destructive installer step ran outside a confirmed install run."
 }
 
-# --- REGION: Refresh dispatch
-# --refresh hands off to the installed checkout's own refresh entry script, ahead of
-# every gate and mutation so a malformed signal ends the run. The --refresh token and
-# YURUNA_REFRESH=1 are both required; either alone refuses.
+# A failure whose cause the result record names with a token of its own.
+refuse() { YURUNA_RESULT_REASON="$1"; shift; die "$@"; }
+
+# --- REGION: Repair dispatch
+# --repair hands off to the installed checkout's own repair entry script, ahead of
+# every gate and mutation so a malformed signal ends the run. The --repair token and
+# YURUNA_REPAIR=1 are both required; either alone refuses.
 # See https://yuruna.link/4213a0b3-019b
-YURUNA_REFRESH_PROTOCOL_VERSION=1
+YURUNA_REPAIR_PROTOCOL_VERSION=1
 
 yuruna_pwsh_candidates() {
   # In resolution order, without assuming a login shell ran `brew shellenv`: a host
@@ -82,48 +115,59 @@ yuruna_resolve_pwsh() {
   return 1
 }
 
-yuruna_refresh_dispatch() {
+yuruna_repair_dispatch() {
   local arg0="$1"; shift
-  local want_refresh=0 has_extra=0 a
-  [[ "$arg0" == "--refresh" ]] && want_refresh=1
-  for a in "$@"; do
+  local want_repair=0 has_extra=0 a
+  # --refresh and YURUNA_REFRESH=1 are retired spellings of the repair
+  # signals. An installer that ignored them would read them as an install, so
+  # it refuses and names the current ones instead.
+  for a in "$arg0" "$@"; do
     if [[ "$a" == "--refresh" ]]; then
-      want_refresh=1
+      die "--refresh is retired; host repair is requested with --repair and YURUNA_REPAIR=1. Nothing was changed."
+    fi
+  done
+  if [[ "${YURUNA_REFRESH:-0}" == "1" ]]; then
+    die "YURUNA_REFRESH=1 is retired; host repair is requested with --repair and YURUNA_REPAIR=1. Unset YURUNA_REFRESH; nothing was changed."
+  fi
+  [[ "$arg0" == "--repair" ]] && want_repair=1
+  for a in "$@"; do
+    if [[ "$a" == "--repair" ]]; then
+      want_repair=1
     else
       has_extra=1
     fi
   done
 
-  if [[ "$want_refresh" -eq 0 && "${YURUNA_REFRESH:-0}" != "1" ]]; then
+  if [[ "$want_repair" -eq 0 && "${YURUNA_REPAIR:-0}" != "1" ]]; then
     YURUNA_INSTALL_MODE=1
     return 0
   fi
-  if [[ "$want_refresh" -eq 0 ]]; then
-    die "YURUNA_REFRESH=1 was set without the --refresh argument. Refusing rather than guessing whether an install or a refresh was intended; pass --refresh explicitly."
+  if [[ "$want_repair" -eq 0 ]]; then
+    die "YURUNA_REPAIR=1 was set without the --repair argument. Refusing rather than guessing whether an install or a repair was intended; pass --repair explicitly."
   fi
-  if [[ "${YURUNA_REFRESH:-0}" != "1" ]]; then
-    die "--refresh was given without YURUNA_REFRESH=1. Refusing rather than guessing whether an install or a refresh was intended; set YURUNA_REFRESH=1 explicitly."
+  if [[ "${YURUNA_REPAIR:-0}" != "1" ]]; then
+    die "--repair was given without YURUNA_REPAIR=1. Refusing rather than guessing whether an install or a repair was intended; set YURUNA_REPAIR=1 explicitly."
   fi
   if [[ "$has_extra" -eq 1 ]]; then
-    die "--refresh accepts no other arguments."
+    die "--repair accepts no other arguments."
   fi
 
-  [[ "$(uname -s)" == "Darwin" ]] || die "Refresh only supports macOS."
-  [[ $EUID -ne 0 ]] || die "Do not run refresh as root. It calls sudo itself when an operation needs elevation."
+  [[ "$(uname -s)" == "Darwin" ]] || die "Repair only supports macOS."
+  [[ $EUID -ne 0 ]] || die "Do not run repair as root. It calls sudo itself when an operation needs elevation."
 
-  local entry="$YURUNA_DIR/test/lab/Invoke-HostRefresh.ps1"
-  local version_file="$YURUNA_DIR/test/host-refresh.protocol-version"
-  [[ -d "$YURUNA_DIR" ]] || die "Refresh target not found: $YURUNA_DIR is not an existing Yuruna checkout. Run the installer without --refresh first."
-  [[ -f "$version_file" ]] || die "Refresh protocol declaration not found: $version_file. This checkout predates host refresh; run the installer without --refresh to update it first."
+  local entry="$YURUNA_DIR/test/lab/Invoke-HostRepair.ps1"
+  local version_file="$YURUNA_DIR/test/host-repair.protocol-version"
+  [[ -d "$YURUNA_DIR" ]] || die "Repair target not found: $YURUNA_DIR is not an existing Yuruna checkout. Run the installer without --repair first."
+  [[ -f "$version_file" ]] || die "Repair protocol declaration not found: $version_file. This checkout predates host repair; run the installer without --repair to update it first."
   local installed_version
   installed_version="$(cat "$version_file" 2>/dev/null || true)"
-  [[ "$installed_version" == "$YURUNA_REFRESH_PROTOCOL_VERSION" ]] || die "Installed host-refresh protocol version '$installed_version' does not match this installer's '$YURUNA_REFRESH_PROTOCOL_VERSION'. Run the installer without --refresh to update the checkout first."
-  [[ -f "$entry" ]] || die "Refresh entry script not found: $entry."
+  [[ "$installed_version" == "$YURUNA_REPAIR_PROTOCOL_VERSION" ]] || die "Installed host-repair protocol version '$installed_version' does not match this installer's '$YURUNA_REPAIR_PROTOCOL_VERSION'. Run the installer without --repair to update the checkout first."
+  [[ -f "$entry" ]] || die "Repair entry script not found: $entry."
 
   local pwsh_path
-  pwsh_path="$(yuruna_resolve_pwsh)" || die "pwsh not found (checked PATH, /opt/homebrew/bin, /usr/local/bin, $PATH_LINK_DIR and /usr/local/microsoft/powershell/7). Run the installer without --refresh first."
+  pwsh_path="$(yuruna_resolve_pwsh)" || die "pwsh not found (checked PATH, /opt/homebrew/bin, /usr/local/bin, $PATH_LINK_DIR and /usr/local/microsoft/powershell/7). Run the installer without --repair first."
 
-  # The refresh may run with nobody at the keyboard (the ssh form has no
+  # The repair may run with nobody at the keyboard (the ssh form has no
   # terminal to answer on), so every prompt predicate in the checkout has to
   # decline rather than wait on a read that never completes. Exported, not
   # passed as an argument: the entry script and every child it starts read it
@@ -135,10 +179,10 @@ yuruna_refresh_dispatch() {
   # that runs the dispatch as a condition suspends it). Returning here would
   # fall through into the installer body with an unconfirmed mode, so a failed
   # hand-off ends the run instead.
-  die "Could not start $pwsh_path for the refresh entry script; nothing was changed."
+  die "Could not start $pwsh_path for the repair entry script; nothing was changed."
 }
 YURUNA_INSTALL_MODE=0
-yuruna_refresh_dispatch "$0" "$@"
+yuruna_repair_dispatch "$0" "$@"
 
 # --- REGION: Deferred issues
 # Every non-fatal problem is recorded here as well as printed where it happens:
@@ -146,6 +190,15 @@ yuruna_refresh_dispatch "$0" "$@"
 # Nothing here stops the run, but a problem must not pass unmentioned either.
 YURUNA_ISSUES=()
 note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
+# A remark is a token beside the issue text, for the host update that reads the
+# record: it names a known condition the run went on past (a deferred UTM
+# upgrade, a failed brew update) without parsing the issue's wording.
+YURUNA_REMARKS=()
+note_remark() {
+  local r
+  for r in ${YURUNA_REMARKS[@]+"${YURUNA_REMARKS[@]}"}; do [[ "$r" == "$1" ]] && return 0; done
+  YURUNA_REMARKS+=("$1")
+}
 
 # --- REGION: https://yuruna.link/429fb30b-0003
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
@@ -177,6 +230,130 @@ else
   warn "Could not create an install log file; output goes to this terminal only."
 fi
 
+# --- REGION: EXIT trap
+# Every temp path this installer creates is registered here and removed by the
+# EXIT trap, whatever ends the run: a die(), a set -e abort, the ERR trap, or a
+# signal. Removing a path on each function's own success path is not enough --
+# those paths are exactly the ones a failure skips. A subshell that may exit
+# early sets yuruna_cleanup_tmp_paths as its own EXIT trap, because the parent's
+# registry never sees what the subshell adds. The ${arr[@]+...} form keeps an
+# empty array safe under set -u on bash 3.2, which macOS still ships.
+YURUNA_TMP_PATHS=()
+yuruna_track_tmp() {
+  [[ -n "${1:-}" ]] && YURUNA_TMP_PATHS+=("$1")
+  return 0
+}
+yuruna_cleanup_tmp_paths() {
+  local p
+  for p in ${YURUNA_TMP_PATHS[@]+"${YURUNA_TMP_PATHS[@]}"}; do
+    [[ -n "$p" && ( -e "$p" || -L "$p" ) ]] || continue
+    # Completed recovery capsules survive until the operator removes them:
+    # restart and rollback can happen after this installer process exits.
+    if [[ "$p" == "${YURUNA_INSTALLER_STATE_DIR:-}" && "${YURUNA_INSTALLER_STATE_RETAINED:-0}" -eq 1 ]]; then continue; fi
+    # A build tree can hold root-owned files; sudo is primed for the whole run.
+    rm -rf -- "$p" 2>/dev/null || sudo -n rm -rf -- "$p" 2>/dev/null || true
+  done
+  YURUNA_TMP_PATHS=()
+}
+# --- REGION: Machine-readable outcome
+# One JSON record of how the run ended, at a fixed path and beside the log, so a
+# caller (automation, a nested host) reads the outcome instead of parsing the
+# closing text: outcome succeeded | succeeded-with-issues | failed, the exit code,
+# the last step, every deferred issue, the installed VERSION and the log path.
+# Best-effort: it runs from the EXIT trap and never changes the exit code.
+# The record also names the host update's request and attempt, whether the run
+# was unattended, the reason token of a failure, a PowerShell that the run
+# moved to another version (pwshUpgrade), which an unattended caller acts on,
+# and the remark tokens of known conditions the run went on past (remarks).
+yuruna_json_string() {
+  # A character loop rather than ${s//...}: bash 3.2 (macOS) and 5.x treat a
+  # backslash in a pattern replacement differently, while double-quote escaping
+  # below means the same in every version.
+  local s="$1" out="" c i
+  for (( i = 0; i < ${#s}; i++ )); do
+    c="${s:i:1}"
+    case "$c" in
+      '\') out="$out\\\\" ;;
+      '"') out="$out\\\"" ;;
+      $'\n') out="$out\\n" ;;
+      $'\r') out="$out\\r" ;;
+      $'\t') out="$out\\t" ;;
+      *) out="$out$c" ;;
+    esac
+  done
+  out="$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
+  printf '"%s"' "$out"
+}
+yuruna_pwsh_version() {
+  local v
+  hash -r 2>/dev/null || true
+  command -v pwsh >/dev/null 2>&1 || return 0
+  # shellcheck disable=SC2016 # a PowerShell expression, expanded by pwsh
+  v="$(pwsh -NoLogo -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()' 2>/dev/null </dev/null | tr -d '\r' | head -n 1 || true)"
+  [[ "$v" =~ ^[0-9]+(\.[0-9]+){1,3}(-[0-9A-Za-z.]+)?$ ]] && printf '%s' "$v"
+  return 0
+}
+YURUNA_PWSH_BEFORE=""
+if (( YURUNA_UNATTENDED )); then YURUNA_PWSH_BEFORE="$(yuruna_pwsh_version)"; fi
+write_install_result() {
+  local rc="$1" installer="$2" outcome dir file issues_json="" issue remarks_json="" remark version="" reason="null" upgrade="null" after="" attempt="null" unattended=false
+  if [[ "$rc" -ne 0 ]]; then
+    outcome="failed"
+  elif [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    outcome="succeeded-with-issues"
+  else
+    outcome="succeeded"
+  fi
+  if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+    for issue in "${YURUNA_ISSUES[@]}"; do
+      [[ -z "$issues_json" ]] || issues_json="$issues_json,"
+      issues_json="$issues_json$(yuruna_json_string "$issue")"
+    done
+  fi
+  # The ${arr[@]+...} form: an installer that never records a remark defines no
+  # array, and set -u on bash 3.2 refuses an empty one too.
+  for remark in ${YURUNA_REMARKS[@]+"${YURUNA_REMARKS[@]}"}; do
+    [[ -z "$remarks_json" ]] || remarks_json="$remarks_json,"
+    remarks_json="$remarks_json$(yuruna_json_string "$remark")"
+  done
+  if [[ -n "${YURUNA_DIR:-}" && -r "${YURUNA_DIR:-}/VERSION" ]]; then
+    version="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION" 2>/dev/null || true)"
+  fi
+  if [[ "${YURUNA_UNATTENDED:-0}" -eq 1 ]]; then
+    unattended=true
+    if [[ "$rc" -ne 0 ]]; then reason="$(yuruna_json_string "${YURUNA_RESULT_REASON:-installer_failed}")"; fi
+    after="$(yuruna_pwsh_version)"
+    if [[ -n "${YURUNA_PWSH_BEFORE:-}" && -n "$after" && "$after" != "${YURUNA_PWSH_BEFORE:-}" ]]; then
+      upgrade="{\"from\":$(yuruna_json_string "$YURUNA_PWSH_BEFORE"),\"to\":$(yuruna_json_string "$after"),\"pending\":false}"
+    fi
+  fi
+  if [[ -n "${YURUNA_REQUEST_ATTEMPT:-}" ]]; then attempt="$YURUNA_REQUEST_ATTEMPT"; fi
+  dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna"
+  mkdir -p "$dir" 2>/dev/null || return 0
+  file="$dir/install-result.json"
+  if printf '{"schema":1,"installer":%s,"version":%s,"outcome":"%s","exitCode":%d,"step":%s,"issues":[%s],"log":%s,"finishedUtc":"%s","requestId":%s,"attempt":%s,"unattended":%s,"reason":%s,"pwshUpgrade":%s,"restartRequired":false,"remarks":[%s]}\n' \
+       "$(yuruna_json_string "$installer")" "$(yuruna_json_string "$version")" "$outcome" "$rc" \
+       "$(yuruna_json_string "${_yuruna_step:-}")" "$issues_json" "$(yuruna_json_string "${YURUNA_INSTALL_LOG:-}")" \
+       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(if [[ -n "${YURUNA_REQUEST_ID:-}" ]]; then yuruna_json_string "$YURUNA_REQUEST_ID"; else printf null; fi)" \
+       "$attempt" "$unattended" "$reason" "$upgrade" "$remarks_json" > "$file.tmp" 2>/dev/null && mv -f "$file.tmp" "$file" 2>/dev/null; then
+    if [[ -n "${YURUNA_INSTALL_LOG:-}" ]]; then cp -f "$file" "${YURUNA_INSTALL_LOG%.log}.result.json" 2>/dev/null || true; fi
+  fi
+  return 0
+}
+
+yuruna_install_cleanup() {
+  local rc=$?
+  if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true; fi
+  yuruna_cleanup_tmp_paths
+  if [[ $rc -ne 0 ]]; then
+    printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
+    printf '   Full log: %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
+  fi
+  write_install_result "$rc" "macos.utm"
+  _yuruna_flush_log
+}
+trap yuruna_install_cleanup EXIT
+
 # --- REGION: Preflight: macOS only
 [[ "$(uname -s)" == "Darwin" ]] || die "This installer only supports macOS."
 [[ $EUID -ne 0 ]] || die "Do not run as root. The script will call sudo when needed."
@@ -188,7 +365,11 @@ group_names() {
   { id -Gn ${1:+"$1"} 2>/dev/null || true; } | tr ' ' '\n'
 }
 _yuruna_whoami="${USER:-$(id -un)}"
-if ! sudo -n -v 2>/dev/null && ! group_names | grep -x admin >/dev/null; then
+# Unattended, elevation must already be in force: sudo -n true, never sudo -v,
+# which asks for a password while any rule of the account lacks NOPASSWD.
+if (( YURUNA_UNATTENDED )); then
+  sudo -n true 2>/dev/null || refuse not_elevated "$_yuruna_whoami cannot elevate without a password, and an unattended run never prompts."
+elif ! sudo -n -v 2>/dev/null && ! group_names | grep -x admin >/dev/null; then
   die "$_yuruna_whoami cannot elevate: this session is not in the 'admin' group, so sudo will refuse and the installer cannot continue.
 
    From an account that IS an administrator, run:
@@ -209,6 +390,110 @@ fi
 log "Yuruna macOS installer starting"
 log "  repo   : $YURUNA_REPO ($YURUNA_BRANCH)"
 log "  target : $YURUNA_DIR"
+
+# --- REGION: Process identity
+# Defined ahead of the unattended preflight, which asks whether a runner is alive.
+# A recycled PID can pass the comm check below, so a PID-file entry must also run
+# a Yuruna script or have started within two seconds of its .start record (ps -o
+# lstart= has one-second precision).
+# See https://yuruna.link/429fb30b-000b
+yuruna_epoch_from_utc() {
+  local stamp="${1%Z}"
+  stamp="${stamp%%.*}"
+  [[ "$stamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]] || return 1
+  if date --version >/dev/null 2>&1; then
+    date -u -d "$stamp" +%s 2>/dev/null
+  else
+    date -j -u -f '%Y-%m-%dT%H:%M:%S' "$stamp" +%s 2>/dev/null
+  fi
+}
+
+yuruna_process_start_epoch() {
+  local started
+  started="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null || true)"
+  [[ -n "$started" ]] || return 1
+  if date --version >/dev/null 2>&1; then
+    LC_ALL=C date -d "$started" +%s 2>/dev/null
+  else
+    LC_ALL=C date -j -f '%a %b %d %T %Y' "$started" +%s 2>/dev/null
+  fi
+}
+
+# pid_file_owner_ok <pid> <start-record> <script pattern>...
+pid_file_owner_ok() {
+  local pid="$1" start_file="$2" args pat recorded live delta
+  shift 2
+  args="$(ps -ww -p "$pid" -o args= 2>/dev/null || true)"
+  if [[ -n "$args" ]]; then
+    for pat in "$@"; do
+      case "$args" in *"$pat"*) return 0 ;; esac
+    done
+  fi
+  [[ -f "$start_file" ]] || return 1
+  recorded="$(yuruna_epoch_from_utc "$(tr -d ' \r\n' < "$start_file" 2>/dev/null || true)")" || return 1
+  live="$(yuruna_process_start_epoch "$pid")" || return 1
+  [[ -n "$recorded" && -n "$live" ]] || return 1
+  delta=$((live - recorded))
+  [[ ${delta#-} -le 2 ]]
+}
+
+# A runner of this checkout is alive: its pid file names a live owner, or a
+# PowerShell process runs one of its scripts.
+yuruna_runner_alive() {
+  local runtime_dir="${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}" pidname raw pat p pcomm
+  local -a patterns=("Start-TestRunner.ps1" "Invoke-TestRunnerInnerLoop.ps1" "Debug-TestSequence.ps1")
+  for pidname in runner.pid inner.pid; do
+    [[ -f "$runtime_dir/$pidname" ]] || continue
+    raw=$(tr -dc '0-9' < "$runtime_dir/$pidname" 2>/dev/null || true)
+    if [[ -n "$raw" ]] && kill -0 "$raw" 2>/dev/null && pid_file_owner_ok "$raw" "$runtime_dir/${pidname%.pid}.start" "${patterns[@]}"; then
+      return 0
+    fi
+  done
+  for pat in "${patterns[@]}"; do
+    while IFS= read -r p; do
+      [[ -n "$p" && "$p" != "$$" ]] || continue
+      pcomm="$(ps -p "$p" -o comm= 2>/dev/null || true)"
+      case "$pcomm" in *pwsh*) return 0 ;; esac
+    done < <(pgrep -f "$pat" 2>/dev/null || true)
+  done
+  return 1
+}
+
+# Where Homebrew lives when it is installed, in the order the shellenv region
+# below asks. A process that never ran `brew shellenv` does not see it on PATH,
+# so an unattended run looks for it here rather than by name.
+yuruna_brew_candidates() {
+  printf '%s\n' "/opt/homebrew/bin/brew"
+  printf '%s\n' "/usr/local/bin/brew"
+}
+
+# --- REGION: Preflight: an unattended run needs a provisioned host
+# A first install asks things of a person and opens dialogs; an unattended run
+# refuses it. Every refusal here comes before the first change, and none of
+# them installs what is missing: the Command Line Tools dialog and the Homebrew
+# bootstrap below are not reachable from an unattended run. A live runner is a
+# refusal too: the host controller stops what must stop, with its identity
+# check, and the installer stops nothing.
+if (( YURUNA_UNATTENDED )); then
+  log "  mode   : unattended (request ${YURUNA_REQUEST_ID:-<none>}, attempt ${YURUNA_REQUEST_ATTEMPT:-<none>})"
+  if [[ ! -d "$YURUNA_DIR/.git" || ! -f "$YURUNA_DIR/test/Start-TestRunner.ps1" ]] || ! yuruna_resolve_pwsh >/dev/null; then
+    refuse not_provisioned "No framework checkout with PowerShell at $YURUNA_DIR; an unattended run only updates a host that already runs the framework."
+  fi
+  if ! xcode-select -p >/dev/null 2>&1; then
+    refuse clt_missing "The Xcode Command Line Tools are not installed; an unattended run never opens their install dialog. Run the installer once from a terminal of the desktop session."
+  fi
+  if yuruna_runner_alive; then
+    refuse runner_present "A Yuruna runner is still running; an unattended run stops nothing."
+  fi
+  _yuruna_brew_found="" _yuruna_brew_looked=""
+  while IFS= read -r _yuruna_brew; do
+    [[ -n "$_yuruna_brew" ]] || continue
+    _yuruna_brew_looked="${_yuruna_brew_looked:+$_yuruna_brew_looked, }$_yuruna_brew"
+    if [[ -f "$_yuruna_brew" && -x "$_yuruna_brew" ]]; then _yuruna_brew_found="$_yuruna_brew"; break; fi
+  done < <(yuruna_brew_candidates)
+  [[ -n "$_yuruna_brew_found" ]] || refuse not_provisioned "Homebrew is not installed (looked for $_yuruna_brew_looked); an unattended run never bootstraps it."
+  [[ -d "$UTM_APP" ]] || refuse not_provisioned "UTM is not installed at $UTM_APP; an unattended run never installs it."
+fi
 
 # --- REGION: Preflight: system requirements
 preflight_system_requirements() {
@@ -240,6 +525,11 @@ preflight_system_requirements() {
     log "System OK: macOS $osver, $arch, $cores cores, ${mem_gb}GB RAM, ${disk_gb}GB free on /"
     return 0
   fi
+  # A host in service already runs below whatever it misses: recorded, not asked.
+  if (( ${YURUNA_UNATTENDED:-0} )); then
+    local u; for u in "${issues[@]}"; do note_issue "Below the tested baseline: $u"; done
+    return 0
+  fi
   warn ''
   warn '========'
   warn '  System does not meet Yuruna TESTED requirements:'
@@ -264,6 +554,14 @@ preflight_system_requirements
 # --- REGION: Elevation announcement
 # Prime sudo once and keep its timestamp alive for the whole run.
 # See https://yuruna.link/429fb30b-002b
+# Unattended, the preflight above found sudo -n in force; nothing is primed.
+# Homebrew may start sudo by itself: NONINTERACTIVE keeps it from asking, and
+# SUDO_ASKPASS names a program that fails, so a sudo that would read a password
+# fails at once instead of waiting on the terminal the step runs in.
+SUDO_KEEPALIVE_PID=""
+if (( YURUNA_UNATTENDED )); then
+  export YURUNA_SUDO_PRIMED=1 NONINTERACTIVE=1 SUDO_ASKPASS=/usr/bin/false
+else
 cat <<'SUDO_NOTICE'
 
   +---------------------------------------------------------------+
@@ -277,107 +575,12 @@ sudo -v || die "sudo did not authorize this run; the installer needs root for th
 export YURUNA_SUDO_PRIMED=1
 ( while true; do sudo -n true 2>/dev/null || true; sleep 30; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!
-
-# --- REGION: EXIT trap
-YURUNA_STATUS_BACKUP=""
-# Every temp path this installer creates is registered here and removed by the
-# EXIT trap, whatever ends the run: a die(), a set -e abort, the ERR trap, or a
-# signal. Removing a path on each function's own success path is not enough --
-# those paths are exactly the ones a failure skips. A subshell that may exit
-# early sets yuruna_cleanup_tmp_paths as its own EXIT trap, because the parent's
-# registry never sees what the subshell adds. The ${arr[@]+...} form keeps an
-# empty array safe under set -u on bash 3.2, which macOS still ships.
-YURUNA_TMP_PATHS=()
-yuruna_track_tmp() {
-  [[ -n "${1:-}" ]] && YURUNA_TMP_PATHS+=("$1")
-  return 0
-}
-yuruna_cleanup_tmp_paths() {
-  local p
-  for p in ${YURUNA_TMP_PATHS[@]+"${YURUNA_TMP_PATHS[@]}"}; do
-    [[ -n "$p" && ( -e "$p" || -L "$p" ) ]] || continue
-    # Completed recovery capsules survive until the operator removes them:
-    # restart and rollback can happen after this installer process exits.
-    if [[ "$p" == "${YURUNA_INSTALLER_STATE_DIR:-}" && "${YURUNA_INSTALLER_STATE_RETAINED:-0}" -eq 1 ]]; then continue; fi
-    # A build tree can hold root-owned files; sudo is primed for the whole run.
-    rm -rf -- "$p" 2>/dev/null || sudo -n rm -rf -- "$p" 2>/dev/null || true
-  done
-  YURUNA_TMP_PATHS=()
-}
-# --- REGION: Machine-readable outcome
-# One JSON record of how the run ended, at a fixed path and beside the log, so a
-# caller (automation, a nested host) reads the outcome instead of parsing the
-# closing text: outcome succeeded | succeeded-with-issues | failed, the exit code,
-# the last step, every deferred issue, the installed VERSION and the log path.
-# Best-effort: it runs from the EXIT trap and never changes the exit code.
-yuruna_json_string() {
-  # A character loop rather than ${s//...}: bash 3.2 (macOS) and 5.x treat a
-  # backslash in a pattern replacement differently, while double-quote escaping
-  # below means the same in every version.
-  local s="$1" out="" c i
-  for (( i = 0; i < ${#s}; i++ )); do
-    c="${s:i:1}"
-    case "$c" in
-      '\') out="$out\\\\" ;;
-      '"') out="$out\\\"" ;;
-      $'\n') out="$out\\n" ;;
-      $'\r') out="$out\\r" ;;
-      $'\t') out="$out\\t" ;;
-      *) out="$out$c" ;;
-    esac
-  done
-  out="$(printf '%s' "$out" | LC_ALL=C tr -d '\000-\010\013\014\016-\037')"
-  printf '"%s"' "$out"
-}
-write_install_result() {
-  local rc="$1" installer="$2" outcome dir file issues_json="" issue version=""
-  if [[ "$rc" -ne 0 ]]; then
-    outcome="failed"
-  elif [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
-    outcome="succeeded-with-issues"
-  else
-    outcome="succeeded"
-  fi
-  if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
-    for issue in "${YURUNA_ISSUES[@]}"; do
-      [[ -z "$issues_json" ]] || issues_json="$issues_json,"
-      issues_json="$issues_json$(yuruna_json_string "$issue")"
-    done
-  fi
-  if [[ -n "${YURUNA_DIR:-}" && -r "${YURUNA_DIR:-}/VERSION" ]]; then
-    version="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION" 2>/dev/null || true)"
-  fi
-  dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna"
-  mkdir -p "$dir" 2>/dev/null || return 0
-  file="$dir/install-result.json"
-  if printf '{"schema":1,"installer":%s,"version":%s,"outcome":"%s","exitCode":%d,"step":%s,"issues":[%s],"log":%s,"finishedUtc":"%s"}\n' \
-       "$(yuruna_json_string "$installer")" "$(yuruna_json_string "$version")" "$outcome" "$rc" \
-       "$(yuruna_json_string "${_yuruna_step:-}")" "$issues_json" "$(yuruna_json_string "${YURUNA_INSTALL_LOG:-}")" \
-       "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$file.tmp" 2>/dev/null && mv -f "$file.tmp" "$file" 2>/dev/null; then
-    if [[ -n "${YURUNA_INSTALL_LOG:-}" ]]; then cp -f "$file" "${YURUNA_INSTALL_LOG%.log}.result.json" 2>/dev/null || true; fi
-  fi
-  return 0
-}
-
-yuruna_install_cleanup() {
-  local rc=$?
-  kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
-  if [[ -n "${YURUNA_STATUS_BACKUP:-}" && -d "${YURUNA_STATUS_BACKUP:-}" ]]; then
-    rm -rf "$YURUNA_STATUS_BACKUP" 2>/dev/null || true
-  fi
-  yuruna_cleanup_tmp_paths
-  if [[ $rc -ne 0 ]]; then
-    printf '\n\033[1;31mXX \033[0m installer exited with code %d.\n' "$rc" >&2
-    printf '   Full log: %s\n' "${YURUNA_INSTALL_LOG:-<none>}" >&2
-  fi
-  write_install_result "$rc" "macos.utm"
-  _yuruna_flush_log
-}
-trap yuruna_install_cleanup EXIT
+fi
 
 # --- REGION: Xcode Command Line Tools
 # See https://yuruna.link/429fb30b-0024
-if ! xcode-select -p >/dev/null 2>&1; then
+# Unattended, the preflight refused clt_missing before this point.
+if (( ! YURUNA_UNATTENDED )) && ! xcode-select -p >/dev/null 2>&1; then
   log "Installing Xcode Command Line Tools (a GUI prompt will appear)"
   xcode-select --install || true
   until xcode-select -p >/dev/null 2>&1; do
@@ -388,7 +591,9 @@ fi
 
 # --- REGION: Homebrew
 # See https://yuruna.link/429fb30b-0025
-if ! command -v brew >/dev/null 2>&1; then
+# Unattended, Homebrew was found at its fixed location by the preflight; a brew
+# that is only missing from PATH is not a reason to bootstrap it.
+if (( ! YURUNA_UNATTENDED )) && ! command -v brew >/dev/null 2>&1; then
   log "Installing Homebrew"
   # Pin Homebrew's bootstrap to a known commit and verify its SHA-256 before
   # running it -- the upstream one-liner pipes the moving HEAD straight to bash.
@@ -396,8 +601,8 @@ if ! command -v brew >/dev/null 2>&1; then
   # content hash is the available control. Refresh on a Homebrew installer
   # update: set HOMEBREW_INSTALL_COMMIT to the new Homebrew/install HEAD and
   # HOMEBREW_INSTALL_SHA256 to `shasum -a 256` of that install.sh.
-  HOMEBREW_INSTALL_COMMIT='280cbc9adffcbdef15dd1c9d991ef2d1dd7cfc9c'
-  HOMEBREW_INSTALL_SHA256='f3e91784ffeda32bc397de7acc1154724cc47522a459c9ac656cca176eeba457'
+  HOMEBREW_INSTALL_COMMIT='c9c975046f78e6e6d662deb801bd461ebd6a54ed'
+  HOMEBREW_INSTALL_SHA256='8fd2f1a5287a7c2e3d7362924c677edcc04c5a0e16448c77132d056bc88cf1ed'
   hb_tmp="$(mktemp)"
   yuruna_track_tmp "$hb_tmp"
   if ! curl -fsSL "https://raw.githubusercontent.com/Homebrew/install/${HOMEBREW_INSTALL_COMMIT}/install.sh" -o "$hb_tmp"; then
@@ -446,6 +651,14 @@ export HOMEBREW_NO_ENV_HINTS=1
 # for a 'y'. The sudo keepalive already handles the password, so this suppresses
 # Homebrew's own prompts only.
 export NONINTERACTIVE=1
+# Unattended, the listener, the host controller and the step that started this
+# run all run the PowerShell keg that an upgrade replaces. Homebrew removes the
+# old keg after an upgrade unless HOMEBREW_NO_INSTALL_CLEANUP is set, and those
+# processes would then lose files they still load; the cleanup below is skipped
+# for the same reason. The next attended run cleans up.
+if (( YURUNA_UNATTENDED )); then
+  export HOMEBREW_NO_INSTALL_CLEANUP=1
+fi
 
 BREW_SKIP_UPDATE=0
 if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
@@ -474,7 +687,7 @@ if [[ -n "$BREW_PREFIX" && -d "$BREW_PREFIX" ]]; then
     # `|| warn` so a stray protected file (rare but seen on some images)
     # doesn't abort the install -- the chown is best-effort; subsequent
     # brew ops will surface anything still broken.
-    sudo chown -R "$USER":admin "$BREW_PREFIX" || warn "  chown -R reported errors; per-package brew ops below will surface anything still broken."
+    sudo -n chown -R "$USER":admin "$BREW_PREFIX" || warn "  chown -R reported errors; per-package brew ops below will surface anything still broken."
   fi
   # Skip the explicit `brew update` if the prefix isn't a git checkout
   # -- it will only emit "fatal: not in a git directory" and exit non-
@@ -492,7 +705,15 @@ if [[ $BREW_SKIP_UPDATE -eq 0 ]]; then
   # Yuruna's package set on disk; stale Homebrew metadata is acceptable
   # as long as `brew install` and `brew upgrade` find the formulae.
   if ! brew update; then
-    warn "brew update exited non-zero -- continuing with cached package metadata."
+    # Unattended, a host update that went on past a failed brew update ends
+    # with that remark rather than as a clean update: the packages below were
+    # judged on stale metadata.
+    if (( YURUNA_UNATTENDED )); then
+      note_issue "brew update exited non-zero -- the packages were installed and upgraded from cached package metadata."
+      note_remark brew_update_failed
+    else
+      warn "brew update exited non-zero -- continuing with cached package metadata."
+    fi
   fi
 fi
 
@@ -643,7 +864,15 @@ function Invoke-YurunaInstallerState {
     if ($Action -eq 'Capture') {
         if ([IO.File]::Exists($snapshot)) { throw "Installer snapshot already exists: $snapshot" }
         $launch = $null
-        if (-not $PrivateRoot) { $PrivateRoot = Join-Path $HOME '.yuruna/host-refresh' }
+        if (-not $PrivateRoot) {
+            $PrivateRoot = Join-Path $HOME '.yuruna/host-repair'
+            # Code that predates the host-repair root keeps its launch records
+            # under host-refresh until a later resolver moves that root, and the
+            # runner being upgraded may be that code, so the earlier root is read
+            # when it is the only one.
+            $earlierRoot = Join-Path $HOME '.yuruna/host-refresh'
+            if (-not [IO.Directory]::Exists($PrivateRoot) -and [IO.Directory]::Exists($earlierRoot)) { $PrivateRoot = $earlierRoot }
+        }
         if (([IO.DirectoryInfo]::new($PrivateRoot)).LinkTarget) { throw 'Installer launch state root is linked.' }
         if (-not $runtimeExplicit -and [IO.Directory]::Exists($PrivateRoot)) {
             $recordMatches = @()
@@ -795,6 +1024,7 @@ capture_installer_state() {
     # A configured checkout without PowerShell can still preserve its default
     # config, but an existing launch record must never be replaced by guesses.
     if [[ -f "${YURUNA_RUNTIME_DIR:-$YURUNA_DIR/test/status/runtime}/runner.pid" ]] || \
+       compgen -G "$HOME/.yuruna/host-repair/runner-launch.*.record*" >/dev/null || \
        compgen -G "$HOME/.yuruna/host-refresh/runner-launch.*.record*" >/dev/null; then
       die "PowerShell is required to validate the existing runner launch record before upgrade."
     fi
@@ -828,50 +1058,6 @@ restore_installer_state() {
 }
 
 # --- REGION: https://yuruna.link/429fb30b-000a
-# A recycled PID can pass the comm check below, so a PID-file entry must also run
-# a Yuruna script or have started within two seconds of its .start record (ps -o
-# lstart= has one-second precision).
-# See https://yuruna.link/429fb30b-000b
-yuruna_epoch_from_utc() {
-  local stamp="${1%Z}"
-  stamp="${stamp%%.*}"
-  [[ "$stamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$ ]] || return 1
-  if date --version >/dev/null 2>&1; then
-    date -u -d "$stamp" +%s 2>/dev/null
-  else
-    date -j -u -f '%Y-%m-%dT%H:%M:%S' "$stamp" +%s 2>/dev/null
-  fi
-}
-
-yuruna_process_start_epoch() {
-  local started
-  started="$(LC_ALL=C ps -o lstart= -p "$1" 2>/dev/null || true)"
-  [[ -n "$started" ]] || return 1
-  if date --version >/dev/null 2>&1; then
-    LC_ALL=C date -d "$started" +%s 2>/dev/null
-  else
-    LC_ALL=C date -j -f '%a %b %d %T %Y' "$started" +%s 2>/dev/null
-  fi
-}
-
-# pid_file_owner_ok <pid> <start-record> <script pattern>...
-pid_file_owner_ok() {
-  local pid="$1" start_file="$2" args pat recorded live delta
-  shift 2
-  args="$(ps -ww -p "$pid" -o args= 2>/dev/null || true)"
-  if [[ -n "$args" ]]; then
-    for pat in "$@"; do
-      case "$args" in *"$pat"*) return 0 ;; esac
-    done
-  fi
-  [[ -f "$start_file" ]] || return 1
-  recorded="$(yuruna_epoch_from_utc "$(tr -d ' \r\n' < "$start_file" 2>/dev/null || true)")" || return 1
-  live="$(yuruna_process_start_epoch "$pid")" || return 1
-  [[ -n "$recorded" && -n "$live" ]] || return 1
-  delta=$((live - recorded))
-  [[ ${delta#-} -le 2 ]]
-}
-
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
 # VMs (the yuruna-caching-proxy-service cache, a UTM domain) are never touched here;
 # UTM quit is gated separately on PRESERVE_SERVICE_VM.
@@ -1105,7 +1291,12 @@ is_service_vm_running() {
 }
 
 PRESERVE_SERVICE_VM=0
-if is_service_vm_running; then
+if (( YURUNA_UNATTENDED )); then
+  # Unattended, UTM is never quit and its cask is never upgraded, whatever runs:
+  # the answer is known without asking utmctl, whose Apple Events can raise a
+  # consent dialog that nobody answers.
+  PRESERVE_SERVICE_VM=1
+elif is_service_vm_running; then
   warn "A Yuruna service VM is running (or its state is uncertain): $SERVICE_VM_DETECT_REASON."
   warn "  Skipping UTM quit + UTM cask upgrade for this run. Quitting UTM would suspend"
   warn "  every running service VM -- guests that consume the caching proxy, the stash"
@@ -1116,12 +1307,20 @@ if is_service_vm_running; then
   PRESERVE_SERVICE_VM=1
 fi
 
-yuruna_require_install_mode
-log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
-capture_installer_state
-stop_yuruna_processes
-if [[ $PRESERVE_SERVICE_VM -eq 0 ]]; then
-  quit_mac_app "UTM"
+# Unattended, nothing is stopped and no recovery state is captured: the host
+# controller stopped what had to stop, with its identity check, and holds the
+# launch record; the listener keeps serving and UTM keeps its VMs. A live runner
+# was refused by the preflight.
+if (( YURUNA_UNATTENDED )); then
+  log "Leaving the status service and UTM running (unattended)"
+else
+  yuruna_require_install_mode
+  log "Stopping anything that would block a repo update (runner + status service; VMs preserved)"
+  capture_installer_state
+  stop_yuruna_processes
+  if [[ $PRESERVE_SERVICE_VM -eq 0 ]]; then
+    quit_mac_app "UTM"
+  fi
 fi
 
 # --- REGION: Install platform packages
@@ -1198,6 +1397,14 @@ brew_ensure_cask() {
   brew_run "installing the $name cask" install --cask "$name"
 }
 
+# Whether Homebrew names a newer UTM cask than the installed one. --greedy, as
+# the report of newer versions asks: the cask updates itself, and brew leaves
+# such a cask out otherwise. A brew that does not answer names nothing.
+utm_cask_outdated() {
+  brew list --cask --versions utm >/dev/null 2>&1 || return 1
+  [[ -n "$(brew outdated --cask --greedy --quiet utm 2>/dev/null || true)" ]]
+}
+
 # A formula this installer adds only when a floor needs it is upgraded from then
 # on like the rest, and never installed just for being listed.
 brew_upgrade_if_installed() {
@@ -1217,11 +1424,22 @@ brew_ensure_formula qemu
 brew_ensure_formula wget
 brew_ensure_formula openssl
 brew_ensure_formula gh
+# The host controller's session runs in tmux, and the runner's console in it.
+brew_ensure_formula tmux
 # Added by the floor repair when the system curl is below its floor.
 brew_upgrade_if_installed curl
 
 log "Installing / upgrading required casks"
-if [[ ${PRESERVE_SERVICE_VM:-0} -eq 1 ]]; then
+if (( YURUNA_UNATTENDED )); then
+  # Upgrading the cask quits UTM, which suspends every VM it runs. The newer
+  # version waits for an attended run, and the record says so.
+  if utm_cask_outdated; then
+    note_issue "A newer UTM is available; an unattended run does not upgrade it, because upgrading quits UTM and suspends every VM it runs. Run this installer from a terminal of the desktop session to upgrade it."
+    note_remark utm_upgrade_deferred
+  else
+    log "  leaving the UTM cask as it is (unattended; brew names no newer version)"
+  fi
+elif [[ ${PRESERVE_SERVICE_VM:-0} -eq 1 ]]; then
   log "  skipping UTM cask upgrade -- a service VM is running, UTM cannot be quit"
 else
   # Not fatal here on purpose: the UTM verification region below decides, and it
@@ -1247,23 +1465,27 @@ record_dotnet_install_location() {
   if [[ -n "$previous" ]]; then
     backup="$location_file.yuruna-backup.$(date +%Y%m%d%H%M%S)"
     log "install_location: $previous -> $wanted (the recorded directory no longer exists; the previous file is kept as $backup)"
-    if ! sudo cp -p "$location_file" "$backup"; then
+    if ! sudo -n cp -p "$location_file" "$backup"; then
       note_issue "Could not back up $location_file to $backup, so it was left unchanged ($previous)."
       return 0
     fi
   else
     log "Recording the .NET runtime location at $location_file"
   fi
-  sudo mkdir -p "$(dirname "$location_file")"
-  printf '%s\n' "$wanted" | sudo tee "$location_file" >/dev/null
+  sudo -n mkdir -p "$(dirname "$location_file")"
+  printf '%s\n' "$wanted" | sudo -n tee "$location_file" >/dev/null
 }
 if command -v pwsh >/dev/null 2>&1 && dotnet_libexec="$(brew --prefix dotnet 2>/dev/null)/libexec" \
    && [[ -d "$dotnet_libexec" ]]; then
   record_dotnet_install_location "/etc/dotnet/install_location_$(uname -m)" "$dotnet_libexec"
 fi
 
-log "Running brew cleanup"
-brew cleanup --quiet || true
+if (( YURUNA_UNATTENDED )); then
+  log "Leaving brew cleanup to an attended run (the running processes still use the PowerShell keg an upgrade replaced)"
+else
+  log "Running brew cleanup"
+  brew cleanup --quiet || true
+fi
 
 command -v pwsh >/dev/null 2>&1 || die "pwsh not found after install."
 command -v git  >/dev/null 2>&1 || die "git not found after install."
@@ -1285,15 +1507,31 @@ UTMCTL_LINK_DIR="$PATH_LINK_DIR"
        brew reinstall --cask utm
    then re-run this installer."
 
-if [[ "$(readlink "$UTMCTL_LINK" 2>/dev/null || true)" == "$UTMCTL_BUNDLE" ]]; then
+UTMCTL_LINK_PREVIOUS="$(readlink "$UTMCTL_LINK" 2>/dev/null || true)"
+if [[ "$UTMCTL_LINK_PREVIOUS" == "$UTMCTL_BUNDLE" ]]; then
   log "utmctl already on PATH: $UTMCTL_LINK -> $UTMCTL_BUNDLE"
 else
-  log "Linking utmctl onto PATH: $UTMCTL_LINK -> $UTMCTL_BUNDLE"
-  # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
-  # DIRECTORY makes ln create the new link INSIDE it rather than replacing it.
-  sudo mkdir -p "$UTMCTL_LINK_DIR" && sudo ln -sfn "$UTMCTL_BUNDLE" "$UTMCTL_LINK" \
-    || die "Could not create $UTMCTL_LINK. Run it by hand and re-run this installer:
+  UTMCTL_LINK_READY=1
+  if [[ -e "$UTMCTL_LINK" && ! -L "$UTMCTL_LINK" ]]; then
+    # A copied utmctl, or one an older UTM left, is not this installer's to
+    # delete; the timestamped neighbor it moves to is the previous value.
+    UTMCTL_LINK_PREVIOUS="$UTMCTL_LINK.pre-yuruna.$(date +%Y%m%d-%H%M%S)"
+    warn "$UTMCTL_LINK is a real file rather than a link -- keeping it as $UTMCTL_LINK_PREVIOUS"
+    if ! sudo -n mv "$UTMCTL_LINK" "$UTMCTL_LINK_PREVIOUS"; then
+      note_issue "Could not move $UTMCTL_LINK aside, so it was left in place and not linked to $UTMCTL_BUNDLE. Move it by hand and re-run this installer."
+      UTMCTL_LINK_READY=0
+    fi
+  fi
+  if (( UTMCTL_LINK_READY )); then
+    # The link it replaces is named with the new one, so the earlier target can
+    # be put back from this line.
+    log "Linking utmctl onto PATH: $UTMCTL_LINK: ${UTMCTL_LINK_PREVIOUS:-<none>} -> $UTMCTL_BUNDLE"
+    # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
+    # DIRECTORY makes ln create the new link INSIDE it rather than replacing it.
+    sudo -n mkdir -p "$UTMCTL_LINK_DIR" && sudo -n ln -sfn "$UTMCTL_BUNDLE" "$UTMCTL_LINK" \
+      || die "Could not create $UTMCTL_LINK. Run it by hand and re-run this installer:
        sudo mkdir -p $UTMCTL_LINK_DIR && sudo ln -sfn $UTMCTL_BUNDLE $UTMCTL_LINK"
+  fi
 fi
 
 hash -r 2>/dev/null || true
@@ -1357,45 +1595,12 @@ YURUNA_MODULE_VERSION="$POWERSHELL_YAML_VERSION" YURUNA_MODULE_SHA512="$POWERSHE
 ' || note_issue "Installing the powershell-yaml module reported an error; the harness needs it to read any YAML config. Re-run this installer, or install it by hand with: pwsh -Command 'Install-Module powershell-yaml -RequiredVersion $POWERSHELL_YAML_VERSION -Scope CurrentUser'"
 
 # --- REGION: Preserve test/status runtime state
+# See https://yuruna.link/429fb30b-0012
+# The test/status subfolders hold this host's runtime state: cycle history, logs,
+# perf, the vault, captures and SSH keys. git ignores them, so an update in place
+# leaves them where they are; only a re-clone starts without them, and
+# carry_test_status moves them in from the checkout moved aside.
 TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
-preserve_test_status() {
-  yuruna_require_install_mode
-  local src="$YURUNA_DIR/test/status"
-  [[ -d "$src" ]] || return 0
-  local has_runtime=""
-  local sub
-  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
-    [[ -d "$src/$sub" ]] || continue
-    if find "$src/$sub" -mindepth 1 -not -name '.gitkeep' -print -quit 2>/dev/null | grep -q .; then
-      has_runtime=1; break
-    fi
-  done
-  [[ -n "$has_runtime" ]] || return 0
-  YURUNA_STATUS_BACKUP=$(mktemp -d) || { warn "  could not create temp dir; skipping test/status preservation"; return 0; }
-  log "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
-  log "  source : $src"
-  log "  backup : $YURUNA_STATUS_BACKUP"
-  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
-    if [[ -d "$src/$sub" ]]; then
-      mkdir -p "$YURUNA_STATUS_BACKUP/$sub"
-      cp -a "$src/$sub/." "$YURUNA_STATUS_BACKUP/$sub/" 2>/dev/null || true
-    fi
-  done
-}
-restore_test_status() {
-  [[ -n "${YURUNA_STATUS_BACKUP:-}" && -d "${YURUNA_STATUS_BACKUP:-}" ]] || return 0
-  local dst="$YURUNA_DIR/test/status"
-  log "Restoring preserved test/status runtime state"
-  local sub
-  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
-    if [[ -d "$YURUNA_STATUS_BACKUP/$sub" ]]; then
-      mkdir -p "$dst/$sub"
-      cp -a "$YURUNA_STATUS_BACKUP/$sub/." "$dst/$sub/" 2>/dev/null || true
-    fi
-  done
-  rm -rf "$YURUNA_STATUS_BACKUP"
-  YURUNA_STATUS_BACKUP=""
-}
 
 # --- REGION: Tolerate a v / no-v tag mismatch
 # See https://yuruna.link/429fb30b-0007
@@ -1455,15 +1660,37 @@ unique_backup_path() {
   printf '%s\n' "$candidate"
 }
 
-# Re-clones into $YURUNA_DIR after the existing checkout was moved to $1. A clone
-# that cannot finish (the remote unreachable, a pinned tag not published yet)
-# would otherwise end the run with no checkout at all, and the exit trap would
-# delete the preserved test status with it. The moved checkout goes back
-# instead, and the run continues on it as it does when the pull is skipped.
+# Moves the test/status runtime state from the checkout at $1 into the fresh
+# clone at $YURUNA_DIR. The checkout at $1 sits beside $YURUNA_DIR, so each move
+# is a rename on the same file system: it needs no free space and takes no time,
+# however large the cycle history is, where a copy needs room for all of it a
+# second time. git ignores test/status/*/, so the clone has none of these
+# folders; one that is there anyway is left alone, because `mv` onto a directory
+# would move the folder inside it. A folder that does not move stays at $1.
+carry_test_status() {
+  local from="$1/test/status" dst="$YURUNA_DIR/test/status" sub
+  [[ -d "$from" ]] || return 0
+  log "Moving test/status runtime state from $1"
+  for sub in "${TEST_STATUS_SUBDIRS[@]}"; do
+    [[ -d "$from/$sub" ]] || continue
+    if [[ -e "$dst/$sub" || -L "$dst/$sub" ]]; then
+      note_issue "Did not move test/status/$sub from $1: the fresh clone already has $dst/$sub. The state is still at $from/$sub."
+    elif ! { mkdir -p "$dst" && mv "$from/$sub" "$dst/$sub"; }; then
+      note_issue "Could not move test/status/$sub from $1 into the fresh clone; it is still at $from/$sub."
+    fi
+  done
+}
+
+# Re-clones into $YURUNA_DIR after the existing checkout was moved to $1, then
+# carries its test/status runtime state across. A clone that cannot finish (the
+# remote unreachable, a pinned tag not published yet) would otherwise end the
+# run with no checkout at all. The moved checkout goes back instead, with its
+# state inside, and the run continues on it as it does when the pull is skipped.
 reclone_checkout() {
   local backup="$1" remote="$2"
   log "Cloning fresh Yuruna into $YURUNA_DIR from $remote"
   if git clone --branch "$YURUNA_BRANCH" "$remote" "$YURUNA_DIR"; then
+    carry_test_status "$backup"
     return 0
   fi
   rm -rf "$YURUNA_DIR" 2>/dev/null || true
@@ -1510,10 +1737,13 @@ renormalize_checkout() {
 
 # --- REGION: Clone / update the repo
 yuruna_require_install_mode
+# Unattended, the host update's source phase owns the checkout: no git command
+# runs here or below, which keeps a pin, a ring hold and -NoGitPull intact.
 YURUNA_BACKUP_CREATED=""
-preserve_test_status
 mkdir -p "$(dirname "$YURUNA_DIR")"
-if [[ -d "$YURUNA_DIR/.git" ]]; then
+if (( YURUNA_UNATTENDED )); then
+  log "Using the checkout at $YURUNA_DIR as it is (unattended: no fetch, pull, clone or renormalize)"
+elif [[ -d "$YURUNA_DIR/.git" ]]; then
   log "Updating existing Yuruna checkout at $YURUNA_DIR"
   actual_remote="$(git -C "$YURUNA_DIR" remote get-url origin 2>/dev/null || true)"
   remote_normalized="${actual_remote%/}"
@@ -1581,14 +1811,14 @@ else
 fi
 
 # --- REGION: Renormalize line endings under .gitattributes
-if [[ -d "$YURUNA_DIR/.git" ]]; then
+if (( ! YURUNA_UNATTENDED )) && [[ -d "$YURUNA_DIR/.git" ]]; then
   renormalize_checkout
 fi
 
 # --- REGION: Pin to the current release
 # Opt-in through PIN_VERSION=1 or --pin-version.
 # See https://yuruna.link/429fb30b-0006
-if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
+if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_UNATTENDED" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"
     log "Pinning to release $pin_tag (from VERSION) -- this host will NOT auto-update"
@@ -1599,7 +1829,6 @@ if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DI
     warn "No VERSION file in $YURUNA_DIR -- cannot resolve a release to pin; leaving the host on 'main'."
   fi
 fi
-restore_test_status
 restore_installer_state
 
 # --- REGION: Seed test.config.yml from template
@@ -1611,8 +1840,13 @@ fi
 
 # --- REGION: Baseline reset: remove test-* VMs
 yuruna_require_install_mode
+# Unattended, skipped: a cycle that ended has removed its VMs, a VM kept for
+# diagnosis must stay, and the VMs of a cycle the update ended are the next
+# cycle's to remove.
 REMOVE_TEST_VMS="$YURUNA_DIR/test/Remove-TestVMFiles.ps1"
-if [[ -f "$REMOVE_TEST_VMS" ]]; then
+if (( YURUNA_UNATTENDED )); then
+  log "Leaving test-* VMs to the next cycle (unattended)"
+elif [[ -f "$REMOVE_TEST_VMS" ]]; then
   log "Removing test-* VMs left over from previous cycles (cache VM preserved)"
   pwsh -NoLogo -NoProfile -File "$REMOVE_TEST_VMS" || \
     warn "Remove-TestVMFiles.ps1 exited non-zero; continuing install."
@@ -1683,10 +1917,24 @@ brew_formula_binary() {
 
 # A pin is a deliberate "hold this version", and it is also the one state in
 # which `brew upgrade` reports success while changing nothing. Lifted only for a
-# formula whose version is already failing a floor, and said out loud.
+# formula whose version is already failing a floor, and said out loud. An
+# unattended run never lifts it: the pin is the operator's, so it stays and the
+# formula below its floor is an issue, recorded once however many repair passes
+# meet it. The non-zero status tells the caller to skip the upgrade, which a pin
+# holds back and brew would report as a failure.
 brew_unpin_if_pinned() {
   local formula="$1"
   brew list --pinned 2>/dev/null | grep -qx "$formula" || return 0
+  if (( ${YURUNA_UNATTENDED:-0} )); then
+    case " ${_yuruna_pins_reported:-} " in
+      *" $formula "*) ;;
+      *)
+        note_issue "The '$formula' formula is pinned below its required version; an unattended run leaves the pin. Lift it with 'brew unpin $formula' and re-run this installer."
+        _yuruna_pins_reported="${_yuruna_pins_reported:-} $formula"
+        ;;
+    esac
+    return 1
+  fi
   log "  unpinning the '$formula' formula -- a pin is why 'brew upgrade' left it where it was"
   brew unpin "$formula" >/dev/null 2>&1 || warn "  could not unpin '$formula'"
 }
@@ -1698,7 +1946,7 @@ prefer_newest_binary() {
   local cmd="$1" formula="$2"; shift 2
   local link="$PATH_LINK_DIR/$cmd"
   local current="" current_ver="" best="" best_ver="" cand cand_ver
-  local brew_bin="" brew_ver="" brew_link keep now now_ver link_ver="" link_stale=0
+  local brew_bin="" brew_ver="" brew_link keep now now_ver link_ver="" link_stale=0 previous
 
   current="$(command -v "$cmd" 2>/dev/null || true)"
   brew_bin="$(brew_formula_binary "$formula" "$cmd" || true)"
@@ -1738,19 +1986,24 @@ prefer_newest_binary() {
   else
     log "  '$cmd' resolves to ${current_ver:-nothing} (${current:-not on PATH}); this Mac carries $best_ver at $best"
   fi
-  if [[ "$best" != "$link" && "$(readlink "$link" 2>/dev/null || true)" != "$best" ]]; then
+  previous="$(readlink "$link" 2>/dev/null || true)"
+  if [[ "$best" != "$link" && "$previous" != "$best" ]]; then
     if [[ -e "$link" && ! -L "$link" ]]; then
       # A real binary someone put there is not this installer's to delete, and
       # a timestamped neighbor is a state the operator can walk back from.
       keep="$link.pre-yuruna.$(date +%Y%m%d-%H%M%S)"
       warn "  $link is a real file rather than a link -- keeping it as $keep"
-      sudo mv "$link" "$keep" \
+      sudo -n mv "$link" "$keep" \
         || { note_issue "Could not move $link aside, so '$cmd' still resolves to ${current_ver:-nothing}. Move it by hand and re-run this installer."; return 1; }
+      previous="$keep"
     fi
-    log "  linking $cmd $best_ver onto PATH: $link -> $best"
+    # The value it replaces is named with the new one -- the earlier link
+    # target, or where a real file was moved -- so it can be put back from
+    # this line.
+    log "  linking $cmd $best_ver onto PATH: $link: ${previous:-<none>} -> $best"
     # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
     # DIRECTORY makes ln create the new link INSIDE it rather than replacing it.
-    sudo mkdir -p "$PATH_LINK_DIR" && sudo ln -sfn "$best" "$link" \
+    sudo -n mkdir -p "$PATH_LINK_DIR" && sudo -n ln -sfn "$best" "$link" \
       || { note_issue "Could not create $link, so '$cmd' still resolves to ${current_ver:-nothing}. Run 'sudo ln -sfn $best $link' and re-run this installer."; return 1; }
   fi
 
@@ -1777,8 +2030,7 @@ prefer_newest_binary() {
 repair_brew_tool() {
   local cmd="$1" formula="$2"
   log "  repairing '$cmd' through the '$formula' formula"
-  brew_unpin_if_pinned "$formula"
-  brew_ensure_formula "$formula"
+  if brew_unpin_if_pinned "$formula"; then brew_ensure_formula "$formula"; fi
   prefer_newest_binary "$cmd" "$formula"
 }
 
@@ -1789,8 +2041,7 @@ repair_brew_tool() {
 repair_powershell() {
   local round="$1"
   log "  repairing 'pwsh' through the 'powershell' formula (repair pass $round)"
-  brew_unpin_if_pinned powershell
-  brew_ensure_formula powershell
+  if brew_unpin_if_pinned powershell; then brew_ensure_formula powershell; fi
   # Microsoft's .pkg installs outside every Homebrew prefix and is invisible to
   # `brew --prefix`, so its location is named here.
   prefer_newest_binary pwsh powershell /usr/local/microsoft/powershell/7/pwsh
@@ -1926,7 +2177,7 @@ fi
 # VM runs), held by a brew pin, or a copy no package manager here owns. Advisory:
 # it never fails the run, and a source that cannot be asked reads as unknown,
 # never as current.
-REPORT_BREW_FORMULAE="git powershell tesseract qemu wget openssl gh curl"
+REPORT_BREW_FORMULAE="git powershell tesseract qemu wget openssl gh tmux curl"
 REPORT_BREW_CASKS="utm"
 
 # One "name<TAB>installed<TAB>available<TAB>pinned" row per outdated entry, read
@@ -2029,7 +2280,15 @@ report_newer_versions() {
     while IFS=$'\t' read -r name have want pinned; do
       [[ -n "$name" ]] || continue
       reason="brew did not move it in this run"
-      [[ "$name" == "utm" && ${PRESERVE_SERVICE_VM:-0} -eq 1 ]] && reason="a service VM is running, so UTM cannot quit"
+      # In the order of the cask step: an unattended run defers the upgrade
+      # whether or not a service VM runs.
+      if [[ "$name" == "utm" ]]; then
+        if (( ${YURUNA_UNATTENDED:-0} )); then
+          reason="an unattended run never upgrades UTM; run this installer from a terminal of the desktop session"
+        elif (( ${PRESERVE_SERVICE_VM:-0} )); then
+          reason="a service VM is running, so UTM cannot quit"
+        fi
+      fi
       lines="$lines  $name: $have -> $want (Homebrew cask; $reason)"$'\n'
     done <<< "$rows"
   else
@@ -2071,28 +2330,35 @@ fi
 # See https://yuruna.link/429fb30b-0015
 # Reapply settings after UTM updates; skip the separate storage questionnaire.
 # Exit 2 records remaining operator action rather than a failed installation.
+# Unattended, not run: the attended form raises consent dialogs and restarts the
+# Dock, and the host update applies the settings in a phase of its own with
+# -NoOperatorPrompt.
 HOST_SETUP="$YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1"
 log ""
-log "Configuring host settings for unattended runs (display sleep, screen lock, UTM lifetime)"
-if [[ ! -f "$HOST_SETUP" ]]; then
-  note_issue "Host setup script not found at $HOST_SETUP; this Mac still needs display sleep, screen lock and the UTM lifetime knobs set before Start-TestRunner."
-elif ! command -v pwsh >/dev/null 2>&1; then
-  note_issue "pwsh is not available, so host settings were not applied. Run this once pwsh works: pwsh '$HOST_SETUP'"
+if (( YURUNA_UNATTENDED )); then
+  log "Leaving the host settings to the host update's own phase (unattended)"
 else
-  # `|| RC=$?` rather than toggling errexit off and back on: the compound
-  # command is already exempt from -e, and the exit code is the thing this
-  # needs -- 2 means "applied, and a person still has to answer something".
-  HOST_SETUP_RC=0
-  pwsh -NoLogo -NoProfile -File "$HOST_SETUP" -SkipPoolStorage || HOST_SETUP_RC=$?
-  case "$HOST_SETUP_RC" in
-    0) log "  Host settings applied." ;;
-    2) note_issue "Host settings were applied, but some still need an operator (listed above). Re-run when you can answer them: pwsh '$HOST_SETUP'" ;;
-    *) note_issue "Host setup exited $HOST_SETUP_RC. The host-setting sections of 'pwsh $TEST_DIR/Test-Config.ps1' name what is still missing; re-run: pwsh '$HOST_SETUP'" ;;
-  esac
-  # UTM reads its App Nap and last-window-closed preferences at launch, so a UTM
-  # that was already up when they were written keeps its old behavior until it
-  # is next started.
-  log "  Quit and reopen UTM so it picks up the App Nap and last-window settings."
+  log "Configuring host settings for unattended runs (display sleep, screen lock, UTM lifetime)"
+  if [[ ! -f "$HOST_SETUP" ]]; then
+    note_issue "Host setup script not found at $HOST_SETUP; this Mac still needs display sleep, screen lock and the UTM lifetime knobs set before Start-TestRunner."
+  elif ! command -v pwsh >/dev/null 2>&1; then
+    note_issue "pwsh is not available, so host settings were not applied. Run this once pwsh works: pwsh '$HOST_SETUP'"
+  else
+    # `|| RC=$?` rather than toggling errexit off and back on: the compound
+    # command is already exempt from -e, and the exit code is the thing this
+    # needs -- 2 means "applied, and a person still has to answer something".
+    HOST_SETUP_RC=0
+    pwsh -NoLogo -NoProfile -File "$HOST_SETUP" -SkipPoolStorage || HOST_SETUP_RC=$?
+    case "$HOST_SETUP_RC" in
+      0) log "  Host settings applied." ;;
+      2) note_issue "Host settings were applied, but some still need an operator (listed above). Re-run when you can answer them: pwsh '$HOST_SETUP'" ;;
+      *) note_issue "Host setup exited $HOST_SETUP_RC. The host-setting sections of 'pwsh $TEST_DIR/Test-Config.ps1' name what is still missing; re-run: pwsh '$HOST_SETUP'" ;;
+    esac
+    # UTM reads its App Nap and last-window-closed preferences at launch, so a UTM
+    # that was already up when they were written keeps its old behavior until it
+    # is next started.
+    log "  Quit and reopen UTM so it picks up the App Nap and last-window settings."
+  fi
 fi
 
 # --- REGION: Done summary

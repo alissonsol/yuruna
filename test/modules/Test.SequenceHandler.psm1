@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,6 +121,32 @@ function Set-StepEffectNoneProven {
         [Parameter(Mandatory)][ValidateSet('address-unresolved', 'no-source-served')][string]$Source
     )
     $script:Fail.StepEffect = [ordered]@{ effect = 'none-proven'; source = $Source; stepInvocationId = [string]$Context.StepInvocationId }
+}
+
+function Set-StepGuestChange {
+    <#
+    .SYNOPSIS
+        Record that the running step of an 'observe' verb changed the guest
+        ('applied'), or may have ('uncertain').
+    .DESCRIPTION
+        The replay class of a verb says what replaying it may do, and a
+        session operation derives its effect from that class. A verb that
+        stays 'observe' so that replaying it in place repairs the guest still
+        changes the guest when it does that repair, and this is how its
+        handler says so. 'applied' is never lowered to 'uncertain' within a
+        step.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes one slot of the in-memory failure state; nothing outside the process changes.')]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][ValidateSet('applied', 'uncertain')][string]$Effect
+    )
+    if ($script:Fail.StepGuestChange -isnot [System.Collections.IDictionary]) { $script:Fail.StepGuestChange = [ordered]@{} }
+    $key = [string][int]$Context.StepNum
+    if ([string]$script:Fail.StepGuestChange[$key] -ceq 'applied') { return }
+    $script:Fail.StepGuestChange[$key] = $Effect
 }
 
 # See https://yuruna.link/4220a755-005e
@@ -446,6 +472,7 @@ function Invoke-SequenceColdPowerCycle {
         $result.phase = 'initial-state'; $result.reasonCode = 'vm-not-running'
         $result.initialState = [string](Get-VMState -VMName $Context.VMName)
         if ($result.initialState -ne 'running') { return $false }
+        if (Get-Command Close-GuestWebSession -ErrorAction SilentlyContinue) { [void](Close-GuestWebSession -VMName $Context.VMName -Reason 'vm-power-cycle') }
         $result.phase = 'stop-request'; $result.reasonCode = 'force-stop-failed'
         if (-not (Stop-VMForce -VMName $Context.VMName -StopTimeoutSeconds 20 -Confirm:$false)) { return $false }
         $result.phase = 'stopped-state'; $result.reasonCode = 'stop-unconfirmed'
@@ -1001,6 +1028,7 @@ Register-SequenceAction -Name 'stopVm' -ReplaySafety 'state-changing' -HostIOReq
         foreach ($commandName in @('Get-VMState', 'Stop-VM')) {
             if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) { return $false }
         }
+        if (Get-Command Close-GuestWebSession -ErrorAction SilentlyContinue) { [void](Close-GuestWebSession -VMName $c.VMName -Reason 'vm-stop') }
         $timeoutSeconds = 120
         if ($null -ne $c.Step.timeoutSeconds) {
             try { $timeoutSeconds = [int]$c.Step.timeoutSeconds } catch { return $false }
@@ -1065,6 +1093,7 @@ Register-SequenceAction -Name 'startVm' -ReplaySafety 'state-changing' -HostIORe
             -not (Get-Command Start-VM -ErrorAction SilentlyContinue)) {
             return $false
         }
+        if (Get-Command Close-GuestWebSession -ErrorAction SilentlyContinue) { [void](Close-GuestWebSession -VMName $c.VMName -Reason 'vm-stop') }
 
         $timeoutSeconds = 120
         if ($null -ne $c.Step.timeoutSeconds) {
@@ -1331,6 +1360,7 @@ Register-SequenceAction -Name 'saveDiskSnapshot' -ReplaySafety 'state-changing' 
         }
         Write-Debug "      Saving disk snapshot '$snapId' for $($c.VMName)"
         $ok = $false
+        if (Get-Command Close-GuestWebSession -ErrorAction SilentlyContinue) { [void](Close-GuestWebSession -VMName $c.VMName -Reason 'vm-rename') }
         try { $ok = [bool](Save-VMDiskSnapshot -VMName $c.VMName -Id $snapId -Confirm:$false) }
         catch {
             # YurunaCycleRestart is a control-flow marker -- re-throw so
@@ -1412,6 +1442,7 @@ function Restore-SequenceSnapshot {
         if (Get-Command Clear-ProvenGuestAddress -ErrorAction SilentlyContinue) {
             Clear-ProvenGuestAddress -VMName $c.VMName
         }
+        if (Get-Command Close-GuestWebSession -ErrorAction SilentlyContinue) { [void](Close-GuestWebSession -VMName $c.VMName -Reason 'vm-restore') }
         if (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue)) {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35f52ea8e7416232')
             return $false
@@ -1874,8 +1905,10 @@ Register-SequenceAction -Name 'passwdPrompt' -ReplaySafety 'input' -HostIORequir
     }
 
 Register-SequenceAction -Name 'tapOn' -ReplaySafety 'input' -HostIORequirement @('Send-Click') -OcrRequired $true `
+    -OcrEngineRequirement @('tesseract') -CapturesOwnFailureScreenshot $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot') `
     -Description (Format-YurunaOperatorMessage -Key 'runner.operator_93d8c93707d2b133') `
+    -FailureLabel { param($c) "tapOn: `"$((Expand-SequencePatternList -Raw $c.Step.label -Vars $c.Vars -ExpandVariable $c.ExpandVariable) -join "' | '")`"" } `
     -Handler {
         param([hashtable]$c)
         $rawLabels = $c.Step.label
@@ -1886,8 +1919,14 @@ Register-SequenceAction -Name 'tapOn' -ReplaySafety 'input' -HostIORequirement @
         $offY    = $c.Step.offsetY        ? [int]$c.Step.offsetY        : 0
         $labelDisplay = $labels -join "' | '"
         Write-Debug "      Waiting for button '$labelDisplay' (timeout: ${timeout}s)"
-        return [bool](Invoke-TapOn -HostType $c.HostType -VMName $c.VMName -Label $labels `
-            -TimeoutSeconds $timeout -PollSeconds $poll -OffsetX $offX -OffsetY $offY)
+        $tapArguments = @{ HostType = $c.HostType; VMName = $c.VMName; Label = $labels
+            TimeoutSeconds = $timeout; PollSeconds = $poll; OffsetX = $offX; OffsetY = $offY }
+        # Taken as written, never variable-expanded; Invoke-TapOn validates
+        # them and fails the step on a wrong value.
+        if ($null -ne $c.Step.match) { $tapArguments.MatchMode = [string]$c.Step.match }
+        if ($null -ne $c.Step.nth) { $tapArguments.Nth = $c.Step.nth }
+        if ($null -ne $c.Step.click) { $tapArguments.Click = [string]$c.Step.click }
+        return [bool](Invoke-TapOn @tapArguments)
     }
 
 Register-SequenceAction -Name 'takeScreenshot' -ReplaySafety 'observe' -HostIORequirement @() -OcrRequired $false `
@@ -2011,23 +2050,89 @@ function Test-GuiFetchEnvelopeSupported {
     [OutputType([bool])]
     param([Parameter(Mandatory)][hashtable]$Context)
     $clock = [Diagnostics.Stopwatch]::StartNew()
+    $record = [ordered]@{ reasonCode='probe-error'; elapsedMs=0L; supported=$false; sshAttempted=$false; sshSucceeded=$null; exitCode=$null }
+    if (-not ($Context.ContainsKey('Step') -and $Context.Step.sensitive)) { $Context.GuiCapability = $record }
     try {
         foreach ($name in 'Get-ProvenGuestAddress', 'Invoke-GuestSsh') {
-            if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { return $false }
+            if (-not (Get-Command $name -ErrorAction SilentlyContinue)) { $record.reasonCode='probe-helper-unavailable'; return $false }
         }
         $address = Get-ProvenGuestAddress -VMName $Context.VMName
         $ip = $null
-        if (-not [Net.IPAddress]::TryParse([string]$address, [ref]$ip) -or $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { return $false }
+        if (-not $address) { $record.reasonCode='address-unproven'; return $false }
+        if (-not [Net.IPAddress]::TryParse([string]$address, [ref]$ip) -or $ip.AddressFamily -ne [Net.Sockets.AddressFamily]::InterNetwork) { $record.reasonCode='address-not-ipv4'; return $false }
         $key = Join-Path (Split-Path -Parent $PSScriptRoot) 'status/ssh/yuruna_ed25519'
-        if (-not (Test-Path -LiteralPath $key -PathType Leaf) -or -not $Context.Vars.username -or $clock.Elapsed.TotalSeconds -ge 1) { return $false }
+        if (-not (Test-Path -LiteralPath $key -PathType Leaf)) { $record.reasonCode='key-unavailable'; return $false }
+        if (-not $Context.Vars.username) { $record.reasonCode='user-unavailable'; return $false }
+        if ($clock.Elapsed.TotalSeconds -ge 1) { $record.reasonCode='local-budget-exhausted'; return $false }
         # One second for SSH, with the other second reserved for these local
         # prerequisites. Supplying both paths bypasses driver/IP/key setup.
+        $record.sshAttempted=$true
         $result = Invoke-GuestSsh -VMName $Context.VMName -GuestKey $Context.GuestKey -User ([string]$Context.Vars.username) `
             -ResolvedAddress $address -PrivateKeyPath $key -AddressWaitSeconds 0 -TimeoutSeconds 1 -MaxCapturedChars 4096 `
             -Command '/usr/local/bin/yfe --gui-capability' -WarningAction SilentlyContinue
-        return ($clock.Elapsed.TotalSeconds -lt 2 -and $result.success -and $result.exitCode -eq 0 -and
-            ([string]$result.output).TrimEnd("`r", "`n") -ceq 'YFE_GUI_1')
-    } catch { return $false }
+        $record.sshSucceeded=[bool]$result.success
+        $record.exitCode=$result.exitCode -as [int]
+        $record.reasonCode = if ($clock.Elapsed.TotalSeconds -ge 2) { 'probe-budget-exhausted' }
+            elseif (-not $result.success) { 'ssh-failed' }
+            elseif ($result.exitCode -ne 0) { 'launcher-nonzero' }
+            elseif (([string]$result.output).TrimEnd("`r", "`n") -cne 'YFE_GUI_1') { 'capability-not-advertised' }
+            else { 'supported' }
+        $record.supported=($record.reasonCode -ceq 'supported')
+        return $record.supported
+    } catch { $record.reasonCode='probe-error'; return $false }
+    finally { $record.elapsedMs=[long]$clock.Elapsed.TotalMilliseconds }
+}
+
+function Save-GuiFetchInputReceipt {
+    <# .SYNOPSIS
+        Retains bounded observations of legacy staged input apart from the rolling screen history.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Line,
+        [int]$LineNumber,
+        [int]$LineCount,
+        [bool]$Dispatched,
+        [datetime]$StartedUtc
+    )
+    if ($Context.Step.sensitive -or -not $Context.GuiInput -or $Context.GuiInput.format -cne 'legacy') { return }
+    if ($LineNumber -gt 16 -and $LineNumber -ne $LineCount -and $Dispatched) { $Context.GuiInput.skippedCaptureCount++; return }
+    $receipt = [ordered]@{
+        lineNumber=$LineNumber; intendedChars=$Line.Length
+        intendedSha256=[Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($Line))).ToLowerInvariant()
+        startedAtUtc=$StartedUtc.ToString('o'); dispatchedAtUtc=[datetime]::UtcNow.ToString('o'); dispatched=$Dispatched
+        captureOutcome='capture-not-attempted'; capturedAtUtc=$null; framePath=$null; ocrPath=$null; frameHash=$null; openStaging=$null; transportEvents=[string[]]@()
+    }
+    $Context.GuiInput.receipts.Add($receipt)
+    try {
+        if (Get-Command Get-VncConnectionEvent -ErrorAction SilentlyContinue) {
+            $receipt.transportEvents=[string[]]@(Get-VncConnectionEvent -VMName $Context.VMName -SinceUtc $StartedUtc | Select-Object -Last 16 | ForEach-Object {
+                $_.Utc.ToString('HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture) + ' ' + $_.Kind + $(if ($_.Detail) { ' ' + $_.Detail })
+            })
+        }
+    } catch { $receipt.transportOutcome='transport-events-unavailable' }
+    try {
+        if ($Context.StepInvocationId -notmatch '^[A-Za-z0-9-]{1,64}$' -or
+            -not (Get-Command Get-CycleGuestDataFolder -ErrorAction SilentlyContinue)) { $receipt.captureOutcome='retention-unavailable'; return }
+        $folder=Get-CycleGuestDataFolder -VMName $Context.VMName
+        if (-not $folder) { $receipt.captureOutcome='retention-unavailable'; return }
+        $frame=Save-GuestConsoleFrame -Context $Context -Label "GUI input line $LineNumber of $LineCount"
+        if (-not $frame) { $receipt.captureOutcome='frame-unavailable'; return }
+        $receipt.capturedAtUtc=[datetime]::UtcNow.ToString('o')
+        [void][IO.Directory]::CreateDirectory($folder)
+        $saved=Join-Path $folder ('gui-input.{0}.{1:D3}.png' -f $Context.StepInvocationId,$LineNumber)
+        Copy-Item -LiteralPath $frame.Path -Destination $saved -Force -ErrorAction Stop
+        $receipt.framePath=$saved
+        $receipt.frameHash=[string]$frame.Hash
+        $receipt.openStaging=[bool](Test-GuiFetchInputStalled -OcrTail ([string]$frame.Text))
+        $sidecar=[IO.Path]::ChangeExtension([string]$frame.Path,'.txt')
+        if (Test-Path -LiteralPath $sidecar -PathType Leaf) {
+            $receipt.ocrPath=[IO.Path]::ChangeExtension($saved,'.txt')
+            Copy-Item -LiteralPath $sidecar -Destination $receipt.ocrPath -Force -ErrorAction Stop
+        }
+        $receipt.captureOutcome='captured'
+    } catch { $receipt.captureOutcome='capture-error'; $Context.GuiInput.captureErrorCount++ }
 }
 
 function Test-GuiFetchInputStalled {
@@ -2528,6 +2633,16 @@ function Save-FetchExecutionEvidence {
     )
     $Context.ExecutionProfile = @{ diagnosticOutcome='skipped'; reasonCode='fast-success'; outPath=$null }
     if ($Context.Step.sensitive) { $Context.ExecutionProfile.reasonCode='sensitive-step'; return }
+    if ($Context.GuiInput) {
+        try {
+            if ($Context.GuiInput.startedAtUtc -and (Get-Command Get-VncConnectionEvent -ErrorAction SilentlyContinue)) {
+                $Context.GuiInput.transportEvents=[string[]]@(Get-VncConnectionEvent -VMName $Context.VMName -SinceUtc (([datetime]$Context.GuiInput.startedAtUtc).ToUniversalTime()) | Select-Object -Last 64 | ForEach-Object {
+                    $_.Utc.ToString('HH:mm:ss.fff', [Globalization.CultureInfo]::InvariantCulture) + ' ' + $_.Kind + $(if ($_.Detail) { ' ' + $_.Detail })
+                })
+            }
+        } catch { $Context.GuiInput.transportOutcome='transport-events-unavailable' }
+        $Context.ExecutionProfile.guiInput=$Context.GuiInput
+    }
     if ($Succeeded -and $ElapsedSeconds -lt 60) { return }
     $sourceId = if ($Context.CheckpointSourceStepInvocationId) { $Context.CheckpointSourceStepInvocationId } else { $Context.StepInvocationId }
     if ($sourceId -notmatch '^[A-Za-z0-9-]{1,64}$') { $Context.ExecutionProfile.reasonCode='invalid-invocation-id'; return }
@@ -2570,6 +2685,7 @@ function Save-FetchExecutionEvidence {
         Write-Verbose "Execution profile capture unavailable: $captureReason"
     } finally {
         $Context.EvidenceCaptureDurationMs = [long]$captureClock.Elapsed.TotalMilliseconds
+        if ($Context.GuiInput) { $Context.ExecutionProfile.guiInput=$Context.GuiInput }
         if ($folder) {
             try {
                 $artifact = Join-Path $folder "execution.system.diagnostic.$sourceId.txt"
@@ -2631,6 +2747,8 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         $executionClock = [System.Diagnostics.Stopwatch]::StartNew()
         $executionSucceeded = $false
         $c.GuiTransfer = $null
+        $c.GuiInput = $null
+        $c.GuiCapability = $null
         $script:Fail.StepLauncherRejection = $null
         $script:Fail.StepAptUpdateStall = $null
         try {
@@ -2642,10 +2760,23 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         $compactInput = @(Get-GuiFetchEnvelopeInput -FetchContext $fetchContext -CommandLine $originalCommand)
         $legacyChars = ($typedCommands | Measure-Object -Property Length -Sum).Sum
         $compactChars = ($compactInput | Measure-Object -Property Length -Sum).Sum
-        if ($compactInput.Count -gt 0 -and $compactInput.Count -le $typedCommands.Count -and $compactChars -lt $legacyChars -and
+        $compactCheaper=($compactInput.Count -gt 0 -and $compactInput.Count -le $typedCommands.Count -and $compactChars -lt $legacyChars)
+        $selectionReason = if ($compactInput.Count -eq 0) { 'compact-not-built' } elseif (-not $compactCheaper) { 'compact-not-cheaper' } else { 'capability-unsupported' }
+        if ($compactCheaper -and
             (Test-GuiFetchEnvelopeSupported -Context $c)) {
             $typedCommands = $compactInput
             $c.GuiTransfer = Get-GuiFetchEnvelopeTransfer -Line $typedCommands
+            $selectionReason='compact-selected'
+        }
+        if (-not $c.Step.sensitive) {
+            # GuiTransfer controls compact retries. Observations use their own
+            # record so collecting them never authorizes another dispatch.
+            $c.GuiInput=[ordered]@{
+                format=$(if ($selectionReason -ceq 'compact-selected') { 'compact' } elseif ($typedCommands.Count -eq 1) { 'single' } else { 'legacy' })
+                selectionReason=$selectionReason; contextId=$fetchContext.Id; capability=$c.GuiCapability; startedAtUtc=$null
+                lineCount=$typedCommands.Count; skippedCaptureCount=0; captureErrorCount=0; receipts=[Collections.Generic.List[object]]::new()
+                transportEvents=[string[]]@(); payloadState=$null
+            }
         }
         if ($typedCommands.Count -gt 1) {
             Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_0ed289c55b84fcb5' -Arguments @{ length = "$($text.Length)"; count = "$($typedCommands.Count)" })
@@ -2662,6 +2793,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         for ($attempt = 1; $attempt -le $attemptLimit; $attempt++) {
         if ($c.GuiTransfer) { $c.GuiTransfer.attempts = $attempt }
         $typingStartedUtc = [DateTime]::UtcNow
+        if ($c.GuiInput -and -not $c.GuiInput.startedAtUtc) { $c.GuiInput.startedAtUtc=$typingStartedUtc.ToString('o') }
         $inputIndex = 0
         foreach ($typedCommand in $attemptLines) {
             if ($typedCommand.Length -gt $script:FetchExecuteTypedCharWarn) {
@@ -2678,7 +2810,12 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
             # See https://yuruna.link/428e4df6-0014
             $settleBetweenLines = $c.HostType -eq 'host.macos.utm'
             $drainSeconds = if ($null -eq $c.Step.delaySeconds -and $inputIndex -lt $attemptLines.Count - 1 -and -not $settleBetweenLines) { 0 } else { $delaySeconds }
-            if (-not (Invoke-TypeDrainEnter -Context $c -Text $typedCommand -DelaySeconds $drainSeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape:($typedCommands.Count -eq 1))) { return $false }
+            $lineStartedUtc=[datetime]::UtcNow
+            $dispatched=Invoke-TypeDrainEnter -Context $c -Text $typedCommand -DelaySeconds $drainSeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape:($typedCommands.Count -eq 1)
+            try {
+                Save-GuiFetchInputReceipt -Context $c -Line $typedCommand -LineNumber ($inputIndex+1) -LineCount $attemptLines.Count -Dispatched ([bool]$dispatched) -StartedUtc $lineStartedUtc
+            } catch { if ($c.GuiInput) { $c.GuiInput.captureErrorCount++ } }
+            if (-not $dispatched) { return $false }
             $inputIndex++
         }
         $waitPattern = & $c.ExpandVariable $c.Step.waitPattern $c.Vars
@@ -2776,6 +2913,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
             # a guest with no prepared context and no fetch process has never run
             # the payload, and only that case is replayable without repeating work.
             $payloadState = Get-GuiFetchPayloadState -VMName $c.VMName -GuestKey $c.GuestKey -ContextId ([string]$fetchContext.Id)
+            if ($c.GuiInput) { $c.GuiInput.payloadState=($payloadState ?? 'unanswered') }
             if ($payloadState -eq 'NOT_PREPARED') {
                 $script:Fail.StepInputLost = $true
                 Write-Warning "      fetchAndExecute: staged input never closed in the guest shell after $($typedCommands.Count) line(s); the guest holds no prepared payload."
@@ -2789,6 +2927,148 @@ Register-SequenceAction -Name 'fetchAndExecute' -ReplaySafety 'state-changing' -
         }
     }
 
+function Get-SshWaitReadyRotation {
+    <#
+    .SYNOPSIS
+        The password rotation an sshWaitReady step asks for: $null without
+        one, the rotation state with both fields, or 'incomplete' with one.
+    .DESCRIPTION
+        Both values are secrets. They are registered with the secret filter
+        as soon as they are expanded, and nothing here or in the step's
+        handler writes them anywhere but the rotation's or the set's own call.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable], [string])]
+    param([Parameter(Mandatory)][hashtable]$Context, [Parameter(Mandatory)][datetime]$DeadlineUtc)
+    $hasCurrent = $null -ne $Context.Step.currentPassword
+    $hasNew = $null -ne $Context.Step.newPassword
+    if (-not $hasCurrent -and -not $hasNew) { return $null }
+    if (-not ($hasCurrent -and $hasNew)) {
+        $given = if ($hasCurrent) { 'currentPassword' } else { 'newPassword' }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.ssh_wait_rotation_fields_incomplete' -Arguments @{ field = $given })
+        return 'incomplete'
+    }
+    $rotation = @{
+        CurrentPassword = [string](& $Context.ExpandVariable $Context.Step.currentPassword $Context.Vars)
+        NewPassword     = [string](& $Context.ExpandVariable $Context.Step.newPassword $Context.Vars)
+        DeadlineUtc     = $DeadlineUtc
+        Done            = $false
+        Failed          = $false
+    }
+    if (Get-Command Register-SequenceSecret -ErrorAction SilentlyContinue) {
+        $null = Register-SequenceSecret -Value $rotation.CurrentPassword -Source 'step:currentPassword'
+        $null = Register-SequenceSecret -Value $rotation.NewPassword -Source 'step:newPassword'
+    }
+    return $rotation
+}
+
+function Wait-SshReadyWithRotation {
+    <#
+    .SYNOPSIS
+        One bounded SSH readiness wait for sshWaitReady that leaves the
+        account with the step's new password when the step carries the two
+        password fields.
+    .DESCRIPTION
+        Without a rotation this is Wait-SshReady unchanged. With one, the
+        first expired-password answer ends the wait, the password is rotated
+        over SSH, and the wait goes on within the same budget. The rotation
+        runs at most once per step (Rotation.Done): a second expiry, or a
+        rotation that failed, sets Rotation.Failed and fails the wait, the
+        second expiry through Wait-SshReady's own credential_expired report.
+
+        A wait that reaches a shell without a rotation in this step sets the
+        password to the new one over SSH before it passes. The step is
+        replayed on a guest provisioned already, or after its own rotation by
+        a resume or a retry that may expand a fresh new password, and a later
+        step stores the new password in the vault: without the set the vault
+        would commit a password the guest never received. A set that fails
+        sets Rotation.Failed and fails the wait, so that store never runs.
+
+        The verb stays 'observe', because replaying the step in place is what
+        repairs the password after a resume, so a rotation or set that ran is
+        recorded through Set-StepGuestChange: 'applied' when it succeeded,
+        'uncertain' when it failed after the guest may have taken the change.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][int]$TimeoutSeconds,
+        [Parameter(Mandatory)][int]$PollSeconds,
+        [AllowNull()][hashtable]$Rotation,
+        [Parameter(Mandatory)][hashtable]$HostKeyPinScope
+    )
+    if ($null -eq $Rotation) {
+        return [bool](Wait-SshReady -VMName $Context.VMName -GuestKey $Context.GuestKey -TimeoutSeconds $TimeoutSeconds -PollSeconds $PollSeconds `
+            -HostKeyPinScope $HostKeyPinScope)
+    }
+    $deadlineUtc = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ($true) {
+        $remaining = [int][Math]::Floor(($deadlineUtc - [DateTime]::UtcNow).TotalSeconds)
+        if ($remaining -le 0) { return $false }
+        $onExpired = if ($Rotation.Done) { 'Fail' } else { 'Return' }
+        if (Wait-SshReady -VMName $Context.VMName -GuestKey $Context.GuestKey -TimeoutSeconds $remaining -PollSeconds $PollSeconds -OnExpiredLogin $onExpired `
+                -HostKeyPinScope $HostKeyPinScope) {
+            # The rotation's own success already made the new password the
+            # account's; a shell reached without one leaves it to the set.
+            if ($Rotation.Done) { return $true }
+            $user = Get-GuestSshUser -GuestKey $Context.GuestKey
+            # 0 when the step's budget is spent: the set then reports and
+            # records its timeout without connecting.
+            $setSeconds = [int][Math]::Max(0, [Math]::Floor(($Rotation.DeadlineUtc - [DateTime]::UtcNow).TotalSeconds))
+            $set = Set-GuestSshPassword -VMName $Context.VMName -GuestKey $Context.GuestKey -NewPassword $Rotation.NewPassword -TimeoutSeconds ([Math]::Min(120, $setSeconds))
+            if ($set.Ok) {
+                Set-StepGuestChange -Context $Context -Effect applied
+            } elseif ($set.Dispatched -and [string]$set.Code -cne 'sudo-refused') {
+                # chpasswd may have run before the failure; sudo's refusal
+                # proves it did not.
+                Set-StepGuestChange -Context $Context -Effect uncertain
+            }
+            if (-not $set.Ok) {
+                $Rotation.Failed = $true
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.ssh_password_set_failed' -Arguments @{
+                        user = "$user"; vmName = "$($Context.VMName)"; code = "$($set.Code)"; detail = "$($set.Detail)" })
+                return $false
+            }
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.ssh_password_set' -Arguments @{ user = "$user"; vmName = "$($Context.VMName)" })
+            return $true
+        }
+        $readiness = Get-LastSshReadiness
+        if ($null -eq $readiness -or [string]$readiness.cause -ne 'password_expired') { return $false }
+        $user = Get-GuestSshUser -GuestKey $Context.GuestKey
+        if ($Rotation.Done) {
+            $Rotation.Failed = $true
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.ssh_password_still_expired' -Arguments @{ user = "$user"; vmName = "$($Context.VMName)" })
+            return $false
+        }
+        $Rotation.Done = $true
+        # The rotation shares the step's budget, not this wait's: an installer
+        # scan waits in short chunks, and a chunk is too short to answer three
+        # prompts in.
+        # 0 when that budget is spent: the rotation then reports and records
+        # its timeout without connecting.
+        $rotationSeconds = [int][Math]::Max(0, [Math]::Floor(($Rotation.DeadlineUtc - [DateTime]::UtcNow).TotalSeconds))
+        $rotated = Invoke-GuestSshPasswordRotation -VMName $Context.VMName -GuestKey $Context.GuestKey `
+            -CurrentPassword $Rotation.CurrentPassword -NewPassword $Rotation.NewPassword -TimeoutSeconds ([Math]::Min(300, $rotationSeconds))
+        if ($rotated.Ok) {
+            Set-StepGuestChange -Context $Context -Effect applied
+        } elseif ([int]$rotated.Answered -ge 3 -and [string]$rotated.Code -cne 'still-expired') {
+            # The retyped new password was sent, so the change may have landed;
+            # a probe that still found the password expired proves it did not.
+            Set-StepGuestChange -Context $Context -Effect uncertain
+        }
+        if (-not $rotated.Ok) {
+            $Rotation.Failed = $true
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.ssh_password_rotation_failed' -Arguments @{
+                    user = "$user"; vmName = "$($Context.VMName)"; code = "$($rotated.Code)"; detail = "$($rotated.Detail)" })
+            return $false
+        }
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.ssh_password_rotated' -Arguments @{ user = "$user"; vmName = "$($Context.VMName)" })
+    }
+}
+
 # The ssh verbs run ssh, and ssh-keygen through the harness key check
 # (Initialize-YurunaSshKey) on the first ssh call of each runner process.
 # Both ship with the OpenSSH client on every host type.
@@ -2800,6 +3080,15 @@ Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequ
         param([hashtable]$c)
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $poll    = $c.Step.pollSeconds    ? [int]$c.Step.pollSeconds    : $c.DefaultPollSeconds
+        # With both currentPassword and newPassword the step passes only with
+        # newPassword in place: an expired password is rotated once, and one
+        # that is not expired is set; see Wait-SshReadyWithRotation.
+        $rotation = Get-SshWaitReadyRotation -Context $c -DeadlineUtc ([DateTime]::UtcNow.AddSeconds($timeout))
+        if ($rotation -is [string]) { return $false }
+        # One span for every wait of this step, including the installer scan's
+        # short chunks: the installer's own sshd can be pinned in one chunk and
+        # replaced by the installed system's key several chunks later.
+        $pinScope = @{ SinceUtc = [DateTime]::UtcNow; Resets = 0 }
 
         # See https://yuruna.link/4213a0b3-015f
         [string[]]$installerFailPatterns = @()
@@ -2817,7 +3106,7 @@ Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequ
             # single-shot Wait-SshReady contract for callers that don't
             # need installer-fail detection (most non-Ubuntu-server flows).
             Write-Debug "      sshWaitReady: $($c.GuestKey)@$($c.VMName) (timeout: ${timeout}s)"
-            return [bool](Wait-SshReady -VMName $c.VMName -GuestKey $c.GuestKey -TimeoutSeconds $timeout -PollSeconds $poll)
+            return (Wait-SshReadyWithRotation -Context $c -TimeoutSeconds $timeout -PollSeconds $poll -Rotation $rotation -HostKeyPinScope $pinScope)
         }
 
         # Slow path: chunked SSH wait + OCR scan between chunks. Reset the
@@ -2854,9 +3143,10 @@ Register-SequenceAction -Name 'sshWaitReady' -ReplaySafety 'observe' -HostIORequ
             $remainingSeconds = [int]($deadlineUtc - [DateTime]::UtcNow).TotalSeconds
             if ($remainingSeconds -le 0) { break }
             $thisChunk = [Math]::Min($chunkSeconds, $remainingSeconds)
-            if (Wait-SshReady -VMName $c.VMName -GuestKey $c.GuestKey -TimeoutSeconds $thisChunk -PollSeconds $poll) {
+            if (Wait-SshReadyWithRotation -Context $c -TimeoutSeconds $thisChunk -PollSeconds $poll -Rotation $rotation -HostKeyPinScope $pinScope) {
                 return $true
             }
+            if ($rotation -and $rotation.Failed) { return $false }
             # SSH still not up -- OCR-scan one frame for installer-fail signatures.
             $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssfffZ')
             $rawScreenPath = Join-Path $screensDir "raw_${stamp}.png"
@@ -3288,6 +3578,7 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_55a49008b08e5b55' -Arguments @{ stepNum = "$($c.StepNum)"; stepCount = "$($c.StepCount)" })
             $script:Fail.LastFailureLabel       = 'retry: empty steps block'
             $script:Fail.LastFailureDescription = $c.Description
+            $script:Fail.LastFailureFromStep = [string]$c.Step.fromStep
             $script:Fail.LastFailedAction       = 'retry'
             $script:Fail.LastFailedStepNumber   = $c.StepNum
             return $false
@@ -3355,16 +3646,21 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 $evidenceRel = $null
             }
 
-            # Subiquity's event lines print only from the live installer, never
-            # from an installed guest, so any of them in the failed wait's tail
-            # means the install had not finished. OCR often renders the q as g.
-            $installerRunning = ([string]$script:Fail.WaitForTextOcrTail -match '(?i)\bsubi[qg]uity/')
+            # A failed login wait retains the installer stage even when later
+            # frames scroll its marker away or become unreadable. Without a
+            # successful login, that evidence cannot justify booting the target
+            # disk: the installer may not have finished its late commands.
+            # OCR often renders the q in Subiquity as g.
+            $attemptInstallerStage = [string]$script:Fail.WaitForTextInstallerStage
+            $installerRunning = (
+                -not [string]::IsNullOrWhiteSpace($attemptInstallerStage) -or
+                [string]$script:Fail.WaitForTextOcrTail -match '(?i)\bsubi[qg]uity/'
+            )
             # The attempt's processors as its wait last read them, and the
             # installer stage its OCR showed, as the failure record reads them,
             # so boot-wedge shapes and restarts of a progressing install can be
             # counted from the event stream alone.
             $processorSummary = Get-GuestProcessorWindowSummary -LivelockVerdict $script:Fail.WaitForTextGuestLivelock
-            $attemptInstallerStage = [string]$script:Fail.WaitForTextInstallerStage
             $attemptInstallerStageSeconds = if ($attemptInstallerStage) { [int]$script:Fail.WaitForTextInstallerStageSeconds } else { 0 }
 
             # Structured per-attempt record so a flaky retry is queryable in the
@@ -3453,6 +3749,10 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 if (-not $retrySuppressionReason -and (Test-StepHostInputFaultDeterministic -State $script:Fail)) {
                     $retrySuppressionReason = 'deterministic-input-fault'
                 }
+                # A click that may have reached the guest would be made twice by another attempt.
+                if (-not $retrySuppressionReason -and (Test-StepHostClickDeliveryUncertain -State $script:Fail)) {
+                    $retrySuppressionReason = 'uncertain-click-delivery'
+                }
                 if ($retrySuppressionReason) {
                     # Missing or live-frame evidence is not permission to cut
                     # power. End this specialized retry without replaying input.
@@ -3498,6 +3798,7 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                         $failureReason = if ($c.ColdPowerCycleResult) { [string]$c.ColdPowerCycleResult.reasonCode } else { 'unconfirmed-restart' }
                         $script:Fail.LastFailureLabel = "retry VM cold restart failed after attempt ${attempt}: $failureReason"
                         $script:Fail.LastFailureDescription = $c.Description
+                        $script:Fail.LastFailureFromStep = [string]$c.Step.fromStep
                         $script:Fail.LastFailedAction = 'retry'
                         $script:Fail.LastFailedStepNumber = $c.StepNum
                         return $false
@@ -3555,8 +3856,14 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
             $innerDisplayStalled = (-not $innerThrew) -and $script:Fail.WaitForTextDisplayStallEnd -and
                 -not $script:Fail.WaitForTextMatchedFailurePattern -and -not $script:Fail.StepDeployResult -and
                 -not $script:Fail.WaitForTextKernelStallEnd -and -not $script:Fail.WaitForTextGuestLivelocked
+            # A page step's own account names its class. Read by the originating
+            # leaf, so the class also survives a retry nested in this one.
+            $innerWebFailure = if ($innerThrew) { $null } else {
+                Get-StepWebFailureClass -State $script:Fail `
+                    -StepInvocationId ([string]$script:Fail.OriginatingStepInvocationId) }
             $script:Fail.LastInnerFailureClass        = if ($innerInputDeterministic) { 'plan_invalid' }
                 elseif ($innerDisplayStalled) { 'guest_display_stalled' }
+                elseif ($innerWebFailure) { [string]$innerWebFailure.FailureClass }
                 elseif ($innerVerbEntry -and -not $innerThrew) { [string]$innerVerbEntry.FailureClass } else { 'unknown' }
             $script:Fail.LastInnerSeverity            = if ($innerVerbEntry) { [string]$innerVerbEntry.Severity }     else { 'unknown' }
             # [string[]] cast prevents the single-element unwrap so a
@@ -3570,6 +3877,8 @@ Register-SequenceAction -Name 'retry' -ReplaySafety 'composite' -HostIORequireme
                 $script:Fail.LastInnerSuggestedRecoveries = [string[]]@('pause_and_inspect')
             } elseif ($innerDisplayStalled) {
                 $script:Fail.LastInnerSuggestedRecoveries = [string[]]@('restart_from_snapshot','pause_and_inspect')
+            } elseif ($innerWebFailure) {
+                $script:Fail.LastInnerSuggestedRecoveries = [string[]]@($innerWebFailure.SuggestedRecoveries)
             } elseif ($innerVerbEntry -and $null -ne $innerVerbEntry.SuggestedRecoveries) {
                 $script:Fail.LastInnerSuggestedRecoveries = [string[]]@($innerVerbEntry.SuggestedRecoveries)
             }
@@ -3628,6 +3937,11 @@ Register-SequenceAction -Name 'recoverFromSnapshot' -ReplaySafety 'restore-point
         $script:Fail.LastFailedAction     = $null
         return $true
     }
+
+# The page verbs. The one import of their module: the engine, the capability
+# check and every suite that loads this catalog read the same verbs, and a
+# forced import of the engine registers them again after Clear-SequenceAction.
+Import-Module (Join-Path $PSScriptRoot 'Test.WebHandler.psm1') -Force -DisableNameChecking -Global
 
 # No Export-ModuleMember: every public surface for this module is the
 # side-effect of the Register-SequenceAction calls above, which write

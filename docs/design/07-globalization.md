@@ -129,6 +129,7 @@ Sources: [PowerShell resolver](../../test/modules/Test.Locale.psm1),
 | Boundary | Inputs and decision lifetime |
 | --- | --- |
 | PowerShell operator message | The adapter reads the lab configuration's language and process UI culture lazily, then caches the command's context at first emission. |
+| MCP server | The [core](../../test/service/Start-McpServer.ps1) and [workload](../../test/service/Start-WorkloadMcpServer.ps1) stdio servers render tool descriptions and result text through the operator adapter; an MCP client supplies no language. Each localized note or error travels with a stable code. The pool-control `/mcp` endpoint's [tool descriptions](../../test/extension/pool-control-service/server/internal/httpsrv/mcp.go) are uncataloged English literals. |
 | PowerShell status request | Reads the configuration language at the request boundary, combines it with `Accept-Language`, and explicitly disables process-culture fallback. |
 | Go service request | Uses its startup language option and `Accept-Language`, with no process-culture fallback. Negotiation is restricted to catalogs the binary carries. Provisioning writes the lab language to `/etc/yuruna/globalization.env`, so a later configuration edit does not reach a running service. |
 | Browser page | Initializes from the server's HTML `lang`, requested language, and decision source. The page context is then sealed. |
@@ -319,6 +320,16 @@ contract to command output. The companion
 demonstrates localized sequence and action descriptions. Names, command text,
 and sequence references remain stable identifiers.
 
+Sentence steps follow the same contract. A step sentence and the
+[phrase library](../../test/sequences/_phrases.yml) sentence it matches are
+English source text, like verb names. A sentence step's `descriptionLocalized`
+requires its `description`; the
+[phrase expander](../../test/modules/Test.StepPhrase.psm1) copies both, with
+secrets masked, onto every generated step, and phrase templates may not carry
+either. Without a description, the generated label is the masked English
+sentence. The guest browser that runs page steps starts with `LANGUAGE=en_US`
+in [yuruna-web-browser.sh](../../automation/yuruna-web-browser.sh).
+
 The text-to-SQL application uses its own ASP.NET Core request-localization
 middleware and .NET resource lookup:
 
@@ -406,6 +417,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 [Architecture](../architecture.md) | [Design overview](README.md)

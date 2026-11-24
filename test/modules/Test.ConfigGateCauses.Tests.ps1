@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e62d38-20d8-4171-9157-427b737d6f11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,9 @@
 
 BeforeAll {
     Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    # The private state root and the runner gate resolve under $HOME; a scratch
+    # home keeps this suite and every process it starts off the operator's own.
+    $script:TestHome = Enter-YurunaTestHome
     $script:CauseRepoRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
     $script:CauseRepoRoot = Split-Path -Parent $script:CauseRepoRoot
     Import-Module (Join-Path $PSScriptRoot 'Test.GitOutageFixture.psm1') -Force
@@ -56,6 +59,8 @@ BeforeAll {
         return Get-Content -LiteralPath $sidecar -Raw | ConvertFrom-Json -AsHashtable
     }
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'Real configuration gate causes under a controlled outage' {
     It 'waits for complete request headers before sending its authentication challenge' {

@@ -73,6 +73,7 @@ network:TCPConnectionState((network:TCPConnectionState)) -- subClassOf --> y:Sta
 network:TCPReachabilityCheck((network:TCPReachabilityCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
 network:TLSInterception((network:TLSInterception)) -- subClassOf --> y:Process[y:Process]
 network:UplinkBindingCheck((network:UplinkBindingCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
+network:UpstreamRateLimit((network:UpstreamRateLimit)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 network:WarmCacheState((network:WarmCacheState)) -- subClassOf --> y:State[y:State]
 ```
 
@@ -82,6 +83,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

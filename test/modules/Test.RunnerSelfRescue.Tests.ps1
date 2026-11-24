@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b2fd46-f55d-409b-bf93-6b7dbb5f5595
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,9 @@ param()
 
 BeforeAll {
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# The private state root and the runner gate resolve under $HOME; a scratch
+# home keeps this suite and every process it starts off the operator's own.
+$script:TestHome = Enter-YurunaTestHome
 $ErrorActionPreference = 'Stop'
 $here = Split-Path -Parent $PSCommandPath
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { throw 'powershell-yaml is required for these cases.' }
@@ -64,6 +67,8 @@ function Test-ProcessAlive {
     return [bool](Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'Source polls during the failure pause' {
     BeforeEach {
@@ -138,7 +143,7 @@ Describe 'Invoke-RunnerOuterSupervisor' {
     It 'continues the cycle numbering after re-entering the real loop, so no generation repeats' {
         $state = Get-RescueState -ConfigPath $script:Config
         $script:Generations = [System.Collections.Generic.List[string]]::new()
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }
         Mock -ModuleName Test.RunnerOuterLoop Invoke-OuterCycleDispatch {
@@ -211,7 +216,7 @@ Describe 'The resident pulls the framework when cycle processes keep dying befor
         $script:Sent = [System.Collections.Generic.List[string]]::new()
         Mock -ModuleName Test.RunnerOuterLoop Write-OuterLog { }
         Mock -ModuleName Test.RunnerOuterLoop Write-Warning { }
-        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRefreshTriggerModule { $false }
+        Mock -ModuleName Test.RunnerOuterLoop Import-OuterRepairTriggerModule { $false }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterCommitSha { 'broken9' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterProjectUrl { '' }
         Mock -ModuleName Test.RunnerOuterLoop Get-OuterConfigMtime { $null }

@@ -1,0 +1,614 @@
+<#PSScriptInfo
+.VERSION 2026.11.23
+.GUID 424389c7-e56a-4c48-9b73-1d24e21c6aa1
+.AUTHOR Alisson Sol et al.
+.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
+.TAGS yuruna test status service non-destructive start pester
+.LICENSEURI https://yuruna.link/license
+.PROJECTURI https://yuruna.com
+.ICONURI
+.EXTERNALMODULEDEPENDENCIES
+.REQUIREDSCRIPTS
+.EXTERNALSCRIPTDEPENDENCIES
+.RELEASENOTES
+.PRIVATEDATA
+#>
+
+#requires -version 7
+
+<#
+.SYNOPSIS
+    Start-StatusService.ps1 -NonDestructive starts a listener only when it is
+    positively absent and disturbs nothing else.
+.DESCRIPTION
+    The normal start takes a port from its holder, stops a live server whose
+    commit changed, sweeps control files and rewrites status.json; each of
+    those is right for a cycle start and wrong for a host repair that is trying
+    to restore a host without undoing what an operator or a held runner left
+    in place. Two kinds of evidence here:
+
+      * a static guard over the launcher's own syntax tree: every call that
+        stops, takes, sweeps, rewrites, elevates or runs an unbounded native
+        command sits behind a condition the non-destructive start cannot pass;
+      * child-process runs of the real script against a scratch runtime and
+        HOME on an ephemeral port, one per outcome that needs no new server,
+        checking the exit code, the result record, and that every stand-in
+        and control file survived.
+
+    ANSI sequences are stripped from captured output before any assertion.
+#>
+
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.SingleFlightLock.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.StatusControlRoute.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Global -DisableNameChecking
+
+$script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+$script:ServicePath = Join-Path $script:RepoRoot 'test/service/Start-StatusService.ps1'
+$script:Pwsh = (Get-Process -Id $PID).Path
+$script:ParentAst = Get-YurunaTestFileAst -Path $script:ServicePath
+
+function Test-NonDestructiveGuarded {
+    <#
+    .SYNOPSIS
+        Whether an AST node can only run when the non-destructive switch is off.
+    .DESCRIPTION
+        Walks up from the node. It is guarded when an enclosing if-clause
+        condition reads "-not $NonDestructive" or tests $Restart (a Normal-only
+        parameter) or $ReplaceWedged (an opt-in only the beacon's wedged-
+        listener replacement and a host update's listener start pass; the
+        repair never does), when it sits
+        in the else branch or a later elseif of an "if ($NonDestructive)", or
+        when it is inside a function only Normal code calls.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Node)
+    $child = $Node
+    $parent = $Node.Parent
+    while ($null -ne $parent) {
+        if ($parent -is [System.Management.Automation.Language.IfStatementAst]) {
+            for ($i = 0; $i -lt $parent.Clauses.Count; $i++) {
+                $condition = $parent.Clauses[$i].Item1.Extent.Text
+                $body = $parent.Clauses[$i].Item2
+                if ([object]::ReferenceEquals($body, $child)) {
+                    if ($condition -match '-not \$NonDestructive' -or $condition -match '^\$Restart\b' -or $condition -match '\$ReplaceWedged\b') { return $true }
+                    if ($i -gt 0 -and $parent.Clauses[0].Item1.Extent.Text -eq '$NonDestructive') { return $true }
+                }
+            }
+            if ([object]::ReferenceEquals($parent.ElseClause, $child) -and $parent.Clauses[0].Item1.Extent.Text -eq '$NonDestructive') { return $true }
+        }
+        $child = $parent
+        $parent = $parent.Parent
+    }
+    return $false
+}
+}
+
+Describe 'the non-destructive start reaches no destructive call' {
+
+    It 'declares strict binding with separate Normal and NonDestructive parameter sets' {
+        $attribute = $script:ParentAst.ParamBlock.Attributes | Where-Object { $_.TypeName.Name -eq 'CmdletBinding' }
+        Assert-NotNull $attribute 'the launcher must declare [CmdletBinding()] so an unknown switch is refused'
+        Assert-Match "DefaultParameterSetName\s*=\s*'Normal'" $attribute.Extent.Text
+        $parameters = @{}
+        foreach ($parameter in $script:ParentAst.ParamBlock.Parameters) { $parameters[$parameter.Name.VariablePath.UserPath] = $parameter.Extent.Text }
+        Assert-Match "ParameterSetName = 'NonDestructive', Mandatory" $parameters['NonDestructive']
+        Assert-Match "ParameterSetName = 'Normal'" $parameters['Restart']
+        Assert-Match "ParameterSetName = 'NonDestructive', Mandatory" $parameters['Port'] 'a non-destructive start always names its port'
+        Assert-Match "ParameterSetName = 'NonDestructive'" $parameters['ResultPath']
+        Assert-Match "ParameterSetName = 'NonDestructive'" $parameters['DeadlineTickMs']
+    }
+
+    It 'keeps every stop, takeover, sweep, rewrite, elevation and unbounded native call behind a Normal-only condition' {
+        $destructive = @('Stop-Process', 'Resolve-PortOrphan', 'Add-PortMap', 'Remove-PortMap', 'Set-YurunaStatusFirewallRule',
+            'git', 'hostname', 'sudo', 'Initialize-YurunaHost', 'Enter-CachingProxyServiceLock', 'Test-CachingProxyServiceAvailable')
+        $findings = @()
+        $visited = @{}
+        $commands = $script:ParentAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true)
+        foreach ($command in $commands) {
+            $name = $command.GetCommandName()
+            if (-not $name) { continue }
+            if ($name -eq 'Initialize-YurunaRuntimeDir') {
+                Assert-False (Test-NonDestructiveGuarded -Node $command) 'the guard walk must not pass an unguarded call'
+            }
+            $isDestructive = $destructive -contains $name
+            if ($isDestructive) { $visited[$name] = 1 + [int]$visited[$name] }
+            if ($name -eq 'Remove-Item' -and $command.Extent.Text -match "break-active|control\.|server\.heartbeat|LegacyTrackDir|legacyName|\`$PidFile") { $isDestructive = $true }
+            if (-not $isDestructive) { continue }
+            if (-not (Test-NonDestructiveGuarded -Node $command)) { $findings += "line $($command.Extent.StartLineNumber): $($command.Extent.Text)" }
+        }
+        foreach ($member in $script:ParentAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] }, $true)) {
+            $text = $member.Extent.Text
+            if ($text -match 'WriteAllText\(\$StatusFile' -or $text -match 'GetHostAddresses') {
+                if (-not (Test-NonDestructiveGuarded -Node $member)) { $findings += "line $($member.Extent.StartLineNumber): $text" }
+            }
+        }
+        foreach ($name in @('Stop-Process', 'Resolve-PortOrphan', 'Add-PortMap', 'Remove-PortMap', 'Set-YurunaStatusFirewallRule', 'git', 'hostname', 'sudo')) {
+            Assert-True ($visited[$name] -ge 1) "the scan found no $name call, so it proves nothing about it"
+        }
+        Assert-NoFinding $findings 'a call the non-destructive start must never make is reachable in that mode'
+        # The repair's own start never opts into the wedged-listener stop; only
+        # a caller that passes -ReplaceWedged (a host update's listener step)
+        # gets it appended.
+        $repairPath = Join-Path $script:RepoRoot 'test/modules/Test.HostRepair.psm1'
+        $repairModule = [IO.File]::ReadAllText($repairPath)
+        Assert-True ($repairModule -match "'-NonDestructive'") 'the host repair starts the listener non-destructive'
+        $repairAst = Get-YurunaTestFileAst -Path $repairPath
+        # Every mention of the switch stays inside the listener start, so no
+        # splat key, member or forwarded parameter elsewhere can pass it.
+        $owner = @($repairAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Start-HostOperationStatusService' }, $true))
+        Assert-Equal -Expected 1 -Actual $owner.Count 'the listener start is defined once'
+        $outside = $repairModule.Substring(0, $owner[0].Extent.StartOffset) + $repairModule.Substring($owner[0].Extent.EndOffset)
+        Assert-Equal -Expected 0 -Actual ([regex]::Matches($outside, 'ReplaceWedged')).Count 'ReplaceWedged appears outside the listener start, as a splat key or a forwarded switch the repair could pass'
+        $starts = @($repairAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Start-HostOperationStatusService' }, $true))
+        Assert-True ($starts.Count -ge 1) 'the scan found the repair''s listener start, so it proves something about it'
+        foreach ($start in $starts) { Assert-False ($start.Extent.Text -match 'ReplaceWedged') "the repair never stops a listener: line $($start.Extent.StartLineNumber)" }
+        $appends = @($repairAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and $n.Value -eq '-ReplaceWedged' }, $true))
+        Assert-Equal -Expected 1 -Actual $appends.Count 'one place adds the switch to the listener vector'
+        $clause = $appends[0].Parent
+        while ($clause -and $clause -isnot [System.Management.Automation.Language.IfStatementAst]) { $clause = $clause.Parent }
+        Assert-Equal -Expected '$ReplaceWedged' -Actual $clause.Clauses[0].Item1.Extent.Text 'it is added only when the caller asked for it'
+    }
+
+    It 'bounds its own git call and never restarts a server for a changed commit' {
+        $sha = @($script:ParentAst.FindAll({
+                    param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-NonDestructiveFrameworkSha'
+                }, $true))
+        Assert-Equal 1 $sha.Count
+        Assert-Match 'Invoke-BoundedNativeCommand -FilePath ''git''' $sha[0].Extent.Text
+        Assert-Match 'Get-YurunaDeadlineBoundedSeconds -Deadline \$script:NonDestructiveDeadline' $sha[0].Extent.Text
+    }
+
+    It 'lets an error raised before the startup-lock helper exists reach the caller unchanged' {
+        # A trap covers its whole scope, the module imports before the
+        # helper's definition included; an unguarded call there would replace
+        # the real error with "not recognized".
+        $traps = @($script:ParentAst.FindAll({ param($n) $n -is [System.Management.Automation.Language.TrapStatementAst] }, $false))
+        Assert-Equal 1 $traps.Count 'the launcher has one script-level trap'
+        $releases = @($traps[0].Body.FindAll({
+                    param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Exit-StatusServiceStartupLock' }, $true))
+        Assert-True ($releases.Count -ge 1) 'the trap still releases the startup lock'
+        foreach ($release in $releases) {
+            $guard = $release.Parent
+            while ($null -ne $guard -and $guard -isnot [System.Management.Automation.Language.IfStatementAst]) { $guard = $guard.Parent }
+            Assert-NotNull $guard 'the release in the trap is conditional'
+            Assert-Match "Get-Command -Name 'Exit-StatusServiceStartupLock'" $guard.Clauses[0].Item1.Extent.Text 'the release runs only once the helper exists'
+        }
+        $statements = @($traps[0].Body.Statements)
+        Assert-Match '^break$' $statements[-1].Extent.Text.Trim() 'the error still propagates'
+    }
+
+    It 'passes the configuration path on every branch' {
+        $text = [IO.File]::ReadAllText($script:ServicePath)
+        $needle = '-ServerConfigPath $(& $quoteLiteral $ServerConfigPath)'
+        Assert-True $text.Contains($needle) 'the launcher passes the quoted, always-resolved config path'
+        Assert-Match '\$ServerConfigPath = Join-Path \$TestRoot ''test.config.yml''' $text
+    }
+}
+
+Describe 'the non-destructive start in its own process' {
+
+    BeforeAll {
+        function New-NonDestructiveScratch {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Creates a throwaway test tree.')]
+            [CmdletBinding()]
+            [OutputType([pscustomobject])]
+            param()
+            $root = New-YurunaTestTempDir -Prefix 'yuruna-non-destructive'
+            $scratch = [pscustomobject]@{
+                Root = $root; Home = (Join-Path $root 'home'); Runtime = (Join-Path $root 'runtime'); Log = (Join-Path $root 'log')
+                Out = (Join-Path $root 'out'); Result = (Join-Path $root 'out/result.json')
+            }
+            $null = New-Item -ItemType Directory -Path $scratch.Home, $scratch.Runtime, $scratch.Log, $scratch.Out
+            foreach ($name in @('control.cycle-pause', 'control.step-pause', 'control.lab-hold', 'lab-hold.json', 'break-active.json', 'control.break-continue', 'control.cycle-restart')) {
+                [IO.File]::WriteAllText((Join-Path $scratch.Runtime $name), "held:$name")
+            }
+            [IO.File]::WriteAllText((Join-Path $scratch.Runtime 'status.json'), '{"overallStatus":"running","cyclePaused":true}')
+            foreach ($name in @('server.err', 'server.err.old', 'server.stderr')) {
+                [IO.File]::WriteAllText((Join-Path $scratch.Runtime $name), "original-error:$name")
+            }
+            return $scratch
+        }
+
+        function Get-RuntimeSnapshot {
+            [CmdletBinding()]
+            [OutputType([hashtable])]
+            param([Parameter(Mandatory)]$Scratch)
+            $snapshot = @{}
+            foreach ($file in @(Get-ChildItem -LiteralPath $Scratch.Runtime -Force -File)) { $snapshot[$file.Name] = [IO.File]::ReadAllText($file.FullName) }
+            return $snapshot
+        }
+
+        function Get-FreePort {
+            <#
+            .SYNOPSIS
+                A TCP port nothing holds now, from a band no operating system hands out as an ephemeral source port.
+            .DESCRIPTION
+                Binding port 0 and letting go returns a number from the ephemeral
+                range, and a suite running beside this one can have an outgoing
+                connection given that same number before the child this test
+                starts binds it. Linux allocates ephemeral ports from 32768 and
+                macOS and Windows from 49152, so a port below both is taken only
+                by an explicit bind. Each candidate is probed on the loopback and
+                the wildcard address, the two the launcher and the holders bind.
+            #>
+            [CmdletBinding()]
+            [OutputType([int])]
+            param()
+            for ($attempt = 0; $attempt -lt 100; $attempt++) {
+                $port = Get-Random -Minimum 20000 -Maximum 30000
+                try {
+                    (New-YurunaTestTcpListener -Port $port).Stop()
+                    (New-YurunaTestTcpListener -Port $port -AnyAddress).Stop()
+                    return $port
+                } catch [System.Net.Sockets.SocketException] { continue }
+            }
+            throw 'no free TCP port between 20000 and 29999'
+        }
+
+        function Invoke-NonDestructiveStart {
+            <#
+            .SYNOPSIS
+                Run the launcher as its own process under the scratch HOME and runtime.
+            #>
+            [CmdletBinding()]
+            [OutputType([pscustomobject])]
+            param(
+                [Parameter(Mandatory)]$Scratch,
+                [string[]]$Argument,
+                [switch]$NoRuntime
+            )
+            $startInfo = [Diagnostics.ProcessStartInfo]::new($script:Pwsh)
+            $startInfo.UseShellExecute = $false
+            $startInfo.CreateNoWindow = $true
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            # PowerShell initializes its readonly HOME from USERPROFILE on
+            # Windows. An environment HOME alone leaves the real private root
+            # in scope there, so isolate the profile before the child starts.
+            $profileVariable = if ($IsWindows) { 'USERPROFILE' } else { 'HOME' }
+            $startInfo.Environment[$profileVariable] = $Scratch.Home
+            if ($NoRuntime) { $null = $startInfo.Environment.Remove('YURUNA_RUNTIME_DIR') }
+            else { $startInfo.Environment['YURUNA_RUNTIME_DIR'] = $Scratch.Runtime }
+            $startInfo.Environment['YURUNA_LOG_DIR'] = $Scratch.Log
+            $startInfo.Environment['YURUNA_NONINTERACTIVE'] = '1'
+            $startInfo.Environment['YURUNA_HOST_ID_MODE'] = 'random'
+            $startInfo.Environment['PATH'] = (Split-Path -Parent $script:Pwsh) + [IO.Path]::PathSeparator + $startInfo.Environment['PATH']
+            foreach ($token in @('-NoProfile', '-NonInteractive', '-File', $script:ServicePath) + $Argument) {
+                $startInfo.ArgumentList.Add($token)
+            }
+            $child = [Diagnostics.Process]::Start($startInfo)
+            try {
+                $stdout = $child.StandardOutput.ReadToEndAsync()
+                $stderr = $child.StandardError.ReadToEndAsync()
+                if (-not $child.WaitForExit(60000)) {
+                    $child.Kill()
+                    throw 'The non-destructive child exceeded its test deadline.'
+                }
+                $drained = [Threading.Tasks.Task]::WhenAll([Threading.Tasks.Task[]]@($stdout, $stderr)).Wait(3000)
+                $output = if ($drained) { $stdout.GetAwaiter().GetResult() + $stderr.GetAwaiter().GetResult() }
+                    else { 'A descendant retained a redirected output handle after the launcher exited.' }
+                $code = $child.ExitCode
+            } finally { $child.Dispose() }
+            $result = if (Test-Path -LiteralPath $Scratch.Result) { ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Scratch.Result)) } else { $null }
+            return [pscustomobject]@{ ExitCode = $code; Result = $result; Output = ($output -replace "`e\[[0-9;]*[A-Za-z]", '') }
+        }
+
+        function Get-NonDestructiveArgument {
+            [CmdletBinding()]
+            [OutputType([string[]])]
+            param([Parameter(Mandatory)]$Scratch, [Parameter(Mandatory)][int]$Port, [long]$DeadlineMs = 20000)
+            return [string[]]@('-NonDestructive', '-Port', "$Port", '-ResultPath', $Scratch.Result, '-DeadlineTickMs', "$([Environment]::TickCount64 + $DeadlineMs)")
+        }
+    }
+
+    It 'reports a port another process holds as port-conflict and leaves that process and every control file alone' {
+        $scratch = New-NonDestructiveScratch
+        $port = Get-FreePort
+        $holder = New-YurunaTestTcpListener -Port $port -AnyAddress -NoStart
+        try {
+            $holder.ExclusiveAddressUse = $true
+            $holder.Start()
+            $before = Get-RuntimeSnapshot -Scratch $scratch
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -Argument (Get-NonDestructiveArgument -Scratch $scratch -Port $port)
+            Assert-Equal 2 $run.ExitCode "unexpected exit: $($run.Output)"
+            $expectedOutcome = if ($IsWindows -and $run.Result.outcome -eq 'port-privilege-required') { 'port-privilege-required' } else { 'port-conflict' }
+            Assert-StringEqual $expectedOutcome $run.Result.outcome
+            Assert-Equal 1 $run.Result.schemaVersion
+            Assert-Equal $port $run.Result.port
+            # Exercise the original listener: PowerShell/.NET on Linux and
+            # macOS can return null for Server after ExclusiveAddressUse.
+            Assert-Equal $port $holder.LocalEndpoint.Port 'the original listener still owns its endpoint'
+            $connection = [System.Net.Sockets.TcpClient]::new()
+            $accepted = $null
+            try {
+                Assert-True ($connection.ConnectAsync('127.0.0.1', $port).Wait(3000)) 'the original port still accepts connections'
+                $accept = $holder.AcceptTcpClientAsync()
+                Assert-True ($accept.Wait(3000)) 'the original listener was not disturbed'
+                $accepted = $accept.GetAwaiter().GetResult()
+            } finally {
+                if ($accepted) { $accepted.Dispose() }
+                $connection.Dispose()
+            }
+            $after = Get-RuntimeSnapshot -Scratch $scratch
+            $findings = @()
+            foreach ($name in $before.Keys) { if ($before[$name] -cne $after[$name]) { $findings += "$name changed" } }
+            foreach ($name in $after.Keys) { if (-not $before.ContainsKey($name)) { $findings += "$name was written" } }
+            Assert-NoFinding $findings 'the non-destructive start changed the runtime directory'
+        } finally {
+            try { $holder.Stop() } catch { $null = $_ }
+            Remove-YurunaTestTempDir $scratch.Root
+        }
+    }
+
+    It 'leaves a silent server whose lease shows it serving, in a full start and a non-destructive one, and replaces one whose lease reads wedged' {
+        $scratch = New-NonDestructiveScratch
+        $port = Get-FreePort
+        $standIn = $null
+        $listenerProcess = $null
+        try {
+            # A listener busy with one long request: alive, owned, and silent.
+            $serverScript = Join-Path $scratch.Runtime '.status-service.ps1'
+            [IO.File]::WriteAllText($serverScript, 'Start-Sleep -Seconds 120')
+            $startOptions = @{ FilePath = $script:Pwsh; ArgumentList = @('-NoProfile', '-NonInteractive', '-File', ('"' + $serverScript + '"')); PassThru = $true }
+            if ($IsWindows) { $startOptions.WindowStyle = 'Hidden' }
+            $standIn = Start-Process @startOptions
+            Start-Sleep -Milliseconds 500
+            [IO.File]::WriteAllText((Join-Path $scratch.Runtime 'server.pid'), [string]$standIn.Id)
+            $leasePath = Join-Path $scratch.Runtime 'server.lease.json'
+            $writeLease = {
+                param([string]$State, [long]$AgeMs)
+                $now = [Environment]::TickCount64
+                $record = [ordered]@{ schemaVersion = 1; pid = $standIn.Id; startTimeUnixMs = [DateTimeOffset]::new($standIn.StartTime).ToUnixTimeMilliseconds()
+                    state = $State; route = 'archive/fixture.zip'; sinceUtc = ''; sinceTick = $now - $AgeMs; renewedUtc = ''; renewedTick = $now - $AgeMs; served = 1 }
+                [IO.File]::WriteAllText($leasePath, ($record | ConvertTo-Json -Compress))
+            }
+            & $writeLease 'busy' 30000
+            $full = Invoke-NonDestructiveStart -Scratch $scratch -Argument @('-Port', "$port")
+            Assert-Equal 0 $full.ExitCode "unexpected exit: $($full.Output)"
+            Assert-True ($full.Output -match 'archive/fixture\.zip') "the start names the request the listener is serving: $($full.Output)"
+            Assert-False $standIn.HasExited 'a full start leaves a listener that is serving a request running'
+            $busy = Invoke-NonDestructiveStart -Scratch $scratch -Argument ((Get-NonDestructiveArgument -Scratch $scratch -Port $port) + '-ReplaceWedged')
+            Assert-Equal 2 $busy.ExitCode "unexpected exit: $($busy.Output)"
+            Assert-StringEqual 'existing-unresponsive' $busy.Result.outcome
+            Assert-StringEqual 'lease-busy' $busy.Result.reason
+            Assert-False $standIn.HasExited 'a busy listener is not replaced'
+            & $writeLease 'idle' 200000
+            $replaced = Invoke-NonDestructiveStart -Scratch $scratch -Argument ((Get-NonDestructiveArgument -Scratch $scratch -Port $port -DeadlineMs 45000) + '-ReplaceWedged')
+            if ($replaced.Result.outcome -eq 'port-privilege-required') {
+                Assert-True $IsWindows 'wildcard URL reservations are a Windows privilege boundary'
+            } else {
+                Assert-Equal 0 $replaced.ExitCode "unexpected exit: $($replaced.Output)"
+                Assert-StringEqual 'started' $replaced.Result.outcome
+                Assert-NotEqual $standIn.Id $replaced.Result.pid 'a new listener was started'
+                $listenerProcess = Get-Process -Id $replaced.Result.pid -ErrorAction Stop
+                $status = Invoke-RestMethod -Uri "http://localhost:$port/runtime/status.json" -TimeoutSec 5
+                Assert-StringEqual 'running' $status.overallStatus
+            }
+            Assert-True ($standIn.WaitForExit(5000)) 'the wedged listener was stopped'
+        } finally {
+            if ($standIn -and -not $standIn.HasExited) { try { $standIn.Kill(); [void]$standIn.WaitForExit(5000) } catch { $null = $_ } }
+            # A failed assertion must still release any listener a start here
+            # launched; the scratch pidfile names it once its command line
+            # proves it runs this test's launcher.
+            if (-not $listenerProcess) {
+                $ownership = Get-StatusServerOwnership -PidFile (Join-Path $scratch.Runtime 'server.pid') -ExpectedScriptPath (Join-Path $scratch.Runtime '.status-service.ps1')
+                if ($ownership.State -eq 'AliveOwned' -and $ownership.Reason -eq 'command-line') { $listenerProcess = Get-Process -Id $ownership.Pid -ErrorAction SilentlyContinue }
+            }
+            if ($listenerProcess) { try { $listenerProcess.Kill(); [void]$listenerProcess.WaitForExit(5000) } catch { $null = $_ } }
+            Remove-YurunaTestTempDir $scratch.Root -Attempts 5
+        }
+    }
+
+    It 'leaves an owned server that answers running and reports existing-ready' {
+        $scratch = New-NonDestructiveScratch
+        $port = Get-FreePort
+        $standIn = $null
+        try {
+            $serverScript = Join-Path $scratch.Runtime '.status-service.ps1'
+            [IO.File]::WriteAllText($serverScript, @"
+`$listener = [System.Net.HttpListener]::new()
+`$listener.Prefixes.Add('http://localhost:$port/')
+`$listener.Start()
+while (`$listener.IsListening) {
+    `$context = `$listener.GetContext()
+    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('ok')
+    `$context.Response.ContentLength64 = `$bytes.Length
+    `$context.Response.OutputStream.Write(`$bytes, 0, `$bytes.Length)
+    `$context.Response.OutputStream.Close()
+}
+"@)
+            $startOptions = @{ FilePath = $script:Pwsh; ArgumentList = @('-NoProfile', '-NonInteractive', '-File', ('"' + $serverScript + '"')); PassThru = $true }
+            if ($IsWindows) { $startOptions.WindowStyle = 'Hidden' }
+            $standIn = Start-Process @startOptions
+            $ready = $false
+            for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+                try { $null = Invoke-WebRequest -Uri "http://localhost:$port/status/" -TimeoutSec 1 -UseBasicParsing; $ready = $true } catch { Start-Sleep -Milliseconds 250 }
+            }
+            Assert-True $ready 'the stand-in server never answered'
+            [IO.File]::WriteAllText((Join-Path $scratch.Runtime 'server.pid'), [string]$standIn.Id)
+            $before = Get-RuntimeSnapshot -Scratch $scratch
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -Argument (Get-NonDestructiveArgument -Scratch $scratch -Port $port)
+            Assert-Equal 0 $run.ExitCode "unexpected exit: $($run.Output)"
+            Assert-StringEqual 'existing-ready' $run.Result.outcome
+            Assert-StringEqual 'command-line' $run.Result.reason 'the process-identity classifier ran and the command line confirmed the owner'
+            Assert-Equal $standIn.Id $run.Result.pid
+            Assert-False $standIn.HasExited 'the answering server was left running'
+            $after = Get-RuntimeSnapshot -Scratch $scratch
+            Assert-StringEqual $before['server.pid'] $after['server.pid'] 'the pidfile is untouched'
+            Assert-StringEqual $before['control.cycle-pause'] $after['control.cycle-pause']
+            Assert-StringEqual $before['break-active.json'] $after['break-active.json'] 'the break sidecar a held runner needs survives'
+            foreach ($name in @('server.err', 'server.err.old', 'server.stderr')) {
+                Assert-StringEqual $before[$name] $after[$name] 'an existing-ready start leaves error evidence untouched'
+            }
+        } finally {
+            if ($standIn -and -not $standIn.HasExited) { try { $standIn.Kill(); [void]$standIn.WaitForExit(5000) } catch { $null = $_ } }
+            Remove-YurunaTestTempDir $scratch.Root -Attempts 5
+        }
+    }
+
+    It 'reports a pidfile it cannot identify as unknown-owner' {
+        $scratch = New-NonDestructiveScratch
+        try {
+            [IO.File]::WriteAllText((Join-Path $scratch.Runtime 'server.pid'), 'garbage')
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -Argument (Get-NonDestructiveArgument -Scratch $scratch -Port (Get-FreePort))
+            Assert-Equal 2 $run.ExitCode "unexpected exit: $($run.Output)"
+            Assert-StringEqual 'unknown-owner' $run.Result.outcome
+            Assert-StringEqual 'garbage' ([IO.File]::ReadAllText((Join-Path $scratch.Runtime 'server.pid'))) 'an unidentified pidfile is never removed'
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'starts the real listener when binding is permitted and preserves controls across a second start' {
+        $scratch = New-NonDestructiveScratch
+        $port = Get-FreePort
+        $listenerProcess = $null
+        $beaconLock = $null
+        try {
+            $before = Get-RuntimeSnapshot -Scratch $scratch
+            # The listener is real; the held scratch lock only prevents its
+            # address beacon from announcing this temporary port to a pool.
+            $beaconLock = [IO.File]::Open((Join-Path $scratch.Runtime 'hostaddress.beacon.lock'),
+                [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -Argument (Get-NonDestructiveArgument -Scratch $scratch -Port $port -DeadlineMs 45000)
+            if ($run.Result.outcome -eq 'port-privilege-required') {
+                Assert-True $IsWindows 'wildcard URL reservations are a Windows privilege boundary'
+                $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+                try {
+                    $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+                    Assert-False ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) 'the elevated native canary must start the real listener'
+                } finally { $identity.Dispose() }
+                Assert-Equal 2 $run.ExitCode
+                Assert-False (Test-Path -LiteralPath (Join-Path $scratch.Runtime 'server.pid')) 'a refused bind starts no listener'
+            } else {
+                Assert-Equal 0 $run.ExitCode "unexpected exit: $($run.Output)"
+                Assert-StringEqual 'started' $run.Result.outcome
+                $listenerProcess = Get-Process -Id $run.Result.pid -ErrorAction Stop
+                # Native start-time sources can round differently on Linux;
+                # use the same two-second window as the ownership classifier.
+                $liveStart = [DateTimeOffset]::new($listenerProcess.StartTime).ToUnixTimeMilliseconds()
+                Assert-True ([Math]::Abs([long]$run.Result.startTimeUnixMs - $liveStart) -le 2000) 'the result identifies the listener start'
+                $status = Invoke-RestMethod -Uri "http://localhost:$port/runtime/status.json" -TimeoutSec 5
+                Assert-StringEqual 'running' $status.overallStatus
+                Assert-True $status.cyclePaused
+                $control = Invoke-RestMethod -Uri "http://localhost:$port/control/control-status" -TimeoutSec 5
+                Assert-NotNull $control.repair 'the generated listener serves the repair capability'
+                [IO.File]::WriteAllText((Join-Path $scratch.Runtime 'server.sha'), 'older-checkout')
+                $again = Invoke-NonDestructiveStart -Scratch $scratch -Argument (Get-NonDestructiveArgument -Scratch $scratch -Port $port)
+                Assert-Equal 0 $again.ExitCode "unexpected second exit: $($again.Output)"
+                Assert-StringEqual 'existing-ready' $again.Result.outcome
+                Assert-Equal $listenerProcess.Id $again.Result.pid 'a changed commit never replaces the live listener'
+                Assert-False $again.Result.shaMatches
+                Assert-False $listenerProcess.HasExited
+            }
+            Assert-True (Test-Path -LiteralPath (Join-Path $scratch.Home '.yuruna/host-repair')) 'startup admission belongs to the isolated child profile'
+            foreach ($name in $before.Keys) {
+                $preserved = if ($run.Result.outcome -eq 'started' -and $name -in @('server.err', 'server.err.old', 'server.stderr')) { "$name.previous.1" } else { $name }
+                Assert-StringEqual $before[$name] ([IO.File]::ReadAllText((Join-Path $scratch.Runtime $preserved))) "$name survives a real listener start"
+            }
+        } finally {
+            if ($listenerProcess) { $listenerProcess.Dispose(); $listenerProcess = $null }
+            # A failed outcome assertion must still release a listener that
+            # started. Trust the scratch pidfile only after its live command
+            # line and start time identify this test's generated script.
+            $ownership = Get-StatusServerOwnership -PidFile (Join-Path $scratch.Runtime 'server.pid') `
+                -ExpectedScriptPath (Join-Path $scratch.Runtime '.status-service.ps1')
+            if ($ownership.State -eq 'AliveOwned' -and $ownership.Reason -eq 'command-line') {
+                $candidate = Get-Process -Id $ownership.Pid -ErrorAction SilentlyContinue
+                # Keep cleanup consistent with the classifier's native
+                # start-time tolerance so rounding cannot leak the listener.
+                if ($candidate -and [Math]::Abs([DateTimeOffset]::new($candidate.StartTime).ToUnixTimeMilliseconds() - [long]$ownership.StartTimeUnixMs) -le 2000) {
+                    $listenerProcess = $candidate
+                } elseif ($candidate) { $candidate.Dispose() }
+            }
+            if ($listenerProcess -and -not $listenerProcess.HasExited) {
+                $listenerProcess.Kill()
+                $null = $listenerProcess.WaitForExit(10000)
+            }
+            if ($listenerProcess) { $listenerProcess.Dispose() }
+            if ($beaconLock) { $beaconLock.Dispose() }
+            Remove-YurunaTestTempDir $scratch.Root
+        }
+    }
+
+    It 'refuses with admission-busy while another start holds the startup lock' {
+        $scratch = New-NonDestructiveScratch
+        $held = $null
+        try {
+            $lockName = 'status-service.{0}.start.lock' -f (Get-StatusRuntimeKey -RuntimeDir $scratch.Runtime)
+            $lockPath = Get-YurunaPrivateStatePath -Name $lockName -HomePath $scratch.Home
+            Assert-True $lockPath.Resolved "the scratch private root did not resolve: $($lockPath.Reason)"
+            $held = Enter-YurunaSingleFlightLock -Path $lockPath.Path
+            Assert-True $held.Held "the test could not take the startup lock: $($held.Reason)"
+            $watch = [System.Diagnostics.Stopwatch]::StartNew()
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -Argument (Get-NonDestructiveArgument -Scratch $scratch -Port (Get-FreePort))
+            $watch.Stop()
+            Assert-Equal 2 $run.ExitCode "unexpected exit: $($run.Output)"
+            Assert-True ($watch.Elapsed.TotalSeconds -lt 15) "admission-busy exceeded its startup bound: $($watch.Elapsed.TotalSeconds)s"
+            Assert-StringEqual 'admission-busy' $run.Result.outcome
+            Assert-StringEqual 'held-elsewhere' $run.Result.reason
+        } finally {
+            if ($held) { Exit-YurunaSingleFlightLock -Lock $held }
+            Remove-YurunaTestTempDir $scratch.Root
+        }
+    }
+
+    It 'refuses a concurrent normal start without rotating existing error evidence' {
+        $scratch = New-NonDestructiveScratch
+        $held = $null
+        try {
+            $lockName = 'status-service.{0}.start.lock' -f (Get-StatusRuntimeKey -RuntimeDir $scratch.Runtime)
+            $lockPath = Get-YurunaPrivateStatePath -Name $lockName -HomePath $scratch.Home
+            Assert-True $lockPath.Resolved
+            $held = Enter-YurunaSingleFlightLock -Path $lockPath.Path
+            Assert-True $held.Held
+            $before = Get-RuntimeSnapshot -Scratch $scratch
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -Argument @('-Port', [string](Get-FreePort))
+            Assert-True ($run.ExitCode -ne 0) 'a normal start must not proceed without serialization'
+            Assert-Match 'held-elsewhere' $run.Output
+            Assert-Match 'concurrent start\.' $run.Output
+            $after = Get-RuntimeSnapshot -Scratch $scratch
+            foreach ($name in $before.Keys) { Assert-StringEqual $before[$name] $after[$name] "$name remains untouched" }
+            Assert-Equal $before.Count $after.Count 'a rejected start creates no rotated evidence or listener'
+        } finally {
+            if ($held) { Exit-YurunaSingleFlightLock -Lock $held }
+            Remove-YurunaTestTempDir $scratch.Root
+        }
+    }
+
+    It 'refuses a result path inside a served directory and writes nothing there' {
+        $scratch = New-NonDestructiveScratch
+        try {
+            $inside = Join-Path $scratch.Runtime 'result.json'
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -Argument @('-NonDestructive', '-Port', "$(Get-FreePort)", '-ResultPath', $inside)
+            Assert-Equal 1 $run.ExitCode "unexpected exit: $($run.Output)"
+            Assert-False (Test-Path -LiteralPath $inside) 'no result is written into the served runtime directory'
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'refuses without an owning runtime directory, and says so in its result' {
+        $scratch = New-NonDestructiveScratch
+        try {
+            $run = Invoke-NonDestructiveStart -Scratch $scratch -NoRuntime -Argument (Get-NonDestructiveArgument -Scratch $scratch -Port (Get-FreePort))
+            Assert-Equal 1 $run.ExitCode "unexpected exit: $($run.Output)"
+            Assert-StringEqual 'invalid-invocation' $run.Result.outcome
+            Assert-StringEqual 'runtime-unresolved' $run.Result.reason
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+
+    It 'refuses -NonDestructive with -Restart, and an unknown switch, as binding errors' {
+        $scratch = New-NonDestructiveScratch
+        try {
+            $both = Invoke-NonDestructiveStart -Scratch $scratch -Argument @('-NonDestructive', '-Restart', '-Port', '1')
+            Assert-NotEqual 0 $both.ExitCode
+            Assert-Match 'Parameter set cannot be resolved|AmbiguousParameterSet' $both.Output
+            $unknown = Invoke-NonDestructiveStart -Scratch $scratch -Argument @('-NonDestructive', '-Port', '1', '-Bogus')
+            Assert-NotEqual 0 $unknown.ExitCode
+            Assert-Match 'A parameter cannot be found|NamedParameterNotFound' $unknown.Output
+            Assert-Null $unknown.Result 'a refused binding runs nothing'
+        } finally { Remove-YurunaTestTempDir $scratch.Root }
+    }
+}

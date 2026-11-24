@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -680,7 +680,7 @@ function Save-ReconciledTestConfig {
     )
     $backupPath = $null
     $migrated = @($Reconciliation.Migration.Changes).Count -gt 0
-    if ($migrated) { $backupPath = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false }
+    if ($migrated) { $backupPath = New-ConfigNamingBackup -ConfigPath $ConfigPath -Change @($Reconciliation.Migration.Changes) -Confirm:$false }
     if ($Backup -and (Test-Path -LiteralPath $ConfigPath)) {
         Copy-Item -LiteralPath $ConfigPath -Destination "$ConfigPath.backup" -Force
         if (-not $migrated) { $backupPath = "$ConfigPath.backup" }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,6 +60,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameC
     step-timeout behavior, so the looser bound is always the failure
     direction.
 #>
+
 
 function Get-WatchdogInnerIdentityScript {
 <#

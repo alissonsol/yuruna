@@ -141,13 +141,14 @@ func TestMergeFolderPrefersTheBucketCopy(t *testing.T) {
 
 func TestStatusForOutcomeMatchesTheRunner(t *testing.T) {
 	cases := map[[2]string]string{
-		{"pass", ""}:                        "pass",
-		{"fail", "step 3"}:                  "fail",
-		{"aborted", "host refresh"}:         "skipped",
-		{"aborted", "Host Refresh pending"}: "skipped",
-		{"aborted", "watchdog"}:             "fail",
-		{"unknown", ""}:                     "fail",
-		{"", ""}:                            "fail",
+		{"pass", ""}:                    "pass",
+		{"fail", "step 3"}:              "fail",
+		{"aborted", "runner gate held"}: "skipped",
+		{"aborted", "Runner Gate Held"}: "skipped",
+		{"aborted", "host refresh"}:     "fail",
+		{"aborted", "watchdog"}:         "fail",
+		{"unknown", ""}:                 "fail",
+		{"", ""}:                        "fail",
 	}
 	for in, want := range cases {
 		if got := statusForOutcome(in[0], in[1]); got != want {
@@ -196,9 +197,9 @@ func TestReconstructCycleFromItsEventFile(t *testing.T) {
 		t.Errorf("a cycle with no cycle_end is a failure ending at its last event: %+v", killed)
 	}
 
-	refreshed := reconstructCycle(cf, eventsFileOf(`{"event":"cycle_end","timestamp":"2026-10-01T10:02:00Z","outcome":"aborted","reason":"host refresh"}`))
-	if refreshed.Status != "skipped" || refreshed.FailureClass != "" || refreshed.CycleStartUtc != "2026-10-01T10:00:00Z" {
-		t.Errorf("a refresh-aborted cycle is skipped and keyed by its folder: %+v", refreshed)
+	held := reconstructCycle(cf, eventsFileOf(`{"event":"cycle_end","timestamp":"2026-10-01T10:02:00Z","outcome":"aborted","reason":"runner gate held"}`))
+	if held.Status != "skipped" || held.FailureClass != "" || held.CycleStartUtc != "2026-10-01T10:00:00Z" {
+		t.Errorf("a cycle the runner gate held is skipped and keyed by its folder: %+v", held)
 	}
 
 	legacy := reconstructCycle(cf, eventsFileOf(`{"event":"cycle_start","timestamp":"2026-10-01T10:00:01Z","cycleId":"2026-10-01T10:00:00Z"}`, `{"event":"cycle_end","timestamp":"2026-10-01T10:30:00Z","outcome":"pass"}`))
@@ -340,11 +341,11 @@ func TestPacerSpacesCallersAndHonorsSlowHosts(t *testing.T) {
 	if !reflect.DeepEqual(slept, want) {
 		t.Errorf("sleeps: got %v want %v", slept, want)
 	}
-	cancelled, cancel := context.WithCancel(ctx)
+	canceled, cancel := context.WithCancel(ctx)
 	cancel()
 	q := &pacer{interval: time.Second, now: func() time.Time { return now }, sleep: sleepCtx}
-	if q.wait(cancelled) {
-		t.Error("a cancelled context must stop the wait")
+	if q.wait(canceled) {
+		t.Error("a canceled context must stop the wait")
 	}
 }
 

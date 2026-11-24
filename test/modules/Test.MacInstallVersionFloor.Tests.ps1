@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,14 +89,15 @@ $script:YamlBlock = [regex]::Match($installerText,
 if (-not $script:YamlBlock) { throw 'The powershell-yaml install block was not found in the installer.' }
 
 # Stubs stand in for everything the promotion reaches outside its own logic.
-# sudo runs the command as-is (every path below is inside the temp tree), and
-# brew answers for a prefix laid out on disk by the test.
+# sudo runs the command as-is (every path below is inside the temp tree), after
+# the -n every installer call carries, and brew answers for a prefix laid out on
+# disk by the test.
 $script:Prelude = @'
 set -euo pipefail
 log()  { printf 'LOG %s\n' "$*"; }
 warn() { printf 'WARN %s\n' "$*"; }
 note_issue() { printf 'ISSUE %s\n' "$*"; }
-sudo() { "$@"; }
+sudo() { if [[ "${1:-}" == -n ]]; then shift; fi; "$@"; }
 brew() {
   case "$1 ${2:-}" in
     "--prefix --installed")
@@ -287,6 +288,10 @@ ls '$root/local/bin'
 "@
             Assert-Match 'curl\.pre-yuruna\.' $r.Output 'a real binary at the link path has to be kept, not overwritten'
             Assert-Match ([regex]::Escape("$root/brew/opt/curl/bin/curl")) $r.Output 'the newest copy still has to win the name'
+            $kept = @(Get-ChildItem -LiteralPath "$root/local/bin" -Filter 'curl.pre-yuruna.*')
+            Assert-Equal 1 $kept.Count "the real file is kept beside the link: $($r.Output)"
+            Assert-Match ([regex]::Escape("$root/local/bin/curl: $($kept[0].FullName) -> $root/brew/opt/curl/bin/curl")) $r.Output `
+                'the previous value names where the replaced file now is, never <none>'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'relinks an older copy in the link directory even when this shell already runs the newest' {
@@ -310,6 +315,8 @@ printf 'LINK %s\n' "`$(readlink '$root/local/bin/pwsh')"
             Assert-Match '(?m)^LINK-TARGET-IS-NEWEST$' $r.Output `
                 'the link the whole machine resolves has to name the newest copy, not the .pkg'
             Assert-Match 'answers 7\.6\.6, older than 7\.6\.9' $r.Output 'the log has to say why a shell that already runs the newest copy relinks'
+            Assert-Match ([regex]::Escape("$root/local/bin/pwsh: $root/pkg/pwsh -> ")) $r.Output `
+                'the replaced link is reported as previous -> new, so the earlier target can be put back'
             Assert-True ($r.Output -notmatch 'BREW-UNLINK') 'the newest copy is Homebrew''s own, so nothing may be unlinked'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
@@ -418,6 +425,22 @@ echo "RC=`$?"
             Assert-True ($r.Output -notmatch 'ISSUE ') 'the report is advisory and never adds to the closing issues'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
+    It 'names the unattended deferral as the reason a newer UTM waits, whether or not a service VM runs' {
+        # An unattended run holds the UTM cask back on its own account; naming
+        # a service VM there sends the operator looking for one that may not
+        # exist.
+        $r = Invoke-InstallerShell -Body (@($script:ReportPrelude, @'
+export PATH_LINK_DIR="$PWD/no-such-link-dir"
+export YURUNA_UNATTENDED=1 PRESERVE_SERVICE_VM=1
+export FORMULA_JSON='{"formulae":[],"casks":[]}'
+export CASK_JSON='{"formulae":[],"casks":[{"name":"utm","installed_versions":["5.0.7"],"current_version":"5.0.8"}]}'
+non_brew_pwsh_paths() { :; }
+module_rows_below_pin() { :; }
+report_newer_versions
+'@) -join "`n")
+        Assert-Match ([regex]::Escape('LOG   utm: 5.0.7 -> 5.0.8 (Homebrew cask; an unattended run never upgrades UTM; run this installer from a terminal of the desktop session)')) $r.Output
+        Assert-True ($r.Output -notmatch 'a service VM is running') 'the unattended reason replaces the service-VM one'
+    }
     It 'reads a source that does not answer as unknown, never as current, and still succeeds' {
         $root = New-FloorSandbox
         try {
@@ -468,6 +491,76 @@ module_rows_below_pin
             Assert-Match "(?m)^powershell-yaml\t[0-9.]+\t99\.0\.0$" $r.Output 'a copy below its pin has to be named with the pin'
             Assert-True ($r.Output -notmatch 'PSScriptAnalyzer') 'a copy above its pin is current'
         } finally { Remove-YurunaTestTempDir $root }
+    }
+}
+
+Describe 'the utmctl link onto PATH' -Skip:$IsWindows {
+    BeforeAll {
+        # The region runs whole, as top-level code of the installer, against a
+        # bundle and a link directory inside the temp tree.
+        $from = $installerText.IndexOf('# --- REGION: UTM verification', [StringComparison]::Ordinal)
+        $to = $installerText.IndexOf('# --- REGION: PowerShell modules', [StringComparison]::Ordinal)
+        if ($from -lt 0 -or $to -le $from) { throw 'The UTM verification region was not found in the installer.' }
+        $script:UtmRegion = $installerText.Substring($from, $to - $from)
+        function Invoke-UtmctlLink {
+            param([Parameter(Mandatory)][string]$Root, [string]$Stub = '')
+            New-FakeTool -Path "$Root/UTM.app/Contents/MacOS/utmctl" -VersionLine 'utmctl bundle'
+            Invoke-InstallerShell -Body (@($Stub, @"
+UTM_APP='$Root/UTM.app'
+UTMCTL_BUNDLE="`$UTM_APP/Contents/MacOS/utmctl"
+PATH_LINK_DIR='$Root/local/bin'
+YURUNA_INSTALL_LOG=''
+export PATH='$Root/local/bin:/usr/bin:/bin'
+"@, $script:UtmRegion, "printf 'TARGET %s\n' `"`$(readlink '$Root/local/bin/utmctl' || true)`"", "echo FINISHED") -join "`n")
+        }
+    }
+    It 'reports the link it replaces as previous -> new' {
+        $root = New-FloorSandbox
+        try {
+            New-FakeTool -Path "$root/old/utmctl" -VersionLine 'utmctl old'
+            & ln -sfn "$root/old/utmctl" "$root/local/bin/utmctl"
+            $r = Invoke-UtmctlLink -Root $root
+            Assert-Match ([regex]::Escape("LOG Linking utmctl onto PATH: $root/local/bin/utmctl: $root/old/utmctl -> $root/UTM.app/Contents/MacOS/utmctl")) $r.Output `
+                'the earlier target is named with the new one, so it can be put back from the log'
+            Assert-Match ([regex]::Escape("TARGET $root/UTM.app/Contents/MacOS/utmctl")) $r.Output 'the link names the bundle afterwards'
+            Assert-Match 'FINISHED' $r.Output
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'reports a first link as <none> -> new' {
+        $root = New-FloorSandbox
+        try {
+            $r = Invoke-UtmctlLink -Root $root
+            Assert-Match ([regex]::Escape("LOG Linking utmctl onto PATH: $root/local/bin/utmctl: <none> -> $root/UTM.app/Contents/MacOS/utmctl")) $r.Output
+            Assert-Match ([regex]::Escape("TARGET $root/UTM.app/Contents/MacOS/utmctl")) $r.Output
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'keeps a real file at the link path and names the kept copy as the previous value' {
+        # A copied utmctl, or one an older UTM left, is not this installer's to
+        # delete; the timestamped neighbor is a state the operator can walk back to.
+        $root = New-FloorSandbox
+        try {
+            New-FakeTool -Path "$root/local/bin/utmctl" -VersionLine 'utmctl copied by hand'
+            $r = Invoke-UtmctlLink -Root $root
+            $kept = @(Get-ChildItem -LiteralPath "$root/local/bin" -Filter 'utmctl.pre-yuruna.*')
+            Assert-Equal 1 $kept.Count "the real file is kept beside the link: $($r.Output)"
+            Assert-Match 'utmctl copied by hand' (Get-Content -LiteralPath $kept[0].FullName -Raw) 'the kept copy holds the original bytes'
+            Assert-Match ([regex]::Escape("LOG Linking utmctl onto PATH: $root/local/bin/utmctl: $($kept[0].FullName) -> $root/UTM.app/Contents/MacOS/utmctl")) $r.Output `
+                'the previous value names where the replaced file now is, never <none>'
+            Assert-Match ([regex]::Escape("TARGET $root/UTM.app/Contents/MacOS/utmctl")) $r.Output
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'leaves a real file in place and links nothing when it cannot be moved aside' {
+        $root = New-FloorSandbox
+        try {
+            New-FakeTool -Path "$root/local/bin/utmctl" -VersionLine 'utmctl copied by hand'
+            $stub = 'sudo() { if [[ "${1:-}" == -n ]]; then shift; fi; if [[ "$1" == mv ]]; then return 1; fi; "$@"; }'
+            $r = Invoke-UtmctlLink -Root $root -Stub $stub
+            Assert-Match 'ISSUE Could not move .*/local/bin/utmctl aside' $r.Output 'the closing summary says why utmctl was not linked'
+            Assert-Match 'utmctl copied by hand' (Get-Content -LiteralPath "$root/local/bin/utmctl" -Raw) 'the file is left as it was'
+            Assert-Null (Get-Item -LiteralPath "$root/local/bin/utmctl").LinkType 'the path is still the real file, not a link'
+            Assert-True ($r.Output -notmatch 'LOG Linking utmctl') 'nothing is linked over a file that could not be kept'
+            Assert-Match 'FINISHED' $r.Output 'the install goes on with the utmctl that is there'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }
 
@@ -685,7 +778,7 @@ Describe 'record_dotnet_install_location keeps the operator''s .NET runtime loca
 set -euo pipefail
 log()  { printf 'LOG %s\n' "$*"; }
 note_issue() { printf 'ISSUE %s\n' "$*"; }
-sudo() { "$@"; }
+sudo() { if [[ "${1:-}" == -n ]]; then shift; fi; "$@"; }
 '@
         function Invoke-DotnetLocation {
             param([string]$Root, [string]$Previous)

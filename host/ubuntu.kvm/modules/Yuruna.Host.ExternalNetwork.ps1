@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 422408a8-20aa-41db-8fbb-13e90b2c0264
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -560,45 +560,6 @@ function Repair-YurunaExternalBridgeSlave {
     return 'rebuild'
 }
 
-<#
-.SYNOPSIS
-    Create a host-side Linux bridge + matching libvirt network so a guest
-    on this network DHCPs onto the host's LAN and is reachable by remote
-    LAN clients (mirrors the Hyper-V Yuruna-External vSwitch role).
-
-.DESCRIPTION
-    Idempotent. If $NetworkName is already defined in libvirt, ensures
-    it's active + autostart, then runs Repair-YurunaExternalBridgeSlave
-    to self-heal a half-built host bridge (uplink NIC never enslaved --
-    DHCP loops, guests get no lease). The self-heal is a no-op on a
-    healthy bridge; on a broken one it re-attaches the uplink through
-    whichever backend owns the bridge (netplan re-apply or NM slave
-    activation), which may briefly flap the host's LAN session -- and
-    when even that is impossible it falls THROUGH to rebuild the bridge
-    from scratch. Otherwise (network not yet defined):
-
-      1. Resolves the host's default-route NIC.
-      2. Refuses Wi-Fi (most APs filter frames for the bridge-side MAC).
-      3. Detects whether the NIC is already a bridge port -- reuses
-         that bridge if so (no host networking change).
-      4. Else sweeps the residue of any previous half-built attempt
-         (stale NM profiles, stale netplan file, stale bridge device --
-         each makes a fresh build fail differently), then creates a new
-         bridge ($BridgeName) and moves the NIC onto it via nmcli
-         (preferred) or netplan (fallback). THIS CAUSES A BRIEF NETWORK
-         OUTAGE while DHCP migrates IP from the NIC to the bridge --
-         callers running over SSH on this NIC should expect their
-         session to drop and require reconnect.
-      5. Defines + starts a libvirt network of type bridge.
-
-    On failure the function returns $null after rolling back the
-    half-built bridge state, and -- when the network was already
-    defined -- stops the network so guests fall back to NAT 'default'
-    instead of being attached to a bridge with no uplink.
-
-.OUTPUTS
-    The libvirt network name on success ($NetworkName), or $null.
-#>
 function Get-YurunaExternalNetworkPlan {
     <#
     .SYNOPSIS
@@ -787,13 +748,20 @@ $(Get-YurunaBridgeRollbackRecipe -BridgeName $BridgeName -Nic $nic -NicProfile $
     On a clean host:
       1. Resolves the default-route NIC (refuses Wi-Fi; bridges over Wi-Fi
          don't work for guest traffic the way they do over Ethernet).
-      2. Sweeps stale residue from previous attempts, then builds the
-         Linux bridge via NetworkManager (nmcli) or netplan -- picked by
+      2. Reuses the bridge when that NIC is already a bridge port with a
+         working uplink (no host networking change).
+      3. Otherwise sweeps stale residue from previous attempts, then builds
+         the Linux bridge via NetworkManager (nmcli) or netplan -- picked by
          which backend manages the NIC. Brief LAN flap (1-5 s) while
          DHCP migrates from the bare NIC onto the bridge (the bridge
          clones the NIC's MAC, so the same IP normally comes back).
-      3. Defines the libvirt network as a forward-mode=bridge interface
+      4. Defines the libvirt network as a forward-mode=bridge interface
          pointing at the new host bridge, sets it autostart, starts it.
+
+    On failure the function returns $null after rolling back the
+    half-built bridge state, and -- when the network was already
+    defined -- stops the network so guests fall back to NAT 'default'
+    instead of being attached to a bridge with no uplink.
 
     All diagnostics are emitted via Write-Information / Write-Warning /
     Write-Error so the function's only success output stays the single

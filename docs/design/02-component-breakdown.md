@@ -95,11 +95,42 @@ before the service guests. Lab administration
 groups [test/lab/](../../test/lab/) and the [test/pool/](../../test/pool/)
 administration scripts, including token initialization, pool creation,
 enrollment, storage administration,
-[Invoke-HostRefresh](../../test/lab/Invoke-HostRefresh.ps1), and the
+[Invoke-HostRepair](../../test/lab/Invoke-HostRepair.ps1), and the
 [Start-Syzygy](../../test/lab/Start-Syzygy.ps1) and
 [Stop-Syzygy](../../test/lab/Stop-Syzygy.ps1) controls, which run the four
 service VM scripts in order and in reverse. The pool-control
 service invokes the same pool scripts.
+[Update-Syzygy](../../test/lab/Update-Syzygy.ps1) asks Start-Syzygy's questions
+first, waits for a new commit on the checkout's upstream, pulls it, and runs
+Start-Syzygy in a new process. [Invoke-HostUpdate](../../test/lab/Invoke-HostUpdate.ps1)
+queues a host update, the request the Diagnostics page's **Update host** sends, as
+one row in the private request journal, and its `-Release` ends one that cannot
+end on its own. Its `restart` scope stops the runner, updates the source, and
+starts the runner again; `full`, which a host offers while its elevation probe
+passes, also runs the checkout's bootstrapper with `--unattended` (`-Unattended`
+on Windows) and Enable-TestAutomation `-SkipPoolStorage -NoOperatorPrompt` in
+between. An unattended bootstrapper never prompts, runs no git command, stops
+nothing, refuses a first install or a live runner before its first change, and
+writes its result record on every path.
+The host controller,
+[Invoke-HostUpdateController](../../test/lab/Invoke-HostUpdateController.ps1),
+claims the row from a private snapshot of its code and runs every phase but the
+drain as an
+[Invoke-HostUpdateStep](../../test/lab/Invoke-HostUpdateStep.ps1) child; the
+[shim](../../test/lab/yuruna-host-controller-shim.sh) starts it again when it
+ends and goes back to the previous snapshot when a new one never starts. Each
+provider's Enable-TestAutomation deploys the shim and a first snapshot, and its
+Disable-TestAutomation removes them. On Ubuntu KVM,
+[Enable-TestAutomation](../../host/ubuntu.kvm/Enable-TestAutomation.ps1) also
+registers
+[yuruna-host-controller.service](../../host/ubuntu.kvm/host-controller/yuruna-host-controller.service);
+on Windows, [Enable-TestAutomation](../../host/windows.hyper-v/Enable-TestAutomation.ps1)
+registers the scheduled task of
+[yuruna-host-controller.task.xml](../../host/windows.hyper-v/host-controller/yuruna-host-controller.task.xml),
+which runs [the PowerShell shim](../../test/lab/yuruna-host-controller-shim.ps1);
+on macOS, [Enable-TestAutomation](../../host/macos.utm/Enable-TestAutomation.ps1)
+registers nothing, and an ordinary runner start from the desktop session starts
+the shim in a `tmux` or `screen` session named `yuruna-controller`.
 Setup always brings up the cache, and the stash when storage is configured. The
 download agent defaults off in standalone mode and on in lab mode unless
 `downloadAgentService.enabled` says otherwise; lab mode also enrolls the lab
@@ -198,7 +229,7 @@ Sources and aggregate membership:
 | Box | Sources |
 | --- | --- |
 | Runner supervision | [Start-TestRunner](../../test/Start-TestRunner.ps1), [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Invoke-TestCycleRunner](../../test/modules/Invoke-TestCycleRunner.ps1), [Invoke-TestRunnerInnerLoop](../../test/modules/Invoke-TestRunnerInnerLoop.ps1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.ConfigPreflight](../../test/modules/Test.ConfigPreflight.psm1), [Test.RunnerAttemptHistory](../../test/modules/Test.RunnerAttemptHistory.psm1), [Test.SourceSelection](../../test/modules/Test.SourceSelection.psm1), [Test.HostGit](../../test/modules/Test.HostGit.psm1), [Test.FrameworkRing](../../test/modules/Test.FrameworkRing.psm1), [Test.PrivateStateRepair](../../test/modules/Test.PrivateStateRepair.psm1), the one-shot [Invoke-TestProject](../../test/Invoke-TestProject.ps1) and [Debug-TestSequence](../../test/Debug-TestSequence.ps1) entry points, [Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1), and runner identity/recovery modules in [test/modules/](../../test/modules/). |
-| Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequencePlanner](../../test/modules/Test.SequencePlanner.psm1), [Test.Orchestrator](../../test/modules/Test.Orchestrator.psm1), [Test.Start-GuestOS](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload](../../test/modules/Test.Start-GuestWorkload.psm1), [sequences/](../../test/sequences/), and [schemas/](../../test/schemas/). |
+| Sequence execution | [Test.SequenceRunner](../../test/modules/Test.SequenceRunner.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequencePlanner](../../test/modules/Test.SequencePlanner.psm1), [Test.Orchestrator](../../test/modules/Test.Orchestrator.psm1), [Test.Start-GuestOS](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload](../../test/modules/Test.Start-GuestWorkload.psm1), [Test.StepPhrase](../../test/modules/Test.StepPhrase.psm1), [Test.WebHandler](../../test/modules/Test.WebHandler.psm1), [Test.WebSession](../../test/modules/Test.WebSession.psm1), [Test.SequenceSecret](../../test/modules/Test.SequenceSecret.psm1), the [workload MCP server](../../test/service/Start-WorkloadMcpServer.ps1) with its [worker](../../test/service/Invoke-WorkloadSession.ps1) and Test.Workload* modules, [sequences/](../../test/sequences/), and [schemas/](../../test/schemas/). |
 | OCR and diagnostics | [Test.OcrEngine](../../test/modules/Test.OcrEngine.psm1), [Test.OcrMatch](../../test/modules/Test.OcrMatch.psm1), [Test.Tesseract](../../test/modules/Test.Tesseract.psm1), [Test.Ssh](../../test/modules/Test.Ssh.psm1), [Test.Diagnostic](../../test/modules/Test.Diagnostic.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), the [guest](../../test/Invoke-GuestDiagnosticWorker.ps1) and [host](../../test/modules/Invoke-HostDiagnosticWorker.ps1) diagnostic workers, [Get-SystemDiagnostic](../../automation/Get-SystemDiagnostic.ps1), and the [guest stall sampler](../../automation/guest-performance-snapshot.sh). |
 | Status and configuration | [Start-StatusService](../../test/service/Start-StatusService.ps1) and its listener [Invoke-StatusServiceRuntime](../../test/service/Invoke-StatusServiceRuntime.ps1), [Start-ConfigService](../../test/service/Start-ConfigService.ps1), [Repair-PrivateState.py](../../test/service/Repair-PrivateState.py), the [host address beacon](../../test/modules/Invoke-HostAddressBeacon.ps1) sidecar and [Test.HostAddressBeacon](../../test/modules/Test.HostAddressBeacon.psm1), [Test.HostMemoryMetrics](../../test/modules/Test.HostMemoryMetrics.psm1), and [status/](../../test/status/). |
 | Pool coordination | [Test.PoolWorker](../../test/modules/Test.PoolWorker.psm1), [Test.PoolSync](../../test/modules/Test.PoolSync.psm1), [Test.PoolPush](../../test/modules/Test.PoolPush.psm1), [Test.PoolStorage](../../test/modules/Test.PoolStorage.psm1), [Test.PoolPlanner](../../test/modules/Test.PoolPlanner.psm1), and [Test.PoolAdmin](../../test/modules/Test.PoolAdmin.psm1). |
@@ -260,7 +291,10 @@ helpers family. [Data flows](03-data-flows.md) follows this exchange.
 VM state through the host driver and save console evidence when a guest stops
 answering. A `retry` step with `restartVmBeforeRetry: coldPowerCycle`
 power-cycles a stalled startup guest on all three hosts before its next
-attempt. Text waits ask a driver that exports a console second opinion
+attempt; when the failed wait saw the installer still running, in its OCR tail
+or the installer stage it retained, the restart must first select the installer
+media, which only the Hyper-V driver can do, so other hosts end the retry
+instead. Text waits ask a driver that exports a console second opinion
 whether the guest stopped drawing; on UTM, a sustained inactive display with
 static frames ends the wait as a livelock. Login waits and uncommitted password
 prompts within an admitted cold-restart retry also end early when a
@@ -279,6 +313,36 @@ start pipeline in [Test.ServiceVm](../../test/modules/Test.ServiceVm.psm1)
 ensures the configuration service before it builds a stash, download-agent, or
 pool-control guest, which fetches its NAS credential there at first boot.
 
+Sequence execution also reads step sentences.
+[Test.StepPhrase](../../test/modules/Test.StepPhrase.psm1) replaces a `step:`
+sentence, when the file is read, with the action steps of the phrase it matches
+in [_phrases.yml](../../test/sequences/_phrases.yml) or a project library; no
+library may redefine or overlap a phrase of another. Page steps, `webOpen` to
+`webClose`, are registered by [Test.WebHandler](../../test/modules/Test.WebHandler.psm1)
+and drive a headless browser in the guest through
+[Test.WebSession](../../test/modules/Test.WebSession.psm1), which reaches the
+browser's DevTools port over an SSH tunnel; a page ends no later than the
+sequence that opened it. On KVM, Test.Transport presses `tapOn` clicks as absolute pointer
+events sent through `virsh qemu-monitor-command`. When a non-sensitive
+`fetchAndExecute` command is typed at the console in legacy staged lines, its evidence
+keeps a console image and OCR text after each of the first 16 lines beside each
+line's planned digest, to help tell lost input from a guest that failed to run
+it. The `start.guest.ubuntu.server.*.ssh.yml`
+sequences build a fresh Ubuntu guest without a console login: their
+`sshWaitReady` step, given `currentPassword` and `newPassword`, rotates the
+expired first-login password or sets it on a guest provisioned already, and the
+sequence then commits the new password to the vault. The
+[workload MCP server](../../test/service/Start-WorkloadMcpServer.ps1) drives the
+same engine to author sequences against a running guest. Its front end answers
+the stdio client within a call budget and never loads the engine; its
+[worker](../../test/service/Invoke-WorkloadSession.ps1) holds the runtime's
+one-shot lease for the session, runs each step through `Invoke-Sequence`, saves
+what worked under [sequences/](../../test/sequences/), and replays a saved file
+in a Debug-TestSequence child.
+[Test.SequenceSecret](../../test/modules/Test.SequenceSecret.psm1) filters every
+reply and session file for the secrets the session registered. The server is
+grouped with sequence execution, the engine it drives, and adds no box.
+
 The extension family contains more than seven implementations and remains one
 aggregate here. Sequence steps call PowerShell extension methods through
 [Test.Extension](../../test/modules/Test.Extension.psm1), and the
@@ -294,12 +358,23 @@ serves them read-only, and
 [git-mirror-http-backend.sh](../../test/extension/caching-proxy-service/git-mirror-http-backend.sh)
 answers Git HTTP clones. Their runtime
 placement and exchanges are expanded in [Deployment](06-deployment.md) and
-[Data flows](03-data-flows.md). Host refresh groups
-[Test.HostRefresh](../../test/modules/Test.HostRefresh.psm1),
-[Test.HostRefreshIntent](../../test/modules/Test.HostRefreshIntent.psm1),
-[Test.HostRefreshTrigger](../../test/modules/Test.HostRefreshTrigger.psm1), and
-[Test.HostRefreshAuth](../../test/modules/Test.HostRefreshAuth.psm1) with runner
+[Data flows](03-data-flows.md). Host repair groups
+[Test.HostRepair](../../test/modules/Test.HostRepair.psm1),
+[Test.HostOperationJournal](../../test/modules/Test.HostOperationJournal.psm1),
+[Test.HostRepairTrigger](../../test/modules/Test.HostRepairTrigger.psm1), and
+[Test.HostRepairAuth](../../test/modules/Test.HostRepairAuth.psm1) with runner
 supervision.
+Host update groups [Test.HostUpdate](../../test/modules/Test.HostUpdate.psm1), the
+host controller's snapshot, journal, locks, and runner gate, and
+[Test.HostUpdateStep](../../test/modules/Test.HostUpdateStep.psm1), the work of
+each phase, with runner supervision as well. Its rows share
+Test.HostOperationJournal with host repair, and the status service's
+`POST /control/host-update` route, which the Diagnostics page's **Update host**
+calls from the host itself, queues the same row as the lab command. From
+another machine, the page opens pool-control, whose `POST /api/host/update`
+signs a `yup1` proof that the route verifies through
+[Test.HostRepairAuth](../../test/modules/Test.HostRepairAuth.psm1) against the
+public key in the host's `pool-control.record` before it queues the row.
 
 ## Providers
 
@@ -425,6 +500,13 @@ installed system. The stash, download-agent, and
 pool-control seeds carry configuration-service client certificates and
 [yuruna-nas-credential.sh](../../automation/yuruna-nas-credential.sh) instead of
 a NAS password.
+The Ubuntu base seed's early commands also start a recorder that, for at most
+two hours and until the late commands stop it, uploads a bounded snapshot of
+the installer's logs, process wait state, and network to the host status
+service every minute, so an
+installer that hangs before SSH and before its error hook still leaves evidence;
+[Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1) copies the latest
+snapshot into the cycle folder unless it predates the cycle or the failed step.
 Guest edges identify the scripts selected for the guest, not a requirement that
 every driver execute every script.
 
@@ -492,6 +574,10 @@ and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/mai
 
 The tests box groups the repository cycle plan with example and book sequence
 definitions in [book/](https://github.com/alissonsol/yuruna-project/tree/main/book).
+The website example's
+[page check](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/workload.guest.ubuntu.server.26.k8s.website.page.ssh.yml)
+chains on its SSH full-install sequence and checks the deployed pages in the
+guest's browser with step sentences that resolve to page steps.
 The current deployment examples select localhost, AWS, or Azure; no checked-in
 GCP configuration is present. Examples contain projects below their name;
 template itself contains
@@ -541,9 +627,9 @@ in Yuruna.Common is shared by the
 [pool push forwarder](../../test/modules/Invoke-PoolPushForwarder.ps1).
 Guest shell helpers group the scripts that guest seeds and
 guest scripts install or source: fetch-and-execute.sh, yuruna-fetch-context.sh,
-yuruna-retry.sh, yuruna-run.sh, yuruna-network.sh, yuruna-versions.sh,
-yuruna-service-bringup.sh, yuruna-nas-credential.sh, the yuruna-host-locate pair,
-Test-YurunaHost.ps1, and windows-guest-bootstrap.ps1. When the host status
+yuruna-retry.sh, yuruna-run.sh, yuruna-web-browser.sh, yuruna-network.sh,
+yuruna-versions.sh, yuruna-service-bringup.sh, yuruna-nas-credential.sh, the
+yuruna-host-locate pair, Test-YurunaHost.ps1, and windows-guest-bootstrap.ps1. When the host status
 service is unreachable, fetch-and-execute.sh reads a pinned commit's files from
 the caching-proxy Git mirror before GitHub, and yuruna-retry.sh provides the
 pinned Git materializer that the guest update scripts also embed, plus the CA
@@ -551,6 +637,9 @@ self-heal that installs a proxy CA only when it matches the seeded fingerprint.
 Its `curl` and `wget` wrappers retry a GitHub release download or
 `releases/latest` lookup through a 30-minute window with each backoff capped at
 two minutes, so a fetch lands soon after GitHub's release endpoints recover.
+yuruna-web-browser.sh is never installed: the web session sends its text inside
+each SSH command, so a guest restored from an old snapshot still runs the
+current launcher that starts, holds, and stops its browser.
 Results and logging include
 completion manifests, log levels, and entry-point root and transcript resolution in Yuruna.LogLevel.
 Validation, requirement, and deployment-kind modules are imported only by
@@ -624,6 +713,10 @@ release-asset learner has filed them. The
 registry providers authenticate the component phase's push; cluster pull access
 comes from project workload configuration, such as the Azure website's
 `docker-registry` secret.
+Image and package upstreams also include Google's signed apt repository, from
+which [ubuntu.browser.sh](../../guest/shared/ubuntu.browser.sh) installs the
+browser for page steps, trusting its key by a pinned fingerprint because the lab
+proxy re-signs HTTPS.
 The AWS template exposes the Kubernetes control-plane API separately from
 application ingress, as shown in [Deployment](06-deployment.md#aws-application-ingress).
 
@@ -633,6 +726,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 [Architecture](../architecture.md) | [Design overview](README.md)

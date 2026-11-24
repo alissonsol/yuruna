@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,9 +38,11 @@
 
 BeforeDiscovery {
 $script:usesWaitSignals = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','sshWaitReady'
-$script:notWaitSignals  = 'fetchAndExecute','sshExec','sshFetchAndExecute','pressKey','retry','tapOn','waitForSeconds'
-$script:selfCapture = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','fetchAndExecute'
-$script:engineCapture = 'sshWaitReady','sshExec','pressKey','retry','tapOn','waitForSeconds'
+$script:notWaitSignals  = 'fetchAndExecute','sshExec','sshFetchAndExecute','pressKey','retry','tapOn','waitForSeconds',
+    'webOpen','webClick','webFill','webSelect','webPress','webExpect','webClose'
+$script:selfCapture = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','fetchAndExecute','tapOn'
+$script:engineCapture = 'sshWaitReady','sshExec','pressKey','retry','waitForSeconds',
+    'webOpen','webClick','webFill','webSelect','webPress','webExpect','webClose'
 }
 
 BeforeAll {

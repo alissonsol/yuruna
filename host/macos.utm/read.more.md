@@ -23,7 +23,7 @@ xcode-select --install
 
 ```
 brew install --cask utm
-brew install git powershell tesseract openssl qemu wget
+brew install git powershell tesseract openssl qemu wget tmux
 ```
 
 - `utm` -- [UTM](https://mac.getutm.app/) VM host, built on QEMU.
@@ -32,6 +32,9 @@ brew install git powershell tesseract openssl qemu wget
 - `tesseract` -- OCR for [Test.Tesseract.psm1](../../test/modules/Test.Tesseract.psm1).
 - `qemu` -- `qemu-img` for disk image resizing in `Get-Image.ps1`.
 - `openssl` / `wget` -- image-fetch and cloud-init preparation.
+- `tmux` -- the detached session a runner start creates for the host controller, and the
+  console of a runner a host update starts. Without it, `screen`, where the Mac has it, holds the
+  controller's session and that runner starts without a console.
 
 ## 3) Clone the Yuruna Repository
 
@@ -145,6 +148,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../../README.md)

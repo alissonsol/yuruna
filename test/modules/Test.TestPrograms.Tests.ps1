@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 420cb71b-a0c8-4471-9a53-9f8a03416299
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@ BeforeDiscovery {
     $script:UnitTestPrograms = @(
         @{ Program = 'tools/tests/test_aks_context.py'; Tests = 1 }
         @{ Program = 'tools/tests/test_installer_failure_logging.py'; Tests = 7 }
+        @{ Program = 'tools/tests/test_installer_progress_logging.py'; Tests = 11 }
         @{ Program = 'tools/tests/test_low_workflows.py'; Tests = 12 }
         @{ Program = 'tools/tests/test_pester_selection.py'; Tests = 1 }
         @{ Program = 'tools/tests/test_sbom_dependencies.py'; Tests = 27 }
@@ -43,7 +44,7 @@ BeforeDiscovery {
         @{ Program = 'tools/tests/test_sbom_sync.py'; Tests = 21 }
         @{ Program = 'tools/tests/test_utf8_catalog.py'; Tests = 3 }
         @{ Program = 'host/vmconfig/tests/test_collector_seed.py'; Tests = 9 }
-        @{ Program = 'host/vmconfig/tests/test_pool_configuration.py'; Tests = 17 }
+        @{ Program = 'host/vmconfig/tests/test_pool_configuration.py'; Tests = 19 }
     )
 }
 
@@ -68,6 +69,19 @@ BeforeAll {
         $text = [regex]::Replace($text, "\x1b\[[0-9;?]*[ -/]*[@-~]", '')
         return [regex]::Replace($text, "[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", '')
     }
+    function Write-TestProgramProgress {
+        param([string]$Program, [string]$Phase, [long]$ElapsedMs=0, [Nullable[int]]$ExitCode)
+        try {
+            if ($Phase -cnotin @('start','end') -or $Program -cnotmatch '^(tools/tests|host/vmconfig/tests)/[A-Za-z0-9_.-]+$') { return }
+            $record=[ordered]@{
+                event='test-program'; program=$Program; phase=$Phase
+                utc=[datetime]::UtcNow.ToString('o'); elapsedMs=$ElapsedMs; exitCode=$ExitCode
+            }
+            # Console stderr survives a killed Pester worker without waiting for
+            # its assertion report. Keep native output and arguments excluded.
+            [Console]::Error.WriteLine(($record | ConvertTo-Json -Compress))
+        } catch { $null=$_ }
+    }
 }
 
 Describe 'the test programs beside the tools still pass' {
@@ -76,10 +90,16 @@ Describe 'the test programs beside the tools still pass' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'Python 3.11 or newer is not installed'; return }
         $path = Join-Path $script:RepoRoot $Program
         Push-Location -LiteralPath (Split-Path -Parent $path)
+        $programClock=[Diagnostics.Stopwatch]::StartNew()
+        $code=$null
+        Write-TestProgramProgress -Program $Program -Phase start
         try {
             $output = ConvertTo-PlainProgramOutput (& $script:Python.Source -B -m unittest -v ([IO.Path]::GetFileNameWithoutExtension($path)) 2>&1)
             $code = $LASTEXITCODE
-        } finally { Pop-Location }
+        } finally {
+            Write-TestProgramProgress -Program $Program -Phase end -ElapsedMs $programClock.ElapsedMilliseconds -ExitCode $code
+            Pop-Location
+        }
         $code | Should -Be 0 -Because $output
         $ran = [regex]::Match($output, '(?m)^Ran (\d+) tests? in ')
         $ran.Success | Should -BeTrue -Because $output
@@ -87,19 +107,37 @@ Describe 'the test programs beside the tools still pass' {
     }
 
     It 'passes the automation contracts' {
-        $output = ConvertTo-PlainProgramOutput (& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:RepoRoot 'tools/tests/medium_contracts.ps1') 2>&1)
+        $programClock=[Diagnostics.Stopwatch]::StartNew()
+        $programExitCode=$null
+        Write-TestProgramProgress -Program 'tools/tests/medium_contracts.ps1' -Phase start
+        try {
+            $output = ConvertTo-PlainProgramOutput (& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:RepoRoot 'tools/tests/medium_contracts.ps1') 2>&1)
+            $programExitCode=$LASTEXITCODE
+        } finally { Write-TestProgramProgress -Program 'tools/tests/medium_contracts.ps1' -Phase end -ElapsedMs $programClock.ElapsedMilliseconds -ExitCode $programExitCode }
         $LASTEXITCODE | Should -Be 0 -Because $output
         $output | Should -Match 'Automation contracts: \d+ assertions passed'
     }
 
     It 'passes the stop-process contracts' {
-        $output = ConvertTo-PlainProgramOutput (& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:RepoRoot 'tools/tests/stop_process_contracts.ps1') 2>&1)
+        $programClock=[Diagnostics.Stopwatch]::StartNew()
+        $programExitCode=$null
+        Write-TestProgramProgress -Program 'tools/tests/stop_process_contracts.ps1' -Phase start
+        try {
+            $output = ConvertTo-PlainProgramOutput (& (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:RepoRoot 'tools/tests/stop_process_contracts.ps1') 2>&1)
+            $programExitCode=$LASTEXITCODE
+        } finally { Write-TestProgramProgress -Program 'tools/tests/stop_process_contracts.ps1' -Phase end -ElapsedMs $programClock.ElapsedMilliseconds -ExitCode $programExitCode }
         $LASTEXITCODE | Should -Be 0 -Because $output
     }
 
     It 'passes the download-agent sort contracts' {
         if (-not $script:Node) { Set-ItResult -Skipped -Because 'Node.js is not installed'; return }
-        $output = ConvertTo-PlainProgramOutput (& $script:Node.Source (Join-Path $script:RepoRoot 'tools/tests/low_sort_contracts.cjs') 2>&1)
+        $programClock=[Diagnostics.Stopwatch]::StartNew()
+        $programExitCode=$null
+        Write-TestProgramProgress -Program 'tools/tests/low_sort_contracts.cjs' -Phase start
+        try {
+            $output = ConvertTo-PlainProgramOutput (& $script:Node.Source (Join-Path $script:RepoRoot 'tools/tests/low_sort_contracts.cjs') 2>&1)
+            $programExitCode=$LASTEXITCODE
+        } finally { Write-TestProgramProgress -Program 'tools/tests/low_sort_contracts.cjs' -Phase end -ElapsedMs $programClock.ElapsedMilliseconds -ExitCode $programExitCode }
         $LASTEXITCODE | Should -Be 0 -Because $output
         $output | Should -Match 'comparisons match'
     }
@@ -112,6 +150,49 @@ Describe 'a failing program''s output in the failure message' {
         $esc = [char]27
         $plain = ConvertTo-PlainProgramOutput @("$esc[31;1mException:$esc[0m boom", "tab`tkept$([char]7)")
         $plain | Should -BeExactly "Exception: boom`ntab`tkept"
+    }
+}
+
+Describe 'test program progress diagnostics' {
+    It 'records only fixed metadata and tolerates an unavailable diagnostic stream' {
+        $nativeOutput='fixture-private-native-output'
+        $nativeArguments='../fixture-private-native-arguments'
+        $savedError=[Console]::Error
+        $savedExitCode=$global:LASTEXITCODE
+        $capture=[IO.StringWriter]::new()
+        try {
+            [Console]::SetError($capture)
+            $global:LASTEXITCODE=23
+            Write-TestProgramProgress -Program 'tools/tests/test_aks_context.py' -Phase start
+            Write-TestProgramProgress -Program 'tools/tests/test_aks_context.py' -Phase end -ElapsedMs 42 -ExitCode 7
+            Write-TestProgramProgress -Program $nativeArguments -Phase start
+            $text=$capture.ToString()
+            $records=@($text -split '\r?\n' | Where-Object { $_ } | ForEach-Object { $_ | ConvertFrom-Json })
+            $records | Should -HaveCount 2
+            foreach ($record in $records) {
+                ($record.PSObject.Properties.Name | Sort-Object) -join ',' | Should -BeExactly 'elapsedMs,event,exitCode,phase,program,utc'
+                $record.event | Should -BeExactly 'test-program'
+                $record.program | Should -BeExactly 'tools/tests/test_aks_context.py'
+            }
+            [regex]::Matches($text,'"utc":"[^"\r\n]+Z"').Count | Should -Be 2
+            $records[0].phase | Should -BeExactly 'start'
+            $records[0].elapsedMs | Should -Be 0
+            $records[0].exitCode | Should -BeNullOrEmpty
+            $records[1].phase | Should -BeExactly 'end'
+            $records[1].elapsedMs | Should -Be 42
+            $records[1].exitCode | Should -Be 7
+            $text | Should -Not -Match ([regex]::Escape($nativeOutput))
+            $text | Should -Not -Match ([regex]::Escape($nativeArguments))
+            $unavailable=[IO.StringWriter]::new()
+            $unavailable.Dispose()
+            [Console]::SetError($unavailable)
+            { Write-TestProgramProgress -Program 'tools/tests/test_aks_context.py' -Phase end } | Should -Not -Throw
+            $global:LASTEXITCODE | Should -Be 23
+        } finally {
+            [Console]::SetError($savedError)
+            $global:LASTEXITCODE=$savedExitCode
+            $capture.Dispose()
+        }
     }
 }
 

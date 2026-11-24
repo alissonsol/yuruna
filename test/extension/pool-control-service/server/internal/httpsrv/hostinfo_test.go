@@ -120,7 +120,7 @@ func TestEveryPageServesChrome(t *testing.T) {
 	// One list for both loops below. Stated twice, the two drift: a page added
 	// to one is checked for its markup and not for its runtime, or the reverse,
 	// and either way the gap reads as coverage.
-	pages := []string{"/", "/pools", "/scan", "/hosts", "/diagnostics"}
+	pages := []string{"/", "/pools", "/scan", "/hosts", "/diagnostics", "/host/update"}
 
 	// The list above has to cover every page the binary embeds. A page file
 	// whose route is gone is unreachable dead weight, and a route whose file is

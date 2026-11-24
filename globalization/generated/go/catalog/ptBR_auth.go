@@ -18,8 +18,8 @@ const DataptBRauth = `{
     },
     " minutos e tente novamente"
   ],
-  "auth.bearer_required": "token de autenticação de laboratório necessário",
-  "auth.changes_disabled": "nenhum URL agregador e nenhum token de autenticação de laboratório configurado; as alterações estão desabilitadas",
+  "auth.bearer_required": "chave de autenticação interna necessária",
+  "auth.changes_disabled": "nenhum URL agregador e nenhuma chave de autenticação interna configurados; as alterações estão desabilitadas",
   "auth.detail_encoding": "a codificação da requisição falhou",
   "auth.detail_http": [
     "aggregator respondeu HTTP ",
@@ -31,7 +31,7 @@ const DataptBRauth = `{
   ],
   "auth.detail_malformed_aggregator": "URL do agregador mal formado",
   "auth.detail_no_aggregator": "nenhum URL agregador configurado",
-  "auth.detail_unconfigured": "nenhum token de autenticação de laboratório e nenhum URL agregador configurado",
+  "auth.detail_unconfigured": "nenhuma chave de autenticação interna e nenhum URL agregador configurados",
   "auth.detail_unreachable": "não alcançável",
   "auth.encode_refusal": "o portão não poderia codificar sua recusa",
   "auth.host_not_served": [
@@ -51,6 +51,17 @@ const DataptBRauth = `{
   ],
   "auth.login_unavailable": "nenhum URL agregador está configurado, então o agregador de pool não pode verificar um token do laboratório; as ações permanecem bloqueadas",
   "auth.malformed_request": "organismo de pedido mal formado",
+  "auth.operator_credential_required": "Esta ação exige a credencial do operador no cabeçalho X-Yuruna-Operator-Credential; sessão do laboratório, token do laboratório ou chave de autenticação interna não são aceitos.",
+  "auth.operator_credential_throttled": [
+    "Muitas tentativas de credencial do operador a partir deste endereço; aguarde ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos e tente novamente."
+  ],
+  "auth.operator_credential_unconfigured": "O reparo remoto do hospedeiro está desativado: este serviço não tem credencial do operador provisionada.",
   "auth.proof_check_failed": [
     "não foi possível verificar a prova de controlo (",
     {
@@ -62,20 +73,9 @@ const DataptBRauth = `{
   ],
   "auth.proof_expired": "a prova de controlo expirou ou não deste pool",
   "auth.proof_shape": "não é uma prova de controlo",
-  "auth.proof_unconfigured": "nenhum token de autenticação de laboratório e nenhum URL agregador estão configurados, então uma prova de controle não pode ser verificada; as ações permanecem bloqueadas",
-  "auth.refresh_credential_required": "Esta ação exige a credencial de atualização no cabeçalho X-Yuruna-Refresh-Credential; sessão do laboratório, token do laboratório ou chave de autenticação interna não são aceitos.",
-  "auth.refresh_throttled": [
-    "Muitas tentativas de credencial de atualização a partir deste endereço; aguarde ",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " minutos e tente novamente."
-  ],
-  "auth.refresh_unconfigured": "A atualização remota do hospedeiro está desativada: este serviço não tem credencial de atualização provisionada.",
-  "auth.route_disabled": "nenhum token de autenticação de laboratório configurado; esta rota está desabilitada",
-  "auth.session_required": "sessão de token do laboratório ou token de autenticação de laboratório necessário",
+  "auth.proof_unconfigured": "nenhuma chave de autenticação interna e nenhum URL agregador estão configurados, então uma prova de controle não pode ser verificada; as ações permanecem bloqueadas",
+  "auth.route_disabled": "nenhuma chave de autenticação interna configurada; esta rota está desabilitada",
+  "auth.session_required": "sessão do laboratório ou chave de autenticação interna necessária",
   "auth.token_check_failed": [
     "o agregador de grupos não pôde verificar o token do laboratório (",
     {

@@ -7940,6 +7940,57 @@
           "example": "10"
         }
       }
+    },
+    "automation.private_state_moved": {
+      "message": "Moved private host state: {previous} -> {current}",
+      "description": "Reported once per item when the private state root moves from its earlier $HOME/.yuruna/host-refresh location to host-repair; previous and current are paths. Keep the ' -> ' separator and the two placeholders exactly; tests match '{previous} -> {current}'.",
+      "lifecycle": "active",
+      "placeholders": {
+        "previous": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/.yuruna/host-refresh/host-operation.journal"
+        },
+        "current": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/.yuruna/host-repair/host-operation.journal"
+        }
+      }
+    },
+    "automation.private_state_migration_conflict": {
+      "message": "Both {legacy} and {current} exist, so the private state root is refused and nothing was merged, moved or created. Keep the directory that holds this host's state, move the other one aside, and run again.",
+      "description": "Warning when the earlier private state root and the current one both exist; legacy and current are directory paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "legacy": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/.yuruna/host-refresh"
+        },
+        "current": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/.yuruna/host-repair"
+        }
+      }
+    },
+    "automation.private_state_migration_lock_held": {
+      "message": "The earlier private state root {legacy} was not moved: {lockFile} is held by another process, such as an old runner, status listener or host controller. Stop that process and start again.",
+      "description": "Warning when the private state root cannot move from its earlier $HOME/.yuruna/host-refresh location because a lock file under it is held; legacy is the earlier root and lockFile is the held lock, both paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "legacy": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/.yuruna/host-refresh"
+        },
+        "lockFile": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/user/.yuruna/host-refresh/host-controller/host-controller.lock"
+        }
+      }
     }
   }
 }

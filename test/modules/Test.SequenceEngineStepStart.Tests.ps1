@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 423a6cde-29dc-4785-ab44-40941cf303ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -240,5 +240,47 @@ Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
         Assert-Equal -Expected 'start: subiquity/Mirror/cmd-apt-config' -Actual $failure.WaitForTextInstallerStage
         $failure.WaitForTextOutputStaticSeconds | Should -BeGreaterOrEqual 1
         $failure.WaitForTextConsoleSignalsMeasured | Should -BeFalse
+    }
+
+    It 'retains the installer stage after <Replacement> replaces its marker (fresh=<Fresh>)' -TestCases @(
+        @{ Fresh = $false; Replacement = 'late-command output'; Text = 'curtin in-target --target=/target -- apt-get install -y iptables-persistent' },
+        @{ Fresh = $true; Replacement = 'late-command output'; Text = 'curtin in-target --target=/target -- apt-get install -y iptables-persistent' },
+        @{ Fresh = $false; Replacement = 'a blank frame'; Text = '' },
+        @{ Fresh = $true; Replacement = 'a blank frame'; Text = '' }
+    ) {
+        param($Fresh, $Replacement, $Text)
+        $null = $Replacement
+        $stage = 'start: subiquity/Install/install/postinstall/restore_apt_config'
+        Assert-False (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($stage, $Text) -Pattern @('guest login:') `
+            -Since $false -Fresh $Fresh -TimeoutSeconds 3)
+        $failure = Get-SequenceFailureState
+        $failure.WaitForTextInstallerStage | Should -BeExactly $stage
+        $failure.WaitForTextInstallerStageSeconds | Should -BeGreaterOrEqual 1
+        if ($Text) {
+            $failure.WaitForTextOcrTail | Should -BeExactly $Text
+        } else {
+            $failure.WaitForTextBlankScreenSeconds | Should -BeGreaterOrEqual 1
+        }
+    }
+
+    It 'clears a prior installer stage when the next wait <Outcome> (fresh=<Fresh>)' -TestCases @(
+        @{ Fresh = $false; Outcome = 'succeeds'; Text = 'guest login:'; Match = $true },
+        @{ Fresh = $true; Outcome = 'succeeds'; Text = 'guest login:'; Match = $true },
+        @{ Fresh = $false; Outcome = 'fails'; Text = 'Display output is not active.'; Match = $false },
+        @{ Fresh = $true; Outcome = 'fails'; Text = 'Display output is not active.'; Match = $false }
+    ) {
+        param($Fresh, $Outcome, $Text, $Match)
+        $null = $Outcome
+        $stage = 'start: subiquity/Install/install/postinstall/restore_apt_config'
+        Assert-False (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($stage) -Pattern @('guest login:') `
+            -Since $false -Fresh $Fresh -TimeoutSeconds 1)
+        (Get-SequenceFailureState).WaitForTextInstallerStage | Should -BeExactly $stage
+
+        $matched = Invoke-GatedWait -ScreenDir $script:textDir -Frames @($Text) -Pattern @('guest login:') `
+            -Since $false -Fresh $Fresh -TimeoutSeconds 1
+        $matched | Should -Be $Match
+        $failure = Get-SequenceFailureState
+        $failure.WaitForTextInstallerStage | Should -BeExactly ''
+        $failure.WaitForTextInstallerStageSeconds | Should -Be 0
     }
 }

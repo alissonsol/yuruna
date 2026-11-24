@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42236bc2-fc6c-4607-abaa-81fea9bc8e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -571,6 +571,41 @@ Describe 'the process environment snapshot' {
             Assert-Null ([Environment]::GetEnvironmentVariable('YURUNA_ASSERT_ADDED')) 'an entry the snapshot does not name is removed'
             Assert-StringEqual 'before' $env:YURUNA_ASSERT_CHANGED 'a changed entry gets its value back'
         } finally { Restore-YurunaTestEnvironment -Saved $saved }
+    }
+}
+
+Describe 'the scratch home' {
+    It 'points $HOME, ~, a module, HOME, USERPROFILE and a child process at a fresh home, and puts them all back' {
+        $before = @{ Variable = $HOME; Tilde = (Convert-Path -Path '~'); HOME = [Environment]::GetEnvironmentVariable('HOME'); USERPROFILE = [Environment]::GetEnvironmentVariable('USERPROFILE') }
+        $reader = New-Module -Name 'Test.AssertHomeReader' -ScriptBlock { function Get-AssertHomeReaderValue { $HOME } } | Import-Module -PassThru
+        $testHome = Enter-YurunaTestHome
+        try {
+            Assert-True (Test-Path -LiteralPath $testHome.Path -PathType Container) 'the scratch home exists'
+            Assert-Equal 0 @(Get-ChildItem -LiteralPath $testHome.Path -Force).Count 'the scratch home starts empty'
+            Assert-NotEqual $before.Variable $testHome.Path 'the scratch home is not the previous one'
+            Assert-StringEqual $testHome.Path $HOME '$HOME names the scratch home'
+            Assert-StringEqual (Convert-Path -LiteralPath $testHome.Path) (Convert-Path -Path '~') '~ resolves to the scratch home'
+            Assert-StringEqual $testHome.Path (Get-AssertHomeReaderValue) 'a module reads the scratch home through $HOME'
+            Assert-StringEqual $testHome.Path $env:HOME 'HOME names the scratch home'
+            Assert-StringEqual $testHome.Path $env:USERPROFILE 'USERPROFILE names the scratch home'
+            $childHome = & ([Environment]::ProcessPath) -NoProfile -NonInteractive -Command '$HOME'
+            Assert-StringEqual $testHome.Path ([string]$childHome).Trim() 'a child process derives the scratch home'
+        } finally {
+            Exit-YurunaTestHome $testHome
+            Remove-Module -ModuleInfo $reader -Force
+        }
+        Assert-StringEqual $before.Variable $HOME '$HOME gets its previous value back'
+        Assert-StringEqual $before.Tilde (Convert-Path -Path '~') '~ resolves to the previous home again'
+        Assert-StringEqual $before.Variable $testHome.Home 'the handle carries the previous $HOME'
+        Assert-Equal $before.HOME ([Environment]::GetEnvironmentVariable('HOME')) 'HOME gets its previous value back'
+        Assert-Equal $before.USERPROFILE ([Environment]::GetEnvironmentVariable('USERPROFILE')) 'USERPROFILE gets its previous value back, absent included'
+        Assert-False (Test-Path -LiteralPath $testHome.Path) 'the scratch home is removed'
+    }
+
+    It 'undoes nothing, without throwing, for a home that was never entered' {
+        $before = $HOME
+        Exit-YurunaTestHome $null
+        Assert-StringEqual $before $HOME
     }
 }
 

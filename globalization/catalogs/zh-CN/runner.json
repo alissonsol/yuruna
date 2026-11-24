@@ -8,8 +8,8 @@
       "message": "池分配了此宿主机无法读取的项目。\n  项目：{project}\n  分配来源：池“{pool}”\n  git：{detail}\n  解决方法（二选一）：授予此宿主机的GH_TOKEN访问该仓库的权限，\n                或将池的项目 URL 设置为所有成员都能读取的仓库。"
     },
     "runner.boot_recovery_preserved_controls": {
-      "sourceHash": "a641900f3f6d83251042f9608e88e23a3b0bbc889b80f7f0479d5dd3321359ac",
-      "message": "启动恢复（刷新保留模式）保留了{count}个操作员控制文件，以及{pidCount}条无法确认已失效的运行器记录。"
+      "sourceHash": "a1a10b20057532658088e356bd9c78a3b1ff26b2a01f7788cacda59b9003acef",
+      "message": "启动恢复（交接保留模式）保留了{count}个操作员控制文件，以及{pidCount}条无法确认已失效的运行器记录。"
     },
     "runner.config_gate_attempt_failed": {
       "sourceHash": "dfe83cd8b5988a985ad32d3947c60f072b424ac48d11494c12c7912154e72816",
@@ -22,6 +22,10 @@
     "runner.config_naming_backup": {
       "sourceHash": "09b1dd67cd409cdf44458eb072bee871b6590426666cf45beaf0244417b75b5e",
       "message": "将配置备份到 {backupPath}"
+    },
+    "runner.config_naming_change": {
+      "sourceHash": "4057a0c5f5e39ae58a815e4e45918825fdbaef3be5ca464caf1bf95ff2f26004",
+      "message": "{configPath}: {old}: {previous} -> {new}: {current}（原文件已保留为{backupPath}）"
     },
     "runner.critical_record_replace": {
       "sourceHash": "4ea33fc426f7f9cf195eef456eea8af25562350956d873f45723000737033aa5",
@@ -89,7 +93,7 @@
       "message": "  使用以下命令恢复：git -C '{repoRoot}' checkout --theirs . ; git -C '{repoRoot}' reset --hard '{upstreamReference}'  （本地修改仍保留在git stash list中）。"
     },
     "runner.guest_channel_key_unreadable": {
-      "sourceHash": "ea9526e818272d4e87a0a2d906893886b05146c1d800fbd805c06c0101ae0fb3",
+      "sourceHash": "ceaf00861b3b609ca12969dda4e44153442d42c44aeb6e6a76f944c89e3bc586",
       "message": "{path} 处的来宾通道密钥不是 64 个小写十六进制字符，因此来宾无法验证此主机。请恢复该文件，或删除它并重建来宾以创建新密钥。"
     },
     "runner.guest_folder_missing": {
@@ -112,473 +116,673 @@
       "sourceHash": "2ab0a4247e8e2f2dee55719758cde26fbbf942d23055548a38d868d52e3b3b16",
       "message": "[报告在{chars}个字符处截断]"
     },
-    "runner.host_refresh_action_dispose_obligations": {
-      "sourceHash": "a5b940e570ac9db84b56266eaa696cce6117ca6d263e66e2b31ddbe555d057af",
-      "message": "下一步：手动检查每一项后，使用以下命令记录：pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation {obligations}"
+    "runner.host_repair_action_dispose_obligations": {
+      "sourceHash": "dda2589b3415feb865a22421e57162f877aa6ffca52ec678635da4cbb9aa5b84",
+      "message": "下一步：手动检查每一项后，使用以下命令记录：pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation {obligations}"
     },
-    "runner.host_refresh_action_elevate": {
-      "sourceHash": "3b7e872dd64520508b26d798bd7290ca522f3112efb76031d608dd5db5985653",
-      "message": "下一步：授予此账户执行{rung}层级所需的权限（如有适用的具体命令，已在上方显示），然后再次运行刷新。"
+    "runner.host_repair_action_elevate": {
+      "sourceHash": "b6bb01e8c5aa68537a5b7a9fea245fe139ad95276a7bd38063761d42bf8dc7e8",
+      "message": "下一步：授予此账户执行{rung}层级所需的权限（如有适用的具体命令，已在上方显示），然后再次运行修复。"
     },
-    "runner.host_refresh_action_grant_automation": {
-      "sourceHash": "edec65cfda849f5c66fc46df86bfcfab8d9800e0cf374fa0a61a8ddc7023f0b6",
-      "message": "下一步：允许运行此shell的应用程序通过“自动化”访问UTM，然后再次运行刷新。"
+    "runner.host_repair_action_grant_automation": {
+      "sourceHash": "94f5321d87d77fdac592d331f1e3db6da66b096c0fa287c3d9a79f72b3977fd1",
+      "message": "下一步：允许运行此shell的应用程序通过“自动化”访问UTM，然后再次运行修复。"
     },
-    "runner.host_refresh_action_gui_session": {
-      "sourceHash": "842056b3fb4c522bdfe0dbe12baa747592af4c33e681159377c74200b1dc5d9e",
-      "message": "下一步：从已登录的桌面会话运行刷新；当前会话只能观察。"
+    "runner.host_repair_action_gui_session": {
+      "sourceHash": "dd95c4cec3937dcbec307a69c0afa45c70832e437ea150d0cfd7bf372dca5129",
+      "message": "下一步：从已登录的桌面会话运行修复；当前会话只能观察。"
     },
-    "runner.host_refresh_action_install_client": {
-      "sourceHash": "4500b0c18da686a50aa636cdabede1098b4da3114e3a5c19e7deee5655195d1f",
-      "message": "下一步：恢复虚拟机监控程序的命令行客户端（{client}）；刷新不会重新安装该客户端。"
+    "runner.host_repair_action_install_client": {
+      "sourceHash": "c5411a4587848c3f829fddcb4c15cbef5bdd805665ac5b6b1d40f96327eb8836",
+      "message": "下一步：恢复虚拟机监控程序的命令行客户端（{client}）；修复不会重新安装该客户端。"
     },
-    "runner.host_refresh_action_resume_request": {
-      "sourceHash": "ee5b0926f188b0840f9ff7407bc41d86bbb42234b5b5029309470f0ffaa1465f",
-      "message": "下一步：使用以下命令恢复尚未解决的请求：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume"
+    "runner.host_repair_action_resume_request": {
+      "sourceHash": "9c1b4b119786005f1952049bc5100a95d1bdb56c523f6550f96ef87f7e6965a6",
+      "message": "下一步：使用以下命令恢复尚未解决的请求：pwsh test/lab/Invoke-HostRepair.ps1 -Resume"
     },
-    "runner.host_refresh_action_start_runner": {
-      "sourceHash": "9eac04ab6f0519353874c4945bd6d2c50e9a128b85536376b9774df6c32cb01b",
+    "runner.host_repair_action_start_runner": {
+      "sourceHash": "6a51f51c4093eae39bb8ecd63b269faa953d5343d1c9699b23467e5ceb5b8c0b",
       "message": "下一步：手动启动运行器：pwsh test/Start-TestRunner.ps1"
     },
-    "runner.host_refresh_auth_action_create_authority": {
-      "sourceHash": "7ef4c0e7d9b4f789a0bf1f861d5be92beb70a97db50c4e982631b5c726c3b3b6",
-      "message": "创建刷新签名授权机构和操作员凭据"
+    "runner.host_repair_auth_action_create_authority": {
+      "sourceHash": "fbf5447eade10b24883629b70c9b34eb66ebc08bc8fcd95f23ecc371cff6ed9b",
+      "message": "创建修复签名授权机构和操作员凭据"
     },
-    "runner.host_refresh_auth_action_export_host_key": {
-      "sourceHash": "fccf12f55f32f08b138acbc97b210ca8cec15af302d9fb2f05332b350a626499",
-      "message": "写入宿主机{hostId}的刷新验证密钥"
+    "runner.host_repair_auth_action_export_host_key": {
+      "sourceHash": "e19554f8addee0bbaa9f02c822ad5ae233996e9a0d9475bef32a8fc5cd3f593f",
+      "message": "写入宿主机{hostId}的修复验证密钥"
     },
-    "runner.host_refresh_auth_action_install_host_key": {
-      "sourceHash": "d869538cfa4357a19e7b765291c7d9b51828f593ac1de3f2d956c37a5b0a23c9",
-      "message": "安装宿主机{hostId}的刷新验证密钥"
+    "runner.host_repair_auth_action_install_host_key": {
+      "sourceHash": "4b44acf52d77d13dfee502648d48dae65ad907851458e0d5e685adbb27dec969",
+      "message": "安装宿主机{hostId}的修复验证密钥"
     },
-    "runner.host_refresh_auth_action_remove_host_key": {
-      "sourceHash": "1c4cc75d88be8b60cf660e958ca01afa96fbf5182df43b6ee1f45d95f8c4852f",
-      "message": "删除刷新验证密钥"
+    "runner.host_repair_auth_action_remove_host_key": {
+      "sourceHash": "a27c1474424a85d69160491f797feb9862e5571b56b9bce4cf3eac3ba1ffad6a",
+      "message": "删除修复验证密钥"
     },
-    "runner.host_refresh_auto_action_admit": {
-      "sourceHash": "7cf16b6bb72ec9f76a64b4c9c3e194efe22ff4242bf294c7805bd9cccab5eb85",
-      "message": "接纳周期代次{generation}的自动宿主机刷新请求"
+    "runner.host_repair_auto_action_admit": {
+      "sourceHash": "392cbfd5228564ea774bc615e032b6badea28494fbd501b94f4bf6a56317e8e0",
+      "message": "接纳周期代次{generation}的自动宿主机修复请求"
     },
-    "runner.host_refresh_auto_action_consume_evidence": {
-      "sourceHash": "eb5db5739f69892db87c8c3b52ad4137fabac665e1bde4095737e0cebd5e3f94",
-      "message": "消耗宿主机刷新证据文件"
+    "runner.host_repair_auto_action_consume_evidence": {
+      "sourceHash": "789a7fb60832c276aba14e876892adefd6dfb2e1282a727a883e7c7f025081f1",
+      "message": "消耗宿主机修复证据文件"
     },
-    "runner.host_refresh_auto_action_decide": {
-      "sourceHash": "4e590ee1c3fc6417f586742733c19a48b03df95c40a65ca3cd6f7ab2682897ce",
-      "message": "决定是否在外层周期{cycle}之后运行自动宿主机刷新"
+    "runner.host_repair_auto_action_decide": {
+      "sourceHash": "3b59b5ad62cbe622c9720c6d0830452a60f5e6ec464d4383787336c40cadcc01",
+      "message": "决定是否在外层周期{cycle}之后运行自动宿主机修复"
     },
-    "runner.host_refresh_auto_action_record_outcome": {
-      "sourceHash": "69a68b841a765ad114796428c88e7d04b27fc764a50b73f9dbcc02b63468825f",
-      "message": "记录自动宿主机刷新结果{verdict}"
+    "runner.host_repair_auto_action_record_outcome": {
+      "sourceHash": "ac8ce229caa0d11657c8b1da8901335040a6df242a6919fdd776572dec3c5c8d",
+      "message": "记录自动宿主机修复结果{verdict}"
     },
-    "runner.host_refresh_auto_action_reserve": {
-      "sourceHash": "5c261ec29d2e693b791f29a37005436b00600a364cc501a7fa29ae77245c78ce",
-      "message": "预留UTC日期{utcDay}的自动宿主机刷新尝试"
+    "runner.host_repair_auto_action_reserve": {
+      "sourceHash": "a61636482cb330062b9e8e6a9182ebb282e66d9a54ea3013140890cd9a43ddbb",
+      "message": "预留UTC日期{utcDay}的自动宿主机修复尝试"
     },
-    "runner.host_refresh_auto_action_run_worker": {
-      "sourceHash": "743a298b5f20d1dac2a598db92a279e7f852060f2eac3ac4d75f0723f89d1614",
-      "message": "为请求{requestId}运行宿主机刷新工作进程"
+    "runner.host_repair_auto_action_run_worker": {
+      "sourceHash": "4510bb1bc97d8f6ffd0f1707e19d21866b66cb132a405aecf7987be458fbcdc7",
+      "message": "为请求{requestId}运行宿主机修复工作进程"
     },
-    "runner.host_refresh_auto_action_update_streak": {
-      "sourceHash": "2ce4a1354cff61bf7b5a751b7fa19c2cdaa3b582f3aad30c83db1eee695b873d",
-      "message": "将宿主机刷新证据计数设为{streak}"
+    "runner.host_repair_auto_action_update_streak": {
+      "sourceHash": "719ad3637caf41a0892e18f17d9885d3ed8291b07d06ae91def0ae2eb36801aa",
+      "message": "将宿主机修复证据计数设为{streak}"
     },
-    "runner.host_refresh_auto_action_withdraw": {
-      "sourceHash": "6b5a654288b362e1016bb6325d1ea31431139385fbc217f28420452c9eaff37f",
-      "message": "撤回已排队的自动宿主机刷新请求{requestId}"
+    "runner.host_repair_auto_action_withdraw": {
+      "sourceHash": "c84ca5a35bee01bce972b24b9206017d69c5b61fe85a6697687c9525dc1d9d60",
+      "message": "撤回已排队的自动宿主机修复请求{requestId}"
     },
-    "runner.host_refresh_auto_action_write_evidence": {
-      "sourceHash": "0fb2c416dbc5d8ff2bcbaa4b6649ceba07903ea9da601c1bedf910f3bce430b2",
-      "message": "记录周期代次{generation}的宿主机刷新证据"
+    "runner.host_repair_auto_action_write_evidence": {
+      "sourceHash": "204a7053ba23b9175badbf3a7a7ad904746d2691a1a298c4ec93ffcc654c771a",
+      "message": "记录周期代次{generation}的宿主机修复证据"
     },
-    "runner.host_refresh_auto_dependency_missing": {
-      "sourceHash": "a51e80467c1da38df99624b66004f21829abe4640579487fcd71eef08f40b230",
-      "message": "[外层周期{cycle}] 自动宿主机刷新不可用：无法从{module}加载{command}。"
+    "runner.host_repair_auto_dependency_missing": {
+      "sourceHash": "1461028a89c03570f5c72850335d664c50f1adaae06fb36153215b7bbe50ae18",
+      "message": "[外层周期{cycle}] 自动宿主机修复不可用：无法从{module}加载{command}。"
     },
-    "runner.host_refresh_auto_error": {
-      "sourceHash": "381ab3e7807ceed5c8d0912358f4a08f243a4b0166d404e723a4b801f840774e",
-      "message": "[外层周期{cycle}] 自动宿主机刷新决策失败（{message}）；运行器将继续运行，不执行此次刷新。"
+    "runner.host_repair_auto_error": {
+      "sourceHash": "d18d6aee503c3d2760fb19d316671f8b9820e0e5b58fcd32d5e918ad99c56d21",
+      "message": "[外层周期{cycle}] 自动宿主机修复决策失败（{message}）；运行器将继续运行，不执行此次修复。"
     },
-    "runner.host_refresh_auto_evidence_counted": {
-      "sourceHash": "cff85a8735705746fac2de1d24dc8f083e0a59501f08d606678d1f1495131488",
-      "message": "[外层周期{cycle}] 宿主机刷新证据：{phase}发生虚拟机监控程序控制超时（已达{streak}个周期，阈值为{threshold}个周期）。"
+    "runner.host_repair_auto_evidence_counted": {
+      "sourceHash": "637e217ce77f1f4190018ddc636b99abdbe640c6740dde7c876a9ae5e6c37ebc",
+      "message": "[外层周期{cycle}] 宿主机修复证据：{phase}发生虚拟机监控程序控制超时（已达{streak}个周期，阈值为{threshold}个周期）。"
     },
-    "runner.host_refresh_auto_evidence_reset": {
-      "sourceHash": "b16935c7e23362a27122faf17dc7b2692d28f2dbd703293d570476b563b6b36b",
-      "message": "[外层周期{cycle}] 已清除宿主机刷新证据：虚拟机监控程序在{phase}期间作出了响应。"
+    "runner.host_repair_auto_evidence_reset": {
+      "sourceHash": "a397481988eb2e71cadf307f76da620f8ab2f2d4f8069edeea6f6c84b1b5fef1",
+      "message": "[外层周期{cycle}] 已清除宿主机修复证据：虚拟机监控程序在{phase}期间作出了响应。"
     },
-    "runner.host_refresh_auto_finished": {
-      "sourceHash": "1de5d8ed8447db383e7fe5bd45c6af3b261c4b330379cda8d98333b4917c5940",
-      "message": "[外层周期{cycle}] 自动宿主机刷新{requestId}已完成：{verdict}。"
+    "runner.host_repair_auto_finished": {
+      "sourceHash": "0957ef52cf7d8319db7e541ccbefc8f7fc55393be630a719b143e01445730bb8",
+      "message": "[外层周期{cycle}] 自动宿主机修复{requestId}已完成：{verdict}。"
     },
-    "runner.host_refresh_auto_knob_invalid": {
-      "sourceHash": "a468a1d1ee82f021f8e1eb08f3fcbb7726d7296c91a9466ccb4a4db0d1439e4a",
-      "message": "testCycle.autoRefreshAfterStalls的值为“{value}”，不是非负整数；自动宿主机刷新保持关闭。"
+    "runner.host_repair_auto_knob_invalid": {
+      "sourceHash": "958fb14294712da9750cac48de05540234847de72b0aad229fe3c66c611c73fd",
+      "message": "testCycle.autoRepairAfterStalls的值为“{value}”，不是非负整数；自动宿主机修复保持关闭。"
     },
-    "runner.host_refresh_auto_pause_skipped": {
-      "sourceHash": "a2163bc2dbc6d5b566739ca4786b1ee401a56a26385dbc443eedaf51f3e50cef",
-      "message": "[外层周期{cycle}] 自动宿主机刷新已修复宿主机；下一个周期将直接启动，跳过失败后的暂停。"
+    "runner.host_repair_auto_pool_key_retired": {
+      "sourceHash": "532de9fa97ed7c58eba9e8d5b711f40bff2ed2464abcfd46eeb3464cbf79778a",
+      "message": "池配置设置了已停用的键config.testCycle.autoRefreshAfterStalls（{value}）；该键不再被读取。请改为在池仓库中设置config.testCycle.autoRepairAfterStalls。"
     },
-    "runner.host_refresh_auto_queued_revoked": {
-      "sourceHash": "b95c4e6fe4cf16707186b14b306b224f528ccf2ade5fe5cb1c00119156816c44",
-      "message": "[外层周期{cycle}] 由于池正在执行读取完毕操作，已撤回排队中的自动宿主机刷新{requestId}。"
+    "runner.host_repair_auto_pause_skipped": {
+      "sourceHash": "98ecf8d376979f253a9eeba1caa2f6140399c504b9a6df11a7a9c3534c10c4a1",
+      "message": "[外层周期{cycle}] 自动宿主机修复已修好宿主机；下一个周期将直接启动，跳过失败后的暂停。"
     },
-    "runner.host_refresh_auto_refused": {
-      "sourceHash": "edbe2f5475343be7d8c3e150af4aeb87cebbb7b54eab81f1e11411f0536cd375",
-      "message": "[外层周期{cycle}] 未启动自动宿主机刷新：{reason}。"
+    "runner.host_repair_auto_queued_revoked": {
+      "sourceHash": "f3c7be39135f2c127e631a429585d8b71c08152cfb627a87ca732927925a7f84",
+      "message": "[外层周期{cycle}] 由于池正在执行读取完毕操作，已撤回排队中的自动宿主机修复{requestId}。"
     },
-    "runner.host_refresh_auto_resume_caller_changed": {
-      "sourceHash": "3b26d82c2e1f97e7cec71a9f63781d02c05f7bbb55e4fdf28f900a61a35837b3",
-      "message": "[外层周期{cycle}] 自动宿主机刷新{requestId}是为先前的运行器进程启动的，因此当前运行器不会恢复该请求。请使用test/lab/Invoke-HostRefresh.ps1 -Resume完成请求，或使用test/lab/Invoke-HostRefresh.ps1 -DisposeObligation释放其占用的资源。"
+    "runner.host_repair_auto_refused": {
+      "sourceHash": "b847ecc9a53b75408644129c32475ec9026d6c583abe9cf111e5a37d22619cdb",
+      "message": "[外层周期{cycle}] 未启动自动宿主机修复：{reason}。"
     },
-    "runner.host_refresh_auto_resume_disabled": {
-      "sourceHash": "5de02be85431055832c1d22abb107ece57de148f5138d4751b3423d477fc94e8",
-      "message": "［外层周期{cycle}］autoRefreshAfterStalls为0时，不会恢复自动宿主机刷新{requestId}。未认领的请求会自行过期；请使用test/lab/Invoke-HostRefresh.ps1 -Resume完成已启动的请求。"
+    "runner.host_repair_auto_resume_caller_changed": {
+      "sourceHash": "cba3929560145fe3051d2829f778cf60f9335e69acbaac82c9ec498358ec6799",
+      "message": "[外层周期{cycle}] 自动宿主机修复{requestId}是为先前的运行器进程启动的，因此当前运行器不会恢复该请求。请使用test/lab/Invoke-HostRepair.ps1 -Resume完成请求，或使用test/lab/Invoke-HostRepair.ps1 -DisposeObligation释放其占用的资源。"
     },
-    "runner.host_refresh_auto_resuming": {
-      "sourceHash": "ef58c9cd4068f93d04ebf34bf9e96c4e53922a0d8d5da7ef8270210a14cc427b",
-      "message": "［外层周期{cycle}］正在恢复自动宿主机刷新{requestId}，第{attempt}次尝试，最多{maxAttempts}次：仅恢复服务，不执行新的拆除操作。"
+    "runner.host_repair_auto_resume_disabled": {
+      "sourceHash": "a73378700e3be47068b6d99c5a631e1489f7ef9fc6720b1b9ed8869172e44c58",
+      "message": "［外层周期{cycle}］autoRepairAfterStalls为0时，不会恢复自动宿主机修复{requestId}。未认领的请求会自行过期；请使用test/lab/Invoke-HostRepair.ps1 -Resume完成已启动的请求。"
     },
-    "runner.host_refresh_auto_starting": {
-      "sourceHash": "c723764666456303fa03071e132d8ead2f827cb7e9fc0423bdd3b80dddbde1f6",
-      "message": "［外层周期{cycle}］虚拟机监控程序控制操作连续{streak}个周期超时后，开始自动宿主机刷新{requestId}（最高级别为{maxRung}）；虚拟机监控程序可能会重启，受影响的服务随后会恢复。"
+    "runner.host_repair_auto_resuming": {
+      "sourceHash": "33ded00b600a6fd9eef2c78db581fdaedb6a6792c7848f2ef2b0db71a2d6c4a8",
+      "message": "［外层周期{cycle}］正在恢复自动宿主机修复{requestId}，第{attempt}次尝试，最多{maxAttempts}次：仅恢复服务，不执行新的拆除操作。"
     },
-    "runner.host_refresh_auto_threshold_raised": {
-      "sourceHash": "ce7c3750fa1a67ed0e7c0626d75176d9d422f7fad258df2ca7dafa74a8f335a7",
-      "message": "“testCycle.autoRefreshAfterStalls”为1；运行器要求至少两个周期出现超时，因此将其视为2。"
+    "runner.host_repair_auto_starting": {
+      "sourceHash": "bdd6afe1196cfb32d030e71c60e256914c5e6b624d855eac746145fb136e052c",
+      "message": "［外层周期{cycle}］虚拟机监控程序控制操作连续{streak}个周期超时后，开始自动宿主机修复{requestId}（最高级别为{maxRung}）；虚拟机监控程序可能会重启，受影响的服务随后会恢复。"
     },
-    "runner.host_refresh_auto_unavailable": {
-      "sourceHash": "447638b9ad0a3153ccf3c7fa6b6bf3ba58aa18ccbd6136dba1cf5e870616fb3a",
-      "message": "［外层周期{cycle}］已配置自动宿主机刷新，但此宿主机无法使用（{reason}）；运行器会记录证据，但不据此采取操作。如需修复虚拟机监控程序，请在本地运行test/lab/Invoke-HostRefresh.ps1。"
+    "runner.host_repair_auto_threshold_raised": {
+      "sourceHash": "a54f226a73b8467961ac37818880b5818748ee2d4eeb7b013b851c75517274f0",
+      "message": "“testCycle.autoRepairAfterStalls”为1；运行器要求至少两个周期出现超时，因此将其视为2。"
     },
-    "runner.host_refresh_auto_unavailable_on_host": {
-      "sourceHash": "14148fe1fa91dde3dcedc1ce40bf565e53c04443fb879ec0c3bf907c564e06a8",
-      "message": "“testCycle.autoRefreshAfterStalls”为{value}，但此宿主机无法使用自动宿主机刷新（{reason}）；运行器会记录证据，但不据此采取操作。"
+    "runner.host_repair_auto_unavailable": {
+      "sourceHash": "116dca0a48de53e52b0f6652ed30915603eb94aa6050aad461c588370f1cfadc",
+      "message": "［外层周期{cycle}］已配置自动宿主机修复，但此宿主机无法使用（{reason}）；运行器会记录证据，但不据此采取操作。如需修复虚拟机监控程序，请在本地运行test/lab/Invoke-HostRepair.ps1。"
     },
-    "runner.host_refresh_auto_value_not_integer": {
-      "sourceHash": "237db8e7e0175aadc36d26e935b8c5d5a9d671af7c25d7a035e49cc9abefb6bf",
-      "message": "“testCycle.autoRefreshAfterStalls”为'{value}'，不是整数；运行器将其视为0（禁用自动宿主机刷新）。"
+    "runner.host_repair_auto_unavailable_on_host": {
+      "sourceHash": "fb7d8ea467f0f3f4988378084729f29c349eaeb1f9ec6a86fed7fb94a7f19fc1",
+      "message": "“testCycle.autoRepairAfterStalls”为{value}，但此宿主机无法使用自动宿主机修复（{reason}）；运行器会记录证据，但不据此采取操作。"
     },
-    "runner.host_refresh_auto_verdict_mismatch": {
-      "sourceHash": "3e15b385058ee79d8b0b61d3de67628b5d0ab8d9af76768dfa2e6b4db49362cd",
-      "message": "［外层周期{cycle}］自动宿主机刷新{requestId}未留下匹配的结果（{reason}）；按失败处理。"
+    "runner.host_repair_auto_value_not_integer": {
+      "sourceHash": "275201a91f577e0b37a762dbe662389b69afc56a0c6a3f16971a2d6d3a5a58d6",
+      "message": "“testCycle.autoRepairAfterStalls”为'{value}'，不是整数；运行器将其视为0（禁用自动宿主机修复）。"
     },
-    "runner.host_refresh_auto_waiting_on_worker": {
-      "sourceHash": "bfa479002741a81e8ddbd9957e1c5317e1c6bf9e6434b227847b3a0da104b6e8",
-      "message": "已请求关闭；正在等待自动请求{requestId}的宿主机刷新工作进程完成（最多再等待{seconds}秒）。"
+    "runner.host_repair_auto_verdict_mismatch": {
+      "sourceHash": "55e558de4848c41eec6c1afa2ffb1b15eef81cb712c83a96265b867ee55bf984",
+      "message": "［外层周期{cycle}］自动宿主机修复{requestId}未留下匹配的结果（{reason}）；按失败处理。"
     },
-    "runner.host_refresh_auto_worker_launch_failed": {
-      "sourceHash": "9481936a90805dfdb0c5d14f63aec9dab6e6f0e2ea9d949e327c401a89e9d704",
-      "message": "无法启动自动请求{requestId}的宿主机刷新工作进程：{message}。"
+    "runner.host_repair_auto_waiting_on_worker": {
+      "sourceHash": "a19ea00b9c5c333a8a6946d631108fca6f73db2c77458dcc4e363403f55de83c",
+      "message": "已请求关闭；正在等待自动请求{requestId}的宿主机修复工作进程完成（最多再等待{seconds}秒）。"
     },
-    "runner.host_refresh_auto_worker_timeout": {
-      "sourceHash": "bbb715c5cdad9a7451c457939a402cfe9b63de47dff6cf7711478498e708ea66",
-      "message": "自动请求{requestId}的宿主机刷新工作进程运行超过{seconds}秒，已停止；请求仍未结束。运行器可能会恢复此请求，也可使用test/lab/Invoke-HostRefresh.ps1 -Resume完成请求。"
+    "runner.host_repair_auto_worker_launch_failed": {
+      "sourceHash": "8c399ee04d17312368a3cf9a769858726594016bbe2e721c8dd2c3ecf568fc94",
+      "message": "无法启动自动请求{requestId}的宿主机修复工作进程：{message}。"
     },
-    "runner.host_refresh_command_missing": {
-      "sourceHash": "263c70f5f771924e7a13b85d164600677581c3e7058aec9c7f6c03b9fd0ee4f6",
-      "message": "Invoke-HostRefresh：加载刷新模块集后，所需命令{command}（{module}）仍不可用；拒绝执行。"
+    "runner.host_repair_auto_worker_timeout": {
+      "sourceHash": "713d4e520bee0e3eb666f61514f3b0aeb3757bdcb88bdb13c9ab28d39ccff79a",
+      "message": "自动请求{requestId}的宿主机修复工作进程运行超过{seconds}秒，已停止；请求仍未结束。运行器可能会恢复此请求，也可使用test/lab/Invoke-HostRepair.ps1 -Resume完成请求。"
     },
-    "runner.host_refresh_config_ambiguous": {
-      "sourceHash": "ff67b16186d1d1fdd23539c7ba7a298527621f0aabb920731f5aadc4cd597155",
-      "message": "Invoke-HostRefresh：{runtimeDir}中的{count}个配置快照指定了不同的源文件；请传入-ConfigPath选择一个。"
+    "runner.host_repair_command_missing": {
+      "sourceHash": "f6493c1d363aa298456a6b06c8d34cd8f09f1fea91f547d57e3a10a0fb580264",
+      "message": "Invoke-HostRepair：加载修复模块集后，所需命令{command}（{module}）仍不可用；拒绝执行。"
     },
-    "runner.host_refresh_config_conflict": {
-      "sourceHash": "0ddcecc1ebbf08360bbdf58324572e39c019bc2a2a450cc963bc109e7b0acfc4",
-      "message": "Invoke-HostRefresh：-ConfigPath {configPath}与运行器记录的配置{recordedPath}不同；拒绝执行，以免使用不同文件重启运行器。"
+    "runner.host_repair_config_ambiguous": {
+      "sourceHash": "da72917791d6eb0fad4c53156d992474a5da397a0e1595bcacdd707d385708f8",
+      "message": "Invoke-HostRepair：{runtimeDir}中的{count}个配置快照指定了不同的源文件；请传入-ConfigPath选择一个。"
     },
-    "runner.host_refresh_config_missing": {
-      "sourceHash": "6915cc18942541259a29371ca8e2e2b9f5287db3234146cec55c2426ad8bde4b",
-      "message": "Invoke-HostRefresh：为此运行时记录的配置（{configPath}）不存在；请传入-ConfigPath。"
+    "runner.host_repair_config_conflict": {
+      "sourceHash": "57be5232cc35ae7eacf1e8e84b30e6956ae44c3b9235e0bb6c1fa26bcd500509",
+      "message": "Invoke-HostRepair：-ConfigPath {configPath}与运行器记录的配置{recordedPath}不同；拒绝执行，以免使用不同文件重启运行器。"
     },
-    "runner.host_refresh_convergence_skipped": {
-      "sourceHash": "ff8bb42968671b6841647377a4f419869784226d85298f7c1ffe6b50c1384c7b",
-      "message": "Invoke-HostRefresh：最终探测结果为{state}（{reason}）；服务和运行器未恢复。"
+    "runner.host_repair_config_missing": {
+      "sourceHash": "52157548c998af97275987927d1403c0fc47d7128578731a4a4a467156f77578",
+      "message": "Invoke-HostRepair：为此运行时记录的配置（{configPath}）不存在；请传入-ConfigPath。"
     },
-    "runner.host_refresh_credential_authority_created": {
-      "sourceHash": "892ece19abfb3a92872c2709585d81932732baf7fd30cc0316c5a043f1842e91",
-      "message": "Set-HostRefreshCredential：已在{path}下创建刷新签名机构（标记{authorityTag}）和操作员凭据（标记{credentialTag}）。请将authority.key和operator.credential复制到pool-control服务的/etc/yuruna/host-refresh/，并设置为仅所有者可访问；切勿将其复制到池宿主机。"
+    "runner.host_repair_convergence_skipped": {
+      "sourceHash": "36eee5fc9a1e1af6b2c42dc34631a7f7d67e1b5a128a00dd4ea734b28fc0331f",
+      "message": "Invoke-HostRepair：最终探测结果为{state}（{reason}）；服务和运行器未恢复。"
     },
-    "runner.host_refresh_credential_authority_exists": {
-      "sourceHash": "87e8861007bb54c6d8bd16d52089247f2f59c226f15a14d2aae2f372edb7bac5",
-      "message": "Set-HostRefreshCredential：{path}下已存在刷新签名机构；传入-Rotate可替换该机构，这会使所有已安装的宿主机密钥失效。"
+    "runner.host_repair_credential_authority_created": {
+      "sourceHash": "baca3829eedbdfa93055b95691101e187fc7c5895737b057724aac55896a3e43",
+      "message": "Set-HostRepairCredential：已在{path}下创建修复签名机构（标记{authorityTag}）和操作员凭据（标记{credentialTag}）。请将authority.key和operator.credential复制到pool-control服务的/etc/yuruna/host-repair/，并设置为仅所有者可访问；切勿将其复制到池宿主机。"
     },
-    "runner.host_refresh_credential_host_key_exported": {
-      "sourceHash": "0d49528e3613629379324f5d7b9d19ba1ba11370cd8a31dc640c8fbc7513069c",
-      "message": "Set-HostRefreshCredential：已将宿主机{hostId}的刷新密钥（标记{keyTag}）写入{path}。请通过私密通道将其移至该宿主机，在该宿主机上使用-InstallHostKey -KeyPath运行此脚本，然后删除该文件。"
+    "runner.host_repair_credential_authority_exists": {
+      "sourceHash": "2b729a31517e4b8453844ecfa59163e3bbf982e553691465aa3883d786ced9da",
+      "message": "Set-HostRepairCredential：{path}下已存在修复签名机构；传入-Rotate可替换该机构，这会使所有已安装的宿主机密钥失效。"
     },
-    "runner.host_refresh_credential_host_key_installed": {
-      "sourceHash": "110c57414984346abaa5b245db023dfd1c0b411be22e617f4793f745768ed105",
-      "message": "Set-HostRefreshCredential：已为此宿主机{hostId}安装刷新密钥（标记{keyTag}）；现在可在此验证由匹配的签名机构签名的远程刷新请求。"
+    "runner.host_repair_credential_host_key_exported": {
+      "sourceHash": "3290aa7a1d504c0594d4ea44354c0b7acbb79d012f3dc248d307058bd475b601",
+      "message": "Set-HostRepairCredential：已将宿主机{hostId}的修复验证密钥（标记{keyTag}）写入{path}。请通过私密通道将其移至该宿主机，在该宿主机上使用-InstallHostKey -KeyPath运行此脚本，然后删除该文件。"
     },
-    "runner.host_refresh_credential_host_key_removed": {
-      "sourceHash": "1dad20c8cfd15aea8f4aae00a0122c48ea7240476874a30ecfcf7ae163be1d22",
-      "message": "Set-HostRefreshCredential：已移除刷新密钥；此宿主机现在会拒绝所有非回环刷新请求。"
+    "runner.host_repair_credential_host_key_installed": {
+      "sourceHash": "8cc43d4bc7d89659d66992776edcfc1f072b36510ef101099c8fd99c2f9be2ab",
+      "message": "Set-HostRepairCredential：已安装此宿主机的修复验证密钥（{hostId}，标记{keyTag}）；现在可在此验证由匹配的签名机构签名的远程修复请求。"
     },
-    "runner.host_refresh_credential_output_exists": {
-      "sourceHash": "9718c218e0dc995400f05a20d41a0fefd84d82c7433aeaa98a7725fe854a99b7",
-      "message": "Set-HostRefreshCredential：{path}已存在；请选择其他-OutputPath或先删除该文件。"
+    "runner.host_repair_credential_host_key_removed": {
+      "sourceHash": "6543748d35b85ffc053870255e848f2c54315628c2d5b54f6b64eda769fd2304",
+      "message": "Set-HostRepairCredential：已移除此宿主机的修复验证密钥；此宿主机现在会拒绝所有非回环修复请求。"
     },
-    "runner.host_refresh_credential_status": {
-      "sourceHash": "cb8c3328afa66283f93796f8e84b5fdd5d5908f99df564dbf9009def6886c503",
-      "message": "Set-HostRefreshCredential：宿主机{hostId}：远程刷新密钥{state}（{reason}）；签名机构{authorityState}。"
+    "runner.host_repair_credential_output_exists": {
+      "sourceHash": "49a0f7cb10e128edb48c3b19c8213b601e0042735dd320c75941228d0a2bff03",
+      "message": "Set-HostRepairCredential：{path}已存在；请选择其他-OutputPath或先删除该文件。"
     },
-    "runner.host_refresh_deadline_exhausted": {
-      "sourceHash": "076d20106747f138cc0dc87195fb91d9c3e6ba738440cd930621a3a22c152689",
-      "message": "Invoke-HostRefresh：在{phase}阶段耗尽了时间预算；未完成的工作已记录为待处理项。"
+    "runner.host_repair_credential_status": {
+      "sourceHash": "a72661c4c187d021f37808384aade4b8ee2da20f7cf0cfd5c51647bd3540830c",
+      "message": "Set-HostRepairCredential：宿主机{hostId}：修复验证密钥{state}（{reason}）；签名机构{authorityState}。"
     },
-    "runner.host_refresh_disruption_warning": {
-      "sourceHash": "5772cd8e8ed6295f5c67e399d5349e6fc62c6101718eca7a2cea27b93af2b1f3",
-      "message": "Invoke-HostRefresh：重启虚拟机监控程序应用可能会挂起正在运行的客户机；仅在指定-AllowHardStop时才允许的强制停止操作可能导致客户机非正常断电。"
+    "runner.host_update_credential_status": {
+      "sourceHash": "e6e48808f6944b792b304587e22f564e2690119e2f4aa85dd30ced5c1a283a3f",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential：pool-control记录{state}（{reason}；pool-control {poolControl}，密钥标签{keyTag}）；宿主机更新签名密钥{signingKeyState}。"
     },
-    "runner.host_refresh_evidence_write_failed": {
-      "sourceHash": "bc36feced9b8767e30f1ce1dc9501536787c5aabdd7e3a278a23356a939cfb48",
-      "message": "无法记录此周期的宿主机刷新证据（{reason}）；自动宿主机刷新不会计入此周期。"
+    "runner.host_update_credential_signing_key_created": {
+      "sourceHash": "b8ef9fb2ecd66b1accb9ac0eb3f49cffd098697def7be07ef58003de0aed27bb",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential：已在{path}创建宿主机更新签名密钥（标签{keyTag}）。请以仅所有者可访问的权限将其复制到pool-control服务的/etc/yuruna/host-repair/update-signing.key；切勿复制到池中的宿主机。在池中每台宿主机上运行：pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl <pool-control URL> -PublicKey {publicKey}"
     },
-    "runner.host_refresh_hung_hypervisor_manual_hyperv": {
-      "sourceHash": "d0f883d700be2047f7ef7bd3d0b63d4b9bdf75e6db03fff878a8e68797b09322",
-      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在提升权限的控制台中重启Hyper-V管理服务（Restart-Service vmms），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
+    "runner.host_update_credential_signing_key_exists": {
+      "sourceHash": "f6be5f42cf7b39a67da9c1be7cb8c6d8143c61a7e8cc378eb2a7615e77fdcc85",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential：{path}处已存在宿主机更新签名密钥；传入-Rotate可替换它，之后必须在每台宿主机上重新安装pool-control记录。"
     },
-    "runner.host_refresh_hung_hypervisor_manual_kvm": {
-      "sourceHash": "ec779be2fc6140bc1745e56047085014ee51fda9634cc2fff36644c4b0a3abcf",
-      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请重启libvirt守护进程（sudo systemctl restart libvirtd），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
+    "runner.host_update_credential_record_installed": {
+      "sourceHash": "f9efc0f220e1dddd4eae895389486b6aba08980b67310dba81ebd544509e8f7f",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential：已安装此宿主机的pool-control记录（pool-control {poolControl}，密钥标签{keyTag}）；现在可在此验证由该密钥签署的宿主机更新，此宿主机的诊断页面会将远程操作发送到该处。"
     },
-    "runner.host_refresh_hung_hypervisor_manual_utm": {
-      "sourceHash": "b62363d5ef3d6b25b7f4fb44a216c8fd6c41528161c124fe89ace2172b51e69a",
-      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在已登录的桌面会话中退出并重新打开UTM，或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRefresh.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
+    "runner.host_update_credential_record_value_replaced": {
+      "sourceHash": "0e19c971c759563358eeeda30f0a5a5472d07a211492735196674daaf5aabce5",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential：pool-control记录{key}：{previous} -> {current}。此行保留了先前的值；如果此更改并非有意，请使用-InstallPoolControlRecord重新安装。"
     },
-    "runner.host_refresh_identity_refused": {
-      "sourceHash": "303d0b942cd0597006c24c2486e537855d4dfe86e615175773cb7603ab4e3f5d",
-      "message": "Invoke-HostRefresh：拒绝以{identity}身份运行（{reason}）；请使用拥有{runtimeDir}的账户运行。"
+    "runner.host_update_credential_record_removed": {
+      "sourceHash": "79441a68a553337242adf5240076e1f75e0771faa6a4fa9913f30800465dd8dc",
+      "origin": "machine",
+      "message": "Set-HostRepairCredential：已删除此宿主机的pool-control记录；此宿主机现在拒绝来自其他机器的所有宿主机更新。"
     },
-    "runner.host_refresh_launcher_wait_timeout": {
-      "sourceHash": "dc16b873290149a51e530c8a4a6d07c5aab286eb7a3d2c33357b7a5c9c36412a",
-      "message": "Invoke-HostRefresh：等待{waitedSeconds} s后，启动器进程{launcherPid}仍在运行；请求{requestId}仍在队列中等待重试。"
+    "runner.host_update_auth_action_create_signing_key": {
+      "sourceHash": "a782705c248a7a96443a64f2824800fa345ea4bcefb4631fde50cfc1cd4f1ae0",
+      "origin": "machine",
+      "message": "创建宿主机更新签名密钥"
     },
-    "runner.host_refresh_lock_busy": {
-      "sourceHash": "cf2d590b61147d8ff7da29c3475ade27959e6b9921bb76ad5699c3b351529850",
-      "message": "Invoke-HostRefresh：另一项修复持有生命周期锁（{reason}）；拒绝与其同时运行。"
+    "runner.host_update_auth_action_install_record": {
+      "sourceHash": "6f477b967b5de62875fe9387bdfa2d9d914a3b6f35e8a73801d753548f32338c",
+      "origin": "machine",
+      "message": "为{poolControl}安装pool-control记录"
     },
-    "runner.host_refresh_manual_command": {
-      "sourceHash": "233e97455e11721f440ef83c6927af059d5c206f8200df66acad46256c138209",
-      "message": "Invoke-HostRefresh：请手动运行此命令，或允许其在不提示输入密码的情况下运行：sudo {command}"
+    "runner.host_update_auth_action_remove_record": {
+      "sourceHash": "9665d5f72a94b91a4ed2d5c402c68f939eef9ea49bd90d5120d40cb725824366",
+      "origin": "machine",
+      "message": "删除pool-control记录"
     },
-    "runner.host_refresh_obligation_disposed": {
-      "sourceHash": "bf8b4737f29cdbcd15248935f7b0f07a4d9efb3edfa14016c4032060dae4a6b9",
-      "message": "Invoke-HostRefresh：已将请求{requestId}的{obligation}记录为由{actor}处理完毕。"
+    "runner.host_repair_deadline_exhausted": {
+      "sourceHash": "c65066fc309083d8d5918657c12a7107a920470e544f2266727b4cc562de87bc",
+      "message": "Invoke-HostRepair：在{phase}阶段耗尽了时间预算；未完成的工作已记录为待处理项。"
     },
-    "runner.host_refresh_obligation_unknown": {
-      "sourceHash": "9e3f51514cbae6943a8ab13f38d5ee33f3cb5a5be24d0822695cf1f073293cad",
-      "message": "Invoke-HostRefresh：{obligation}不是请求{requestId}的待处理项。"
+    "runner.host_repair_disruption_warning": {
+      "sourceHash": "86f0132f1e67bca1e30738d38178dfede7fbe8bd235d8779641a5d4b3829f920",
+      "message": "Invoke-HostRepair：重启虚拟机监控程序应用可能会挂起正在运行的客户机；仅在指定-AllowHardStop时才允许的强制停止操作可能导致客户机非正常断电。"
     },
-    "runner.host_refresh_oneshot_active": {
-      "sourceHash": "8411856250a87ac59a28a29781c3cabdf9966430215c1c72eba151d5c6b93c30",
-      "message": "Invoke-HostRefresh：一次性运行（PID {pid}，租约 {leasePath}）正在使用此运行时；在其持有租约期间不会执行任何修复步骤。"
+    "runner.host_repair_evidence_write_failed": {
+      "sourceHash": "2deb7e3b1505731ee33a38a0966e055b816ccde102bc210711695512e52d7554",
+      "message": "无法记录此周期的宿主机修复证据（{reason}）；自动宿主机修复不会计入此周期。"
     },
-    "runner.host_refresh_oneshot_unconfirmed": {
-      "sourceHash": "f583920a1c72990d9c961ea058b65f8e20e0e8fa7181f3688631cbb55c0758a5",
-      "message": "Invoke-HostRefresh：一次性租约 {leasePath} 指向 PID {pid}，其身份无法确认（{reason}）；仍继续修复。"
+    "runner.host_repair_hung_hypervisor_manual_hyperv": {
+      "sourceHash": "b38d280083d5b4cae92935d2dd68a2ef50ff22804bbe221f07da7d4c1f85ab22",
+      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在提升权限的控制台中重启Hyper-V管理服务（Restart-Service vmms），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRepair.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
     },
-    "runner.host_refresh_operator_instruction": {
-      "sourceHash": "d100fae791851766cd671f838d6fc7a1b18554e434c19e91d7da75d5d29d8d8f",
+    "runner.host_repair_hung_hypervisor_manual_kvm": {
+      "sourceHash": "6c0c8b05fe099deee0474cd491b1eee8b508d7149b6cd1f62d913540b43598a7",
+      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请重启libvirt守护进程（sudo systemctl restart libvirtd），或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRepair.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
+    },
+    "runner.host_repair_hung_hypervisor_manual_utm": {
+      "sourceHash": "ecf786b4773ea63263ca1c90880ed072f09523561ea72514e8544054ed76914a",
+      "message": "虚拟机监控程序的控制通道已挂起，此宿主机上没有可用的层级能够修复该问题。请在已登录的桌面会话中退出并重新打开UTM，或手动重启宿主机，然后使用以下命令恢复：pwsh test/lab/Invoke-HostRepair.ps1 -Resume。未经修复直接恢复只会重新探测，并消耗有限尝试次数中的一次。"
+    },
+    "runner.host_repair_identity_refused": {
+      "sourceHash": "7650e177e6f176c4410857b604665654faa2bb1fac6855db62641bb8b5f6a16e",
+      "message": "Invoke-HostRepair：拒绝以{identity}身份运行（{reason}）；请使用拥有{runtimeDir}的账户运行。"
+    },
+    "runner.host_repair_launcher_wait_timeout": {
+      "sourceHash": "6bc77caf14002103023fc50d3bfebf3fc2d1b61a29e0e06fd2f36e64407ed813",
+      "message": "Invoke-HostRepair：等待{waitedSeconds} s后，启动器进程{launcherPid}仍在运行；请求{requestId}仍在队列中等待重试。"
+    },
+    "runner.host_repair_lock_busy": {
+      "sourceHash": "b4e0df77be6589d89e77326aa18ed763c9b386317d5917173b8f08442831ca89",
+      "message": "Invoke-HostRepair：另一项宿主机操作持有生命周期锁（{reason}）；拒绝与其同时运行。"
+    },
+    "runner.host_repair_manual_command": {
+      "sourceHash": "a4468a4a9a0d213624f1e31bc499addbf12390454a5a66c4151954a5a9560dbc",
+      "message": "Invoke-HostRepair：请手动运行此命令，或允许其在不提示输入密码的情况下运行：sudo {command}"
+    },
+    "runner.host_repair_obligation_disposed": {
+      "sourceHash": "332707e112a5a73ce073639b15974fa2e60df8c0e14cfdc4772cff74d1f3e5a8",
+      "message": "Invoke-HostRepair：已将请求{requestId}的{obligation}记录为由{actor}处理完毕。"
+    },
+    "runner.host_repair_obligation_unknown": {
+      "sourceHash": "66d2cf9bdac8a259fe3992a324512906570c3d898193082ed7cc3cb6123abd7e",
+      "message": "Invoke-HostRepair：{obligation}不是请求{requestId}的待处理项。"
+    },
+    "runner.host_repair_oneshot_active": {
+      "sourceHash": "4b70cbd424e68dbe6b862cc5a04659a461be7f0211715a92a175a52211521dc6",
+      "message": "Invoke-HostRepair：一次性运行（PID {pid}，租约 {leasePath}）正在使用此运行时；在其持有租约期间不会执行任何修复步骤。"
+    },
+    "runner.host_repair_oneshot_unconfirmed": {
+      "sourceHash": "a6ed9f84eb0b8f93e2f88d6451fc2b52129a4b69d2a050780d866b99403ba76d",
+      "message": "Invoke-HostRepair：一次性租约 {leasePath} 指向 PID {pid}，其身份无法确认（{reason}）；仍继续修复。"
+    },
+    "runner.host_repair_operator_instruction": {
+      "sourceHash": "d6da6915406df6aa20c438dacc755e1af12130b143307205bfbfb2c2f3306957",
       "message": "  补救措施：{instruction}"
     },
-    "runner.host_refresh_preview_group_relaunch": {
-      "sourceHash": "a453fd8a9b85d01b4acb79f218ebd1d5994768b0219054f99abdfacbfdc60090",
+    "runner.host_repair_other_kind": {
+      "sourceHash": "03ea39b6c9d6898d1a4b52b0b350020bc42d4f4bd62c134ca88b792a49b71e67",
+      "message": "Invoke-HostRepair：请求 {requestId} 是主机更新，而不是修复；由其控制器继续执行。要在此主机上结束它，请运行：pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}"
+    },
+    "runner.host_update_busy": {
+      "sourceHash": "68ada74802a2d91d9f252a70fce1014d754528eb9f78090f380a015ec78b50fb",
+      "message": "Invoke-HostUpdate：未排队任何请求；一个 {activeKind} 操作正占用主机（{activeRequestId}）。请等待其结束，或在运行器的控制台中结束正在运行的周期。"
+    },
+    "runner.host_update_controller_absent": {
+      "sourceHash": "61f7f170e0c4ac009457f9bde5f748861d4ee3611681f034e7f938e6b5b50355",
+      "message": "Invoke-HostUpdate：此主机上没有正在运行的主机控制器（锁 {lockState}）；未排队任何请求。"
+    },
+    "runner.host_update_queued": {
+      "sourceHash": "b4d417492c896d0028b113327ac5407e8940f2dccaf1e18edac602943c6e0019",
+      "message": "Invoke-HostUpdate：主机更新 {requestId} 已排队（范围 {scope}，排空 {drain}）。进度：{stateFile}。运行器启动后，其控制台：{attach}"
+    },
+    "runner.host_update_refused": {
+      "sourceHash": "6c0a7e29199e72599d4738175acc0767714e7bc32b86dc4e99c0342124d938dc",
+      "message": "Invoke-HostUpdate：主机更新 {requestId} 未排队（{decision}：{reason}）。"
+    },
+    "runner.host_update_release_controller_running": {
+      "sourceHash": "5ac515e03d8ad05ca2ad1c1670f24cb6f6bf499aaee029fb71ae37e6f78ea0d8",
+      "message": "Invoke-HostUpdate：主机更新 {requestId} 正在主机控制器（pid {pid}）下进行；只有在其恢复期间或没有控制器运行时才能释放。请等待其结论。"
+    },
+    "runner.host_update_release_marked": {
+      "sourceHash": "83c30f8d3e42a873625f5d133900cdec773ed60e30c614fa921e58dd44b4455a",
+      "message": "Invoke-HostUpdate：主机更新 {requestId} 已标记为释放；主机控制器会在当前尝试结束后释放它。"
+    },
+    "runner.host_update_release_refused": {
+      "sourceHash": "dd0d09eee7b741fec35e7abcf2fad75cab1f2c02eb641b23ac1224a65b0df1aa",
+      "message": "Invoke-HostUpdate：无法释放主机更新 {requestId}（{reason}）。"
+    },
+    "runner.host_update_released": {
+      "sourceHash": "aa91e54b98ab7e55879d72f43fe9be90a2f1ef97f3eb18c772c9573f135cfa18",
+      "message": "Invoke-HostUpdate：主机更新 {requestId} 以 {verdict} 结束；仍需处理：{debt}。普通的运行器启动可再次使用。"
+    },
+    "runner.host_update_scope_unavailable": {
+      "sourceHash": "b72c350f1c188b1f9e8a6728be6920e1a346d383cd731e60e86f0431c0cd8b31",
+      "message": "Invoke-HostUpdate：主机控制器运行 {scopes}，而不是 {scope}；未排队任何请求。"
+    },
+    "runner.host_update_takeover": {
+      "sourceHash": "d87cd0d4e21371892e22c0bb84d1b2d155fa4c0f44e770231a569e638464aa1c",
+      "message": "Invoke-HostUpdate：它接管了正在恢复的主机更新 {supersededId}。"
+    },
+    "runner.host_update_unexpected_error": {
+      "sourceHash": "bb03e015a5e2e39fc52b0b77ff17a40282b474da3685a8f7e7246579d22744bd",
+      "message": "Invoke-HostUpdate：在{phase}阶段发生意外错误：{message}"
+    },
+    "runner.host_update_gate_controller_running": {
+      "sourceHash": "b6b7ef283be9cd22faa3034cecb71c1a24f3da670b8251782f268fea1ed6a750",
+      "message": "Start-TestRunner：主机更新 {requestId} 占用此主机的运行器；主机控制器会继续执行它并自行启动运行器。其控制台：{attach}"
+    },
+    "runner.host_update_gate_controller_absent_macos": {
+      "sourceHash": "b743accbeb9337a4fcbd2fda6a3e6224d2257d4c6a2de70b811264cb5ff19e68",
+      "origin": "machine",
+      "message": "Start-TestRunner：主机更新 {requestId} 占用此主机的运行器，且没有正在运行的主机控制器。{result} 请从桌面会话的终端启动运行器以启动控制器，由它继续此更新；或使用以下命令结束此更新：{release}"
+    },
+    "runner.host_update_gate_controller_restarting_macos": {
+      "sourceHash": "713c2a6c6c11b7404fb69979f38391f5bf5996fe761678588aed93dbf9d8f7db",
+      "origin": "machine",
+      "message": "Start-TestRunner：主机更新 {requestId} 占用此主机的运行器，此次启动发现的主机控制器正处于两次运行之间：其会话中的 shim 很快会再次启动它，由它继续此更新并自行启动运行器。如要改为结束此更新，请运行：{release}"
+    },
+    "runner.host_update_gate_controller_unknown_macos": {
+      "sourceHash": "a8791c9c09847f053febbeef13c2a2cb71ff82d8348a31d62fc37f1067439b72",
+      "origin": "machine",
+      "message": "Start-TestRunner：主机更新 {requestId} 占用此主机的运行器。此次启动的主机控制器步骤发现有控制器正在运行或已启动一个控制器，但现在无法读取控制器锁，因此无法确定是否有控制器在继续此更新。如果没有，请从桌面会话的终端启动运行器以启动控制器；或使用以下命令结束此更新：{release}"
+    },
+    "runner.host_controller_start_not_deployed": {
+      "sourceHash": "e1d4d6eafe80541a243c94aafc7679739ccde7f2c11a7b3edd295296de3577e9",
+      "origin": "machine",
+      "message": "主机控制器：未在此主机上部署；请运行 Enable-TestAutomation 进行部署。未启动任何控制器。"
+    },
+    "runner.host_controller_start_not_desktop_session": {
+      "sourceHash": "a48ac80126cf411f424fdfd40ad03cc323255fc92bb6961f83aa222f7139beda",
+      "origin": "machine",
+      "message": "主机控制器：未启动，因为本次运行器启动不在桌面会话中（SSH 登录或后台会话）。请从桌面会话的终端启动运行器来启动它。"
+    },
+    "runner.host_controller_start_running": {
+      "sourceHash": "14e916f93dac78ce3ddb885a3ae3f9f8dc3a7a693c74420dbd44f697e746d7ec",
+      "origin": "machine",
+      "message": "主机控制器：正在运行。"
+    },
+    "runner.host_controller_start_lock_unreadable": {
+      "sourceHash": "a28e4d087d2faaffafa5bc5b38371e883210d34f59fa0531963d22c80970da08",
+      "origin": "machine",
+      "message": "主机控制器：无法读取其锁，因此不冒险启动第二个控制器；未启动任何控制器。"
+    },
+    "runner.host_controller_start_no_multiplexer": {
+      "sourceHash": "60fd46acb4dad73143f9863ab6a299754a801856eb3e5e385b989d00faaeb0c9",
+      "origin": "machine",
+      "message": "主机控制器：未找到 tmux 或 screen，因此未启动控制器；运行器将在没有控制器的情况下启动。"
+    },
+    "runner.host_controller_start_session_exists": {
+      "sourceHash": "fc4acc8188c857410523e62bb811382a2dde954dbf72c3e187c6ff85cf9bb43b",
+      "origin": "machine",
+      "message": "主机控制器：其 {multiplexer} 会话 yuruna-controller 已存在；该会话中的 shim 会启动控制器。查看方法：{attach}"
+    },
+    "runner.host_controller_start_session_unknown": {
+      "sourceHash": "642be92f4bc13e8a302e45790ec3c09149e7806ce07fecc330b48c0953256626",
+      "origin": "machine",
+      "message": "主机控制器：无法确定会话 yuruna-controller 是否存在，因此未启动任何会话。"
+    },
+    "runner.host_controller_start_started": {
+      "sourceHash": "ae1e0c016487ec40122ccd60d6648259f14570b16ab92fb48c66469b4d65ee18",
+      "origin": "machine",
+      "message": "主机控制器：已在其 {multiplexer} 会话 yuruna-controller 中启动。查看方法：{attach}"
+    },
+    "runner.host_controller_start_not_held": {
+      "sourceHash": "94ec2f0c7a40e84b2685de291208962f0df2618df5886769d0d6cb159a153d7d",
+      "origin": "machine",
+      "message": "主机控制器：已创建 {multiplexer} 会话 yuruna-controller，但 10 秒内没有控制器获得锁。查看方法：{attach}"
+    },
+    "runner.host_controller_start_start_failed": {
+      "sourceHash": "42ba7da80ac5b28379e6b162f0083169bf0c1e068357d59c15c78679774536be",
+      "origin": "machine",
+      "message": "主机控制器：无法创建 {multiplexer} 会话 yuruna-controller；未启动任何控制器。"
+    },
+    "runner.host_controller_start_error": {
+      "sourceHash": "173413c9572873638324c0593c8cd44ca10a0ea847a2506cf8bf1055f18044c0",
+      "origin": "machine",
+      "message": "主机控制器：启动步骤失败（{message}）；未启动任何控制器。"
+    },
+    "runner.host_controller_session_action": {
+      "sourceHash": "3db60bd0cbe45a2f08b25befbf70d562f2ec7ad018cc766a797bab309e76e98a",
+      "origin": "machine",
+      "message": "结束主机控制器的会话 yuruna-controller"
+    },
+    "runner.host_update_access_entry_action": {
+      "sourceHash": "9ae5684fd9f30b4dfb6d2d3fbe633979eb3f2f5be41c0d5b96fdd57751245984",
+      "origin": "machine",
+      "message": "安装或删除允许主机控制器写入其临时 sudo 规则的 sudoers 条目"
+    },
+    "runner.host_update_elevated_work_action": {
+      "sourceHash": "4e8db50b4d9cb4ce91c37f30cc7d6608cce13a0a991da5be34655576c516fb1c",
+      "origin": "machine",
+      "message": "结束主机更新的安装阶段或启用阶段的进程，包括以 root 身份运行的进程"
+    },
+    "runner.host_update_console_window": {
+      "sourceHash": "4632afb4d1d01d9ac79245ad6d201dcc39ce056ebdc29b2a120f129106b9c144",
+      "origin": "machine",
+      "message": "测试账户桌面上的一个独立控制台窗口，可在本机上打开，或通过远程桌面连接到该会话打开"
+    },
+    "runner.host_update_elevation_action": {
+      "sourceHash": "e6f9e1c33fb3b8d39aff18afa2c6b2beddf9778b4673e3910fdd2c08a0c7f521",
+      "origin": "machine",
+      "message": "更改主机更新的临时 sudo 规则、临时单元或安装程序副本"
+    },
+    "runner.host_update_gate_controller_absent": {
+      "sourceHash": "7bf914c7a50b61a0de5bc02b0afb52c3dc77a0dbd44858af2c9dbec2caeea119",
+      "message": "Start-TestRunner：主机更新 {requestId} 占用此主机的运行器，且没有正在运行的主机控制器；其系统服务会在几秒内启动一个控制器以继续更新。若要改为结束此更新，请运行：{release}"
+    },
+    "runner.host_repair_preview_group_relaunch": {
+      "sourceHash": "2f6be91c9ad0a7caac9bddf5bd999d1217069e69bd7dd8122747971b1196d15d",
       "message": "  实际执行时，会先以libvirt组身份重新启动（{reason}）。"
     },
-    "runner.host_refresh_preview_notice": {
-      "sourceHash": "d73f8a45364b13fbdb97151d7c03b9d18ff1c18691b800813820f04db0c7f456",
+    "runner.host_repair_preview_notice": {
+      "sourceHash": "7eb70cedd62b878afc06b54f85b00445489beec402ad159b6dc221eea28f9d43",
       "message": "  仅预览：未锁定、写入、发送信号或启动任何对象。"
     },
-    "runner.host_refresh_preview_would_consider": {
-      "sourceHash": "85406c481d2f840d2391adce1e447839d35f62c94052f8d59abbc6eb5c5ae800",
+    "runner.host_repair_preview_would_consider": {
+      "sourceHash": "b772f600cde5143ddf32045efb316051f82b5be9ae155dd19366c99bf422a73c",
       "message": "  实际执行时将依次考虑以下修复级别：{rungs}"
     },
-    "runner.host_refresh_private_root_unavailable": {
-      "sourceHash": "63393a8aec54c55b797dc083e654a3f1285a1eea3313f9dc3a73607c2ba2f2fe",
-      "message": "Invoke-HostRefresh：无法确保$HOME/.yuruna/host-refresh下的私有状态根目录安全（{reason}）；缺少仅所有者可访问的私有根目录，拒绝执行。"
+    "runner.host_repair_private_root_unavailable": {
+      "sourceHash": "83e527a2e7f9df6d03092e7341ff07d56e954363502eb36b307911f943577358",
+      "message": "Invoke-HostRepair：无法确保$HOME/.yuruna/host-repair下的私有状态根目录安全（{reason}）；缺少仅所有者可访问的私有根目录，拒绝执行。"
     },
-    "runner.host_refresh_progress_degraded": {
-      "sourceHash": "a730963668cf8894dd4da8aa919103d5331e6de0641db7ca4fda5db0b9ac9f36",
-      "message": "Invoke-HostRefresh：无法发布进度；修复已继续，仍以私有日志为准。"
+    "runner.host_repair_progress_degraded": {
+      "sourceHash": "f9264f8bbc240d551bbf84fd5463f56f4adb3beeec0d90ac5c28d47471bcaf37",
+      "message": "Invoke-HostRepair：无法发布进度；修复已继续，仍以私有日志为准。"
     },
-    "runner.host_refresh_protocol_mismatch": {
-      "sourceHash": "0f4d14277cf94756e7031de4ee3634d429f997f485bcc36447437f354c03317b",
-      "message": "Invoke-HostRefresh：{path}声明的协议为“{found}”；此入口点实现的协议为“{expected}”。"
+    "runner.host_repair_protocol_mismatch": {
+      "sourceHash": "20b019cc564ff6d52e2b9151a393110afc5a295bbe1e4b39400bf1fdfb8948d4",
+      "message": "Invoke-HostRepair：{path}声明的协议为“{found}”；此入口点实现的协议为“{expected}”。"
     },
-    "runner.host_refresh_refused": {
-      "sourceHash": "ad2867a8ad49eb4bb039eda3f0ed7240619a9ad59119985dd12263450890bdef",
-      "message": "Invoke-HostRefresh：在进行任何更改之前已拒绝执行（{reason}）。"
+    "runner.host_repair_refused": {
+      "sourceHash": "79d23000296bd67f8e6cab0e81ac5594d010362fab88604870b57d7aab2503c4",
+      "message": "Invoke-HostRepair：在进行任何更改之前已拒绝执行（{reason}）。"
     },
-    "runner.host_refresh_request_refused": {
-      "sourceHash": "e34fa4f6b3fcd3f2fa73338e880a98276cdaea8af83792dae7ef522de773b7a6",
-      "message": "Invoke-HostRefresh：请求{requestId}已被拒绝（{reason}）；尚未解决的请求{activeRequestId}处于{state}状态。"
+    "runner.host_repair_request_refused": {
+      "sourceHash": "28e06914b160232668877770fa8b049bb34897081865ebc14e947d3c599430a2",
+      "message": "Invoke-HostRepair：请求{requestId}已被拒绝（{reason}）；尚未解决的请求{activeRequestId}处于{state}状态。"
     },
-    "runner.host_refresh_resume_none": {
-      "sourceHash": "4164759aebb9c513a66aed66c374a26f8bf12b6c2b853fc2bb7230a630ea2c30",
-      "message": "Invoke-HostRefresh：没有可恢复的未解决请求。"
+    "runner.host_repair_resume_none": {
+      "sourceHash": "8c6df29439b687962fd4c917e07d12b019c81e125b36916643044a42835b332c",
+      "message": "Invoke-HostRepair：没有可恢复的未解决请求。"
     },
-    "runner.host_refresh_resume_started": {
-      "sourceHash": "4656e01273917c681f227b18145bd890b0ee9d0ab770d44bcb1f43dd64a5371a",
-      "message": "Invoke-HostRefresh：正在恢复请求{requestId}，第{attempt}次尝试（{mode}）。"
+    "runner.host_repair_resume_started": {
+      "sourceHash": "9b059d8edff753bfd72af98269ea1f4f2e41e8b21a540568973cb2ce38c30a49",
+      "message": "Invoke-HostRepair：正在恢复请求{requestId}，第{attempt}次尝试（{mode}）。"
     },
-    "runner.host_refresh_rung_finished": {
-      "sourceHash": "e68f7fa790882e9e13f14f0ea7c97a4406f4b50e6899d13c33c9c80759e27559",
-      "message": "Invoke-HostRefresh：修复级别{name}的结果为{outcome}；虚拟机监控程序的当前探测结果为{state}（{reason}）。"
+    "runner.host_repair_rung_finished": {
+      "sourceHash": "1a296c16d39ec5722af2b70a0db12019cde87877641d6fc11008fc86f4537859",
+      "message": "Invoke-HostRepair：修复级别{name}的结果为{outcome}；虚拟机监控程序的当前探测结果为{state}（{reason}）。"
     },
-    "runner.host_refresh_rung_reason_broker_recipe_missing": {
-      "sourceHash": "6a953257c41c710643c080676ca54c7a6d1b7787608324410728edbb8569001a",
+    "runner.host_repair_rung_reason_broker_recipe_missing": {
+      "sourceHash": "1f5e3681e49040381c5b13531046359ba63905d8507919248293286d4992cf6b",
       "message": "需要针对特定操作系统版本验证标签、域和所有者方案，并进行附带影响测试"
     },
-    "runner.host_refresh_rung_reason_daemon_layout_unqualified": {
-      "sourceHash": "1e3eb74cfd6586e09f9f12673f42861a312e2fdd2fc97885a28e8895e2a440df",
+    "runner.host_repair_rung_reason_daemon_layout_unqualified": {
+      "sourceHash": "89a3f90794445a18fe511c81f1e3b23a2f9e9644dc79b33f09c5d9f75bdd6532",
       "message": "需要在受支持的宿主机上通过守护进程布局测试和客户机保全测试"
     },
-    "runner.host_refresh_rung_reason_gui_launch_unqualified": {
-      "sourceHash": "55ef781e1c1c122b87b9dd3b20f954ab7d72fa1bdc7153ddd8a0c9f7c29fedf9",
+    "runner.host_repair_rung_reason_gui_launch_unqualified": {
+      "sourceHash": "6c8f8aead7fc94d64c04251f45196c9a85f5d5181f45a37355dd8d3366083c4f",
       "message": "启动UTM需要检查同一用户下是否不存在运行实例，并使用图形界面启动路径；这些尚未在真实macOS宿主机上通过验证"
     },
-    "runner.host_refresh_rung_reason_lock_unqualified": {
-      "sourceHash": "6f07948b3987573f9921c1d9efce10f8a299827f3b49861a2f8c455600f4aff3",
+    "runner.host_repair_rung_reason_lock_unqualified": {
+      "sourceHash": "30265c8627280728278ddc0a5bfb80270507acce23bdbb7c97e973aadb93cf68",
       "message": "修复锁的互斥性尚未在此平台上得到证实"
     },
-    "runner.host_refresh_rung_reason_modular_daemon_recipe_missing": {
-      "sourceHash": "09b9bcdd37762cc95944a4e84f6e26f83a602284adb8362fb5528288629de726",
+    "runner.host_repair_rung_reason_modular_daemon_recipe_missing": {
+      "sourceHash": "630d434d6e018d251d589252811292fb193321e560a311f207195f7e31f19a0f",
       "message": "需要经过验证的模块化libvirt守护进程方案"
     },
-    "runner.host_refresh_rung_reason_no_reboot_supervision": {
-      "sourceHash": "7de6e692d8aa7beadb0c987d6385e50259b227a1112aa9066391ef6d30cd1f75",
+    "runner.host_repair_rung_reason_no_reboot_supervision": {
+      "sourceHash": "4b18680d5a9cb18f98d7198594ea3c227db9ec39480846f97b9917898291c8dc",
       "message": "尚无经过验证的机制可在宿主机重启前后持续监管运行器和状态服务"
     },
-    "runner.host_refresh_rung_reason_not_implemented": {
-      "sourceHash": "19f8277a2b99a079785a4a46d9ee8af5cf5cc2c04f2490b2bcc1fd039dfb6d8c",
+    "runner.host_repair_rung_reason_not_implemented": {
+      "sourceHash": "954c558021f8e1596d6ea2e8e17fb8002945d3fb6b25fe8c26e501a823412ab9",
       "message": "此检出版本中没有此修复级别的执行器"
     },
-    "runner.host_refresh_rung_reason_package_recovery_unqualified": {
-      "sourceHash": "61c83a080b1b3c5a853578b43135f015152a104702acbf8d1d1d1914d3dc40e9",
+    "runner.host_repair_rung_reason_package_recovery_unqualified": {
+      "sourceHash": "c770b49e740569677150978004eeb9e3711bf134ff2a123d8bea33539a50694b",
       "message": "需要自包含且已签名的引导程序，以及经过测试的软件包恢复流程"
     },
-    "runner.host_refresh_rung_reason_provider_recipe_missing": {
-      "sourceHash": "aecd4e46604e223f3988f37bb7a1f753f49b6534cdb07694a3708dc41bf998f2",
+    "runner.host_repair_rung_reason_provider_recipe_missing": {
+      "sourceHash": "c90f36886979fe2e5a4724980fa68e5367e6f92140642b719ff2398d2f17b0f0",
       "message": "需要在受支持的宿主机上测试过的独立提供程序恢复方案"
     },
-    "runner.host_refresh_rung_reason_runner_restart_unqualified": {
-      "sourceHash": "244c7704db8d4620af6dc85941bce21b05ef774f61d556bf9358a97dfed173a6",
+    "runner.host_repair_rung_reason_runner_restart_unqualified": {
+      "sourceHash": "6e7359576377c18cac63eb4a523ca7bc1be169451e60fbce1ec6af6b2a95e6ac",
       "message": "运行器回收和经确认的重启尚未在此平台的真实宿主机上通过验证"
     },
-    "runner.host_refresh_rung_reason_settings_recipe_unsafe": {
-      "sourceHash": "00d34d48b5014f3c81973345d586d869569e1955f10e309b21c26cdb316de7cd",
+    "runner.host_repair_rung_reason_settings_recipe_unsafe": {
+      "sourceHash": "3d447f9fd594c070ef0d27bc9cc8fabd36f8a78168b496b7d8e3d08cd824457c",
       "message": "设置方案仍会触发同意对话框、软件包安装或无时限的原生调用，无人值守修复不得执行这些操作"
     },
-    "runner.host_refresh_rung_reason_unsupported_on_platform": {
-      "sourceHash": "f87b61a78b252a9184555fc78deb456f342928f0d92e9437ab46e0af6db487d2",
+    "runner.host_repair_rung_reason_unsupported_on_platform": {
+      "sourceHash": "84f251bc8036c52ac82a9a61cb21086db93f50af82a5cbeb71e9ed5611eed85f",
       "message": "此平台不提供此功能"
     },
-    "runner.host_refresh_rung_reason_utm_restart_unqualified": {
-      "sourceHash": "134179700aa76de7783bfc336b23b1077d7fb15d3ae49f14fcc371cab2606f60",
+    "runner.host_repair_rung_reason_utm_restart_unqualified": {
+      "sourceHash": "2e1a3a70d914c527235d380dc9bf74d16f3ab190934c074b4bc55b2ee17716f3",
       "message": "重启UTM需要经过测试的启动和会话路径、已采集的客户机恢复证据、运行器互斥机制及正常退出策略，并在真实macOS宿主机上通过验证"
     },
-    "runner.host_refresh_rung_reason_vmms_start_unqualified": {
-      "sourceHash": "ec4611e6e050fd9bdb467cb222f8a7db546699522f07f3ccfc44f2b61fc5bf4f",
+    "runner.host_repair_rung_reason_vmms_start_unqualified": {
+      "sourceHash": "487d5576d386856553404b162baadc66b567f7ed359ee0f16e0d3e2ee810709d",
       "message": "已实现启动已停止的vmms服务，但尚未在真实Windows Hyper-V宿主机上通过验证"
     },
-    "runner.host_refresh_rung_started": {
-      "sourceHash": "b8d4489d3ec2e35dbad8f929bf2ea65c7b9706b34be00e5c90a925baf04e118e",
-      "message": "Invoke-HostRefresh：修复级别{name}已开始；修复时间预算还剩{remainingSeconds} s。"
+    "runner.host_repair_rung_started": {
+      "sourceHash": "f3065710a8735de2e1d5d078ebab0df8fb3f42d5d422bf1e203a8a61e3266da7",
+      "message": "Invoke-HostRepair：修复级别{name}已开始；修复时间预算还剩{remainingSeconds} s。"
     },
-    "runner.host_refresh_runner_not_ready": {
-      "sourceHash": "94f6972822af15a2e2079e6ba9dc355cfc3d312276ff0790f3f40ed748ae58da",
-      "message": "Invoke-HostRefresh：重启后的运行器未确认就绪（{reason}）。"
+    "runner.host_repair_runner_not_ready": {
+      "sourceHash": "7ccea713c7257d3ad1be66732bf05df0509f0f0a427f991110382af4088502e9",
+      "message": "Invoke-HostRepair：重启后的运行器未确认就绪（{reason}）。"
     },
-    "runner.host_refresh_runtime_missing": {
-      "sourceHash": "b84686efd9657649b6f694ca8d8408e1d69413e482805bb9814f0770667ddd97",
-      "message": "Invoke-HostRefresh：运行时目录{runtimeDir}不存在；请将YURUNA_RUNTIME_DIR设为运行器的运行时目录。"
+    "runner.host_repair_runtime_missing": {
+      "sourceHash": "893946d5438d2e74559cf093692d71321b7f655938f9330e84286f46d18bb4d5",
+      "message": "Invoke-HostRepair：运行时目录{runtimeDir}不存在；请将YURUNA_RUNTIME_DIR设为运行器的运行时目录。"
     },
-    "runner.host_refresh_runtime_owner_mismatch": {
-      "sourceHash": "10035fdb44e2290d71a3e192cdc38ac51de66731d0af743912361c3b4bdfd25f",
-      "message": "Invoke-HostRefresh：此账户的刷新状态已注册到运行时{registeredRuntimeDir}，而非{runtimeDir}；每个账户仅支持一个所属运行时。"
+    "runner.host_repair_runtime_owner_mismatch": {
+      "sourceHash": "25c718d62ee3362ba2601ff07091f080e51b07e84a3012c4f2b330ce0be31dc6",
+      "message": "Invoke-HostRepair：此账户的修复状态已注册到运行时{registeredRuntimeDir}，而非{runtimeDir}；每个账户仅支持一个所属运行时。"
     },
-    "runner.host_refresh_service_unverified": {
-      "sourceHash": "c11e7e8c9595f31ae7ad3b37ad22d37c8b36a6b031350f66ea8a3292bf857e91",
-      "message": "Invoke-HostRefresh：修复后，服务{key}的健康状态未经验证（{outcome}）。"
+    "runner.host_repair_service_unverified": {
+      "sourceHash": "b0166fb180d2c74ad2127cccaff0c4a3356051f22fe44a504ff88d0ec33999a1",
+      "message": "Invoke-HostRepair：修复后，服务{key}的健康状态未经验证（{outcome}）。"
     },
-    "runner.host_refresh_session_passive": {
-      "sourceHash": "542e8ec69295bcf9851762f401eb11940441a9230e5b2aded78835d6ac04a076",
-      "message": "Invoke-HostRefresh：会话类型为{sessionKind}；已跳过需要桌面会话的步骤。"
+    "runner.host_repair_session_passive": {
+      "sourceHash": "0535dad3ecd4d6331161de3a90cb20bfc09460e9ee13db0882cd4e01ce53bf22",
+      "message": "Invoke-HostRepair：会话类型为{sessionKind}；已跳过需要桌面会话的步骤。"
     },
-    "runner.host_refresh_should_process_admission": {
-      "sourceHash": "39433e21c3b05ae11c18a9bdaac69038c2be6af04f17752237772cdc5c617bca",
-      "message": "记录宿主机刷新准入信息"
+    "runner.host_operation_should_process_admission": {
+      "sourceHash": "77531e66e76389213bd912dfb63ae2245698229c053a22852f67071cc03091fd",
+      "message": "记录宿主机操作准入信息"
     },
-    "runner.host_refresh_should_process_listener": {
-      "sourceHash": "665d26856d674398823f79435233292760cf4998d591ea5ad8d6b1d0e1f35fc6",
-      "message": "以刷新安全模式启动状态侦听器"
+    "runner.host_operation_should_process_listener": {
+      "sourceHash": "847bd320eba0dd5f5516ab367c843b2fe6b8db022fc53f915b85e5303142b56e",
+      "message": "以非破坏性模式启动状态侦听器"
     },
-    "runner.host_refresh_should_process_publish": {
-      "sourceHash": "9d930961c50efac3db567fcabdc698f47c7f998537bc59dc6a6a19c46bf490a2",
-      "message": "发布宿主机刷新进度"
+    "runner.host_repair_should_process_publish": {
+      "sourceHash": "7e01aa23205bac58e8a4adb439dfc57a58b95d0f59f5b0bf18ff0fd82c47b1b8",
+      "message": "发布宿主机修复进度"
     },
-    "runner.host_refresh_should_process_run": {
-      "sourceHash": "43f6f88e8d6debcf28178c60b80defea7b878d3a29b00e4eb517d5da818d85b7",
-      "message": "执行宿主机刷新请求{requestId}"
+    "runner.host_repair_should_process_run": {
+      "sourceHash": "33d4d265d515c7116fc468c3d56fc2e1ff80a28081086e2500b0764c0e4a5c5c",
+      "message": "执行宿主机修复请求{requestId}"
     },
-    "runner.host_refresh_summary_active_request": {
-      "sourceHash": "60594e8d22cfa24d2f9db2cb7c831d94742868f9752f382f6c85a8836f8ccbba",
+    "runner.host_repair_summary_active_request": {
+      "sourceHash": "1f1e5b865f8f42973eed4d171767db727840a76d546a52b64e8224863cacaefe",
       "message": "  未解决的请求：{requestId}（{state}，第{attempt}次尝试）"
     },
-    "runner.host_refresh_summary_context": {
-      "sourceHash": "9a19b6fab2b354cee9a175e9c7a1c8d7469821446438e1ed7b1cb56d2c0bd04c",
+    "runner.host_repair_summary_context": {
+      "sourceHash": "b96d1760125db19698640c42b5e4bbca10be48c7bb49cf5c679f20af4bf40904",
       "message": "  运行时：          {runtimeDir}（配置{configPath}，来源{configSource}）"
     },
-    "runner.host_refresh_summary_header": {
-      "sourceHash": "e2d88c5bd00700d82a3566b522dc784f7fb0a7bdec291afb068cfbfe8cd3ab9d",
-      "message": "在{hostType}上刷新宿主机（{mode}）"
+    "runner.host_repair_summary_header": {
+      "sourceHash": "01f9baacb7bdda21ee8e7206970ca3619a19ae73072ef9bace524ca97f7e673f",
+      "message": "在{hostType}上修复宿主机（{mode}）"
     },
-    "runner.host_refresh_summary_ladder": {
-      "sourceHash": "4fb4da2c20d5c995248652bcf3ab1681343fee468469ecfcd1ffe62c33eeffc2",
+    "runner.host_repair_summary_ladder": {
+      "sourceHash": "ce31bd7fa7ae557bcb6379e42f6cfcc5b663581a01e250a49be5655aa9059f53",
       "message": "  修复阶梯，最高级别{ceiling}："
     },
-    "runner.host_refresh_summary_obligation": {
-      "sourceHash": "2d004b86650e57768e4504946faef9577091c4e3c4dfd4ad06ec31fc3e4361ef",
+    "runner.host_repair_summary_obligation": {
+      "sourceHash": "95fa6cea58b3086293cbc9bb4f361ad8523adb783287f7197d63cc75a13d64e2",
       "message": "  待处理项：      {obligation}"
     },
-    "runner.host_refresh_summary_probe": {
-      "sourceHash": "32cf8aa617231e39369cf56c284ee35d67d6a4d0a4db08f4a6522cae5a09eb82",
+    "runner.host_repair_summary_probe": {
+      "sourceHash": "6a96540f619cd992088cb2bc75b51f8689b122b6901f1ed34c4cfe51fae0a48c",
       "message": "  虚拟机监控程序探测：{state}（{reason}，{elapsedMs} ms）"
     },
-    "runner.host_refresh_summary_rung_above_ceiling": {
-      "sourceHash": "406a5ed53db6d71bd91c88000af2c5171230c5af86b9788691b30afc39662e2f",
+    "runner.host_repair_summary_rung_above_ceiling": {
+      "sourceHash": "514a63f4aeacb514204075d127e74fccf2b2e35da8f2aef0f61e24f52e4e15bf",
       "message": "    [{order}] {name}：超出请求的最高级别"
     },
-    "runner.host_refresh_summary_rung_available": {
-      "sourceHash": "6edb8bc9a5c30544eeddbe2a93d7d9a681779ec1747a12671c30fcf316667d77",
+    "runner.host_repair_summary_rung_available": {
+      "sourceHash": "925947815caedf9ee76efa10155f0faaae370c8195ff14998dcddff393f75d5e",
       "message": "    [{order}] {name}：可用"
     },
-    "runner.host_refresh_summary_rung_result": {
-      "sourceHash": "96c79885ad845f54a0240500e68a366f4942e2805fecaea2bd8f65424a99145d",
+    "runner.host_repair_summary_rung_result": {
+      "sourceHash": "b061116f3129793f725d46d914aaaf525ada6cb6a96dfa7a9f27c78e1f7780ea",
       "message": "    [{order}] {name}：{outcome}（{reason}）"
     },
-    "runner.host_refresh_summary_rung_unavailable": {
-      "sourceHash": "d35754abeed9bed2b4cf0ad964662671a72dfb9049153b12f95ef9c92da286bc",
+    "runner.host_repair_summary_rung_unavailable": {
+      "sourceHash": "6e06fcd07ce5a87182261f63a8b3c9b4ece527c9fd536d1b4ea295818b637cd3",
       "message": "    [{order}] {name}：不可用，{reason}"
     },
-    "runner.host_refresh_summary_runner": {
-      "sourceHash": "4c557dad180443b317d14e3623ebe0e887d9007c895a30a86cbc2dbd5a1b1fed",
+    "runner.host_repair_summary_runner": {
+      "sourceHash": "4e0ef4ecdde0bc0a9d45313911c19ac156eef681848d1a586ce72025186c4705",
       "message": "  运行器：           {status}"
     },
-    "runner.host_refresh_summary_verdict": {
-      "sourceHash": "dcd9f38156a4262cafaf61622098317a722ac5d059bac2cc22044b078048d3d9",
+    "runner.host_repair_summary_verdict": {
+      "sourceHash": "f1b55820b18cbc45ea6c503f76c996cdce387be35209dcce282a067efe2a721c",
       "message": "  判定：          {verdict}（请求{requestId}，第{attempt}次尝试，状态{state}）"
     },
-    "runner.host_refresh_unexpected_error": {
-      "sourceHash": "94d09456b0b3864e5210a4b78f9ac122d67cb19a0cb2f0e7ca89d6537ce075ee",
-      "message": "Invoke-HostRefresh：在{phase}阶段发生意外错误：{message}"
+    "runner.host_repair_unexpected_error": {
+      "sourceHash": "ff7dcc2a7e4326c7b31f3693e815b17bac5f595d71017c4eb533b26dd17e9fdd",
+      "message": "Invoke-HostRepair：在{phase}阶段发生意外错误：{message}"
     },
-    "runner.host_refresh_verified_noop": {
-      "sourceHash": "cf7e8b1631341749e2da4e31194d9a4c777b6868b3f69a7fe37ce1c8130d8622",
-      "message": "Invoke-HostRefresh：虚拟机监控程序已响应，运行器状态正常；未进行任何更改。"
+    "runner.host_repair_verified_noop": {
+      "sourceHash": "6960090d55a04cffe863da1cef7be8521045470ba871f5692b63bcd3b1fe1163",
+      "message": "Invoke-HostRepair：虚拟机监控程序已响应，运行器状态正常；未进行任何更改。"
     },
     "runner.inner_attempt_exited": {
       "sourceHash": "86fede6ea88da6e5509574193d72af08ced078a965988a82ce34ffdc1ada71d3",
@@ -720,9 +924,9 @@
       "sourceHash": "32a101dc8860875c4438dc6ccc63bb750a9d7824dcc68d1c2f8ab66551876478",
       "message": "检查运行时。判定结果是作为最后一个管道对象输出的布尔值；此脚本没有exit语句，因此退出码不反映判定结果。"
     },
-    "runner.no_other_runner_refresh_active": {
-      "sourceHash": "749f1bf7a93cd65a95e87fbfbe42ae4256ae736e94bc0ca143e3a33051cc5b90",
-      "message": "{callerName}：宿主机刷新{requestId}占用了此宿主机的运行器（门控状态{state}）；拒绝启动。请等待其完成，或使用test/lab/Invoke-HostRefresh.ps1 -Resume恢复执行。"
+    "runner.no_other_runner_gate_held": {
+      "sourceHash": "765f0d21838be52b87c7142d8b4b92f229062ce1cec27fc7c8a9f8634e7eb12a",
+      "message": "{callerName}：宿主机操作{requestId}占用了此宿主机的运行器（门控状态{state}）；拒绝启动。请等待其完成；如果是宿主机修复，也可使用test/lab/Invoke-HostRepair.ps1 -Resume恢复执行。"
     },
     "runner.operator_00041714738b26ad": {
       "sourceHash": "cefd917868eeb62ed42a76842bfa0793eebfaeed65b173a4490bd8f25e043403",
@@ -1489,7 +1693,7 @@
       "message": "  * 将删除{count}个本地服务虚拟机及其磁盘：{join}"
     },
     "runner.operator_0d2117a74cbfa3ca": {
-      "sourceHash": "1886687ac3096653dc56cb8010a182cb1d9264cfc35269bcc56ef2a71168ed6c",
+      "sourceHash": "95d5700107d4de1384ebeb5aef64807b74c6e837259ee8caade15d8f05ac5f8f",
       "message": "  宿主机类型：     {hostType}"
     },
     "runner.operator_0d2bb1e23a0f67d7": {
@@ -2041,8 +2245,8 @@
       "message": "PATH中未找到virsh——未安装libvirt/QEMU软件包。请运行install/ubuntu.kvm.sh，或运行：sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86"
     },
     "runner.operator_1a5944a737ed4e90": {
-      "sourceHash": "8d101c090d00198aef721d7608c2cb4b79ecb389ca41a87ed631797f5bd8ff4e",
-      "message": "  宿主机刷新{report}"
+      "sourceHash": "5eb51e6275e69cd640963024b9fca31de0706eefc6e7d1dd2ef0c265dbc5cf31",
+      "message": "  宿主机修复{report}"
     },
     "runner.operator_1a6b347dfa6f5220": {
       "sourceHash": "88343f5aa02b2385f30523b2c3d98ea8e1e243b032cc13362b5109fa892a42a5",
@@ -2205,7 +2409,7 @@
       "message": "_snippets.yml解析错误：{message}"
     },
     "runner.operator_28f2c58cec967f94": {
-      "sourceHash": "7f20c9d1690c4173b3a8823391c2bf98961f9abcccc33e9339bb272dab022906",
+      "sourceHash": "74c4b18f27373650220ac1159c51230a3d7f465f39255228b65b8a07cf3891b8",
       "message": "需要在受支持的宿主机上同时通过daemon-layout和guest-preservation测试；尚未通过资格验证"
     },
     "runner.operator_29160309e2dd574e": {
@@ -2217,8 +2421,8 @@
       "message": "host.windows.hyper-v需要提升权限。请以管理员身份重新运行Start-TestRunner.ps1。"
     },
     "runner.operator_292bf0f1ef450037": {
-      "sourceHash": "0613460a85195baa4c7402e274ee51c74db4612b2dda27f865589fd6731a9583",
-      "message": "Invoke-HostRefresh：虚拟机监控程序响应正常；运行器已终止或不存在。此部分尚未实现第1级（回收）——请手动启动运行器：pwsh test/Start-TestRunner.ps1"
+      "sourceHash": "b0870c98be7a0fdd942e4c3377afb1c396241a4f1a00f750b1b5e8d42200bddf",
+      "message": "Invoke-HostRepair：虚拟机监控程序响应正常；运行器已终止或不存在。此部分尚未实现第1级（回收）——请手动启动运行器：pwsh test/Start-TestRunner.ps1"
     },
     "runner.operator_29607e704f43acdc": {
       "sourceHash": "752e554e932690c75b831ff6fde7b75af75dadb2b12a5a599a5042532f0f9490",
@@ -2601,8 +2805,8 @@
       "message": "系统设置 > 隐私与安全性 > 自动化"
     },
     "runner.operator_47371277eaeea492": {
-      "sourceHash": "f9dc1a5fc96a3e3b3d78f3f0cc7f2e0886bae0d2a22e55f94aec7b31015857a8",
-      "message": "无法启动状态服务器的重启操作：{message}"
+      "sourceHash": "71b66d28ef5897fb0e57a70bbe44fb32a6a6dc75178ef02e39cdae449c75fc1b",
+      "message": "无法启动状态服务的重启操作：{message}"
     },
     "runner.operator_47513825bfb62345": {
       "sourceHash": "9f30fb0563bdacf2df94f563a5ce04259a4d1924402720a9cf14cbaba35c0cf5",
@@ -3325,8 +3529,8 @@
       "message": "  周期失败。请在{dIR}查看各周期的日志。"
     },
     "runner.operator_3d35ece66aa84b79": {
-      "sourceHash": "a89f515363fe9852df22cb84c5f0646a5aea9e544470473d3c8c5b684990a760",
-      "message": "客户机键（来自基线）：{guestKey}"
+      "sourceHash": "4b0fee2a49211bca70bc63d92bfd3a44d3145707e2795524df29406534a003c1",
+      "message": "客户机键（来自资源链）：{guestKey}"
     },
     "runner.operator_3d585575d8816432": {
       "sourceHash": "c5ffe3aa8272cdda8b71ca2035e77372965dd07c7f051fbd21ed02b5fcd38cb2",
@@ -3557,7 +3761,7 @@
       "message": "      networkRelease：尚未实现Windows客户机的释放操作（TODO windows.11）——正在为“{guest}”跳过此操作。"
     },
     "runner.operator_43e526c4ec3b14eb": {
-      "sourceHash": "cf48d384370b61d54c4a8f6f273d5ebaacf39d81500814d2d3584241a730c19e",
+      "sourceHash": "8a5c61ef9f8ec3703e77916e6efd8a1eedc46a485c47c83dd8abc244bcff4497",
       "message": "Enable-TestAutomation会执行第1节禁止的操作（授权辅助确认对话框和PSGallery安装未受非交互模式限制）；目前尚不能安全地无人值守运行"
     },
     "runner.operator_43e66f1b323df1ce": {
@@ -3761,7 +3965,7 @@
       "message": "networkStorage存储服务：当前无法访问SMB服务器“{stashSrv}:445”——如果NAS是有意离线，则无需处理；否则请检查stashStorageNetworkPath / 防火墙 / VPN。"
     },
     "runner.operator_5b278ab6be06e98e": {
-      "sourceHash": "48f1f53ca2d0f4358890b750e3f225ab45f93fce2eb7b81d99d0ecc5651549d5",
+      "sourceHash": "54f8de1e19795592dd133b6bb282a5665d6d70723d9bf1d364b154b5faf16dce",
       "message": "  探测状态：   {state}（{reason}，{elapsedMs} ms）"
     },
     "runner.operator_5b2ab60cf43c713c": {
@@ -4097,7 +4301,7 @@
       "message": "      模拟执行：将把‘{account}’映射到vaultKey ‘{vaultKey}’并存储其密码。"
     },
     "runner.operator_507f379237cefeeb": {
-      "sourceHash": "c62362cffed86c847e422c735e9dde6ead74b62cf9c7f826b1171f47d41a502d",
+      "sourceHash": "9a9a8daf8c0b0790702c0f5177f92b2e9e902f6b6bc599f34f3fa8e4d82bc941",
       "message": "  运行器：        无法确定"
     },
     "runner.operator_5080fa98b3c9b51c": {
@@ -4657,8 +4861,8 @@
       "message": "{base} 请检查链路和续租途径，而非DHCP标识。"
     },
     "runner.operator_677303e3823afe8d": {
-      "sourceHash": "3fe5234a645e3e7e94543ccb8c6f46002a0224f14025114aac354a329700cc46",
-      "message": "未设置“testCycle.autoRefreshAfterStalls”——默认为0（已禁用自动刷新宿主机）。"
+      "sourceHash": "c78dfef72bb2ded75c2b5dd9058cf990b02bb77911f74b8e0afac97675b68b65",
+      "message": "未设置“testCycle.autoRepairAfterStalls”——默认为0（已禁用自动宿主机修复）。"
     },
     "runner.operator_67a649b2f9792d49": {
       "sourceHash": "b44710eae58f90162952379310f28caa288709c4a1813d9f8b29cf8ed5d639ca",
@@ -4909,8 +5113,8 @@
       "message": "    常见原因：缓存虚拟机已运行，但squid正在重启；新重建的缓存会在预配过程应用ssl-bump配置时出现一次此情况。"
     },
     "runner.operator_6eca51811f4cfdd3": {
-      "sourceHash": "0f960581e4cb803caf5108fe183f868d8ea0180760d5f056f208e7f829f35954",
-      "message": "Invoke-HostRefresh：另一修复过程已持有生命周期锁（{reason}）。拒绝与其同时运行。"
+      "sourceHash": "0785a57adc15ed00f528967294373bb98ff1461abfa1d9b2b8b730fb86d5c401",
+      "message": "Invoke-HostRepair：另一项宿主机操作已持有生命周期锁（{reason}）。拒绝与其同时运行。"
     },
     "runner.operator_6f45c80f05654384": {
       "sourceHash": "e9e3df1a0d7f869ba31c02e3c6ef4c518019cf46fc6369bd409129a367fda0b0",
@@ -5249,7 +5453,7 @@
       "message": "== 框架源预检 =="
     },
     "runner.operator_7747dc14e2089beb": {
-      "sourceHash": "c26238d8c9d39936d8727ce710cf9e76bc0a372ac86a6a0730be281365ffcfbe",
+      "sourceHash": "bf6bcf691f4d6806c321f0745e97dbb748218518977a5103bc6596e4e40ad444",
       "message": "设置方案尚未遵守第1节的边界要求"
     },
     "runner.operator_7769fd67a358d3fe": {
@@ -5621,8 +5825,8 @@
       "message": "宿主机凭据库（{logical}）"
     },
     "runner.operator_88f502760b28fd59": {
-      "sourceHash": "eecf8f6c1b49c2ae42a760cdde93edc3315a46dbe47f5801e847db0594f478d0",
-      "message": "Invoke-HostRefresh：虚拟机监控程序探测结果为{state}（{reason}）。本次执行片段不会尝试高于0的级别。"
+      "sourceHash": "4cae47cd644915fd79509a22c69daa5516959de1b7f9a4ffef97ea5a9a5cf736",
+      "message": "Invoke-HostRepair：虚拟机监控程序探测结果为{state}（{reason}）。本次执行片段不会尝试高于0的级别。"
     },
     "runner.operator_88f8f80282f86157": {
       "sourceHash": "12c7f442ac0788b24e3d12fcd8f8733cab6d0acdd86c32c8ba20e540aceee2e1",
@@ -5813,8 +6017,8 @@
       "message": "宿主机操作“{name}”已退出，退出代码为{exit}：{detail}"
     },
     "runner.hypervisor_control_unresponsive": {
-      "sourceHash": "b5f2ec70194e82421f3e78f0a136a0ab08380fffb0c05e592743c785a0e72083",
-      "message": "此宿主机上的虚拟机管理程序控制通道能响应状态查询，但不再执行生命周期请求（探测结果{state}/{reason}；生命周期命令：{lifecycle}）。周期在构建任何内容之前停止，因为每次虚拟机启动和停止都会等到超时。请在此宿主机上重新启动虚拟机管理程序应用（在macOS上从桌面会话退出UTM.app，或运行test/lab/Invoke-HostRefresh.ps1），然后恢复运行器。"
+      "sourceHash": "853301c96c3b337008ca77daff0a17bebc32801519af601030db6553fc10ac73",
+      "message": "此宿主机上的虚拟机管理程序控制通道能响应状态查询，但不再执行生命周期请求（探测结果{state}/{reason}；生命周期命令：{lifecycle}）。周期在构建任何内容之前停止，因为每次虚拟机启动和停止都会等到超时。请在此宿主机上重新启动虚拟机管理程序应用（在macOS上从桌面会话退出UTM.app，或运行test/lab/Invoke-HostRepair.ps1），然后恢复运行器。"
     },
     "runner.operator_8da15c4079305665": {
       "sourceHash": "14e9a0a5d3e5397c33edbedd8998d73d81945848abc7e1c86306057a24118e65",
@@ -5917,8 +6121,8 @@
       "message": "成员关系：无法打开配置存储库（{configurationGitUrl}）：{error}。已删除NAS记录；成员关系未更改。"
     },
     "runner.operator_7d74f75db443e9e2": {
-      "sourceHash": "3c9cdc59540d9aee5a3e886c9c65938a803d998e8c7ee6a4cc7c92b15d59d643",
-      "message": "状态服务器重启操作在{bounceTimeoutSeconds}s后仍在运行；已保留该操作（终止它会导致服务器一并停止）。会话记录：{logPath}。令牌已存储，将在下一个周期生效。"
+      "sourceHash": "a571b57c3dc6baee74aa0df1b5058a273384ea202ea0a8833aa918dcc412f1f0",
+      "message": "状态服务重启操作在{bounceTimeoutSeconds}s后仍在运行；已保留该操作（终止它会导致服务一并停止）。会话记录：{logPath}。令牌已存储，将在下一个周期生效。"
     },
     "runner.operator_7d810c19cbdcdd72": {
       "sourceHash": "c9d35d83d44c92a5f9fd33c96992bd5fedb6ad5a5aff6c13da1e7d098f8f24d7",
@@ -6001,8 +6205,8 @@
       "message": "将嵌套步骤状态设置为“{status}”"
     },
     "runner.operator_7f5c0d3fa4f8cdf8": {
-      "sourceHash": "057f2c4d9b3191a43d1f600659e8a7acfa68746d8390054c63e120e038e766f2",
-      "message": "状态服务器重启操作已退出，退出码为{exitCode}（会话记录：{logPath}）；令牌已存储，将在下一个周期生效。"
+      "sourceHash": "5ced4eb911bdbdaf5af5383f6d70aba3540d5b2415ab62611b7d4cd83d47200f",
+      "message": "状态服务重启操作已退出，退出码为{exitCode}（会话记录：{logPath}）；令牌已存储，将在下一个周期生效。"
     },
     "runner.operator_7f72e9572bce0b62": {
       "sourceHash": "2a04f0f393b521a50d56c9a55031f1e81d8cc8c5e86948deb5df63ed940aa370",
@@ -7393,8 +7597,8 @@
       "message": "无法解析编排序列“{orchestrationName}”：{message}"
     },
     "runner.operator_ae404c37892f11d1": {
-      "sourceHash": "c285d8c0766d4969e5259dc0ea8b0563e66692380a8fb1723f9b6277207c91cb",
-      "message": "写入宿主机刷新请求日志"
+      "sourceHash": "a474ba49b5db672f28041d12245b8ad96e8dda04599b1b854d071f2e6ef5810f",
+      "message": "写入宿主机操作请求日志"
     },
     "runner.operator_ae4e8052943a33cd": {
       "sourceHash": "9c61f993a329af93403469dc537e76ebf40812f408770f275f7c0a04edc98d31",
@@ -7647,6 +7851,16 @@
     "runner.operator_b4842fc06ed557e0": {
       "sourceHash": "aee39e4094f0363b20efdd91aedf481956399ec4de3704430572a7baa7fa6319",
       "message": "缺少status/extension/authentication/users.yml，将在首个周期从模板初始化。若要提前自定义企业映射，请复制：{usersTemplate} -> {usersPath}"
+    },
+    "runner.auth_state_users_restarted": {
+      "sourceHash": "d3d5b43956c49d7d2a591991de98d7c77b641cd4f6b3685662f196054e9dfe1e",
+      "origin": "machine",
+      "message": "无法将 users.yml 读取为映射（{problem}）：{usersPath}。其字节已移至 {backupPath}，并已从模板复制新的 users.yml；请根据移走的副本重新填写企业映射和保管库密钥。"
+    },
+    "runner.auth_state_vault_restarted": {
+      "sourceHash": "45a7136e7a102c27c553df5f942695accfbefe79bc33978c6d14e1c1773e4be0",
+      "origin": "machine",
+      "message": "无法将 vault.yml 读取为映射（{problem}）：{vaultPath}。其字节已移至 {backupPath}，保管库从空开始；其中保存的每个密码都必须使用 Set-Password 重新设置（参见 docs/test-config.md）。"
     },
     "runner.operator_b489eb84ebf27ffb": {
       "sourceHash": "1bd1a9076cf196ff25f2bb81ea7a8253d253898b3db33fdb8910211625d892bf",
@@ -7905,8 +8119,8 @@
       "message": "重新运行宿主机网络设置，以使用'dhcp-identifier: mac'重新生成“{netplanPath}”，然后运行：sudo netplan apply"
     },
     "runner.operator_a6cceb1dcf23a282": {
-      "sourceHash": "53df16ab6f4ce9696928e2bda3223eb86f63625dfc9082486465d1ed2b5088f5",
-      "message": "Invoke-HostRefresh：请求被拒绝（{reason}）；现有请求的状态为{state}。"
+      "sourceHash": "ae837ab4e3cbe088c1324aac2b628c9fff51bcf100c71e095d10fe44b0840a10",
+      "message": "Invoke-HostRepair：请求被拒绝（{reason}）；现有请求的状态为{state}。"
     },
     "runner.operator_a6d14fb704d40904": {
       "sourceHash": "d1e0dbd473ff53079ab6969e313a2be4990f41985524b729bb191262ec08ce6a",
@@ -8221,7 +8435,7 @@
       "message": "     且可用，Yuruna的副本仍与之匹配。"
     },
     "runner.operator_c3450b84a855bad6": {
-      "sourceHash": "b5b58b7909fdd90dd7edb7d03d5ace492d327f54b3206cfdd9f6b6e27d7d4c44",
+      "sourceHash": "6c9af6fd575239b0fea5ddbc65a7ec0788cc746dc865ae3e80f9855bdcc2ec7e",
       "message": "需要经过验证的模块化守护进程（virtqemud等）方案；尚未构建"
     },
     "runner.operator_c35b2e556a3ef075": {
@@ -8865,7 +9079,7 @@
       "message": "poolStorage设置：无法重新加载新配置；跳过挂载和回收。"
     },
     "runner.operator_d38c137cc75cebe4": {
-      "sourceHash": "76d9db9c85cd65f7b49070d179e9885158551f70ffed6175d5489574f74909e8",
+      "sourceHash": "ae233bd843ace483bf281aa3657bea99b660fbe57202d826e5ea242b005b4ccf",
       "message": "在此平台上不可用"
     },
     "runner.operator_d3aad2200f7522cb": {
@@ -9181,7 +9395,7 @@
       "message": "正在以下位置获取远程更改：{repoRoot}（第{attempt}/{totalAttempts}次尝试）"
     },
     "runner.operator_dcc1cf1dcee82cd5": {
-      "sourceHash": "13c2a242bdcebc7f60b0882f6300227b6d24e958abc568ede16af8f1a01b5724",
+      "sourceHash": "eeca6e3dbd7f8b3473d4bc5f1b40d6cbde5c089231fc0e91182a1cf0604f3e75",
       "message": "需要在受支持的宿主机上测试过的独立提供程序恢复方案；尚未构建"
     },
     "runner.operator_dccef796140b31b9": {
@@ -9317,7 +9531,7 @@
       "message": "记录服务“{key}”的{operation}操作结果"
     },
     "runner.service_operation_lock_unavailable": {
-      "sourceHash": "decdb06a871917b10d902d7d924d2ec9612b8d994d6d6024eeaa6e19b0da59ab",
+      "sourceHash": "c91e48a9ca86196a8497d05b3a5f2a6a45675e3baca2b215b170141f5eddc4c7",
       "message": "{script}：无法获取服务“{key}”的操作锁（{reason}）；未作任何更改。请检查{path}是否可写、有可用空间且归此用户所有，然后重试。"
     },
     "runner.service_operation_refused": {
@@ -9373,11 +9587,11 @@
       "message": "无法读取其启动和停止请求（{reason}）；未启动"
     },
     "runner.service_restore_lock_unavailable": {
-      "sourceHash": "c35be61dcaa5d48ba6f0fdab7944d911c07f77cbf29b3e93637fcc5ce9f00dda",
+      "sourceHash": "a4a981a1e5555905f111bae52198377a47142a9962711d57b63f924d734935e9",
       "message": "无法获取其位于{path}下的操作锁（{reason}）；未启动"
     },
     "runner.service_restore_lock_unavailable_report": {
-      "sourceHash": "c0f5092cbb3d33554ab47b0ec1a9fd7e85de7904d21944383126352e4a9c8dbc",
+      "sourceHash": "b1d0c47231358b850590e72dc5e39ece7458fb55924c224615d7541ceed71bed",
       "message": "{displayName}：未启动虚拟机“{vmName}”：{message}。"
     },
     "runner.service_restore_no_address": {
@@ -9421,7 +9635,7 @@
       "message": "启动周期{operationId}：{result}（运行器：{action}）。"
     },
     "runner.start_cycle_worker_refused": {
-      "sourceHash": "664c69baa595252cd8a63860d3d3b3f7d3e75463027a0ca87560101773e2034a",
+      "sourceHash": "fa863d789a269da85d319791ec95f78169a99468230cbdaf2f0be305ce49163e",
       "message": "启动周期{operationId}：未作任何更改（{reason}）。"
     },
     "runner.start_cycle_worker_runner_unknown": {
@@ -9449,29 +9663,29 @@
       "sourceHash": "25cf231f91f3677964b417289130ee1c565a2303ccb20914e9382d184622ddc3",
       "message": "  检测到root拥有的caching-proxy转发器，本次运行是非交互式运行，无法将其停止：sudo没有有效授权。请运行“sudo -v”后重新运行，或手动将其停止。将不使用该转发器继续执行。"
     },
-    "runner.status_refresh_safe_existing_ready": {
-      "sourceHash": "0500a2998344eddf69482c836c14eee7f143de32568976547378517e590d9f0f",
-      "message": "Status service进程PID {processId}已在端口{port}响应；刷新安全启动保留了其运行状态。"
+    "runner.status_non_destructive_existing_ready": {
+      "sourceHash": "6fd5ec75e2b8d5ca39bdaf97e31bdd8f71ad66cc4b86d6e26101451716155a64",
+      "message": "Status service进程PID {processId}已在端口{port}响应；非破坏性启动保留了其运行状态。"
     },
-    "runner.status_refresh_safe_not_ready": {
-      "sourceHash": "ed3ca34af79ae689b3dfb90ea2f3195cac7ffc62ef68d8e33c39133c3db43a6b",
+    "runner.status_non_destructive_not_ready": {
+      "sourceHash": "73953eec44a058b122c27cc52b33df0b40c151d050ab94f1c475004e2e8fae1b",
       "message": "status service已启动，PID为{processId}，但在{seconds}秒内未响应；已保留其运行状态。"
     },
-    "runner.status_refresh_safe_partial": {
-      "sourceHash": "f62f65334212ce561a07105575e169499569ff285b3c5d3643c422a851781140",
-      "message": "端口{port}上的status service刷新安全启动未作任何更改：{outcome}（{reason}）。"
+    "runner.status_non_destructive_partial": {
+      "sourceHash": "1a125c129955ee1669da46be6c1f5d69a8e388ccd9f385a4f6b52b13894767d1",
+      "message": "端口{port}上的status service非破坏性启动未作任何更改：{outcome}（{reason}）。"
     },
-    "runner.status_refresh_safe_refused": {
-      "sourceHash": "ed5b11fcea97c77ef89948ec25bd83f2e774c57626d92567a0b7a449118dc51e",
-      "message": "Start-StatusService.ps1 -RefreshSafe已拒绝执行：{reason}。"
+    "runner.status_non_destructive_refused": {
+      "sourceHash": "ed47606e8c54d6f9170302b821be66362ec14529d58bfd2a312dd501097084f1",
+      "message": "Start-StatusService.ps1 -NonDestructive已拒绝执行：{reason}。"
     },
-    "runner.status_refresh_safe_result_unwritable": {
-      "sourceHash": "1d8d08e698d02e8ef08e5df391d5621654e9ffde75595d55bb407639bc1f5902",
-      "message": "刷新安全启动无法将结果记录写入{path}。"
+    "runner.status_non_destructive_result_unwritable": {
+      "sourceHash": "143f795e833eb4a30c6dc23aeea3bb95597daf3101f848ff6a1930c429a878c9",
+      "message": "非破坏性启动无法将结果记录写入{path}。"
     },
-    "runner.status_refresh_safe_started": {
-      "sourceHash": "28c0f46e560fe3e5c150b7541c1a06b77ed7f560718240e2f165d6cbc09dcc08",
-      "message": "Status service已在端口{port}启动，PID为{processId}（刷新安全启动）。"
+    "runner.status_non_destructive_started": {
+      "sourceHash": "be3879af31806d6ab823b85a55bc24026873822e28e7b26b4d9f358d36747819",
+      "message": "Status service已在端口{port}启动，PID为{processId}（非破坏性启动）。"
     },
     "runner.status_restart_changed_head": {
       "sourceHash": "ad9acccd21420c902133c63535091f280cafb6a21feac24dce9fdfde3e313cc2",
@@ -9530,8 +9744,8 @@
       "message": "status service未在:{port}上提供/yuruna-archive.tar.gz"
     },
     "runner.operator_dfd19c97aaa9ff6e": {
-      "sourceHash": "86ba60e521fa307179c4d211628de99dd82e095923ef1e8ad84731af2eb146d6",
-      "message": "Invoke-HostRefresh：虚拟机监控程序响应正常，且运行器已存在——已验证无需操作。"
+      "sourceHash": "32d9d96d9544a9d5301d00ccacd1300e7ef3675dd24f07064575feef2720b73c",
+      "message": "Invoke-HostRepair：虚拟机监控程序响应正常，且运行器已存在——已验证无需操作。"
     },
     "runner.operator_dfd80a749d4fee8f": {
       "sourceHash": "ca36b17602e7fa949f1dc4ec87427177c457d7ec8882e47d70be3dc8eedd4c8b",
@@ -10462,8 +10676,8 @@
       "message": "每台Windows计算机都安装了Windows.Media.Ocr，但："
     },
     "runner.operator_fffaa1debcc46863": {
-      "sourceHash": "fe8aff9c3372f01010ee581a943cf53ba0bf28fb261ded3ca300a332453b2fa9",
-      "message": "“testCycle.autoRefreshAfterStalls”为{arasVal}，应为0（禁用）或正整数。"
+      "sourceHash": "18112944115fe8aa199024123fa5b6a767dcd14352f3c4e497d56eec7288e5ec",
+      "message": "“testCycle.autoRepairAfterStalls”为{arasVal}，应为0（禁用）或正整数。"
     },
     "runner.outer_log_runtime_dir_unset": {
       "sourceHash": "3e24d573376df11726a359a557374c926812a26db10741a05e346326db32972e",
@@ -10478,140 +10692,144 @@
       "message": "写入进程启动时间记录"
     },
     "runner.readiness_ack_remove_action": {
-      "sourceHash": "1718255d2e26c9c03dd081a4b6281e7412d4c6540257ac1d2ec78f44737902c8",
-      "message": "删除过期的刷新就绪确认"
+      "sourceHash": "1072b49f45d89cd74970bb19aa6f2fe5d875be4a86c615bab62e8095121884c8",
+      "message": "删除过期的交接就绪确认"
     },
     "runner.readiness_ack_write_action": {
-      "sourceHash": "6250660c115ef92bdb310f2ff3bbce17fdb5ed0a2b56cd296e55a1f1fb1b8238",
-      "message": "写入刷新就绪确认"
+      "sourceHash": "b67a05d55cff93db4962108c31cd5fd0ca265645101dfd24d8c80837697700e3",
+      "message": "写入交接就绪确认"
     },
-    "runner.refresh_barrier_held": {
-      "sourceHash": "046dd2bf8c1e9fa320c5660bb5a1968c46717cd0e391b1925078a5f95fa1d51b",
-      "message": "宿主机刷新{requestId}后已恢复：受{controls}阻止。请从状态页面解除这些控制；在此之前不会创建或更改任何虚拟机。"
+    "runner.handoff_barrier_held": {
+      "sourceHash": "1f20eec2220a1b60ef2a5d483a46d9d139c8f8497976dfb870fdf5d420fb5c8a",
+      "message": "宿主机操作{requestId}后已恢复：受{controls}阻止。请从状态页面解除这些控制；在此之前不会创建或更改任何虚拟机。"
     },
-    "runner.refresh_barrier_released": {
-      "sourceHash": "6a6cf1e6ebc4ce0a1a100fee8f685c2efed5418fdb1060c80dafc8cb68527b21",
+    "runner.handoff_barrier_released": {
+      "sourceHash": "021cf3e553e9efff049fd8464c7076518cdd58854014b1017bde4608fe5aab53",
       "message": "阻止运行的控制已在{seconds} s后解除；恢复的周期继续运行。"
     },
-    "runner.refresh_capability_unverified_macos": {
-      "sourceHash": "749e459065bea57e158d1dceed9a08e91e1033a2ba4e7dcc4d53f921ade39054",
+    "runner.host_repair_capability_unverified_macos": {
+      "sourceHash": "c1831b5040bf0953308c717e972e6b37b2eb7dedf017400526b69f721511d6a2",
       "message": "运行器回收和重启尚未在macOS上通过验证：ps进程表和分离启动仅使用测试夹具进行过测试。"
     },
-    "runner.refresh_capability_unverified_windows": {
-      "sourceHash": "fcc312e61513fad512e294d7e5f2084533c54794b8b5e2408c395110a56f8967",
+    "runner.host_repair_capability_unverified_windows": {
+      "sourceHash": "95faa993090342e3f14485451cbc2d082a7489e5a2c94cf1c13a9467e6f44ff5",
       "message": "运行器回收和重启尚未在Windows上通过验证：CIM进程表、单进程终止和父进程切换仅使用测试夹具进行过测试。"
     },
-    "runner.refresh_cycle_held": {
-      "sourceHash": "73a41ff49ea8edc22ba479d6c6fa25c53750b4bdae25eeca2f2bff25e17ac674",
-      "message": "[外层周期{cycle}] 内层循环在{site}处停止，因为宿主机刷新阻止了此宿主机运行；未做任何更改。"
+    "runner.runner_gate_cycle_held": {
+      "sourceHash": "ea6262f70d9339a4bad40d189a5ab94145d8d269d914bcadcd4474e3dc8e59bf",
+      "message": "[外层周期{cycle}] 内层循环在{site}处停止，因为宿主机操作阻止了此宿主机运行；未做任何更改。"
     },
-    "runner.refresh_gate_blocks_start": {
-      "sourceHash": "116f88b87f4a26bffc55a5a72f839e8bdf2f7210c5567036c98bd52d81792a7f",
-      "message": "Start-TestRunner：宿主机刷新{requestId}阻止了此宿主机的运行器运行（门控状态{state}）；不会启动第二个运行器。请等待刷新完成，或使用test/lab/Invoke-HostRefresh.ps1 -Resume继续刷新。"
+    "runner.runner_gate_blocks_start": {
+      "sourceHash": "7dbdfcc95e8fb77bd2468f33e35b86aebb40825ffa356c5f079f53a6900100b4",
+      "message": "Start-TestRunner：宿主机操作{requestId}阻止了此宿主机的运行器运行（门控状态{state}）；不会启动第二个运行器。请等待其完成；如果是宿主机修复，也可使用test/lab/Invoke-HostRepair.ps1 -Resume继续。"
     },
-    "runner.refresh_gate_hold": {
-      "sourceHash": "6c6c52840dcf9f4a39ab0b689e6b49801048178dc17e4bf10762ba4466afa5ac",
-      "message": "[外层周期{cycle}] 宿主机刷新{requestId}阻止了运行器运行（门控状态{state}）；解除前不会启动任何周期。"
+    "runner.runner_gate_hold": {
+      "sourceHash": "73d8bb5854757729492e6baab86474afb11c2219979e90e3719e47e7bf02321e",
+      "message": "[外层周期{cycle}] 宿主机操作{requestId}阻止了运行器运行（门控状态{state}）；解除前不会启动任何周期。"
     },
-    "runner.refresh_gate_orphaned": {
-      "sourceHash": "8df9d965a5964ffa7251e1ef894f5dbd6ebbab2b7d569864c7e8fda1d4665396",
-      "message": "[外层周期{cycle}] 宿主机刷新{requestId}使运行器保持受阻状态（门控状态{state}），且其工作进程已停止运行。请运行test/lab/Invoke-HostRefresh.ps1 -Resume以完成恢复。"
+    "runner.runner_gate_orphaned": {
+      "sourceHash": "f323b478812f4536f5483f5ad5e94e98cd98857309ebf49903e8be4e357510bb",
+      "message": "[外层周期{cycle}] 宿主机操作{requestId}使运行器保持受阻状态（门控状态{state}），且其工作进程已停止运行。如果是宿主机修复，请运行test/lab/Invoke-HostRepair.ps1 -Resume以完成恢复。"
     },
-    "runner.refresh_gate_released": {
-      "sourceHash": "8948f8995104e120ffc6b47b9daf1d5e1268e3baebee8836ae409bade828a675",
-      "message": "[外层周期{cycle}] 宿主机刷新门控已放行运行器；周期恢复运行。"
+    "runner.runner_gate_released": {
+      "sourceHash": "6b575201601c4071ab68d9267b939a3e18cd1e36131bc2d02a06032c4b01a44e",
+      "message": "[外层周期{cycle}] 运行器门控已放行运行器；周期恢复运行。"
     },
-    "runner.refresh_gate_status_ensure_failed": {
-      "sourceHash": "c76a02fb744af2f0e7cbe0561314fa97357f9f40c31c515689b7d4f4a3ea97f3",
+    "runner.runner_gate_status_ensure_failed": {
+      "sourceHash": "0fa8d850795ca5bd581257f7c3deeedc0f691a6f2af2d392d57ee55116bca054",
       "message": "Start-TestRunner：门控保持期间无法启动状态服务：{message}"
     },
-    "runner.refresh_gate_status_ensured": {
-      "sourceHash": "ad018593fe728b9fbe51e904f36639753a91b2cf11b46159e72f0455d3eacc59",
-      "message": "Start-TestRunner：宿主机刷新{requestId}没有存活的工作进程；状态服务已在端口{port}上启动，以便其仪表板能够显示并恢复未解决的请求。在该请求解决之前，运行器仍将拒绝启动。"
+    "runner.runner_gate_status_ensured": {
+      "sourceHash": "1e83d873aba24d7f6b13ee38372c0f79e0c72b18c3674336334dc4f55759ed58",
+      "message": "Start-TestRunner：宿主机操作{requestId}没有存活的工作进程；状态服务已在端口{port}上启动，以便其仪表板能够显示并恢复未解决的请求。在该请求解决之前，运行器仍将拒绝启动。"
     },
-    "runner.refresh_gate_unreadable": {
-      "sourceHash": "66a416c9396bfbcf7a1780fa9415735f23af29722e9489863b6188151a89b797",
-      "message": "[外层周期{cycle}] 无法读取宿主机刷新门控记录（{reason}）；运行器将保持受阻状态，直到通过test/lab/Invoke-HostRefresh.ps1 -Resume解决此问题。"
+    "runner.runner_gate_unreadable": {
+      "sourceHash": "30eba443f67c9b69768314ef99dae5f1151b2348c3cc4c452879fcf658e7530d",
+      "message": "[外层周期{cycle}] 无法读取运行器门控记录（{reason}）；运行器将保持受阻状态，直到通过test/lab/Invoke-HostRepair.ps1 -Resume解决此问题。"
     },
-    "runner.refresh_gate_write_action": {
-      "sourceHash": "18db445e514e4865306dcc504d42185bd0ef11ea812c86f1cd4effe09d522ce9",
-      "message": "写入宿主机刷新运行器门控（{state}）"
+    "runner.runner_gate_write_action": {
+      "sourceHash": "70662a31ec6f903499fac07d62002281e828f536be39938eec08080133eafab1",
+      "message": "写入运行器门控（{state}）"
     },
-    "runner.refresh_handoff_complete": {
-      "sourceHash": "b14ede397ccdd5ef195a65a659ec669414ff05878aa139f01f2cadb1eb79a7df",
-      "message": "[外层周期{cycle}] 已验证宿主机刷新{requestId}的就绪状态；正在退出刷新门控。"
+    "runner.handoff_complete": {
+      "sourceHash": "4e7a698df471b8d4d360bca9b4ebd168d2951b6a98d42d7378f311dd3c674e84",
+      "message": "[外层周期{cycle}] 已验证宿主机操作{requestId}的就绪状态；正在退出运行器门控。"
     },
-    "runner.refresh_handoff_complete_action": {
-      "sourceHash": "6df2056f8df7e49463f6b8c59d0780c222b035508fff53d9a6ac22eef044e464",
-      "message": "完成宿主机刷新运行器交接（{verdict}）"
+    "runner.handoff_complete_action": {
+      "sourceHash": "adef69a98a465fa895607b0b5d9cd5d5cbbc740d14387b8ff745574e3fb14906",
+      "message": "完成运行器交接（{verdict}）"
     },
-    "runner.refresh_handoff_issue_action": {
-      "sourceHash": "337464c92507132b82d007019ca339c36b6f09500d1bf9c4e43b6e5ab42508d6",
-      "message": "签发宿主机刷新运行器交接令牌（{purpose}）"
+    "runner.handoff_issue_action": {
+      "sourceHash": "0bc96550f29075eed3da2bf7831a473ef219f86c135ecceb16e92938109b1dbd",
+      "message": "签发运行器交接令牌（{purpose}）"
     },
-    "runner.refresh_handoff_unverified": {
-      "sourceHash": "a919c245b7dfc05807e1ca6dce6436f6e88ae86ebb698b317a9575ee38878805",
-      "message": "[外层周期{cycle}] 无法验证宿主机刷新{requestId}的就绪状态（{reason}）；运行器保持受阻状态。"
+    "runner.handoff_unverified": {
+      "sourceHash": "c59fe8b28a3a8ff0c289eb1a142c07c4380ac2eda4a4ba4d9692363902291e79",
+      "message": "[外层周期{cycle}] 无法验证宿主机操作{requestId}的就绪状态（{reason}）；运行器保持受阻状态。"
     },
-    "runner.refresh_launch_record_skipped": {
-      "sourceHash": "97291210f9ccda4d9268996632e7ca6b1752468a9f2f547ed1f5c0f577e72f1d",
-      "message": "Start-TestRunner：未写入运行器启动记录（{reason}）；宿主机刷新无法重启此运行器，将要求操作员启动它。"
+    "runner.launch_record_skipped": {
+      "sourceHash": "54eca888998cdb9543b87ba749b17574f6ba36e3857eaac73b6c031646cf9985",
+      "message": "Start-TestRunner：未写入运行器启动记录（{reason}）；宿主机修复或宿主机更新无法重启此运行器，将要求操作员启动它。"
     },
-    "runner.refresh_preflight_cycle": {
-      "sourceHash": "f4022ad51eafc665e53c6c47b1c569f122d98bb1b5a99f460012fe8b6d97cc76",
-      "message": "[外层周期{cycle}] 仅执行刷新预检：此周期不执行git pull、虚拟机更改或控制清理。"
+    "runner.handoff_preflight_cycle": {
+      "sourceHash": "8aee5204ea38dd9c0903d05f0e142dffc41faa2f5a295516954a78240f1ad901",
+      "message": "[外层周期{cycle}] 仅执行交接预检：此周期不执行git pull、虚拟机更改或控制清理。"
     },
-    "runner.refresh_preflight_failed": {
-      "sourceHash": "d532f91aad6a31ae7bed6a792575f3979f6000bab69e52d1b3999d7ec5052ce9",
-      "message": "刷新预检失败（{reason}）；未做任何更改，运行器保持受阻状态。"
+    "runner.handoff_preflight_failed": {
+      "sourceHash": "72a0c7c4f994f05952ff1a281c3f364819a41ea15004bef71607d4d9611f929e",
+      "message": "交接预检失败（{reason}）；未做任何更改，运行器保持受阻状态。"
     },
-    "runner.refresh_preflight_ready": {
-      "sourceHash": "3aaa6cd01b67d3324c2fca53100687e06be0edc44164ed2b1f48b14f21dc52e7",
-      "message": "请求{requestId}的刷新预检已就绪；正在等待刷新工作进程放行运行器。"
+    "runner.handoff_preflight_ready": {
+      "sourceHash": "c8ab05bce9827b29390b36f90f85320a0f90fa2366133055ce6d4c437cf05015",
+      "message": "请求{requestId}的交接预检已就绪；正在等待宿主机操作放行运行器。"
     },
-    "runner.refresh_preflight_released": {
-      "sourceHash": "22acac4dd4e5b608b8f3e8bf1b1514d3949e6c7f24055ee530c37c437f040f54",
-      "message": "刷新预检已结束（{outcome}）；正在退出，以便运行器继续运行。"
+    "runner.handoff_preflight_released": {
+      "sourceHash": "fbba39a3db20b9f05cebe43b38c4243b7142c69ca4594d7870ab074629f5865e",
+      "message": "交接预检已结束（{outcome}）；正在退出，以便运行器继续运行。"
     },
-    "runner.refresh_preflight_result": {
-      "sourceHash": "21e1e2c543c270e28f38cfeae1d2d93e9889322d24238808da9251ec952b5bb2",
-      "message": "[外层周期{cycle}] 刷新预检周期已结束，退出代码为{exitCode}。"
+    "runner.handoff_preflight_result": {
+      "sourceHash": "81e0249ac42baa60f32a84c34b0e8ccb05cfd77a4279a46c66fee3643578c5d6",
+      "message": "[外层周期{cycle}] 交接预检周期已结束，退出代码为{exitCode}。"
     },
-    "runner.refresh_resume_action": {
-      "sourceHash": "205ae5fa14a58a78570cf771d1d0c90527e77beb326e62c8f655734503ffd700",
-      "message": "在宿主机刷新后重启运行器"
+    "runner.handoff_resume_action": {
+      "sourceHash": "f34a5896dc94a504f9cbd5e058a97fba6215488cd14ed6906b3481bf19b5f4f5",
+      "message": "在宿主机操作后重启运行器"
     },
-    "runner.refresh_resume_record_refused": {
-      "sourceHash": "c46163fd37c09c6390b05fa9571018d21b3e65a44fb6dd879bdad0358ae9b9b0",
-      "message": "Start-TestRunner：{pidFile}的状态为{state}；刷新恢复绝不会接管或删除仍在运行或状态未知的运行器记录。"
+    "runner.handoff_resume_record_refused": {
+      "sourceHash": "201e0ea8f2958744486795d9adeaaa431d8ed365c4d33615d871badf41fb7d79",
+      "message": "Start-TestRunner：{pidFile}的状态为{state}；交接恢复绝不会接管或删除仍在运行或状态未知的运行器记录。"
     },
-    "runner.refresh_resume_started": {
-      "sourceHash": "ce65d52e81a5f6c5913aabea94d00382f9992f8bdfd7ab9862a660471c6c15b2",
-      "message": "Start-TestRunner：正在宿主机刷新{requestId}后恢复；保留操作员的暂停、阻止运行和重启请求。"
+    "runner.handoff_resume_started": {
+      "sourceHash": "80b09aec02d20337651e5d1ab8c5045c829ebd0dde83743635f65658ed417844",
+      "message": "Start-TestRunner：正在宿主机操作{requestId}后恢复；保留操作员的暂停、阻止运行和重启请求。"
     },
-    "runner.refresh_resume_switch_pair": {
-      "sourceHash": "cec1bbf4cbc0769555d17fa8294bc006109ee5e7f0b166d8452f8b3186497904",
-      "message": "Start-TestRunner：必须同时提供-RefreshResume和-RefreshHandoffToken；不予启动。"
+    "runner.handoff_resume_switch_pair": {
+      "sourceHash": "2a9f5e3644e8c0becb23ac3473dba236096527173701f1a0a3aa238e5293dfdc",
+      "message": "Start-TestRunner：必须同时提供-HandoffResume和-HandoffToken；不予启动。"
     },
-    "runner.refresh_resume_token_refused": {
-      "sourceHash": "516bf4d6ef26d2b21f62bf9a4b7a7dc884f4864765e48c135cd013ca5aaf0431",
-      "message": "Start-TestRunner：刷新交接被拒绝（{reason}）；不予启动。"
+    "runner.handoff_resume_token_refused": {
+      "sourceHash": "0cbea496d46e3d75fef32cf68b8b89388d51b97ce50c9348884d8bda065be188",
+      "message": "Start-TestRunner：运行器交接被拒绝（{reason}）；不予启动。"
     },
-    "runner.refresh_site_gated": {
-      "sourceHash": "18397e0114c985bd7ae7be63221704b0d73e1ccfeecf446bf90c183f17669570",
-      "message": "周期在{site}之前结束：宿主机刷新{requestId}阻止了此宿主机运行（门控状态{state}）。未做任何更改；运行器正在等待刷新。"
+    "runner.private_state_migration_blocked": {
+      "sourceHash": "472ad9c1d4a3179337e0aa089ded3e739354f244ba76e1b940153acf04bc7f59",
+      "message": "Start-TestRunner：无法将私有状态根目录从其先前的 host-refresh 位置移出（{reason}）；不启动。请停止旧的运行器、状态侦听器和宿主机控制器，然后重新启动运行器。参见 https://yuruna.link/42f909ad-0022"
     },
-    "runner.refresh_status_ensure_orphaned": {
-      "sourceHash": "74450959460dac475ed385451c4b0c4e988a49325f816ce0ad60abdf246ab116",
-      "message": "[外层周期{cycle}] 宿主机刷新{requestId}使运行器保持受阻状态（门控状态{state}），且其工作进程已停止运行；正在再次确保状态服务运行，以便其仪表板能够显示并恢复未解决的请求。"
+    "runner.runner_gate_site_held": {
+      "sourceHash": "2a74b94060047d3be95f479477fc7d32c8329b340c31f0b40d8fdfa32acbfff0",
+      "message": "周期在{site}之前结束：宿主机操作{requestId}阻止了此宿主机运行（门控状态{state}）。未做任何更改；运行器正在等待其完成。"
     },
-    "runner.refresh_status_ensure_skipped": {
-      "sourceHash": "f6cf77a5a4e0f12d6e25ba8a955f38017750097e14e1a0f8631bb7d08b9f7da3",
-      "message": "[外层周期{cycle}] 已跳过再次确保状态服务运行的操作：宿主机刷新阻止了此宿主机运行。"
+    "runner.runner_gate_status_ensure_orphaned": {
+      "sourceHash": "daa109b84a04055081cc40cb45cbb0967b62fa72fdd56ab2a14cf3dd299ddef8",
+      "message": "[外层周期{cycle}] 宿主机操作{requestId}使运行器保持受阻状态（门控状态{state}），且其工作进程已停止运行；正在再次确保状态服务运行，以便其仪表板能够显示并恢复未解决的请求。"
     },
-    "runner.refresh_trigger_call_failed": {
-      "sourceHash": "6df094d41354942764fa9588986c11802a01f582925e5b9c9e9b64d6ad87509a",
-      "message": "在{site}处自动调用宿主机刷新失败，已跳过：{message}"
+    "runner.runner_gate_status_ensure_skipped": {
+      "sourceHash": "5e71f4fc3f35d0590f2108f89bf06a4e5dacbd48a071486658e32ecbde0cae5f",
+      "message": "[外层周期{cycle}] 已跳过再次确保状态服务运行的操作：宿主机操作阻止了此宿主机运行。"
+    },
+    "runner.host_repair_trigger_call_failed": {
+      "sourceHash": "8eadea4f6c81ec95228215592e8d51851cb901d52747c7df1c88bd07a6256838",
+      "message": "在{site}处自动调用宿主机修复失败，已跳过：{message}"
     },
     "runner.runner_process_signal_action": {
       "sourceHash": "606fc3df1e0763b74a5717cdcc831a7a45796ddea877e3de5c49ad05d3a21856",
@@ -10666,11 +10884,11 @@
       "message": "探测服务端点并将结果合并到服务普查记录"
     },
     "runner.service_census_unreadable": {
-      "sourceHash": "97d79eb105019457f5789846a82652481b382b1f265b308c804d1abe39b0f328",
+      "sourceHash": "fd7055ae0890bf94f90f42b0ca24454beeea3062fb322e86b8eca3e59b36d27a",
       "message": "{script}：刚才无法读取{path}处的服务普查记录（{reason}）；未做任何更改。请重试；如果持续失败，请检查文件权限和磁盘。"
     },
     "runner.service_census_unusable": {
-      "sourceHash": "13964587d8680828a1db8b99ac35ef4aaaf48a1740742ce560a895d6bf03a902",
+      "sourceHash": "22e47c252210dc030146ec5341df62e7267cde3e1afb1055eae16619882093d7",
       "message": "{script}：无法使用{path}处的服务普查记录（{reason}）；在修复或移走该记录之前，服务启动和停止脚本将拒绝执行。未做任何更改。"
     },
     "runner.service_census_update_should_process": {
@@ -11061,9 +11279,9 @@
       "sourceHash": "ff16f35b066a22d4fb592cbc6d9d6355095ba42a9d3e1253ba5dc346b621dbab",
       "message": "Windows时间服务（W32Time）不存在；此宿主机无法校准自身时钟。"
     },
-    "runner.host_refresh_auto_operator_action": {
-      "sourceHash": "52d9a72cb7cea23a9aead5031b2ef6f62da6bec51e201074a194c8df9377d125",
-      "message": "[外层周期{cycle}] 自动宿主机刷新{requestId}已结束，结果为{verdict}；在UTC日期{nextUtcDay}之前不会启动新的自动尝试。请检查宿主机；如果此请求仍未结束，请运行 test/lab/Invoke-HostRefresh.ps1 -Resume 完成请求，否则请运行 test/lab/Invoke-HostRefresh.ps1."
+    "runner.host_repair_auto_operator_action": {
+      "sourceHash": "7b7f8d8828ec47bf641e00543d4a2d9061a0f5ba889c0903a9c4f73a869767d2",
+      "message": "[外层周期{cycle}] 自动宿主机修复{requestId}已结束，结果为{verdict}；在UTC日期{nextUtcDay}之前不会启动新的自动尝试。请检查宿主机；如果此请求仍未结束，请运行 test/lab/Invoke-HostRepair.ps1 -Resume 完成请求，否则请运行 test/lab/Invoke-HostRepair.ps1."
     },
     "runner.operator_049237316d77c7da": {
       "sourceHash": "2b68a5ee11ef8fce17e79ce8aa64fc62b250bb8d8b8625f6d40f886ef3105d7a",
@@ -11098,8 +11316,8 @@
       "message": "未找到ufw；未管理nftables/iptables。如果防火墙阻止入站TCP :{port}，请手动放行（e.g. 添加nft accept规则）。"
     },
     "runner.operator_173d23fb320278cc": {
-      "sourceHash": "77b6c652c2c8de03740500aa3521ed618724446add68089691e4ece946ce11c4",
-      "message": "requiresSnapshot：宿主机上没有快照“{requiredSnapshotId}”——正在运行完整基线链（冷路径；虚拟机将在saveDiskSnapshot时重命名为“{requiredSnapshotId}”）。"
+      "sourceHash": "473f56336ef5fcc4e5662a1fa7d43f057a33a95e82b301108590bb03b5c85b6d",
+      "message": "requiresSnapshot：宿主机上没有快照“{requiredSnapshotId}”——正在运行完整资源链（冷路径；虚拟机将在saveDiskSnapshot时重命名为“{requiredSnapshotId}”）。"
     },
     "runner.operator_177930a4e66ef405": {
       "sourceHash": "34a6f923125b2b29067da029d277bca29470211b3f8ac972235061c8716db5dd",
@@ -11130,7 +11348,7 @@
       "message": "     Windows默认值，本次运行未能为其设置"
     },
     "runner.operator_24aa5f00a8cd0037": {
-      "sourceHash": "8db63d1f74d71b138e181fa2e52bc0c4aeae0b34bf1380b5c9e8ffb14499ee27",
+      "sourceHash": "b504381f4ab8b7eeaf820d94df467bc2db372bc03203dfc821309148684ea33b",
       "message": "尚未验证运行器/status-service能否在宿主机重启后继续受到自动监管"
     },
     "runner.operator_27eaa0356fa34dd9": {
@@ -11150,8 +11368,8 @@
       "message": "  - 本地分支已分叉（请手动执行rebase/merge）"
     },
     "runner.operator_2fb31966478fca46": {
-      "sourceHash": "b8f9f40f91d3ea3d7944abcb4bb4beac3182b40d0d02b3e4a28b0e64d1aa018b",
-      "message": "Invoke-HostRefresh：无法解析私有host-refresh状态根目录（$HOME/.yuruna/host-refresh）或确保其安全（resolve/secure）。缺少持久且仅所有者可访问的私有根目录，拒绝继续。"
+      "sourceHash": "996a0a505b13917cd975b9b5884fc89af0df830fa28ceff7c799189ae29955a2",
+      "message": "Invoke-HostRepair：无法解析私有host-repair状态根目录（$HOME/.yuruna/host-repair）或确保其安全（resolve/secure）。缺少持久且仅所有者可访问的私有根目录，拒绝继续。"
     },
     "runner.operator_2fce8fc42e5b8f1f": {
       "sourceHash": "087b343c4b565a4dc49f57cd38da3a379c45440dd36d56562846ccc663c071a5",
@@ -11286,7 +11504,7 @@
       "message": "   运行：Get-NetAdapter | Format-Table Name, InterfaceDescription, Status"
     },
     "runner.operator_62623b0d8a914893": {
-      "sourceHash": "5773bb502d1f01201880e71a1f0481b063ad7f6d427e9f7d9b613d9d2a99c9c2",
+      "sourceHash": "04f11e30655f5b15e77ab10125b6a6fb7eb96595319e839319a02d4b7a9a856f",
       "message": "需要经过测试的启动/会话（launch/session）路径、已采集的客户机恢复证据，以及在真实macOS宿主机上验证过的运行器排除机制；尚未通过验证"
     },
     "runner.operator_65ea555d7c6b007e": {
@@ -11346,7 +11564,7 @@
       "message": "   运行：Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
     },
     "runner.operator_7dd6240c15d45471": {
-      "sourceHash": "3a0506f91fd5b5d835622e0dd48a35a7b9213b89d03962b4e73cb02cfd4a68e3",
+      "sourceHash": "5440f059f79cba65a7e9004c82b201527bc5d968a44339bf471d76666cc6c9ee",
       "message": "需要第9节所述的已签名/自包含（signed/self-contained）引导程序兼容性和软件包恢复准入检查；尚未实现"
     },
     "runner.operator_818b4b904d662e34": {
@@ -11382,7 +11600,7 @@
       "message": "无法确保'{hostType}'具有可用的虚拟显示器；无头模式下的屏幕截图/光学字符识别（screen-capture/OCR）可能失败。请参阅 docs/host-hyperv.md."
     },
     "runner.operator_8f85b3fcba9cd85d": {
-      "sourceHash": "a935fd468bcbd126dce19ecf9cf3b4dd62c68d333dd1def56da22c62ade0eb1f",
+      "sourceHash": "ecaa708385044bf1bf8f31598bee68ac3137a0925cf29ccfce3a86e2a5e9b712",
       "message": "  修复层级："
     },
     "runner.operator_926e57287853be11": {
@@ -11554,8 +11772,8 @@
       "message": "无法即时将显示缩放设置为100%（rc={scaleRc}）；读取到的系统缩放为{pct}%。Set-WindowsHostConditionSet会写入100%的注册表设置，但这些设置在下次登录时才生效——请注销并重新登录（sign out/in）宿主机，或重启宿主机。"
     },
     "runner.operator_f89ff497e73a195c": {
-      "sourceHash": "df6696c91b56cbdc3a34dbfec16afd061eb7fb447d1294133de8b8b572889d1e",
-      "message": "requiresSnapshot：持久保留的虚拟机“{requiredSnapshotId}”上存在快照“{requiredSnapshotId}”——跳过基线执行链（热路径）。"
+      "sourceHash": "f5143f7a9965fcc3be4b85b604d474e3381488534e356493e02efb138d1a06ef",
+      "message": "requiresSnapshot：持久保留的虚拟机“{requiredSnapshotId}”上存在快照“{requiredSnapshotId}”——跳过资源链（热路径）。"
     },
     "runner.operator_fc858bf92dc49506": {
       "sourceHash": "49be0142947a9cb44edb5a62be96e17437d338980c70d1393ed79842e95998fc",
@@ -11590,11 +11808,11 @@
       "message": "状态服务（PID {processId}）：存活租约 {verdict}（{reason}，{seconds} 秒）。"
     },
     "runner.status_listener_replaced": {
-      "sourceHash": "c2126e7c53285beba9a188a0e75eb833bd4f8d6af3fca293d850cc7f437ba675",
+      "sourceHash": "99212a8d4599e274663683701f5ea8230722e0c392d9881cf9648e919d3303de",
       "message": "Start-StatusService：正在停止卡住的状态服务（PID {processId}，在 '{route}' 上 {state} 已 {seconds} 秒）并启动新的服务。"
     },
     "runner.status_listener_replace_in_cycle": {
-      "sourceHash": "7aebd68d212b57a7feb61890823a84456c4b2cc75c9aa6d8898eb1780daaa537",
+      "sourceHash": "5d2c78cf10036d4463f777f97c4b8b56fae4ddf91990881c21ec0880e079e799",
       "message": "主机地址信标：状态服务（PID {processId}）无响应，其租约显示已卡住（在 '{route}' 上 {state} 已 {seconds} 秒）；替换启动的退出码为 {exitCode}。"
     },
     "runner.vm_cleanup_terminating_error": {
@@ -11622,7 +11840,7 @@
       "message": " 捕获列表，而VM本身仍继续运行。当UTM退出"
     },
     "runner.operator_c3f2e879d98b84de": {
-      "sourceHash": "2946e97d69110a84e9330e8ae6b71af4bfd5f722600414a558da25a98d82a685",
+      "sourceHash": "2a17238dd96da8c9f324ce81312003257386322f6a9b1576dc16a5bf10ffa9f0",
       "message": "原生调用尚未完成无人值守提权所需的验证和边界限制"
     },
     "runner.operator_c4e3ca9f69e0f402": {
@@ -11642,7 +11860,7 @@
       "message": "     组列表在会话启动时即固定，因此请将"
     },
     "runner.operator_f669f22210b44d93": {
-      "sourceHash": "176488f7062b64feaf7c03a397eb221d21556cc05ea97f76f1f6ad42790369a2",
+      "sourceHash": "b119f445c5fd9cf795b705f21e4d40e79455211e69aa148f99ba626b2ff66dad",
       "message": "默认不可用；需要经过验证、适用于特定操作系统版本的label/domain/owner操作方案，并附带连带影响测试"
     },
     "runner.operator_0c5ca3e94b40c48f": {
@@ -11770,7 +11988,7 @@
       "message": "拒绝启动周期：宿主机无法确认没有其他虚拟机正在运行（读取{probes}次后为{reason}：{detail}）。在同一组虚拟机上运行两个周期会互相破坏，因此运行器不会猜测；它将在下次循环时重试。请检查此宿主机上的虚拟机监控程序命令行工具和虚拟机清单。"
     },
     "runner.warm_resume_declined_unverified": {
-      "sourceHash": "4859df008e6296519886fc7f3bc5995c8c2b422b5533221f34eb050e665b5606",
+      "sourceHash": "3c7220af25c4d59ddb231847376aef621bc3bb9e566fe8954a6718771f6dbc2d",
       "message": "  WARM-RESUME被拒绝：'{resumeSequence}'在步骤{resumeFromStep}失败（{failureClass}），且无法确认重放是安全的（原因：{reason}）。原始失败判定保持不变。"
     },
     "runner.recovery_applied": {
@@ -11894,7 +12112,7 @@
       "message": "[外层周期 {cycle}] 周期进程 {id} 已达到 testCycle.maxCycleSeconds（{ceilingSeconds} s），已连同其进程树一起停止。"
     },
     "runner.bump_ca_unreadable": {
-      "sourceHash": "59b6601d75de5dd7e0cf4d908ede8b3b7e02693272b77115c7cf1d00e0840c31",
+      "sourceHash": "7e2f3622b9a8f79918c663dc802e5aaf5d7874f73ca424115204fa7379b08232",
       "message": "无法读取保存在 {path} 的缓存代理 CA；在修复或删除之前不会在种子中包含任何 CA。"
     },
     "runner.bump_ca_create_action": {
@@ -12018,24 +12236,24 @@
       "message": "环的合格修订版本 {revision} 不在此主机跟踪的框架上游的历史中；框架保持在 {current}。"
     },
     "runner.project_cycle_not_run": {
-      "sourceHash": "399864ad299651e0b811dee9978498d4332a144aebc1fe5fc0edd1f0a4093519",
-      "message": "  周期未运行（{outcome}）：池已排空或暂停、主机刷新或Ctrl+C在得出结论前阻止了它。"
+      "sourceHash": "85df15e0e549a5d283b63835622799b4ac16ab8d7c998c7bab7cc102673ac005",
+      "message": "  周期未运行（{outcome}）：池已排空或暂停、宿主机操作或Ctrl+C在得出结论前阻止了它。"
     },
     "runner.project_cycle_degraded": {
       "sourceHash": "446f0e0f1e7cea59e565034f16b229e31d32f7be903923a86089d21d4b55daf9",
       "message": "  周期降级：没有失败，但跳过了一个计划来宾。请在{dIR}查看各周期的日志。"
     },
-    "runner.refresh_gate_boot_resume": {
-      "sourceHash": "47724f1cf71d5c02a31a2fead7c83f7608ca42c97045a14400e0039c9219fdfc",
-      "message": "Start-TestRunner：宿主机刷新{requestId}在之前的一次启动中未完成；正在使用test/lab/Invoke-HostRefresh.ps1 -Resume继续执行一次（pid {pid}）。本次启动仍被拒绝；刷新完成后会启动运行器，其错误写入{stdErrPath}。"
+    "runner.host_repair_boot_resume": {
+      "sourceHash": "8e58178afa45d24e5000f9d0aedc2a7e43ba5782eca3608c202b74464443424e",
+      "message": "Start-TestRunner：宿主机修复{requestId}在之前的一次启动中未完成；正在使用test/lab/Invoke-HostRepair.ps1 -Resume继续执行一次（pid {pid}）。本次启动仍被拒绝；修复完成后会启动运行器，其错误写入{stdErrPath}。"
     },
-    "runner.refresh_gate_boot_resume_tried": {
-      "sourceHash": "8aaf2839f9d8d1f8599a0b6c80968f28324b05a6bd81ce1cbb7d562e1180711d",
-      "message": "Start-TestRunner：宿主机刷新{requestId}在之前的一次启动中未完成，本次启动已继续执行过一次；请使用test/lab/Invoke-HostRefresh.ps1 -Resume再次继续。"
+    "runner.host_repair_boot_resume_tried": {
+      "sourceHash": "dfdb5c7b31b31deee9265cfa72057d415d8d00a5c266fdce9aa6304b19ffc00c",
+      "message": "Start-TestRunner：宿主机修复{requestId}在之前的一次启动中未完成，本次启动已继续执行过一次；请使用test/lab/Invoke-HostRepair.ps1 -Resume再次继续。"
     },
-    "runner.refresh_gate_boot_resume_failed": {
-      "sourceHash": "aa9764587388bed7ece04a0fbb705501ab615012d424565797b266bc9ee6bf63",
-      "message": "Start-TestRunner：宿主机刷新{requestId}在之前的一次启动中未完成，继续执行失败（{reason}）；请使用test/lab/Invoke-HostRefresh.ps1 -Resume继续。"
+    "runner.host_repair_boot_resume_failed": {
+      "sourceHash": "3cd06027f5a0e86ce59d7208f264d152c2f8cdf78fe37394e11a7c9084d075c2",
+      "message": "Start-TestRunner：宿主机修复{requestId}在之前的一次启动中未完成，继续执行失败（{reason}）；请使用test/lab/Invoke-HostRepair.ps1 -Resume继续。"
     },
     "runner.ocr_known_answer_failed": {
       "sourceHash": "ab40de4ef1839a98f7c4b9d40114f0fafe11108381538ae9cfd47cb6c5d83448",
@@ -12120,6 +12338,676 @@
     "runner.wait_ended_on_display_stall": {
       "sourceHash": "944ffb9accfc3705f301600d1828648de475ed31a6a7c00106c00c78904240e6",
       "message": "等待文本“{patternLabel}”在约{waited}s后结束（上限{timeoutSeconds}s）：客户机的{driver}显示驱动在其串行控制台上报告了{spanSeconds}s内的{reports}次页面翻转超时，而控制台已有{unchangedSeconds}s未变化，因此本次启动中屏幕不会显示该文本，重试可以冷重启客户机"
+    },
+    "runner.step_form_invalid": {
+      "sourceHash": "4cfa465d8596129d56f4e178e4fce51aa8871f4ecc94974051eff8e7cf1b34f3",
+      "origin": "machine",
+      "message": "{location} 处的步骤必须恰好包含 'step'、'action' 和 'snippet' 中的一个；它包含：{found}。"
+    },
+    "runner.step_sentence_invalid": {
+      "sourceHash": "138e7c40e508f36d61fcaabbdb9c821c4a14d72333732a39575a6b19ef9e52e2",
+      "origin": "machine",
+      "message": "{location} 处的语句步骤无效（{reason}）：{detail}。语句步骤以文本形式接受 'step'，并可选地接受 'on'（screen 或 page）、'timeoutSeconds'（1 或更大的整数）、'description'，以及与之搭配的 'descriptionLocalized'。"
+    },
+    "runner.step_phrase_malformed": {
+      "sourceHash": "7d94d399b11ef9f7d83fc65be7100f7a6988a9cd6697eac766026042722cf7c2",
+      "origin": "machine",
+      "message": "无法读取 {location} 处的语句（{reason}），位于第 {position} 个字符。请闭合每个引号和每个变量表达式，并在带引号的值中将引号写两次来表示它。"
+    },
+    "runner.step_phrase_no_library": {
+      "sourceHash": "406becdcf514ed8ea84ef77cdf370e3ea840c331d01fd25530b5755e84dd7aac",
+      "origin": "machine",
+      "message": "无法解析 {location} 处的语句：未找到短语库。框架库为 test/sequences/_phrases.yml."
+    },
+    "runner.step_phrase_no_match": {
+      "sourceHash": "e9790da255f4f6c97a1215b86b26ac8a754e0253d602fe5310884fe207cf52bf",
+      "origin": "machine",
+      "message": "没有短语与 {location} 处的语句匹配，读取为：{shape}。最接近的语句：{nearest}。包含空格的值必须加引号。"
+    },
+    "runner.step_phrase_surface_missing": {
+      "sourceHash": "18691e7985320f3b3d6c285e758d5c2773cbf45cd4068f3c38f3288204f1ba76",
+      "origin": "machine",
+      "message": "{location} 处的语句 '{sentence}' 没有用于界面 '{surface}' 的步骤。它定义于：{surfaces}。"
+    },
+    "runner.step_phrase_slot_empty": {
+      "sourceHash": "b864fac64548f0493077df8b26633b27d08fa189a6a3b1d2222a8a1b87e073c9",
+      "origin": "machine",
+      "message": "{location} 处 '{sentence}' 的 <{slot}> 的值为空。请为其提供一个值。"
+    },
+    "runner.step_phrase_slot_not_integer": {
+      "sourceHash": "75d6c937a1d21be8d44271747fa036291166ad967d51e9ef71ad3aac378fb3a4",
+      "origin": "machine",
+      "message": "{location} 处 '{sentence}' 的 <{slot}> 的值必须是 0 到 999999999 之间的整数，不加引号且没有前导零。此处不接受变量表达式。"
+    },
+    "runner.step_phrase_slot_not_key": {
+      "sourceHash": "1f37ecf50eb0a17095d653baec7a5fafab0dbde2ddab7c5120594968310406ff",
+      "origin": "machine",
+      "message": "{location} 处 '{sentence}' 的 <{slot}> 的值必须是以下键名之一，且不加引号：{keyNames}。此处不接受变量表达式。"
+    },
+    "runner.step_phrase_timeout_unused": {
+      "sourceHash": "e363681942062d2edaecf50e2a4aae30f34fd153ba1dd15a8d3a546b0bd71877",
+      "origin": "machine",
+      "message": "{location} 处的语句 '{sentence}' 设置了 timeoutSeconds，但它的步骤都不接受超时。请将其删除。"
+    },
+    "runner.step_phrase_file_unreadable": {
+      "sourceHash": "308ee92b0381c797aefe202fed4e49f2b35ba99e8787ca27cbc92ac8f196c05a",
+      "origin": "machine",
+      "message": "无法读取 {file}：{message}。没有它就无法解析语句步骤。"
+    },
+    "runner.step_phrase_library_invalid": {
+      "sourceHash": "3119a7581b9e6996ebf4c5cdf6915e515ab46fcc97aa08106925b45807acf5ae",
+      "origin": "machine",
+      "message": "短语库 {file} 在 '{phrase}' 处无效（{reason}）：{detail}。"
+    },
+    "runner.step_phrase_template_invalid": {
+      "sourceHash": "20bb8f1a10667110c3abd0396a735ae455f838051664ae35d98f1b0b4f4aa66a",
+      "origin": "machine",
+      "message": "{file} 中短语 '{phrase}' 用于界面 '{surface}' 的第 {index} 步不是有效的 '{action}' 步骤。其字段定义在 test/schemas/sequence.schema.yml 中；该操作需要：{required}。"
+    },
+    "runner.step_phrase_duplicate_id": {
+      "sourceHash": "6e05d48c2b7e189e7fc97af0840461c1b19165e42d94f61a52fc8ba73a77fb82",
+      "origin": "machine",
+      "message": "短语 '{phrase}' 在 {first} 中定义，又在 {second} 中再次定义。短语 ID 只定义一次；库只添加短语，绝不重新定义短语。"
+    },
+    "runner.step_phrase_overlap": {
+      "sourceHash": "443d1f4c6b1f8f60768400625a680f3ec771148b6b017ed34398e0ec116603b2",
+      "origin": "machine",
+      "message": "短语 '{firstPhrase}'（'{firstSentence}'，{firstFile}）和 '{secondPhrase}'（'{secondSentence}'，{secondFile}）可能匹配同一语句。一个语句只有一种含义；请修改或删除其中一个。"
+    },
+    "runner.phrase_library_valid": {
+      "sourceHash": "2093d2b99f854ddf090552932f5f0e69d6c3aa43aafc4f99bb43a70a6dc96587",
+      "origin": "machine",
+      "message": "_phrases.yml: {path} 中有 {count} 个短语。"
+    },
+    "runner.phrase_library_invalid": {
+      "sourceHash": "2971817cadec5fe29c85b08a2a51a293e9a9048feed414bc5428fcd2f36db95b",
+      "origin": "machine",
+      "message": "_phrases.yml: {message}"
+    },
+    "runner.tapon_argument_invalid": {
+      "sourceHash": "34d1000628a5dab85c4be97b452f4c3f1e48437fd909e00109303d93a73d7280",
+      "origin": "machine",
+      "message": "tapOn 无法运行：{field} 为 '{value}'。请使用以下之一：{allowed}。"
+    },
+    "runner.tapon_label_unusable": {
+      "sourceHash": "29be6b99aa29af536857c903c1c07d446661bbc91f20b0661b8f809bb3b90ed5",
+      "origin": "machine",
+      "message": "tapOn 无法运行：标签 '{label}' 中没有可用 match: {match} 查找的字母或数字。"
+    },
+    "runner.tapon_label_ambiguous": {
+      "sourceHash": "c9493ebdddd8f4f193ebdd9aeb7bde9431b4084d06b0fa3ad952334f8484bb36",
+      "origin": "machine",
+      "message": "tapOn：'{label}' 在屏幕上出现了 {count} 次：{candidates}。请在步骤中添加 nth 以选择其中一个。"
+    },
+    "runner.tapon_second_look_failed": {
+      "sourceHash": "5ec5554b37ae36b304a6d76dedea079345f581c332c26ea985ba4e939ca2d981",
+      "origin": "machine",
+      "message": "tapOn：对放大一倍的画面副本的第二次读取失败（{detail}）。此步骤只读取所捕获的原始画面。"
+    },
+    "runner.tapon_click_kind_unsupported": {
+      "sourceHash": "b84ecaf3ee993edeb5385500574b4183bc947fb1e73f1aa8457c2140070ccab9",
+      "origin": "machine",
+      "message": "tapOn：宿主机 '{hostType}' 无法发送 {click} 点击。"
+    },
+    "runner.capability_gate_ocr_engine_missing": {
+      "sourceHash": "e6a96654ff5461527e0f3a475b85ab0a456980c359d57be54e117a322e804873",
+      "origin": "machine",
+      "message": "  序列通过此宿主机上没有的 OCR 引擎定位文本："
+    },
+    "runner.capability_gate_ocr_engine_step": {
+      "sourceHash": "ad1595215f8fa1f324044387a43c0281010e7348d5434d09427ab6defcb62281",
+      "origin": "machine",
+      "message": "        {sequence}，步骤 {step}：{action}"
+    },
+    "runner.capability_gate_ocr_engine_remedy": {
+      "sourceHash": "3252617a4ec3b4239dd30b6c9850794bb83c98f1b45698f431585e09c4689082",
+      "origin": "machine",
+      "message": "  请在此宿主机上安装缺失的引擎，或从此周期的序列YAML文件中移除需要它的步骤。"
+    },
+    "runner.kvm_pointer_no_device": {
+      "sourceHash": "38725aba6b474e00c04b19ae2fb77de96e25c8913b4d9953fb18cd48baeee001",
+      "origin": "machine",
+      "message": "'{vmName}' 上的 KVM 指针：客户机没有绝对定位指针设备（QEMU：{detail}）。未发送任何内容；请为该域添加 USB 数位板。"
+    },
+    "runner.kvm_pointer_event": {
+      "sourceHash": "198ef922ae28a3da3a78881fc0268e1f403f6712e49b6885c916e88d2d0ebe43",
+      "origin": "machine",
+      "message": "'{vmName}' 上的 KVM 指针（{stage}）：{detail}"
+    },
+    "runner.kvm_pointer_button_held": {
+      "sourceHash": "4ed38fc8f984e2e5d9c045b382744bbb3403de4c4603b6d69bd20e1c2560ac78",
+      "origin": "machine",
+      "message": "'{vmName}' 上的 KVM 指针：{button} 按钮已按下，但无法确认其已释放；它可能仍在客户机中保持按下状态。"
+    },
+    "runner.mcp_workload_session_start": {
+      "sourceHash": "1a88a4e3f9c8173cf3418cbf0d2c3039462a6bb6ae01d1a453890bdc01609ee5",
+      "origin": "machine",
+      "message": "将工作负载会话附加到正在运行的 VM。必填：guestKey 和 vmName。可选：sequence，一个客户机序列，其资源链提供变量，其短语库生效；以及 variables，叠加在这些变量之上的最多 64 个值。超出响应预算的启动会继续运行并返回 workload_session_starting；请使用相同输入再次调用以读取其结果。结果在 otherRunningVms 中列出其他正在运行的 VM。"
+    },
+    "runner.mcp_workload_session_end": {
+      "sourceHash": "b02f1896cace072deb0258413be0cdcf7e5a9f8dd4dd29e61235764004e3b48a",
+      "origin": "machine",
+      "message": "结束会话：停止正在运行的操作，关闭所有者周期，释放运行时租约并结束工作进程。VM 保持运行。没有会话时返回 ended false。"
+    },
+    "runner.mcp_workload_snapshot": {
+      "sourceHash": "55f74516c943fcc2144f7482e752da3ea8faacc762e170b714328bb33c076738",
+      "origin": "machine",
+      "message": "读取某个界面当前显示的内容。必填：surface（screen 或 page）。可选：find，用于筛选返回的视图；image，同时返回屏幕帧。每个条目带有一个引用（如 s14），仅在该界面的下一次快照或步骤之前有效。"
+    },
+    "runner.mcp_workload_phrases": {
+      "sourceHash": "dfd3acd965e5a03bb7b5ed691e043ed7bfb7db1bec1482f140a3f4d855948aed",
+      "origin": "machine",
+      "message": "列出当前生效的语句，每条都带有其 id、界面、槽位和层级。可选：search，用于筛选列表。在会话存在之前也会根据框架库作答。"
+    },
+    "runner.mcp_workload_suggest_step": {
+      "sourceHash": "6ee04e7655600367719386aeaaae573ab0f51f09829818f2665c25a242e548f5",
+      "origin": "machine",
+      "message": "为当前快照中的一个条目建议步骤。必填：ref，一个引用（如 s14）。返回恰好指向该条目的语句；当没有语句能单独定位它时，返回带 nth 的 tapOn 原语。"
+    },
+    "runner.mcp_workload_step": {
+      "sourceHash": "edef70f234a9bee931ef4a8ee55ba0f25597fcb1981dffda49a37e20584a5f6c",
+      "origin": "machine",
+      "message": "将一条语句作为步骤运行。运行时提供 operationId 以及运行字段 step 和 intent，可选 on 和 timeoutSeconds（1 到 7200）。仅用 operationId 轮询；用 operationId 和 cancel true 取消。调用在响应预算内作答，耗时更长的操作会继续运行。相同的 id 和输入绝不会运行两次。放弃请求的客户端不会取消该操作。取消在下一个原语之前生效，不会中断正在运行的原语。"
+    },
+    "runner.mcp_workload_action": {
+      "sourceHash": "747d4e25d156880c0957f8633a4d8ade338fe83e2b66e83ec7b160062dcb4953",
+      "origin": "machine",
+      "message": "运行一个已注册的动词，用于没有语句覆盖的操作。运行时提供 operationId 以及运行字段 action、fields 和 intent。仅用 operationId 轮询；用 operationId 和 cancel true 取消。调用在响应预算内作答，耗时更长的操作会继续运行。相同的 id 和输入绝不会运行两次。放弃请求的客户端不会取消该操作。取消在下一个原语之前生效，不会中断正在运行的原语。"
+    },
+    "runner.mcp_workload_run_sequence": {
+      "sourceHash": "b8e022aa7a1dd4b8647e510117bf15fe46268c690afed348bfd68a2f868cc7b7",
+      "origin": "machine",
+      "message": "通过子进程中的 Debug-TestSequence.ps1，在已附加的 VM 上重放所指定序列自身的步骤。运行时提供 operationId 和运行字段 sequence，可选 timeoutSeconds（60 到 43200）。仅用 operationId 轮询；用 operationId 和 cancel true 取消。调用在响应预算内作答，耗时更长的操作会继续运行。相同的 id 和输入绝不会运行两次。放弃请求的客户端不会取消该操作。在第一个步骤之前，重放会停止宿主机上除服务 VM 之外的所有其他正在运行的 VM，与任何 Debug-TestSequence.ps1 运行一样；workload_session_start 的结果在 otherRunningVms 中列出它们。"
+    },
+    "runner.mcp_workload_journal": {
+      "sourceHash": "0fed83c1681d25bcc5ba4be50516e21e6ca91569b4a226ec164863716dab7c80",
+      "origin": "machine",
+      "message": "读取日志：目前为止成功的步骤（YAML 格式）、每个操作的摘要，以及 YAML 未包含的状态变化。"
+    },
+    "runner.mcp_workload_save_sequence": {
+      "sourceHash": "5468f23d28aa07ad03a5f673a1cf02b9b74d83c0cc6ec0ae39bc1166afb610da",
+      "origin": "machine",
+      "message": "将日志保存为新的序列文件。文件写入框架的 test/sequences 文件夹，绝不替换已有文件。必填：name、description 和 resource（它在其后运行的序列列表）。可选：componentSteps，即开头多少个步骤成为组件步骤。"
+    },
+    "runner.mcp_workload_failure": {
+      "sourceHash": "3dd00505ce745c59b5bcaa55bc16b3fa8cf3ec9259e6135a247ea3ff757a9e9d",
+      "origin": "machine",
+      "message": "以过滤后的视图读取会话的最后一次失败：类别、步骤、语句、原因详情，以及允许显示的证据路径。"
+    },
+    "runner.mcp_workload_invalid_request": {
+      "sourceHash": "2778a829b73afa91997864730e0a90f78d3584474bbc4092a49d3d52d51782e2",
+      "origin": "machine",
+      "message": "该请求不是有效的 JSON-RPC 请求。"
+    },
+    "runner.mcp_workload_request_too_large": {
+      "sourceHash": "dd31a1cbcb8a208949bd66e890f58731e2c2e7c577a68d2a1c37197def268bb6",
+      "origin": "machine",
+      "message": "该请求超过 {limit} 个字符。"
+    },
+    "runner.mcp_workload_invalid_arguments": {
+      "sourceHash": "f589c7c04eb1ba4be0a7bfc59e91a89cf6270eda83917f5041dbfbcbb81c59a3",
+      "origin": "machine",
+      "message": "{name} 的参数无效：{detail}"
+    },
+    "runner.mcp_workload_run_form_incomplete": {
+      "sourceHash": "603901b1fcd41563920cf5a260ce7838dd8af9624a1a9171c8b8a310f9fdf428",
+      "origin": "machine",
+      "message": "运行操作的调用还需要：{fields}"
+    },
+    "runner.mcp_workload_cancel_with_run_fields": {
+      "sourceHash": "f9f05d5029a7972e3bcfb780d3d222816f325bc5034347ba87f489bd49122c43",
+      "origin": "machine",
+      "message": "取消只接受 operationId；请移除运行字段。"
+    },
+    "runner.mcp_workload_instructions": {
+      "sourceHash": "95b5b32488d99f853d472f825d299f254f924437a7edc7b0f16a1d9af7ae5ae3",
+      "origin": "machine",
+      "message": "1. 先观察再行动。选择步骤之前，先对该界面调用 workload_snapshot，并根据它显示的内容进行选择。s14 或 p7 这样的引用仅在该界面的下一次快照或步骤之前有效。\n2. 用语句表达。用 workload_phrases 或 workload_suggest_step 找到语句，并用 workload_step 运行它。只有在没有语句覆盖时才使用 workload_action。\n3. 为每个步骤说明理由。intent 是一行简单的英文，供日后阅读测试的人查看；它会成为该步骤的描述。其中不得包含密码、令牌或其他秘密值，也不得包含变量引用。\n4. 绝不输入秘密。需要密码的地方，写上引用，例如 {reference}。在秘密位置填写字面值会被拒绝。\n5. 一次一步，绝不重复。每个新步骤都选择新的 operationId。当调用返回 workload_still_waiting 时，仅用该 id 再次调用同一工具。不要因为答复缓慢或丢失而再次发送步骤。\n6. 在以下情况下停下来询问相关人员：结果表明效果不确定；两个元素都匹配且页面上没有任何内容能区分它们；某个步骤会删除数据或关闭客户机电源；屏幕显示凭据；或者产品不再显示测试所期望的内容。\n7. 按顺序收尾：workload_journal、workload_save_sequence、workload_run_sequence、workload_session_end。"
+    },
+    "runner.workload_no_session": {
+      "sourceHash": "5a68bd243d435a149baf8d757077aaa5a0d2b8f65943692c11184d04e41cd05f",
+      "origin": "machine",
+      "message": "当前没有附加的工作负载会话。请用 workload_session_start 启动一个。"
+    },
+    "runner.workload_session_active": {
+      "sourceHash": "2891a120015d7e997171223933450dcac2efe9af5c34a3ce4399220b55b77285",
+      "origin": "machine",
+      "message": "已有一个输入不同的会话附加到 VM '{vmName}'。请先用 workload_session_end 结束它。"
+    },
+    "runner.workload_session_starting": {
+      "sourceHash": "3825bed1e55cc5fc44979ccfd139726411c818cb704622eb9a69835da04a75f5",
+      "origin": "machine",
+      "message": "会话仍在启动中。请使用相同输入再次调用 workload_session_start 以读取其结果。"
+    },
+    "runner.workload_busy": {
+      "sourceHash": "3971e2ed7c1a325f1806bf4662052bc17de9fd5a21bc00552fb9c5813bdad121",
+      "origin": "machine",
+      "message": "操作 '{operationId}' 仍在运行。请先轮询或取消它，再启动另一个。"
+    },
+    "runner.workload_queue_full": {
+      "sourceHash": "cef3d4656ead4003a6b51e33a0bca83f2316118d6d07039e29082c8778a01b9c",
+      "origin": "machine",
+      "message": "已有十六个调用在等待工作进程。请在其中一个得到答复后再次调用。"
+    },
+    "runner.workload_operation_conflict": {
+      "sourceHash": "0e9285503624f7d7d37a08081f460a5bb70656a1e3e1b8fafcbc6bd25c3d26ad",
+      "origin": "machine",
+      "message": "操作 id '{operationId}' 已被另一个工具或以不同输入使用过。请为新步骤选择新的 operationId。"
+    },
+    "runner.workload_operation_unknown": {
+      "sourceHash": "fc0b9b92f5542de00e429aecf3e5c3ba476292462a075f9088e844952c918748",
+      "origin": "machine",
+      "message": "此会话中没有 id 为 '{operationId}' 的操作。"
+    },
+    "runner.workload_still_waiting": {
+      "sourceHash": "d671ee361c5ccad7dd02be3824ddb609a35eed97c3d2703e0106d1fb0d990530",
+      "origin": "machine",
+      "message": "操作 '{operationId}' 仍在运行。请仅用此 operationId 再次调用同一工具以读取其结果。"
+    },
+    "runner.workload_not_dispatched": {
+      "sourceHash": "81d6fa462060c8ca0c533feedbe1efe2eb09408cdb074451e51efdc73a45b0c6",
+      "origin": "machine",
+      "message": "操作 '{operationId}' 在发送给工作进程之前就已结束；没有任何内容运行。"
+    },
+    "runner.workload_call_timeout": {
+      "sourceHash": "6fe19a645afbede8cbea98993cf452eb47bff99b485add71dd045245cd46a3c3",
+      "origin": "machine",
+      "message": "会话工作进程未在 {seconds} 秒内作答。"
+    },
+    "runner.workload_worker_start_failed": {
+      "sourceHash": "96b7f46d1d5a231e5c85a36f68cf7b35901e0baff503c540cd5da8a863f060fd",
+      "origin": "machine",
+      "message": "会话工作进程未能启动或未能附加：{detail}"
+    },
+    "runner.workload_worker_lost": {
+      "sourceHash": "8f2ec58b8311d0e2251e29ab9022d8efa69f3a73bc150848c0f92bbbfca82ee3",
+      "origin": "machine",
+      "message": "会话工作进程在持有会话期间结束，因此会话已终止。请启动一个新会话。"
+    },
+    "runner.workload_surface_unsupported": {
+      "sourceHash": "bd2e241eb921d12d513fcdc67e238cee2b9442a70424fe4a88dbd8f8ff02858d",
+      "origin": "machine",
+      "message": "此工作进程不提供界面 '{surface}'。它提供：{surfaces}"
+    },
+    "runner.workload_stale_reference": {
+      "sourceHash": "f9038c8a0da9fd5d67b0a633779426bc655f173ef2fc33af32b948f3d2efbfc2",
+      "origin": "machine",
+      "message": "引用 '{reference}' 不在当前快照中。请拍摄新的快照并从中选择。"
+    },
+    "runner.workload_capture_failed": {
+      "sourceHash": "4cb75384923d692dc4922b91dbe4d9ed45690ab20807dfdcbbe6eca195521640",
+      "origin": "machine",
+      "message": "无法捕获屏幕帧。"
+    },
+    "runner.workload_internal_error": {
+      "sourceHash": "f153fd2829628b560ea67777e89a9bcfa71866b86a2d8c1374e00600d10cde36",
+      "origin": "machine",
+      "message": "会话工作进程无法完成该请求：{detail}"
+    },
+    "runner.workload_verb_unregistered": {
+      "sourceHash": "fba639c8476cf349c106617a6ce0eff3792f192fc7d1edd26aa7db5cfb5eb72c",
+      "origin": "machine",
+      "message": "'{action}' 不是已注册的动词。"
+    },
+    "runner.workload_verb_alias": {
+      "sourceHash": "6e73b2d21380605147f0581f926a775c3107b1751fa80aa7d3a8aa0d82bd9d4b",
+      "origin": "machine",
+      "message": "'{action}' 是 '{canonical}' 的另一种写法。请使用 '{canonical}'。"
+    },
+    "runner.workload_verb_denied_vm_state": {
+      "sourceHash": "faa6506afa65a0c4252e06842f5820216d07fa9c07fb29140d3fbf28ab62e6f7",
+      "origin": "machine",
+      "message": "'{action}' 会更改 VM 的电源状态或名称。请改用 workload_run_sequence 运行序列。"
+    },
+    "runner.workload_verb_denied_operator_hold": {
+      "sourceHash": "e4dc9c4788ad2896601bc513b60077851f260d72f0a6bc994e5eefcff479e1b4",
+      "origin": "machine",
+      "message": "'{action}' 会等待操作员，不能在工作负载会话中运行。"
+    },
+    "runner.workload_verb_denied_composite": {
+      "sourceHash": "8cd1ed6f291308bee2e943ce8530f607937e2dd109c498f26c1637aed2e7d5ec",
+      "origin": "machine",
+      "message": "'{action}' 包装了其他步骤。请手动将其添加到保存的序列中。"
+    },
+    "runner.workload_verb_denied_unclassified": {
+      "sourceHash": "4f0dbf4cf0deff97ab6d0f5dacbc514602ef724d0982a942e13273c1357eec4f",
+      "origin": "machine",
+      "message": "'{action}' 未声明重放类别，不能在工作负载会话中运行。"
+    },
+    "runner.workload_field_reserved": {
+      "sourceHash": "260e3cdc8f6d26770632be5c8b3d832d43ca09650c90178fa62426efe494e4ce",
+      "origin": "machine",
+      "message": "字段 '{field}' 由会话设置，不能提供。"
+    },
+    "runner.workload_field_missing": {
+      "sourceHash": "0d0b4ce26a3af2621ad749ab1570e0497d4c7ae1f9c5f5d3150db9553788a0f1",
+      "origin": "machine",
+      "message": "动词 '{action}' 需要字段 '{field}'。"
+    },
+    "runner.workload_field_invalid": {
+      "sourceHash": "29932385f34e3e3e0eee17d8e9ab7235f3a05c6da19a767e4588f8d1ada5e6a1",
+      "origin": "machine",
+      "message": "动词 '{action}' 的字段 '{field}' 不符合序列架构：{detail}"
+    },
+    "runner.workload_field_undeclared": {
+      "sourceHash": "e55310b7451bb49aa3c0b7d81cd4e12b5e7683ec5c502783d2182f23089a3d26",
+      "origin": "machine",
+      "message": "序列架构中未为动词 '{action}' 声明字段 '{field}'；处理程序可能会忽略它。"
+    },
+    "runner.workload_variable_reserved": {
+      "sourceHash": "f4e9a4698d24220469d89b16087aedb58f757aaf1bc3176b01c59b6da79552fd",
+      "origin": "machine",
+      "message": "变量 '{name}' 由会话设置，不能提供。"
+    },
+    "runner.workload_variables_failed": {
+      "sourceHash": "562d047965d9bf53de1e080d8af439a5bbfa4cd5bb9530a85c0c50291059a5b0",
+      "origin": "machine",
+      "message": "无法解析会话变量：{detail}"
+    },
+    "runner.workload_mask_failed": {
+      "sourceHash": "6bc5907c83c6e3a87a2b50c8e450e7b71d8d18a69825b083615af93707dd0ddf",
+      "origin": "machine",
+      "message": "前端未确认要隐藏的值。"
+    },
+    "runner.workload_intent_invalid": {
+      "sourceHash": "00b20ac60f634311b0c91f6f5cd86e9b1a2c7ccc7f6ff25d1ab227ac69ac2b7c",
+      "origin": "machine",
+      "message": "intent 必须是 1 到 200 个字符的一行文本，且不得包含变量标记。"
+    },
+    "runner.workload_secret_literal": {
+      "sourceHash": "82c709e7636f09b9760cb82c57468e7a0be768e52916bc8d8dfab710668c85a4",
+      "origin": "machine",
+      "message": "该请求包含此会话作为秘密保存的值。请通过其变量引用它。"
+    },
+    "runner.workload_secret_reference_required": {
+      "sourceHash": "a5a1bef73e0608ca781d022fde141aa7cb82327b5c2bbb7ce0bcc2fd185fa0bf",
+      "origin": "machine",
+      "message": "字段 '{field}' 携带秘密，必须通过变量或扩展表达式引用它。"
+    },
+    "runner.workload_secret_variable_unknown": {
+      "sourceHash": "1eaac52969579cabf6ab83fed2d6481f9fd7ba8876bb6202cfd34e4a0e46ab58",
+      "origin": "machine",
+      "message": "字段 '{field}' 引用了变量 '{name}'，而此会话未定义该变量。"
+    },
+    "runner.workload_secret_too_short": {
+      "sourceHash": "04350479fa606b075ae6d454fcac13cb16d5c234e825dccb95e4fda1c917b31b",
+      "origin": "machine",
+      "message": "变量 '{name}' 保存的秘密少于 {minimum} 个字符，会话无法对其进行掩码。"
+    },
+    "runner.workload_step_unresolved": {
+      "sourceHash": "956aebe76118d20e828adca8b9bab97d27a5cb280f77ad53409198b122b9c209",
+      "origin": "machine",
+      "message": "该语句未能解析：{detail}"
+    },
+    "runner.workload_step_too_large": {
+      "sourceHash": "4c9fccd32d03b4d1236ce92201f994942e10cd845844e01391828ba0e5cd9716",
+      "origin": "machine",
+      "message": "该步骤超过 {maximum} 个字符。"
+    },
+    "runner.workload_yaml_mismatch": {
+      "sourceHash": "d65868a908c3b5d9034b102553ebf59ad7182d27f59b2f8e45ebce402ab14bba",
+      "origin": "machine",
+      "message": "该步骤无法写成可原样读回的 YAML，因此未运行。"
+    },
+    "runner.workload_step_failed": {
+      "sourceHash": "64f690bb36f9bc76db2cd6b22c3ba2600f313172dd171a159d03bec05ca26040",
+      "origin": "machine",
+      "message": "第 {index} 个原语（共 {total} 个，{action}）失败：{label}"
+    },
+    "runner.workload_operation_canceled": {
+      "sourceHash": "31bdbd2093c43498641ff6cf956da6ef56d742ef3dd8af8ee6702bd2412c3e67",
+      "origin": "machine",
+      "message": "该操作在完成 {total} 个原语中的 {completed} 个后被取消。"
+    },
+    "runner.workload_secret_filter_failed": {
+      "sourceHash": "6bf838a28ea25751b3d170914d893becbbd780c8ca16fbc9671e041c08624c71",
+      "origin": "machine",
+      "message": "答复已被扣留：经过秘密过滤后，它仍包含秘密或已无法读取。"
+    },
+    "runner.workload_mask_unconfirmed": {
+      "sourceHash": "0880508b745c84c9bf50af5244834c39fb7d49df6521a310b10b4e9ffe834b71",
+      "origin": "machine",
+      "message": "前端未确认要隐藏的值；其工作进程日志可能会显示这些值。"
+    },
+    "runner.workload_journal_write_failed": {
+      "sourceHash": "c65612c9b5ddbe5c0b5eb8d0d14c72bce1a083c8c60b5fb002506d3386116979",
+      "origin": "machine",
+      "message": "无法写入日志文件；该条目保留在内存中：{detail}"
+    },
+    "runner.workload_argument_invalid": {
+      "sourceHash": "4c65092544ae84459f708f1c1a8136598b5fea4e8800042cec3ce57a0a8e1fb9",
+      "origin": "machine",
+      "message": "{tool}：参数 '{name}' 必须匹配 {pattern}。"
+    },
+    "runner.workload_host_unsupported": {
+      "sourceHash": "99a0b88149de80c13b32dafded08d18eb40ffe04521eefbbd0c3648c67ba3005",
+      "origin": "machine",
+      "message": "{tool}：此平台没有宿主机驱动。"
+    },
+    "runner.workload_guest_unknown": {
+      "sourceHash": "7770120a1efe44c0d798c4ca62b9ce3e320467599416451f3396a891629ec783",
+      "origin": "machine",
+      "message": "{tool}：客户机 '{guestKey}' 没有 {hostType} 的文件夹（{folder}）。"
+    },
+    "runner.workload_elevation_required": {
+      "sourceHash": "1d9bca8a6654fc089ea6a235b51879d71b33ac9a99734565e784c81a051e8862",
+      "origin": "machine",
+      "message": "{tool}：{hostType} 只能从提升权限的进程驱动 VM。请以提升的权限启动 MCP 客户端。"
+    },
+    "runner.workload_libvirt_group_missing": {
+      "sourceHash": "aa4c06047a2499ddaf15bc9c1f19e4b110696792aa7d12b5ef7d04045bd8256e",
+      "origin": "machine",
+      "message": "{tool}：此进程不具有 libvirt 组。请从 'id -nG' 列出 libvirt 的会话中启动 MCP 客户端，或用 'sg libvirt -c' 包装服务器命令。"
+    },
+    "runner.workload_config_unreadable": {
+      "sourceHash": "80bcddc3363bd8eb6dcd20c090ffbac75676579b86d3defe0e278bc64ea6a66e",
+      "origin": "machine",
+      "message": "{tool}：无法读取配置 {configPath}。"
+    },
+    "runner.workload_host_driver_failed": {
+      "sourceHash": "a1e26fcece84bc1f62369a6bcbe4050833b9e278e96c6fff12c4f7b316b3e893",
+      "origin": "machine",
+      "message": "{tool}：宿主机驱动未加载：{message}"
+    },
+    "runner.workload_host_not_ready": {
+      "sourceHash": "71db1fe9f463a64f851c5a953fe4b8bbb43416f83fe045794b1d5b55ce6b6988",
+      "origin": "machine",
+      "message": "{tool}：宿主机尚未准备好驱动客户机（条件 {condition}）：{detail}"
+    },
+    "runner.workload_runtime_owned": {
+      "sourceHash": "fa76ca617db0ed63b3e909e7d184e747be72b0098149c3d3a29d6e189e2ebf18",
+      "origin": "machine",
+      "message": "{tool}：另一个运行占有此运行时：{detail}"
+    },
+    "runner.workload_lease_incomplete": {
+      "sourceHash": "c17c34b9518da87563210e30c8c83b0b4882c7bff920c7cee1a4638dd5202329",
+      "origin": "machine",
+      "message": "{tool}：租约 {leasePath} 在写入时缺少其启动记录，已被释放。请再次调用。"
+    },
+    "runner.workload_vm_absent": {
+      "sourceHash": "36921d22e828c060c53451e6cba25409512023bc170a4bcd17500eac2a42fbce",
+      "origin": "machine",
+      "message": "{tool}：此宿主机上不存在 VM '{vmName}'。请用 test/Debug-TestSequence.ps1 构建并启动它，然后再附加。"
+    },
+    "runner.workload_vm_stopped": {
+      "sourceHash": "96797690fc82894112bc20e945876a74cce8dddf530fe84e479ff9adb9d32063",
+      "origin": "machine",
+      "message": "{tool}：VM '{vmName}' 未在运行。请用 test/Debug-TestSequence.ps1 启动它，然后再附加。"
+    },
+    "runner.workload_vm_unknown": {
+      "sourceHash": "58e3c08c34facd95e5e7dbad0827bc33b4376b367d4ddec6c341a9d5a8aadea3",
+      "origin": "machine",
+      "message": "{tool}：虚拟机监控程序未报告 VM '{vmName}' 的状态。未做任何更改。"
+    },
+    "runner.workload_sequence_not_found": {
+      "sourceHash": "4fa3d6cad4f3d7c8a7bd023e4f2ee3a4f6f8e10c3b6aa98ec8ddb9b1fec2e6c1",
+      "origin": "machine",
+      "message": "{tool}：未找到序列 '{sequence}'。已搜索：{list}"
+    },
+    "runner.workload_sequence_not_guest": {
+      "sourceHash": "53a5cbff8aaec15363c3f95fadc5c71845bfa815c98a3f1aa00265e32ea37bfb",
+      "origin": "machine",
+      "message": "{tool}：'{sequence}' 不是具有 {osKey} 资源链的客户机序列。"
+    },
+    "runner.workload_plan_invalid": {
+      "sourceHash": "4e35b85956e59c53eb2cb87fe76bc1f1de4c5896bf9956c6ad553eb0b6a52764",
+      "origin": "machine",
+      "message": "{tool}：无法规划 '{sequence}' 的链：{message}"
+    },
+    "runner.workload_start_failed": {
+      "sourceHash": "256b6b5881a41c63047c9ef8bab2108ae691b53ad3ee86ef3dbd88dec4f7b9db",
+      "origin": "machine",
+      "message": "{tool}：会话未能启动：{message}"
+    },
+    "runner.workload_session_detached": {
+      "sourceHash": "ff60a16a352da7befafe4c146227bd22040eeea0dff0a3bd02206e1ea0c89e9b",
+      "origin": "machine",
+      "message": "{tool}：会话没有正在运行的 VM（{reason}）。请结束会话，用 test/Debug-TestSequence.ps1 启动 VM，然后重新附加。"
+    },
+    "runner.workload_ownership_lost": {
+      "sourceHash": "91758c73ab2fa771e8e50b6c3730a1fc64035fbec30f5a07410d7c4620dd7e2c",
+      "origin": "machine",
+      "message": "{tool}：此会话不再拥有运行时（{reason}）。请结束会话。"
+    },
+    "runner.workload_replay_spawn_failed": {
+      "sourceHash": "dda3a5680d55c25478d8d1c43f3cb7fcc36648efe5931bab2555e2419aec7913",
+      "origin": "machine",
+      "message": "{tool}：重放进程未能启动：{message}"
+    },
+    "runner.workload_journal_empty": {
+      "sourceHash": "4a334407e4376b0d14c84e98d3dbdf81b6ab6e062cd52bff198049ce80eca1f7",
+      "origin": "machine",
+      "message": "{tool}：日志中没有可保存的成功步骤。"
+    },
+    "runner.workload_name_invalid": {
+      "sourceHash": "049ffad6797cb513b0607874a509b2bdf89c4bdd73612a99607e3e40f9992596",
+      "origin": "machine",
+      "message": "{tool}：名称 '{name}' 必须匹配 {pattern}，以 '{prefix}' 开头，且不得以 .yml、.yaml 或宿主机后缀（.ubuntu.kvm, .windows.hyper-v, .macos.utm）结尾。"
+    },
+    "runner.workload_name_exists": {
+      "sourceHash": "999ee22947cd44029b6201176fdaa37c0147956c97da496251799372070bb9be",
+      "origin": "machine",
+      "message": "{tool}：'{name}' 的序列文件已存在：{path}。未写入任何内容。"
+    },
+    "runner.workload_folder_outside": {
+      "sourceHash": "7d2f6690a78a90e691e586f9c7756f8bf8a2c806ed89b70bb50699b590a96140",
+      "origin": "machine",
+      "message": "{tool}：{folder} 解析到框架检出目录之外（{resolved}）。未写入任何内容。"
+    },
+    "runner.workload_split_invalid": {
+      "sourceHash": "d788b46e74b4ead5e49919605b461ae9e266bcbe3ebd285d4aff9fa8a3593102",
+      "origin": "machine",
+      "message": "{tool}：componentSteps {value} 必须介于 0 和 {count} 之间。"
+    },
+    "runner.workload_resource_invalid": {
+      "sourceHash": "85652cbdacdc20fa46b28987bde94c73cd4bee96956bfc45f8098c15c4acfa63",
+      "origin": "machine",
+      "message": "{tool}：resource 必须包含 1 到 16 个匹配 {pattern} 的序列名称。"
+    },
+    "runner.workload_candidate_invalid": {
+      "sourceHash": "c3f5be28723008058c58610c009080c3cf3343b37cc3f86ce285cd7f67ad8f3c",
+      "origin": "machine",
+      "message": "{tool}：生成的序列未通过 {check} 检查：{message} 未写入任何内容。"
+    },
+    "runner.workload_secret_found": {
+      "sourceHash": "28096e6bb5113da79c0e1db15564cfc0a224334a640ef922fb4cfa0c589e9c45",
+      "origin": "machine",
+      "message": "{tool}：生成的序列将包含已解析的秘密。请在步骤中使用变量引用。未写入任何内容。"
+    },
+    "runner.workload_publish_failed": {
+      "sourceHash": "bfacc7f4b5dbbd986b826ed8da730bf67599d6845e39a570ca988f7fbf640b80",
+      "origin": "machine",
+      "message": "{tool}：无法发布 {path}：{message} 未写入任何内容。"
+    },
+    "runner.web_session_opened": {
+      "sourceHash": "8e68984236d498637f6389d9dc09bd5a03522cf48bd1b73d60c6fe6df09e3926",
+      "origin": "machine",
+      "message": "{vmName} 中的浏览器会话 {generation}：{browser} 位于客户机端口 {remotePort}，通过 127.0.0.1:{localPort} 访问。"
+    },
+    "runner.web_session_open_failed": {
+      "sourceHash": "c289a3106dd853ee3dfa3362401c051b7b150e107862cc5bad084f9eab843f23",
+      "origin": "machine",
+      "message": "{vmName} 中没有浏览器会话：{code}。{detail}"
+    },
+    "runner.web_session_close_incomplete": {
+      "sourceHash": "113eb17b26ef363f648e33ddedf812c6cec2f8c8decaf5718e4340be1b59c724",
+      "origin": "machine",
+      "message": "{vmName} 中的浏览器会话未能正常关闭（{reason}）：{detail}"
+    },
+    "runner.verb_web_open": {
+      "sourceHash": "2a3bcbdf33464fcf97fef8f269931981755a4a554882ab3144c43b528ccfae8c",
+      "origin": "machine",
+      "message": "在客户机的浏览器页面中打开 URL 并等待其加载完成。"
+    },
+    "runner.verb_web_click": {
+      "sourceHash": "cc9e028656883f59b88c457c9bcefe20345b2b550f3312205355a2b346b054ac",
+      "origin": "machine",
+      "message": "点击按角色和名称找到的页面元素，或设置复选框。"
+    },
+    "runner.verb_web_fill": {
+      "sourceHash": "7fc8112eaa83533831978c34bc78fae633c41dad190e3360d9ab908f6e2b57d7",
+      "origin": "machine",
+      "message": "替换页面上文本字段的内容。"
+    },
+    "runner.verb_web_select": {
+      "sourceHash": "bae62e53a98b2343ae4a629dc71f41148e0fded45b5f4609e0257e21cbaf8bf5",
+      "origin": "machine",
+      "message": "按标签选择原生下拉列表的选项。"
+    },
+    "runner.verb_web_press": {
+      "sourceHash": "2d522959709e1d44711042095a1d919171a29103c300b43374936d9f2cc8d03b",
+      "origin": "machine",
+      "message": "在页面中按下一个键。"
+    },
+    "runner.verb_web_expect": {
+      "sourceHash": "6bd2be8ecd2e53d47f6a0198e4c58e7d4f9e761da5f9dd188e43e1e9bdce94ab",
+      "origin": "machine",
+      "message": "等待某个元素或文本出现在页面上，或从页面上消失。"
+    },
+    "runner.verb_web_close": {
+      "sourceHash": "d5df5a97e2d7c8308fe4263f4b8974f96d44a16e3370a1da1c60ffa64fd371e3",
+      "origin": "machine",
+      "message": "关闭客户机的浏览器页面及其连接。"
+    },
+    "runner.workload_no_page": {
+      "sourceHash": "e05422742176a5e186838bef683a530b68fdb583c6cb6bce1930bdb89ecd769c",
+      "origin": "machine",
+      "message": "此会话中没有打开的页面。请先运行语句 'open page <url>'。"
+    },
+    "runner.ssh_wait_rotation_fields_incomplete": {
+      "sourceHash": "7b0dc2e5e297ab5e2caa7bc86cebad44bc8b967f1ad289fc71606394f65d0e55",
+      "origin": "machine",
+      "message": "sshWaitReady 只有在同时提供 currentPassword 和 newPassword 时才会更改过期密码，而此步骤只提供了 {field}，因此该步骤失败。"
+    },
+    "runner.ssh_password_rotated": {
+      "sourceHash": "78a5f90771f5c07388cba1093411f2bfc2b816ed34e6bb6ffe1ad566904dcb5a",
+      "origin": "machine",
+      "message": "sshWaitReady 已通过 SSH 更改 {vmName} 上 {user} 的过期密码。"
+    },
+    "runner.ssh_password_rotation_failed": {
+      "sourceHash": "5a71f9f6ffcf610817b56b64fa45c6351dd887d3144767e28998a24008535ffc",
+      "origin": "machine",
+      "message": "sshWaitReady 无法通过 SSH 更改 {vmName} 上 {user} 的过期密码（{code}），因此该步骤失败。客户机输出：{detail}"
+    },
+    "runner.ssh_password_still_expired": {
+      "sourceHash": "f294bf9b306a9aca3a1f7cf0dfb00ee85baf881f407b2ae77035db773c524e19",
+      "origin": "machine",
+      "message": "sshWaitReady 更改密码后，客户机仍报告 {vmName} 上 {user} 的密码已过期，因此该步骤失败。"
+    },
+    "runner.ssh_password_set": {
+      "sourceHash": "17b9a432339da34d2d248bff1da425668e892ec89ec7b58ad117421628b6eb07",
+      "origin": "machine",
+      "message": "由于登录未过期，sshWaitReady 已通过 SSH 设置 {vmName} 上 {user} 的密码。"
+    },
+    "runner.ssh_password_set_failed": {
+      "sourceHash": "9cd10eaa2ee4ffbc5b71997ff2af965e16d40dd8c34ad0ce7ce921381d4f86d6",
+      "origin": "machine",
+      "message": "sshWaitReady 无法通过 SSH 设置 {vmName} 上 {user} 的密码（{code}），因此该步骤失败，后续步骤不会存储新密码。客户机输出：{detail}"
+    },
+    "runner.ssh_host_key_pin_unconfirmed_reset": {
+      "sourceHash": "d0d12ddd815a6a54b11425f2f67ee695e228590d159e2ebf8379cd2735a535cc",
+      "origin": "machine",
+      "message": "为 '{vmName}' 固定的 SSH 主机密钥是在本次等待期间记录的，且尚无任何登录通过它完成身份验证，而 {address} 上的客户机现在提供了另一个密钥，这正是新客户机的安装程序 SSH 服务器让位于已安装系统的 SSH 服务器时的情形。该固定记录已被丢弃，等待继续（第 {count} 次重置，共 {limit} 次；固定文件：{pin}）。"
     }
   }
 }

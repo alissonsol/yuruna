@@ -432,7 +432,7 @@ func TestProofsAndCodesShareOneThrottleBucket(t *testing.T) {
 	}
 }
 
-func TestTheSubmittedCodeIsNormalisedBeforeItLeaves(t *testing.T) {
+func TestTheSubmittedCodeIsNormalizedBeforeItLeaves(t *testing.T) {
 	// An operator reading the tile types what they see, including its case.
 	agg := newFakeAggregator(t, labCode)
 	srv, _ := gated(t, Options{AggregatorURL: agg.srv.URL})

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4229d039-c021-419e-a736-76c0a2f58264
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,9 @@ param()
 BeforeAll {
     $here = Split-Path -Parent $PSCommandPath
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    # The private state root and the runner gate resolve under $HOME; a scratch
+    # home keeps this suite and every process it starts off the operator's own.
+    $script:TestHome = Enter-YurunaTestHome
     $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Globalization.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $here 'Test.HostGit.psm1') -Force -Global -DisableNameChecking
@@ -60,6 +63,8 @@ BeforeAll {
     $script:CaB = New-TestCaPem -Name 'fixture-ca-b'
     $script:Bash = (Get-Command bash -ErrorAction SilentlyContinue).Source
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'the framework archive a service VM extracts is the seeded commit' {
     BeforeAll {

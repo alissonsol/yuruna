@@ -155,16 +155,16 @@ func TestCycleLinksToolRefusesAnUnknownHost(t *testing.T) {
 }
 
 // The aggregator shares a VM with anonymous Grafana, so its MCP surface stays
-// read-only and offers nothing that refreshes, mints or forwards: the one
-// refresh entry point is pool-control's credential-gated per-host tool.
-func TestMcpOffersNoRefreshTool(t *testing.T) {
+// read-only and offers nothing that repairs, updates, mints or forwards: the one
+// repair entry point is pool-control's credential-gated per-host tool.
+func TestMcpOffersNoRepairTool(t *testing.T) {
 	s := newPoolState("default", 8080)
 	got := mcpPost(t, s.mcpServer("2026.10.30").Handler(), `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	for _, raw := range got["result"].(map[string]any)["tools"].([]any) {
 		m := raw.(map[string]any)
 		name := m["name"].(string)
-		if strings.Contains(strings.ToLower(name), "refresh") {
-			t.Errorf("%s: the aggregator must not offer a refresh tool", name)
+		if lower := strings.ToLower(name); strings.Contains(lower, "repair") || strings.Contains(lower, "update") {
+			t.Errorf("%s: the aggregator must not offer a repair or update tool", name)
 		}
 		if m["annotations"].(map[string]any)["readOnlyHint"] != true {
 			t.Errorf("%s is not read-only", name)

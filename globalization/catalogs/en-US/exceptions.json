@@ -843,20 +843,20 @@
         }
       }
     },
-    "exceptions.host_refresh_auth_authority_incomplete": {
+    "exceptions.host_repair_auth_authority_incomplete": {
       "message": "Wrote {path} but not {pendingPath} ({detail}); run -NewAuthority -Rotate to write both again.",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 when creating or rotating the refresh authority staged both secret files but only the first could be moved into place, so the authority and the operator credential no longer come from one run. Keep the switch names -NewAuthority and -Rotate. detail is the failing .NET exception type.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 when creating or rotating the repair authority staged both secret files but only the first could be moved into place, so the authority and the operator credential no longer come from one run. Keep the switch names -NewAuthority and -Rotate. detail is the failing .NET exception type.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
           "type": "detail",
           "trust": "internal",
-          "example": "/home/operator/.yuruna/host-refresh/authority/authority.key"
+          "example": "/home/operator/.yuruna/host-repair/authority/authority.key"
         },
         "pendingPath": {
           "type": "detail",
           "trust": "internal",
-          "example": "/home/operator/.yuruna/host-refresh/authority/operator.credential"
+          "example": "/home/operator/.yuruna/host-repair/authority/operator.credential"
         },
         "detail": {
           "type": "identifier",
@@ -865,21 +865,21 @@
         }
       }
     },
-    "exceptions.host_refresh_auth_authority_missing": {
-      "message": "No refresh authority found under {path}; create one with -NewAuthority first.",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 when the refresh signing authority file is absent from the authority directory. Keep the switch name -NewAuthority.",
+    "exceptions.host_repair_auth_authority_missing": {
+      "message": "No repair authority found under {path}; create one with -NewAuthority first.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 when the repair signing authority file is absent from the authority directory. Keep the switch name -NewAuthority.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
           "type": "detail",
           "trust": "internal",
-          "example": "/home/operator/.yuruna/host-refresh/authority"
+          "example": "/home/operator/.yuruna/host-repair/authority"
         }
       }
     },
-    "exceptions.host_refresh_auth_host_id_mismatch": {
-      "message": "The refresh key was issued for host {keyHostId}, but this host is {hostId}; export a key for this host instead.",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 when an operator installs a refresh verifier key derived for a different host.",
+    "exceptions.host_repair_auth_host_id_mismatch": {
+      "message": "The repair verifier key was issued for host {keyHostId}, but this host is {hostId}; export a key for this host instead.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 when an operator installs a repair verifier key derived for a different host.",
       "lifecycle": "active",
       "placeholders": {
         "keyHostId": {
@@ -894,9 +894,9 @@
         }
       }
     },
-    "exceptions.host_refresh_auth_host_id_unavailable": {
+    "exceptions.host_repair_auth_host_id_unavailable": {
       "message": "This host has no host id yet ({path} is missing); start the runner once so host.uuid exists, then retry.",
-      "description": "Exception thrown by test/lab/Set-HostRefreshCredential.ps1 when runtime/host.uuid is absent or not a host id; the script never mints an id. Keep the file name host.uuid.",
+      "description": "Exception thrown by test/lab/Set-HostRepairCredential.ps1 when runtime/host.uuid is absent or not a host id; the script never mints an id. Keep the file name host.uuid.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
@@ -906,9 +906,9 @@
         }
       }
     },
-    "exceptions.host_refresh_auth_invalid_claim": {
-      "message": "Refresh proof field {field} is not valid.",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 when a refresh proof, key derivation or export is given a field (hostId, requestId, tier, maxRung, instant, authority) with invalid syntax. The field is a protocol field name; keep it.",
+    "exceptions.host_repair_auth_invalid_claim": {
+      "message": "Repair proof field {field} is not valid.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 when a repair proof, key derivation or export is given a field (hostId, requestId, tier, maxRung, instant, authority) with invalid syntax. The field is a protocol field name; keep it.",
       "lifecycle": "active",
       "placeholders": {
         "field": {
@@ -918,9 +918,9 @@
         }
       }
     },
-    "exceptions.host_refresh_auth_key_malformed": {
-      "message": "{path} is not a refresh key file (expected one line starting with {prefix}).",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 and test/lab/Set-HostRefreshCredential.ps1 when a refresh secret or key file is not exactly one line of the expected kind. prefix is the secret kind marker such as yhrk1; keep it.",
+    "exceptions.host_repair_auth_key_malformed": {
+      "message": "{path} is not a repair authority or verifier key file (expected one line starting with {prefix}).",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 and test/lab/Set-HostRepairCredential.ps1 when a repair secret or key file is not exactly one line of the expected kind. prefix is the secret kind marker such as yrpk1; keep it.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
@@ -931,31 +931,31 @@
         "prefix": {
           "type": "token",
           "trust": "internal",
-          "example": "yhrk1"
+          "example": "yrpk1"
         }
       }
     },
-    "exceptions.host_refresh_auth_key_permissions_open": {
+    "exceptions.host_repair_auth_key_permissions_open": {
       "message": "{path} is readable by other users; restrict it to its owner (chmod 600) and retry.",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 when a refresh secret file grants access to users other than its owner. chmod 600 is a command; keep it.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 when a repair secret file grants access to users other than its owner. chmod 600 is a command; keep it.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
           "type": "detail",
           "trust": "internal",
-          "example": "/home/operator/.yuruna/host-refresh/authority/authority.key"
+          "example": "/home/operator/.yuruna/host-repair/authority/authority.key"
         }
       }
     },
-    "exceptions.host_refresh_auth_key_unusable": {
-      "message": "The refresh key file {path} cannot be used ({reason}).",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 and test/lab/Set-HostRefreshCredential.ps1 when a refresh secret or key file exists but cannot be read as one: it is a symbolic link, not a regular file, larger than a key file can be, unreadable, or (for a transported key) absent. reason is an untranslated token: reparse-point, not-regular, too-large, unreadable or absent.",
+    "exceptions.host_repair_auth_key_unusable": {
+      "message": "The repair authority or verifier key file {path} cannot be used ({reason}).",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 and test/lab/Set-HostRepairCredential.ps1 when a repair secret or key file exists but cannot be read as one: it is a symbolic link, not a regular file, larger than a key file can be, unreadable, or (for a transported key) absent. reason is an untranslated token: reparse-point, not-regular, too-large, unreadable or absent.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
           "type": "detail",
           "trust": "internal",
-          "example": "/home/operator/.yuruna/host-refresh/authority/authority.key"
+          "example": "/home/operator/.yuruna/host-repair/authority/authority.key"
         },
         "reason": {
           "type": "identifier",
@@ -964,15 +964,15 @@
         }
       }
     },
-    "exceptions.host_refresh_auth_key_write_failed": {
+    "exceptions.host_repair_auth_key_write_failed": {
       "message": "Could not write {path} with owner-only permissions ({detail}).",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 when a refresh secret file cannot be created owner-only, written, flushed or moved into place; nothing partial is left behind. detail is the failing .NET exception type.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 when a repair secret file cannot be created owner-only, written, flushed or moved into place; nothing partial is left behind. detail is the failing .NET exception type.",
       "lifecycle": "active",
       "placeholders": {
         "path": {
           "type": "detail",
           "trust": "internal",
-          "example": "/home/operator/.yuruna/host-refresh/remote-verifier.key"
+          "example": "/home/operator/.yuruna/host-repair/remote-verifier.key"
         },
         "detail": {
           "type": "identifier",
@@ -981,9 +981,9 @@
         }
       }
     },
-    "exceptions.host_refresh_auth_private_root_unavailable": {
-      "message": "The private state root could not be secured ({reason}); no refresh key was written.",
-      "description": "Exception thrown by test/modules/Test.HostRefreshAuth.psm1 and test/lab/Set-HostRefreshCredential.ps1 when the private state root that holds refresh secrets is absent, a link, or cannot be created and secured. reason is a short code.",
+    "exceptions.host_repair_auth_private_root_unavailable": {
+      "message": "The private state root could not be secured ({reason}); no repair secret was written.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 and test/lab/Set-HostRepairCredential.ps1 when the private state root that holds repair secrets is absent, a link, or cannot be created and secured. reason is a short code.",
       "lifecycle": "active",
       "placeholders": {
         "reason": {
@@ -993,9 +993,43 @@
         }
       }
     },
-    "exceptions.host_refresh_relaunch_parameter_unsupported": {
+    "exceptions.host_update_auth_signing_key_unusable": {
+      "message": "The host update signing key {path} cannot be used ({reason}); create one with -NewUpdateSigningKey.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 and test/lab/Set-HostRepairCredential.ps1 when the update signing key is absent, a link, readable by other users, too large, unreadable, not one PKCS#8 RSA key, or smaller than 3072 bits. reason is an untranslated token: absent, reparse-point, permissions-open, too-large, unreadable, malformed or too-small.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "/home/operator/.yuruna/host-repair/authority/update-signing.key"
+        },
+        "reason": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "absent"
+        }
+      }
+    },
+    "exceptions.host_update_auth_url_invalid": {
+      "message": "{url} is not a pool-control address: give an absolute http or https URL of at most 256 bytes with no user name, query or fragment.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 Install-YurunaPoolControlRecord when -PoolControlUrl cannot be the pool-control base URL.",
+      "lifecycle": "active",
+      "placeholders": {
+        "url": {
+          "type": "detail",
+          "trust": "external",
+          "example": "ftp://192.0.2.10"
+        }
+      }
+    },
+    "exceptions.host_update_auth_public_key_invalid": {
+      "message": "The pool-control public key must be the one yupk1 line -NewUpdateSigningKey printed, holding an RSA key of at least 3072 bits.",
+      "description": "Exception thrown by test/modules/Test.HostRepairAuth.psm1 Install-YurunaPoolControlRecord when -PublicKey is not a usable yupk1 line. Keep yupk1 and -NewUpdateSigningKey.",
+      "lifecycle": "active"
+    },
+    "exceptions.host_repair_relaunch_parameter_unsupported": {
       "message": "Parameter {name} has type {type}, which cannot cross the libvirt group relaunch.",
-      "description": "Exception from New-HostRefreshRelaunchParameter in test/modules/Test.HostRefresh.psm1 for a bound value that has no command-text form; preserve command names, parameter names, codes and paths.",
+      "description": "Exception from New-HostRepairRelaunchParameter in test/modules/Test.HostRepair.psm1 for a bound value that has no command-text form; preserve command names, parameter names, codes and paths.",
       "lifecycle": "active",
       "placeholders": {
         "name": {
@@ -1010,9 +1044,9 @@
         }
       }
     },
-    "exceptions.host_refresh_worker_argument_invalid": {
-      "message": "The host-refresh worker argument {name} does not match the entry script's parameters; refusing to launch a worker the entry point would not accept.",
-      "description": "Exception from New-HostRefreshWorkerArgumentList in test/modules/Test.HostRefresh.psm1 when a vector name does not resolve against test/lab/Invoke-HostRefresh.ps1; preserve command names, parameter names, codes and paths.",
+    "exceptions.host_repair_worker_argument_invalid": {
+      "message": "The host-repair worker argument {name} does not match the entry script's parameters; refusing to launch a worker the entry point would not accept.",
+      "description": "Exception from New-HostRepairWorkerArgumentList in test/modules/Test.HostRepair.psm1 when a vector name does not resolve against test/lab/Invoke-HostRepair.ps1; preserve command names, parameter names, codes and paths.",
       "lifecycle": "active",
       "placeholders": {
         "name": {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e5c0b7-3a91-4d68-b2f4-8c07d15e9a36
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,12 +55,35 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# The PowerShell floor declared in automation/Yuruna.Requirement.yml, as a bare
+# version number. A two-key line read rather than powershell-yaml: that module
+# is a row of this report, so the report cannot depend on it being installed.
+function Get-PowerShellFloor {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$Path = (Join-Path $PSScriptRoot '../automation/Yuruna.Requirement.yml'))
+    $selected = $false
+    foreach ($line in [IO.File]::ReadAllLines($Path)) {
+        if ($line -match '^\s*-\s+tool:\s*"(?<t>[^"]+)"') { $selected = $Matches['t'] -ceq 'PowerShell'; continue }
+        if ($selected -and $line -match '^\s*version:\s*"(?<v>[^"]+)"') {
+            if ($Matches['v'] -match '\d+(?:\.\d+)+') { return $Matches[0] }
+            break
+        }
+    }
+    throw "No PowerShell version floor in $Path."
+}
+
 # Required means the project cannot be checked at all without it. Everything
 # else is a gate that would silently stop watching, which is why the row still
-# exists rather than being left out of the report.
+# exists rather than being left out of the report. RequiredMinVersion, when
+# given, splits a required row's lower bound in two: a version below it blocks
+# every run, while a version between it and MinVersion degrades a workstation
+# and blocks only a release. A pwsh from 7.4 up to the floor runs the gates,
+# but the complete suites were not qualified on it; one older than 7.4 is
+# outside what the harness supports at all.
 $Rows = @(
     @{ Name = 'pwsh'; Kind = 'command'; Command = 'pwsh'; Required = $true
-       MinVersion = '7.4'
+       MinVersion = Get-PowerShellFloor; RequiredMinVersion = '7.4'
        Gate = 'every PowerShell gate and the whole suite'
        Missing = 'nothing can run' }
     @{ Name = 'git'; Kind = 'command'; Command = 'git'; Required = $true
@@ -147,16 +170,18 @@ function Select-ModuleVersion {
 }
 
 # Why a found version falls outside a row's bounds, or '' when it is inside
-# them. MinVersion compares major.minor only, so a patch-level difference never
-# fails a row; MaxVersion is exclusive and compares the whole version.
+# them. MinVersion compares only as many parts as it names, so '6.0' ignores a
+# patch-level difference while a floor such as '7.7.0' holds the patch level;
+# MaxVersion is exclusive and compares the whole version.
 function Get-VersionBoundProblem {
     [CmdletBinding()]
     [OutputType([string])]
     param([AllowEmptyString()][string]$Version, [string]$MinVersion, [string]$MaxVersion)
     if (-not $Version) { return '' }
     $have = $null; $bound = $null
-    if ($MinVersion -and [version]::TryParse((($Version -split '\.')[0..1] -join '.'), [ref]$have) -and
-        [version]::TryParse($MinVersion, [ref]$bound) -and $have -lt $bound) {
+    if ($MinVersion -and [version]::TryParse($MinVersion, [ref]$bound) -and
+        [version]::TryParse((($Version -split '\.')[0..(($MinVersion -split '\.').Count - 1)] -join '.'), [ref]$have) -and
+        $have -lt $bound) {
         return "found $Version, needs $MinVersion or newer"
     }
     if ($MaxVersion -and [version]::TryParse($Version, [ref]$have) -and
@@ -220,7 +245,11 @@ foreach ($row in $Rows) {
         $why = $row.Missing
     } else {
         $why = Get-VersionBoundProblem -Version $version -MinVersion $row.MinVersion -MaxVersion $row.MaxVersion
-        if ($why) { $state = if ($Release -or $row.Required) { 'missing' } else { 'degraded' } }
+        $blocks = $Release -or $row.Required
+        if ($why -and -not $Release -and $row.RequiredMinVersion) {
+            $blocks = [bool](Get-VersionBoundProblem -Version $version -MinVersion $row.RequiredMinVersion -MaxVersion $row.MaxVersion)
+        }
+        if ($why) { $state = if ($blocks) { 'missing' } else { 'degraded' } }
     }
 
     $results.Add([pscustomobject]@{

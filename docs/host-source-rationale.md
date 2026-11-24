@@ -660,7 +660,7 @@ Related topic: https://yuruna.link/42e5cdfd-0045
 
 **`test/service/Start-StatusService.ps1`.**
 
-The worker-backed routes (host refresh, start-cycle, host diagnostic) and
+The worker-backed routes (host repair, start-cycle, host diagnostic) and
 the modules they call. Best-effort like the imports above: each of those
 routes names what it needs to Import-RouteModule before using it, so one
 module that fails to load refuses its own route with a documented reply
@@ -725,7 +725,7 @@ calls resolves (re-imported through Import-RouteModule when a startup
 import lost it), with every parameter the route passes, and the worker
 vector it would launch binds against the worker script's own parameters.
 A route that is not ready refuses with listener_dependency_missing, and the
-refresh summary stops advertising it. A ready answer is reused for a minute;
+repair summary stops advertising it. A ready answer is reused for a minute;
 a refusal is re-checked after ten seconds, so a runspace heals on its own.
 
 Every detached worker this server launches goes through here. The vector is
@@ -735,13 +735,13 @@ only the launch is bounded (five seconds). The listener never waits for the
 worker itself, and a worker's failure after launch is published by the
 worker, never inferred here.
 
-Refresh, artifact uploads, the configuration save (`POST /control/test-config`,
+Host repair, artifact uploads, the configuration save (`POST /control/test-config`,
 1 MB) and guest checkpoints (`POST /control/perf-checkpoints`, 256 KB) read bodies
 without parking the request loop: the read is issued asynchronously and the loop
 keeps accepting and serving while it is pending, waking for whichever comes
 first -- the next request, a read completing, or the earliest body deadline. At
 most four bodies are read at once, and the two anonymous routes share two of
-the four, so a burst of them cannot keep a refresh or an upload from being read;
+the four, so a burst of them cannot keep a repair or an upload from being read;
 an anonymous body that finds both of its slots taken answers `503 listener_busy`. A finished body is validated
 and admitted serially, like any other request, and every reply goes to the
 context the read carries.
@@ -1020,9 +1020,9 @@ Test-YurunaControlProof is required above alongside the tag
 helper on purpose: a runspace that cannot load the verifier
 reports no tag at all, rather than a tag that promises control
 this host would then refuse ('verifier-unavailable').
-refresh: the compact host-refresh capability (protocol,
+repair: the compact host-repair capability (protocol,
 availability, ceiling, reason, remote, state). A client that
-finds it missing treats refresh as unavailable, which is what
+finds it missing treats repair as unavailable, which is what
 an older server means.
 
 The diagnostic reaches tools that can take minutes or never
@@ -1079,11 +1079,11 @@ first poll tick.
 
 POST or PUT, no body. The listener changes nothing itself.
 Invoke-StartCycleRequest records a start-cycle reservation under
-the short admission lock -- answered busy while a host refresh is
-active, so a runner a refresh is holding parked is never
+the short admission lock -- answered busy while a host operation is
+active, so a runner a host operation holds parked is never
 un-paused from here -- then launches the detached worker and
 answers 202 queued. The worker
-takes the host's lifetime repair lock, confirms the reservation,
+takes the host's lifetime host-operation lock, confirms the reservation,
 and only then clears the pause and lab-hold controls, rewrites
 status.json, signals the restart, runs the bounded VM cleanup,
 re-reads the runner's state and starts or wakes it
@@ -1097,10 +1097,10 @@ POST only, a JSON body of at most 4096 bytes naming requestId,
 tier and maxRung (docs/control-routes.md). This half runs inside
 the request loop and only decides whether the body is worth
 reading. The read itself is asynchronous; Step-PendingRequestBody
-finishes it and Invoke-HostRefreshRequest validates, authorizes a
-non-loopback caller's refresh proof, takes the short admission
+finishes it and Invoke-HostOperationRequest validates, authorizes a
+non-loopback caller's repair proof, takes the short admission
 lock and launches the detached worker. The listener never waits
-for a repair and never takes the repair lock.
+for a repair and never takes the host-operation lock.
 
 Test-YurunaHost.ps1 (and fetch-and-execute's host probe) GET
 this; success means "host server is reachable from this
@@ -1422,6 +1422,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

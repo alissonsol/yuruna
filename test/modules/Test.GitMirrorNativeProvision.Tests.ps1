@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 427590e3-65ad-4212-b7b6-6765e23d2c4d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,7 @@ Describe 'Native provisioning preserves operator control before any mutation' {
         $script:settings | ConvertTo-Json | Set-Content $script:profilePath
         @{schema='yuruna.git-mirror.disposable-target/v1';targetRoot=$script:target} | ConvertTo-Json | Set-Content (Join-Path $script:state disposable-target.json)
     }
-    It 'requires explicit disposable-host acknowledgement before reading configuration' {
+    It 'requires explicit disposable-host acknowledgment before reading configuration' {
         $result=Invoke-ProvisionGuard -WithoutConsent
         $result.exitCode | Should -Not -Be 0
         $result.output | Should -Match 'requires -DisposableTarget'

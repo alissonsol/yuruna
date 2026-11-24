@@ -73,10 +73,10 @@ const DataheILremediation = `{
     " אבדה: המפקח של האורח ענה אך לא ידע מה עלה בגורלה, כך שהתהליך איננו, וחיבור מחדש לא יחזיר אותו."
   ],
   "remediation.hypervisor_unresponsive_action_evidence": "קראו את ⁦utm-control-snapshot.*.json⁩ ואת ⁦utm-log-show.*.txt⁩ בתיקיית המחזור: מזהה תהליך או זמן התחלה של UTM שהשתנו באמצע המחזור מעידים על קריסה והפעלה מחדש, וקטע היומן המאוחד מציין מה קדם לכך",
-  "remediation.hypervisor_unresponsive_action_restart": "הפעילו מחדש את יישום הבקרה של ההיפרווייזר במארח: ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה (או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז ודאו ש-⁦` + "`" + `utmctl stop` + "`" + `⁩ על מכונה וירטואלית עצורה חוזר מיד",
+  "remediation.hypervisor_unresponsive_action_restart": "הפעילו מחדש את יישום הבקרה של ההיפרווייזר במארח: ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה (או הריצו ⁦test/lab/Invoke-HostRepair.ps1⁩), ואז ודאו ש-⁦` + "`" + `utmctl stop` + "`" + `⁩ על מכונה וירטואלית עצורה חוזר מיד",
   "remediation.hypervisor_unresponsive_action_resume": "חדשו את פעולת המריץ ברגע שפועל מחזור חיים חוזר לענות; המחזור הבא בודק את ערוץ הבקרה לפני שהוא בונה דבר",
   "remediation.hypervisor_unresponsive_rationale": [
-    "hypervisor_unresponsive: ערוץ הבקרה של ההיפרווייזר הפסיק לבצע בקשות מחזור חיים בעודו ממשיך לענות לשאילתות מצב, ולכן כל הפעלה, עצירה ומחיקה של מכונה וירטואלית ממתינה עד תום פסק הזמן שלה, ושום דבר שמחזור עושה אינו יכול לשקם זאת. ניסיון חוזר חוזר על אותם פסקי זמן; את היישום שבבעלותו הערוץ יש להפעיל מחדש במארח, וזאת יכולה לעשות רק הפעלת שולחן עבודה או רענון מארח.",
+    "hypervisor_unresponsive: ערוץ הבקרה של ההיפרווייזר הפסיק לבצע בקשות מחזור חיים בעודו ממשיך לענות לשאילתות מצב, ולכן כל הפעלה, עצירה ומחיקה של מכונה וירטואלית ממתינה עד תום פסק הזמן שלה, ושום דבר שמחזור עושה אינו יכול לשקם זאת. ניסיון חוזר חוזר על אותם פסקי זמן; את היישום שבבעלותו הערוץ יש להפעיל מחדש במארח, וזאת יכולה לעשות רק הפעלת שולחן עבודה או תיקון מארח.",
     {
       "arg": "detail",
       "type": "detail",
@@ -834,6 +834,37 @@ const DataheILremediation = `{
       "trust": "internal"
     },
     " לא הגיע למצב העצירה שהשלב המתין לו: האורח התעלם מבקשת הכיבוי, והמתנה נוספת לא תשנה זאת. כיבוי מהמארח כן יכול לשנות זאת."
+  ],
+  "remediation.web_account_action": "צעד זה הפעיל דף: ⁦kind⁩ ו-⁦detail⁩ בשדה ⁦causeDetail.web⁩ של ⁦last_failure.json⁩ מציינים מה נכשל בדרך לדף",
+  "remediation.web_step_failed_action_evidence": "קראו את ⁦causeDetail.web⁩ בקובץ ⁦last_failure.json⁩: ⁦kind⁩ מציין איך הצעד הסתיים, ⁦locator⁩ מה חיפש, ⁦candidates⁩ מה הדף הציע, ⁦effect⁩ אם הקלט הגיע לדף",
+  "remediation.web_step_failed_action_repair": "תקנו את ⁦role⁩, ⁦name⁩, ⁦match⁩ או ⁦nth⁩ של הצעד, או המתינו קודם למצב שהוא צריך; עבור ⁦expectation⁩ ו-⁦navigation⁩ בדקו את האתר; עבור ⁦unsupported⁩ ו-⁦page_lost⁩ הסירו מהזרימה את תיבת הדו-שיח, החלון החדש או הקריסה",
+  "remediation.web_step_failed_action_rerun": "הריצו שוב עם ⁦test/Debug-TestSequence.ps1⁩ אחרי השינוי; כאשר ⁦effect⁩ הוא ⁦applied⁩ או ⁦uncertain⁩, שחזרו קודם מצב ידוע של האורח",
+  "remediation.web_step_failed_rationale": [
+    "web_step_failed אצל ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": צעד דף הסתיים לפי מה שהדף הציג (⁦kind⁩: ",
+    {
+      "arg": "kind",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; חיפוש: ",
+    {
+      "arg": "target",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; דף: ",
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). הוא אינו חוזר ללא השגחה: יש לשנות קודם את הבדיקה או את האתר."
   ]
 }
 `

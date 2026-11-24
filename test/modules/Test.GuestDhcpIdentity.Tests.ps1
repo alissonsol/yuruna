@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4223adbe-1c67-4f91-9007-d00e25adf8ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,10 @@
 #>
 
 #requires -version 7
+# Pester supplies Describe/It/Should here. Without it every one of those calls
+# raises CommandNotFoundException, the engine keeps going, and the file reaches
+# its end and exits 0 -- so a harness that shells this out records a PASS for a
+# suite that executed no assertion at all.
 if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
     Write-Error ("Pester is not available, so this suite cannot run. Install it with " +
                  "'Install-Module Pester -Scope CurrentUser', then re-run with " +

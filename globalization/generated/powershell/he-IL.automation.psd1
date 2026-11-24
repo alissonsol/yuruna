@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42322a4d-f414-3c38-3588-7ad936bc7aa9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5289,6 +5289,50 @@
         ') עבור: '
         @{
             'arg' = 'sourceContext'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.private_state_migration_conflict' = @(
+        'גם '
+        @{
+            'arg' = 'legacy'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' וגם '
+        @{
+            'arg' = 'current'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' קיימות, ולכן תיקיית השורש של המצב הפרטי נדחית ושום דבר לא מוזג, הועבר או נוצר. השאירו את התיקייה שמחזיקה את המצב של מארח זה, העבירו את האחרת הצידה והריצו שוב.'
+    )
+    'automation.private_state_migration_lock_held' = @(
+        'שורש המצב הפרטי הקודם '
+        @{
+            'arg' = 'legacy'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' לא הועבר: '
+        @{
+            'arg' = 'lockFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מוחזק בידי תהליך אחר, כגון מריץ, מאזין סטטוס או בקר מארח ישנים. עצרו את התהליך הזה והפעילו שוב.'
+    )
+    'automation.private_state_moved' = @(
+        'המצב הפרטי של המארח הועבר: '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'current'
             'type' = 'detail'
             'trust' = 'external'
         }

@@ -195,16 +195,16 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusBadRequest, "poolId and action are required")
 		return
 	}
-	// Checked independently of hostctl.KnownAction, and ahead of it: a refresh
+	// Checked independently of hostctl.KnownAction, and ahead of it: a repair
 	// belongs to one explicitly authorized host, never to this pool-wide
-	// fan-out. It is the separate typed per-host method hostctl.Refresh behind
-	// POST /api/host/refresh and its own credential gate, and it is never a
+	// fan-out. It is the separate typed per-host method hostctl.Repair behind
+	// POST /api/host/repair and its own credential gate, and it is never a
 	// KnownAction, so this refusal does not depend on that list staying as it
 	// is. This handler also backs the MCP pool-control tool (same func, no
 	// separate input-schema enforcement at dispatch time), so both entry
 	// points are covered by the one check.
-	if strings.EqualFold(body.Action, "refresh") {
-		writeErr(w, http.StatusBadRequest, "action 'refresh' is not available through pool-wide control")
+	if strings.EqualFold(body.Action, "repair") {
+		writeErr(w, http.StatusBadRequest, "action 'repair' is not available through pool-wide control")
 		return
 	}
 	if !hostctl.KnownAction(body.Action) {
@@ -306,7 +306,7 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 // controlProofs obtains the proof each member is sent, keyed by host id. A
 // non-empty scope narrows each one to that class of the host's routes: the
 // pool-wide action calls only the pause and resume routes, so its proofs open
-// nothing else on the host, while a refresh needs the host's full proof.
+// nothing else on the host, while a repair needs the host's full proof.
 //
 // Two sources, in order. The internal authentication key this service already
 // holds needs no round trip and binds each proof to its host -- but it is opt-in

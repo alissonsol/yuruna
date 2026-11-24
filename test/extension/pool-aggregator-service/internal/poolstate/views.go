@@ -21,12 +21,12 @@ const (
 	ControlUnknown  = "unknown"  // not determinable: route absent (older build), never probed, or this proxy holds no token to compare
 )
 
-// RefreshObservationFloor bounds how long a host's refresh capability is
+// RepairObservationFloor bounds how long a host's repair capability is
 // believed after it was last read from the host itself (or three poll
-// intervals, when that is longer). Unlike Control, a refresh reading is never
+// intervals, when that is longer). Unlike Control, a repair reading is never
 // carried forward indefinitely: it authorizes a disruptive action, so a reading
 // nobody has renewed reads as unavailable.
-const RefreshObservationFloor = 2 * time.Minute
+const RepairObservationFloor = 2 * time.Minute
 
 // HostView is a discovered pool member, keyed by the stable hostId.
 type HostView struct {
@@ -99,24 +99,24 @@ type HostView struct {
 	// condition under which it is refreshed: the sidecar line outlives a resume until
 	// the next step overwrites it, so an unarmed host must not carry it forward.
 	StepPauseReached bool `json:"stepPauseReached,omitempty"`
-	// Refresh is the host's refresh capability as last merged from its
+	// Repair is the host's repair capability as last merged from its
 	// control-status answer. Never serialized from here: every reader goes
-	// through RefreshView, which applies the one expiry rule, so no route can
+	// through RepairView, which applies the one expiry rule, so no route can
 	// publish a reading older than the observation window allows.
-	Refresh sdkpool.HostRefresh `json:"-"`
+	Repair sdkpool.HostRepair `json:"-"`
 }
 
-// RefreshView is the single expiry rule for the refresh capability: an
+// RepairView is the single expiry rule for the repair capability: an
 // available reading older than ttl reads as unavailable, observation_expired,
 // and a host never read reads as never observed. It also stamps the reading's
 // age, so a consumer can show how old the answer is.
-func (hv *HostView) RefreshView(now time.Time, ttl time.Duration) sdkpool.HostRefresh {
-	r := hv.Refresh
+func (hv *HostView) RepairView(now time.Time, ttl time.Duration) sdkpool.HostRepair {
+	r := hv.Repair
 	if r.Availability == "" {
-		return sdkpool.UnobservedRefresh()
+		return sdkpool.UnobservedRepair()
 	}
 	if ttl <= 0 {
-		ttl = RefreshObservationFloor
+		ttl = RepairObservationFloor
 	}
 	r.AgeSeconds = 0
 	if r.ObservedUnixMs > 0 {
@@ -124,27 +124,27 @@ func (hv *HostView) RefreshView(now time.Time, ttl time.Duration) sdkpool.HostRe
 			r.AgeSeconds = age / 1000
 		}
 	}
-	if r.Availability == sdkpool.RefreshAvailable &&
+	if r.Availability == sdkpool.RepairAvailable &&
 		(r.ObservedUnixMs <= 0 || now.UnixMilli()-r.ObservedUnixMs > ttl.Milliseconds()) {
-		r.Availability, r.Reason = sdkpool.RefreshUnavailable, sdkpool.RefreshReasonObservationExpired
+		r.Availability, r.Reason = sdkpool.RepairUnavailable, sdkpool.RepairReasonObservationExpired
 	}
 	return r
 }
 
-// RefreshLabels is the metric label pair for a host's refresh capability,
+// RepairLabels is the metric label pair for a host's repair capability,
 // clamped to two availabilities and four states so no host-supplied value can
 // grow the series count.
-func (hv *HostView) RefreshLabels(now time.Time, ttl time.Duration) (availability, state string) {
-	v := hv.RefreshView(now, ttl)
-	availability = sdkpool.RefreshUnavailable
-	if v.Availability == sdkpool.RefreshAvailable {
-		availability = sdkpool.RefreshAvailable
+func (hv *HostView) RepairLabels(now time.Time, ttl time.Duration) (availability, state string) {
+	v := hv.RepairView(now, ttl)
+	availability = sdkpool.RepairUnavailable
+	if v.Availability == sdkpool.RepairAvailable {
+		availability = sdkpool.RepairAvailable
 	}
 	switch v.State {
-	case sdkpool.RefreshStateIdle, sdkpool.RefreshStateActive, sdkpool.RefreshStateRecoveryPending:
+	case sdkpool.RepairStateIdle, sdkpool.RepairStateActive, sdkpool.RepairStateRecoveryPending:
 		state = v.State
 	default:
-		state = sdkpool.RefreshStateUnknown
+		state = sdkpool.RepairStateUnknown
 	}
 	return availability, state
 }

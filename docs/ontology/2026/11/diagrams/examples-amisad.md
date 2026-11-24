@@ -148,6 +148,8 @@ examples:AmisAdSupportCase((examples:AmisAdSupportCase)) -- subClassOf --> y:Inf
 examples:AmisAdTenant((examples:AmisAdTenant)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdValueSplit((examples:AmisAdValueSplit)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
 examples:AmisAdValueSplit((examples:AmisAdValueSplit)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
+examples:AmisAdWriteToken((examples:AmisAdWriteToken)) -- subClassOf --> examples:AmisAdDomainEntity((examples:AmisAdDomainEntity))
+examples:AmisAdWriteToken((examples:AmisAdWriteToken)) -- subClassOf --> security:BearerToken[security:BearerToken]
 subgraph r_AmisAdActiveCampaign_usesCreative_AmisAdCreativeAsset_[Restriction &exist; R C]
 r_AmisAdActiveCampaign_usesCreative_AmisAdCreativeAsset_thing((thing)) --> r_AmisAdActiveCampaign_usesCreative_AmisAdCreativeAsset_examples:usesCreative[examples:usesCreative]
 r_AmisAdActiveCampaign_usesCreative_AmisAdCreativeAsset_examples:usesCreative[examples:usesCreative]
@@ -211,6 +213,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

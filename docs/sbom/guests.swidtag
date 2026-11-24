@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-guests" tagId="urn:uuid:1ce4c989-1726-5ad8-a836-37cf4415ce16" version="2026.11.16" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-guests" tagId="urn:uuid:db5914fa-65d3-5fd4-9627-9ea8b5e725ee" version="2026.11.23" versionScheme="alphanumeric" tagVersion="0" corpus="true">
   <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
   <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="guests" sbom:inventory-kind="declared-source" />
   <Link rel="requires" href="swid/guests-a6e384e9893fef1dfd09.swidtag" />
@@ -23,6 +23,7 @@
   <Link rel="requires" href="swid/guests-2bf35518bbd1a849d403.swidtag" />
   <Link rel="requires" href="swid/guests-9347ab4135894ad6e068.swidtag" />
   <Link rel="requires" href="swid/guests-6967bb8dc07c9eb6b95e.swidtag" />
+  <Link rel="requires" href="swid/guests-bed2502a0ab43f604650.swidtag" />
   <Link rel="requires" href="swid/guests-ae81c5a929ee2e65792f.swidtag" />
   <Link rel="requires" href="swid/guests-3e98a7ec2b023c375fd8.swidtag" />
   <Link rel="requires" href="swid/guests-bf787cf7b85bc3d7265c.swidtag" />
@@ -75,7 +76,7 @@
   <Link rel="requires" href="swid/guests-ec5ceafcd2cc2c710151.swidtag" />
   <Link rel="requires" href="swid/guests-6eaf2c5edb6edf92eb35.swidtag" />
   <Link rel="requires" href="swid/guests-ce773ac94e8dc3e54d2e.swidtag" />
-  <Link rel="requires" href="swid/guests-778b1e2f1c87e14db879.swidtag" />
+  <Link rel="requires" href="swid/guests-07e1654249ea522a1a06.swidtag" />
   <Link rel="requires" href="swid/guests-2ad9aa4eb26ad6fc7416.swidtag" />
   <Link rel="requires" href="swid/guests-5cb02128bc7a80d493c7.swidtag" />
   <Link rel="requires" href="swid/guests-ab042a8816875bcb6fa1.swidtag" />
@@ -86,8 +87,8 @@
   <Link rel="requires" href="swid/guests-707f498eb35ff4511b22.swidtag" />
   <Link rel="requires" href="swid/guests-2a994b4515028bceba2e.swidtag" />
   <Link rel="requires" href="swid/guests-3c760dd2c18e9ecf6ee9.swidtag" />
-  <Link rel="requires" href="swid/guests-c7c28b7316e03a6bb4c9.swidtag" />
-  <Link rel="requires" href="swid/guests-4a67b9d5883a2eaeb0f1.swidtag" />
+  <Link rel="requires" href="swid/guests-c29b71f083860867a9da.swidtag" />
+  <Link rel="requires" href="swid/guests-fdadd6e9fba05d6b3353.swidtag" />
   <Link rel="requires" href="swid/guests-0dbcfc924660c1f098fe.swidtag" />
   <Link rel="requires" href="swid/guests-d53a4139ff5cac4af752.swidtag" />
   <Link rel="requires" href="swid/guests-38be3ea584a6873de8df.swidtag" />

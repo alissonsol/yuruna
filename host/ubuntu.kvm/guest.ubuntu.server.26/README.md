@@ -38,6 +38,10 @@ per-cycle vault.yml at `test/status/extension/authentication/vault.yml`;
 see [Test Runner -- Nerd-Level Details](../../../test/read.more.md) for the
 model). The autoinstall late-commands expire it, so the first
 interactive login asks for current/new/retype before yielding a shell.
+The SSH start sequence (`start.guest.ubuntu.server.26.ssh`) reads no
+console: it types `yes` blind for "Continue with autoinstall?", answers the
+same current/new/retype change over `ssh -tt` in its `sshWaitReady` step, and
+commits the new password to the vault once a later SSH login succeeds.
 For ad-hoc dev runs outside a cycle, set `$env:YURUNA_GUEST_PASSWORD`
 to bypass the vault and use a known plaintext value.
 
@@ -56,6 +60,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../../../README.md)

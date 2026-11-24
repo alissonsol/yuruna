@@ -1,7 +1,7 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.7",
-  "serialNumber": "urn:uuid:1ce4c989-1726-5ad8-a836-37cf4415ce16",
+  "serialNumber": "urn:uuid:db5914fa-65d3-5fd4-9627-9ea8b5e725ee",
   "version": 1,
   "metadata": {
     "component": {
@@ -11,14 +11,14 @@
       "properties": [
         {
           "name": "yuruna:source-inputs-sha256",
-          "value": "ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34"
+          "value": "23dbd3482c1e1de022343aee86401e8a6aecfd2fc869c2d5df2dc698e5467eea"
         },
         {
           "name": "yuruna:inventory-kind",
           "value": "declared-source"
         }
       ],
-      "version": "2026.11.16"
+      "version": "2026.11.23"
     }
   },
   "components": [
@@ -254,7 +254,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=gnupg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 140, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=gnupg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 140, \"path\": \"guest/shared/ubuntu.k8s.sh\"}, {\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=gnupg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 61, \"path\": \"guest/shared/ubuntu.browser.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -269,6 +269,18 @@
           "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-server-26; action=apt yuruna_service_packages; requested=golang-go; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=apt yuruna_service_packages; requested=golang-go; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 122, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=apt yuruna_service_packages; requested=golang-go; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 125, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh\"}, {\"detail\": \"target=ubuntu-service-seed; action=cloud-init packages; OS package dependency resolution deferred\", \"line\": 97, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"groups\": [\"yuruna:guests:ubuntu-server-26\", \"yuruna:guests:ubuntu-service-seed\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ]
+    },
+    {
+      "type": "application",
+      "bom-ref": "component-bed2502a0ab43f604650",
+      "name": "google-chrome-stable",
+      "properties": [
+        {
+          "name": "yuruna:declaration",
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=google-chrome-stable; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 80, \"path\": \"guest/shared/ubuntu.browser.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+        }
+      ],
+      "group": "yuruna:guests:ubuntu-shared"
     },
     {
       "type": "application",
@@ -324,7 +336,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=iptables-persistent; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 140, \"path\": \"host/vmconfig/ubuntu.server.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=iptables-persistent; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 236, \"path\": \"host/vmconfig/ubuntu.server.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:ubuntu-shared"
@@ -765,7 +777,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 108, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.code.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 45, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 50, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 108, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.code.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 44, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 49, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:amazon-linux-2023"
@@ -801,7 +813,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 66, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 65, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 70, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "group": "yuruna:guests:amazon-linux-2023"
@@ -891,15 +903,15 @@
     },
     {
       "type": "application",
-      "bom-ref": "component-778b1e2f1c87e14db879",
+      "bom-ref": "component-07e1654249ea522a1a06",
       "name": "opentofu/opentofu",
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_${TOFU_ARCH}.tar.gz; installed payload dependencies unresolved\", \"line\": 829, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/opentofu/opentofu/releases/download/v1.13.10/tofu_1.13.10_linux_${TOFU_ARCH}.tar.gz; installed payload dependencies unresolved\", \"line\": 829, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "1.13.9",
+      "version": "1.13.10",
       "group": "yuruna:guests:ubuntu-shared"
     },
     {
@@ -1026,7 +1038,7 @@
     },
     {
       "type": "platform",
-      "bom-ref": "component-c7c28b7316e03a6bb4c9",
+      "bom-ref": "component-c29b71f083860867a9da",
       "name": "OpenTofu",
       "properties": [
         {
@@ -1034,12 +1046,12 @@
           "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_OPENTOFU_VERSION; exact installer pin\", \"line\": 16, \"path\": \"automation/yuruna-versions.sh\"}], \"group\": \"yuruna:guests:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "1.13.9",
+      "version": "1.13.10",
       "group": "yuruna:guests:shared-or-configured"
     },
     {
       "type": "platform",
-      "bom-ref": "component-4a67b9d5883a2eaeb0f1",
+      "bom-ref": "component-fdadd6e9fba05d6b3353",
       "name": "flannel-io/flannel",
       "properties": [
         {
@@ -1047,7 +1059,7 @@
           "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_FLANNEL_VERSION; exact installer pin\", \"line\": 30, \"path\": \"automation/yuruna-versions.sh\"}], \"group\": \"yuruna:guests:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
-      "version": "0.28.10",
+      "version": "0.28.11",
       "group": "yuruna:guests:shared-or-configured"
     },
     {
@@ -1057,7 +1069,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 66, \"path\": \"guest/shared/ubuntu.n8n.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 70, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 66, \"path\": \"guest/shared/ubuntu.n8n.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ],
       "purl": "pkg:npm/n8n"
@@ -1069,7 +1081,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 76, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/shared/ubuntu.openclaw.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \"latest\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 75, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/shared/ubuntu.openclaw.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \"latest\"}"
         }
       ],
       "purl": "pkg:npm/openclaw"
@@ -1116,7 +1128,7 @@
       "properties": [
         {
           "name": "yuruna:declaration",
-          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=macos; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 122, \"path\": \"guest/macos.26/macos.26.update.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 184, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 114, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}], \"groups\": [\"yuruna:guests:macos\", \"yuruna:guests:ubuntu-server-26\", \"yuruna:guests:windows\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+          "value": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=macos; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 122, \"path\": \"guest/macos.26/macos.26.update.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 185, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 114, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}], \"groups\": [\"yuruna:guests:macos\", \"yuruna:guests:ubuntu-server-26\", \"yuruna:guests:windows\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
         }
       ]
     },
@@ -1282,6 +1294,7 @@
       "ref": "repository-guests",
       "dependsOn": [
         "component-07db3a812040f1af3806",
+        "component-07e1654249ea522a1a06",
         "component-08fdc0ba6cba18f7aa54",
         "component-0cde6a82f76fc321032d",
         "component-0d1ddaa941c237203a80",
@@ -1314,7 +1327,6 @@
         "component-3e98a7ec2b023c375fd8",
         "component-469008743a02109b635d",
         "component-4964fef8399a1a988157",
-        "component-4a67b9d5883a2eaeb0f1",
         "component-4b6149e6e24e861c30be",
         "component-4b7363ca28936b1e75c7",
         "component-4c80de593679facbaf41",
@@ -1336,7 +1348,6 @@
         "component-757a0bf1a9e0038f3ff3",
         "component-75a8c33fb6d0c359d7e2",
         "component-7648c12da3181dea3b73",
-        "component-778b1e2f1c87e14db879",
         "component-7bda4bc9ad00b46c7de5",
         "component-811ae512462029d0ef60",
         "component-815e916eb1d1c13acab6",
@@ -1357,11 +1368,12 @@
         "component-b38a7ce27cdb4a043528",
         "component-bad7d4c3fa29e5441a54",
         "component-bec018ae61e87a9f602d",
+        "component-bed2502a0ab43f604650",
         "component-bf787cf7b85bc3d7265c",
         "component-c0097947bffadd71870f",
         "component-c15e6ab01f43b8bd9efe",
+        "component-c29b71f083860867a9da",
         "component-c574bc32b827c6ca563b",
-        "component-c7c28b7316e03a6bb4c9",
         "component-c9d978d5cd1d95b2d992",
         "component-ca6e89935cb3f2dda4cd",
         "component-ce3dd2d578e768e6f5d8",
@@ -1385,7 +1397,8 @@
         "component-f66aece12acf506469ab",
         "component-f7c4992435347774a1b7",
         "component-f7ec9039148a10e04d87",
-        "component-fadabfd2fc203781e0b0"
+        "component-fadabfd2fc203781e0b0",
+        "component-fdadd6e9fba05d6b3353"
       ]
     }
   ],

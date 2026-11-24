@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f9c804-966c-4de0-8a8d-1919e7a84b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Globalization.psm1') -DisableName
     -- the `-SudoCacheReason` parameter wires that in without forcing
     every caller to know about Initialize-SudoCache.
 #>
+
 
 function Select-HostSetupForwardParameter {
     <#

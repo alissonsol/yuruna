@@ -5283,6 +5283,50 @@ const DataheILautomation = `{
       "trust": "external"
     }
   ],
+  "automation.private_state_migration_conflict": [
+    "גם ",
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    " וגם ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    " קיימות, ולכן תיקיית השורש של המצב הפרטי נדחית ושום דבר לא מוזג, הועבר או נוצר. השאירו את התיקייה שמחזיקה את המצב של מארח זה, העבירו את האחרת הצידה והריצו שוב."
+  ],
+  "automation.private_state_migration_lock_held": [
+    "שורש המצב הפרטי הקודם ",
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    " לא הועבר: ",
+    {
+      "arg": "lockFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " מוחזק בידי תהליך אחר, כגון מריץ, מאזין סטטוס או בקר מארח ישנים. עצרו את התהליך הזה והפעילו שוב."
+  ],
+  "automation.private_state_moved": [
+    "המצב הפרטי של המארח הועבר: ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "automation.retry_already_applied": [
     {
       "arg": "label",

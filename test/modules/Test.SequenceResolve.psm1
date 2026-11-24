@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42eb20ad-6a27-430a-ba01-796c50a077ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,6 +17,7 @@
 #requires -version 7
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot 'Test.StepPhrase.psm1') -Global -Force -DisableNameChecking
 
 function New-SequencePlannerException {
     <# .SYNOPSIS
@@ -418,17 +419,20 @@ function Get-StepLeadAction {
     return $null
 }
 
-function Test-StepHasSnippet {
-    # True when $Steps (or any nested retry.steps) contains a `{snippet: ...}`
-    # element. Lets Read-SequenceFile skip the clone-and-expand path entirely for
-    # the common snippet-free sequence (zero overhead, returns the cached object).
+function Test-StepListNeedsExpansion {
+    # True when $Steps (or a nested retry.steps / stepsAfterVmRestart list) holds
+    # an entry that is not a plain action step: a `{snippet: ...}`, a sentence
+    # (`step:`), an entry without `action`, or one that is not a map. Lets
+    # Read-SequenceFile skip the clone-and-expand path entirely for a sequence of
+    # plain action steps (zero overhead, returns the cached object); the expansion
+    # path then reports the malformed entries.
     param($Steps)
     if ($null -eq $Steps) { return $false }
     foreach ($s in $Steps) {
-        if ($s -is [System.Collections.IDictionary]) {
-            if ($s.Contains('snippet')) { return $true }
-            if ($s.Contains('steps') -and (Test-StepHasSnippet $s['steps'])) { return $true }
-        }
+        if ($s -isnot [System.Collections.IDictionary]) { return $true }
+        if ($s.Contains('snippet') -or $s.Contains('step') -or -not $s.Contains('action')) { return $true }
+        if ($s.Contains('steps') -and (Test-StepListNeedsExpansion $s['steps'])) { return $true }
+        if ($s.Contains('stepsAfterVmRestart') -and (Test-StepListNeedsExpansion $s['stepsAfterVmRestart'])) { return $true }
     }
     return $false
 }
@@ -451,18 +455,23 @@ function Get-SnippetLibraryFile {
     return $parsed
 }
 
-function Get-SnippetMap {
+function Get-SequenceLibraryPath {
     <#
     .SYNOPSIS
-        Builds name -> @{Steps; File; Tier} for the snippet libraries visible to
-        the sequence at $SequencePath.
+        Lists the library files named $LeafName visible to the sequence at
+        $SequencePath: the framework one, then the project ones.
     .DESCRIPTION
-        Framework libraries load first (base); project libraries then override by
-        name. Two PROJECT libraries defining the same name throw PlannerFatal (an
-        ambiguous plan), mirroring Find-ProjectFlatSequenceFile's duplicate rule.
+        Shared by the snippet and the phrase libraries. Project holds every
+        project test/ folder's file and the sequence's own folder's file when
+        it is not already listed. FrameworkRootFound is true only when an
+        ancestor folder holds test/sequences.
     #>
-    param([Parameter(Mandatory)][string]$SequencePath)
-
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$SequencePath,
+        [Parameter(Mandatory)][string]$LeafName
+    )
     $modeDir = Split-Path -Parent $SequencePath
     # Walk directory boundaries rather than matching a directory name inside
     # an absolute path: a checkout itself may have an ancestor named project.
@@ -481,28 +490,47 @@ function Get-SnippetMap {
         if ($parent -eq $candidate) { break }
         $candidate = $parent
     }
+    $frameworkRootFound = [bool]$repoRoot
     if (-not $repoRoot) { $repoRoot = $projectRootCandidate }
 
     $frameworkLibs = New-Object System.Collections.Generic.List[string]
     $projectLibs   = New-Object System.Collections.Generic.List[string]
     if ($repoRoot) {
-        $fw = Join-Path (Join-Path (Join-Path $repoRoot 'test') 'sequences') '_snippets.yml'
+        $fw = Join-Path (Join-Path (Join-Path $repoRoot 'test') 'sequences') $LeafName
         if (Test-Path -LiteralPath $fw) { [void]$frameworkLibs.Add($fw) }
         foreach ($d in (Get-ProjectFlatTestSearchDir -RepoRoot $repoRoot)) {
-            $pl = Join-Path $d '_snippets.yml'
+            $pl = Join-Path $d $LeafName
             if (Test-Path -LiteralPath $pl) { [void]$projectLibs.Add($pl) }
         }
     }
     # Always consider the sequence's own dir (covers standalone temp dirs used by
     # tests and any layout the regexes above didn't recognize). De-dup against
     # the tiers already collected so a framework/project file isn't double-loaded.
-    $localLib = Join-Path $modeDir '_snippets.yml'
+    $localLib = Join-Path $modeDir $LeafName
     if (Test-Path -LiteralPath $localLib) {
         $localResolved = (Resolve-Path -LiteralPath $localLib).Path
         $known = @()
         foreach ($f in (@($frameworkLibs) + @($projectLibs))) { $known += (Resolve-Path -LiteralPath $f).Path }
         if ($localResolved -notin $known) { [void]$projectLibs.Add($localLib) }
     }
+    return @{ Framework = [string[]]$frameworkLibs.ToArray(); Project = [string[]]$projectLibs.ToArray(); FrameworkRootFound = $frameworkRootFound }
+}
+
+function Get-SnippetMap {
+    <#
+    .SYNOPSIS
+        Builds name -> @{Steps; File; Tier} for the snippet libraries visible to
+        the sequence at $SequencePath.
+    .DESCRIPTION
+        Framework libraries load first (base); project libraries then override by
+        name. Two PROJECT libraries defining the same name throw PlannerFatal (an
+        ambiguous plan), mirroring Find-ProjectFlatSequenceFile's duplicate rule.
+    #>
+    param([Parameter(Mandatory)][string]$SequencePath)
+
+    $libraries     = Get-SequenceLibraryPath -SequencePath $SequencePath -LeafName '_snippets.yml'
+    $frameworkLibs = $libraries.Framework
+    $projectLibs   = $libraries.Project
 
     $map = @{}
     foreach ($f in $frameworkLibs) {
@@ -533,11 +561,102 @@ function Get-SnippetMap {
     return $map
 }
 
+function Get-SequencePhraseLibrary {
+    <#
+    .SYNOPSIS
+        Loads the phrase libraries visible to a sequence, or the framework one.
+    .DESCRIPTION
+        The framework library loads first; the project libraries and the one in
+        the sequence's own folder follow, sorted together by path in ordinal
+        order so the load order is the same on every file system. A sequence
+        read from outside a framework checkout uses the library of the
+        framework this module belongs to.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$SequencePath)
+    $fallback = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../sequences/_phrases.yml'))
+    $framework = @()
+    $project = @()
+    if ($SequencePath) {
+        $libraries = Get-SequenceLibraryPath -SequencePath $SequencePath -LeafName '_phrases.yml'
+        $framework = @($libraries.Framework)
+        $project = @($libraries.Project)
+        if (-not $libraries.FrameworkRootFound -and (Test-Path -LiteralPath $fallback -PathType Leaf)) { $framework = @($fallback) }
+    } elseif (Test-Path -LiteralPath $fallback -PathType Leaf) {
+        $framework = @($fallback)
+    }
+    $projectSorted = [string[]]$project
+    [Array]::Sort($projectSorted, [StringComparer]::Ordinal)
+    $source = @(
+        foreach ($entry in $framework) { @{ Path = [string]$entry; Tier = 'framework' } }
+        foreach ($entry in $projectSorted) { @{ Path = [string]$entry; Tier = 'project' } }
+    )
+    return (Get-StepPhraseLibrary -Source $source)
+}
+
+function Assert-SentenceStepForm {
+    <#
+    .SYNOPSIS
+        Refuses a sentence step whose keys or values the schema would refuse.
+    .DESCRIPTION
+        Key spellings and the values of `on` are compared case-sensitively, as
+        the schema does, although the parsed map's lookup ignores case.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Step,
+        [Parameter(Mandatory)][string]$Location
+    )
+    # Bound to a local the refusal block below reads; the analyzer cannot see a
+    # parameter used only inside a script block.
+    $stepLocation = $Location
+    $invalid = {
+        param([string]$Reason, [string]$Detail)
+        New-SequencePlannerException -Key 'runner.step_sentence_invalid' -Arguments @{ location = "$stepLocation"; reason = $Reason; detail = "$Detail" }
+    }
+    $unknown = [string[]]@($Step.Keys | ForEach-Object { [string]$_ } | Where-Object { $_ -cnotin 'step', 'on', 'timeoutSeconds', 'description', 'descriptionLocalized' })
+    if ($unknown.Count -gt 0) {
+        [Array]::Sort($unknown, [StringComparer]::Ordinal)
+        throw (& $invalid 'unknown-key' ($unknown -join ', '))
+    }
+    $sentence = $Step['step']
+    if ($sentence -isnot [string] -or [string]::IsNullOrWhiteSpace($sentence)) {
+        $detail = if ($sentence -is [string] -or $null -eq $sentence) { 'blank' } else { $sentence.GetType().Name }
+        throw (& $invalid 'sentence-not-text' $detail)
+    }
+    if ($Step.Contains('on') -and ($Step['on'] -isnot [string] -or $Step['on'] -cnotin 'screen', 'page')) {
+        throw (& $invalid 'surface' ([string]$Step['on']))
+    }
+    if ($Step.Contains('timeoutSeconds') -and ($Step['timeoutSeconds'] -isnot [int] -or $Step['timeoutSeconds'] -lt 1)) {
+        throw (& $invalid 'timeout' ([string]$Step['timeoutSeconds']))
+    }
+    if ($Step.Contains('description') -and $Step['description'] -isnot [string]) {
+        $detail = if ($null -eq $Step['description']) { 'null' } else { $Step['description'].GetType().Name }
+        throw (& $invalid 'description' $detail)
+    }
+    if ($Step.Contains('descriptionLocalized')) {
+        $localized = $Step['descriptionLocalized']
+        if ($localized -isnot [System.Collections.IDictionary]) { throw (& $invalid 'description-localized' 'not-a-map') }
+        foreach ($locale in $localized.Keys) {
+            if ($localized[$locale] -isnot [string]) { throw (& $invalid 'description-localized' ([string]$locale)) }
+        }
+        if (-not $Step.Contains('description') -or [string]::IsNullOrWhiteSpace([string]$Step['description'])) {
+            throw (& $invalid 'description-localized' 'without-description')
+        }
+    }
+}
+
 function Expand-StepList {
     # Returns a NEW step array with every {snippet:name} replaced by that
-    # snippet's (recursively expanded, deep-cloned) steps. $Visiting guards
+    # snippet's (recursively expanded, deep-cloned) steps and every sentence
+    # (`step:`) replaced by the action steps of its phrase. $Visiting guards
     # against snippet->snippet cycles; $Depth is a backstop ceiling. retry.steps
-    # (and any other nested `steps`) are walked so snippets work at any depth.
+    # and stepsAfterVmRestart are walked so snippets and sentences work at any
+    # depth. $Trail names the list in errors (`component`, `workload[3].steps`);
+    # $Phrase (@{ DefaultSurface; Library; Allowed }) is one table shared by every
+    # recursion, so a snippet's sentence takes the surface default and the
+    # libraries of the sequence that uses it, and the libraries load once per read.
     # NOTE: $Steps / $Map / $Visiting are intentionally NOT [Parameter(Mandatory)]:
     # an empty collection (e.g. a fresh HashSet, or an empty step list) fails
     # mandatory binding with "Cannot bind argument ... empty collection".
@@ -546,12 +665,23 @@ function Expand-StepList {
         [hashtable]$Map,
         [System.Collections.Generic.HashSet[string]]$Visiting,
         [Parameter(Mandatory)][string]$SeqPath,
-        [int]$Depth = 0
+        [int]$Depth = 0,
+        [string]$Trail = 'steps',
+        [hashtable]$Phrase
     )
     if ($Depth -gt 25) { throw (New-SequencePlannerException -Key 'exceptions.runner_d6c2daddc3ec9502' -Arguments @{ seqPath = "$SeqPath" }) }
     $out = New-Object System.Collections.Generic.List[object]
+    $position = 0
     foreach ($step in $Steps) {
-        if ($step -is [System.Collections.IDictionary] -and $step.Contains('snippet')) {
+        $position++
+        $location = "${SeqPath}: $Trail[$position]"
+        $isMap = $step -is [System.Collections.IDictionary]
+        $kinds = @(if ($isMap) { foreach ($kind in 'step', 'action', 'snippet') { if ($step.Contains($kind)) { $kind } } })
+        if (-not $isMap -or $kinds.Count -ne 1) {
+            $found = if (-not $isMap) { 'not a map' } elseif ($kinds.Count -eq 0) { 'none' } else { $kinds -join ', ' }
+            throw (New-SequencePlannerException -Key 'runner.step_form_invalid' -Arguments @{ location = "$location"; found = "$found" })
+        }
+        if ($kinds[0] -ceq 'snippet') {
             $name = [string]$step['snippet']
             if (-not $Map.ContainsKey($name)) {
                 $available = (($Map.Keys | Sort-Object) -join ', ')
@@ -562,14 +692,32 @@ function Expand-StepList {
                 throw (New-SequencePlannerException -Key 'exceptions.runner_870490a8a4454890' -Arguments @{ name = "$name"; seqPath = "$SeqPath" })
             }
             [void]$Visiting.Add($name)
-            $inner = @(Expand-StepList -Steps $Map[$name].Steps -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1))
+            $inner = @(Expand-StepList -Steps $Map[$name].Steps -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1) -Trail "$Trail[$position].snippet($name)" -Phrase $Phrase)
             [void]$Visiting.Remove($name)
             foreach ($e in $inner) { [void]$out.Add($e) }
         }
-        elseif ($step -is [System.Collections.IDictionary] -and $step.Contains('steps')) {
+        elseif ($kinds[0] -ceq 'step') {
+            if (-not $Phrase.Allowed) {
+                throw (New-SequencePlannerException -Key 'runner.step_sentence_invalid' -Arguments @{ location = "$location"; reason = 'not-guest-sequence'; detail = 'resource' })
+            }
+            Assert-SentenceStepForm -Step $step -Location $location
+            if ($null -eq $Phrase.Library) { $Phrase.Library = Get-SequencePhraseLibrary -SequencePath $SeqPath }
+            $resolveArgument = @{
+                Sentence       = [string]$step['step']
+                Surface        = $(if ($step.Contains('on')) { [string]$step['on'] } else { [string]$Phrase.DefaultSurface })
+                Library        = $Phrase.Library
+                TimeoutSeconds = $(if ($step.Contains('timeoutSeconds')) { [int]$step['timeoutSeconds'] } else { 0 })
+                Description    = $(if ($step.Contains('description')) { [string]$step['description'] } else { '' })
+                Location       = $location
+            }
+            if ($step.Contains('descriptionLocalized')) { $resolveArgument.DescriptionLocalized = $step['descriptionLocalized'] }
+            foreach ($generated in @(Resolve-StepPhrase @resolveArgument)) { [void]$out.Add($generated) }
+        }
+        elseif ($step.Contains('steps') -or $step.Contains('stepsAfterVmRestart')) {
             $clone = [ordered]@{}
             foreach ($k in $step.Keys) {
-                if ($k -eq 'steps') { $clone['steps'] = @(Expand-StepList -Steps $step['steps'] -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1)) }
+                if ($k -eq 'steps') { $clone['steps'] = @(Expand-StepList -Steps $step['steps'] -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1) -Trail "$Trail[$position].steps" -Phrase $Phrase) }
+                elseif ($k -eq 'stepsAfterVmRestart') { $clone['stepsAfterVmRestart'] = @(Expand-StepList -Steps $step['stepsAfterVmRestart'] -Map $Map -Visiting $Visiting -SeqPath $SeqPath -Depth ($Depth + 1) -Trail "$Trail[$position].stepsAfterVmRestart" -Phrase $Phrase) }
                 else                { $clone[$k] = Copy-YamlNode $step[$k] }
             }
             [void]$out.Add($clone)
@@ -587,22 +735,34 @@ function Expand-SequenceSnippet {
     <#
     .SYNOPSIS
         Returns the sequence with every {snippet:name} step spliced out to its
-        library definition. Snippet-free sequences are returned unchanged (the
-        cached object, no clone).
+        library definition and every sentence (`step:`) replaced by the action
+        steps of its phrase. A sequence of plain action steps is returned
+        unchanged (the cached object, no clone).
     .DESCRIPTION
         Called by Read-SequenceFile after parse so the expansion is the single
         point every consumer flows through. Never mutates $Sequence: when a
-        snippet is present it returns a shallow top-level copy whose `steps` is a
-        freshly built, deep-cloned, fully-expanded array. Throws PlannerFatal on
-        an unknown snippet name, a duplicate project definition, or a cycle.
+        snippet or a sentence is present it returns a shallow top-level copy
+        whose `steps` is a freshly built, deep-cloned, fully-expanded array.
+        Throws PlannerFatal on an unknown snippet name, a duplicate project
+        definition, a cycle, a step that is not exactly one of action, snippet
+        and sentence, or a sentence that does not resolve. Sentences belong to
+        guest sequences (a document with `resource`) only; `defaultSurface` is
+        read there and nowhere else.
     #>
     param(
         [Parameter(Mandatory)]$Sequence,
         [Parameter(Mandatory)][string]$Path
     )
     if ($Sequence -isnot [System.Collections.IDictionary]) { return $Sequence }
+    $isGuest = $Sequence.Contains('resource')
+    if ($isGuest -and $Sequence.Contains('defaultSurface')) {
+        $surface = $Sequence['defaultSurface']
+        if ($surface -isnot [string] -or $surface -cnotin 'screen', 'page') {
+            throw (New-SequencePlannerException -Key 'runner.step_sentence_invalid' -Arguments @{ location = "${Path}: defaultSurface"; reason = 'default-surface'; detail = "$([string]$surface)" })
+        }
+    }
     if (-not $Sequence.Contains('steps')) { return $Sequence }
-    if (-not (Test-StepHasSnippet $Sequence['steps'])) { return $Sequence }
+    if (-not (Test-StepListNeedsExpansion $Sequence['steps'])) { return $Sequence }
 
     if (-not (Get-Module powershell-yaml)) {
         if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
@@ -611,9 +771,23 @@ function Expand-SequenceSnippet {
         Import-Module powershell-yaml -Global -Verbose:$false -ErrorAction Stop
     }
 
+    $phrase = @{
+        DefaultSurface = $(if ($isGuest -and $Sequence.Contains('defaultSurface')) { [string]$Sequence['defaultSurface'] } else { 'screen' })
+        Library        = $null
+        Allowed        = $isGuest
+    }
     $map      = Get-SnippetMap -SequencePath $Path
     $visiting = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
-    $expanded = @(Expand-StepList -Steps $Sequence['steps'] -Map $map -Visiting $visiting -SeqPath $Path -Depth 0)
+    if ($isGuest) {
+        # Expanded per list so an error names `component[2]` rather than a
+        # position in the merged list.
+        $component = @(if ($Sequence.Contains('component') -and $Sequence['component']) { $Sequence['component'] })
+        $workload  = @(if ($Sequence.Contains('workload') -and $Sequence['workload']) { $Sequence['workload'] })
+        $expanded = @(Expand-StepList -Steps $component -Map $map -Visiting $visiting -SeqPath $Path -Depth 0 -Trail 'component' -Phrase $phrase) +
+            @(Expand-StepList -Steps $workload -Map $map -Visiting $visiting -SeqPath $Path -Depth 0 -Trail 'workload' -Phrase $phrase)
+    } else {
+        $expanded = @(Expand-StepList -Steps $Sequence['steps'] -Map $map -Visiting $visiting -SeqPath $Path -Depth 0 -Trail 'steps' -Phrase $phrase)
+    }
 
     # Shallow-copy the top-level dict (non-steps keys are read-only downstream so
     # sharing them by reference is safe) and swap in the expanded step array, so
@@ -645,4 +819,4 @@ function Format-SequenceSearchList {
     return ($Item | ForEach-Object { "    $_" }) -join "`n"
 }
 
-Export-ModuleMember -Function New-SequencePlannerException, Test-SequencePlannerFailure, Read-SequenceFile, ConvertTo-NormalizedSequence, Get-StepLeadAction, Get-ProjectFlatTestSearchDir, Find-ProjectFlatSequenceFile, Get-FlatSequenceCandidate, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap, Format-SequenceSearchList
+Export-ModuleMember -Function New-SequencePlannerException, Test-SequencePlannerFailure, Read-SequenceFile, ConvertTo-NormalizedSequence, Get-StepLeadAction, Get-ProjectFlatTestSearchDir, Find-ProjectFlatSequenceFile, Get-FlatSequenceCandidate, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap, Format-SequenceSearchList, Get-SequencePhraseLibrary

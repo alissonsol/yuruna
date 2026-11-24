@@ -5005,6 +5005,49 @@ const DatazhCNautomation = `{
       "trust": "external"
     }
   ],
+  "automation.private_state_migration_conflict": [
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    "和",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    "同时存在，因此拒绝使用私有状态根目录，未合并、移动或创建任何内容。请保留存有此宿主机状态的目录，将另一个目录移到别处，然后重新运行。"
+  ],
+  "automation.private_state_migration_lock_held": [
+    "未移动先前的私有状态根目录 ",
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    "：",
+    {
+      "arg": "lockFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 被另一个进程持有，例如旧的运行器、状态侦听器或宿主机控制器。请停止该进程后重新启动。"
+  ],
+  "automation.private_state_moved": [
+    "已移动宿主机私有状态：",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "automation.retry_already_applied": [
     {
       "arg": "label",

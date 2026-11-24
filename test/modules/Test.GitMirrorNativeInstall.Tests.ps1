@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4258b834-1062-42d9-98d6-f3e2b1ac55f0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -9,6 +9,9 @@
 #requires -Version 7
 BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.Assert.psm1') -Force -DisableNameChecking
+    # The private state root and the runner gate resolve under $HOME; a scratch
+    # home keeps this suite and every process it starts off the operator's own.
+    $script:TestHome = Enter-YurunaTestHome
     $script:Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:Driver = Join-Path $script:Root 'tools/Initialize-GitMirrorNativeInstall.ps1'
     $script:Recipes = (Get-Content (Join-Path $script:Root 'test/fixtures/git-mirror/native-install-recipes.json') -Raw | ConvertFrom-Json -AsHashtable).recipes
@@ -59,6 +62,8 @@ BeforeAll {
         Copy-Item (Join-Path $script:Root 'test/test.config.yml.template') (Join-Path $script:Target 'test/test.config.yml.template')
     }
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'Native installer fixture preparation' {
     BeforeEach {
@@ -336,7 +341,7 @@ Describe 'Frozen native install recipes' {
             $wait = @($recipe.commands | Where-Object { $_.arguments -contains 'WaitAdoption' })
             $wait.Count | Should -Be 1
             [array]::IndexOf($recipe.commands, $update[0]) | Should -BeLessThan ([array]::IndexOf($recipe.commands, $wait[0]))
-            @($recipe.commands | Where-Object { $_.source -ceq 'target' -and $_.path -ceq 'test/lab/Invoke-HostRefresh.ps1' -and $_.arguments -contains '-Force' }).Count | Should -Be 1
+            @($recipe.commands | Where-Object { $_.source -ceq 'target' -and $_.path -ceq 'test/lab/Invoke-HostRepair.ps1' -and $_.arguments -contains '-Force' }).Count | Should -Be 1
             @($recipe.observations | Where-Object kind -EQ process-replaced).Count | Should -Be 1
         }
     }
@@ -373,7 +378,7 @@ Describe 'Frozen native install recipes' {
             foreach ($command in $recipe.commands) {
                 $command.arguments | Should -Not -Contain '-NoConfigGate'
                 $command.arguments | Should -Not -Contain '-SkipPreflight'
-                ($command | ConvertTo-Json -Depth 6) | Should -Not -Match 'cleanExit|RefreshHandoffToken|SSH_CONNECTION'
+                ($command | ConvertTo-Json -Depth 6) | Should -Not -Match 'cleanExit|HandoffToken|SSH_CONNECTION'
             }
         }
     }

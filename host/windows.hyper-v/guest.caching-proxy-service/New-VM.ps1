@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -546,6 +546,7 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44a010f47f51d941'
 $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Start-VM' -Parameter @{ Name = $VMName }
 
 # --- REGION: Wait for VM IP
+# See https://yuruna.link/42e220c4-0004
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_f257239b1955c535')
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_e6346c74a10ae90e')

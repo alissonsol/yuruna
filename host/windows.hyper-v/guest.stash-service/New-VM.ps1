@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4231f6cf-af57-4818-b0ee-59ddbe571ffa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -296,11 +296,11 @@ Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_44a010f47f51d941'
 $null = Invoke-HyperVGuestBuildCmdlet -VMName $VMName -Command 'Hyper-V\Start-VM' -Parameter @{ Name = $VMName }
 
 # --- REGION: Wait for VM IP
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
-Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89')
-
+# See https://yuruna.link/42e220c4-0004
 # Wait-HyperVServiceGuestAddress polls KVP and bridge neighbors, the same
 # discovery the caching-proxy-service builder uses.
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_2c8ff2df499f232c')
+Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_b93b853caa0a1c89')
 $ProgressPreference = 'Continue'
 $dockCandidateIps = @(Wait-HyperVServiceGuestAddress -VMName $VMName -SwitchName $switchName -TimeoutSeconds 600)
 

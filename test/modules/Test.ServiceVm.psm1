@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -594,7 +594,7 @@ function Test-YurunaServiceVmRunning {
     .SYNOPSIS
         Gather per-service evidence and judge it under the Preserve or Repair
         policy: the one evidence interface for the reboot sweep, setup,
-        refresh and the installer-parity tests.
+        repair and the installer-parity tests.
     .DESCRIPTION
         The hypervisor is probed once (Test-VirtualizationResponsive, capped
         at twenty seconds and the shared deadline) unless the caller supplies
@@ -1111,7 +1111,7 @@ function Restore-YurunaServiceVM {
         the probe on here rather than writing a second one at the call site is
         what keeps one definition of "this service is usable".
     .PARAMETER ObserveOnly
-        Never starts anything. Implies -ProbeRunning. A host-refresh
+        Never starts anything. Implies -ProbeRunning. A host-repair
         convergence check calls this after Resume-YurunaServiceVM has already
         done the one authorized start: it waits (bounded) for each guest to
         report running, lease an address and answer its health port, then
@@ -1149,7 +1149,7 @@ function Restore-YurunaServiceVM {
         responsive pass, the structured reason for state-unknown,
         'not-probed' for no-host-driver and 'unclassified' when the driver
         has no probe. Only 'timeout' is fault evidence for the automatic
-        refresh trigger.
+        repair trigger.
 
         Healthy on a 'running' record means "answered its health port" only when
         -ProbeRunning was passed; without it the port was not asked.
@@ -1404,7 +1404,7 @@ function Restore-YurunaServiceVM {
                     # opened is not another operation. Neither is a start.
                     $lockReason = if ($ownedLock.Reason -eq 'root-unavailable') { [string]$ownedLock.RootReason }
                                   elseif ($ownedLock.LockReason) { [string]$ownedLock.LockReason } else { [string]$ownedLock.Reason }
-                    $lockWhere = if ($ownedLock.StateRoot) { [string]$ownedLock.StateRoot } elseif ($StateRoot) { $StateRoot } else { '$HOME/.yuruna/host-refresh' }
+                    $lockWhere = if ($ownedLock.StateRoot) { [string]$ownedLock.StateRoot } elseif ($StateRoot) { $StateRoot } else { '$HOME/.yuruna/host-repair' }
                     & $emit @{ Outcome = 'lock-unavailable'; Obligation = 'state-unresolved'
                         Message = (Format-YurunaOperatorMessage -Key 'runner.service_restore_lock_unavailable' -Arguments @{ reason = $lockReason; path = $lockWhere }) }
                     continue

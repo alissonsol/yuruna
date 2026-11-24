@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2292,7 +2292,7 @@ function Format-PoolStorageSize {
     return ('{0:N1} GiB' -f ($Bytes / 1GB))
 }
 
-# --- REGION: Single-instance lock (pidfile, hardened)
+# --- REGION: Single-instance lock
 # See https://yuruna.link/42d38664-001e
 # The lock lives HERE, in the orchestrator, rather than in the detached wrapper
 # script: move mode calls the function directly and in-process, so a lock held
@@ -2586,7 +2586,7 @@ function Invoke-PoolStorageDrain {
         $merged = Merge-PoolStorageLedger -Ledger $ledger -Committed @($committed) -Status $status -LocalNames $localNamesAfter -NowUtc $nowUtc
         $null = Write-PoolStorageLedger -RuntimeDir $RuntimeDir -Ledger $merged -Confirm:$false
 
-        # Refresh this host's NAS identity record (hosts/info.<HostId>.yml) once per
+        # Rewrite this host's NAS identity record (hosts/info.<HostId>.yml) once per
         # successful drain, so a reimaged host can later recognize + reclaim its uuid.
         # Best-effort + optional: gated on Test.HostIdentity being loaded (the drain
         # script imports it) so Test.PoolStorage carries no hard dependency, and never

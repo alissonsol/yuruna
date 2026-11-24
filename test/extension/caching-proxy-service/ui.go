@@ -52,8 +52,8 @@ const indexHTML = `<!doctype html>
            border: 1px solid #4b5563; border-radius: 3px; padding: 6px 10px; }
   button:hover { background: #374151; }
   button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
-  h2 { font-size: 12px; margin: 14px 0 4px; color: #9ca3af; font-weight: 600;
-       text-transform: uppercase; letter-spacing: .04em; }
+  h2 { font-size: 12px; margin: 14px 0 4px; color: #9ca3af;
+       font-weight: 600; }
   table { width: 100%; max-width: 90ch; border-collapse: collapse; }
   th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #1f2937;
            vertical-align: top; }

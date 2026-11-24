@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -278,7 +278,7 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire $beyondCap -Audience $hostA)) 'proof beyond the acceptance cap is still rejected'
     }
     It 'mints the shared bound golden wire (the Go controlproof.ProofFor vector)' {
-        $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'extension', 'extension-sdk', 'hostrefresh', 'testdata', 'vectors.json')))
+        $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'extension', 'extension-sdk', 'hostrepair', 'testdata', 'vectors.json')))
         $b = $vectors.bound
         Assert-Equal -Expected $b.wire -Actual (Get-YurunaControlProof -Token $b.token -ExpiryUnixSeconds $b.expiryUnix -Audience $b.audience)
     }
@@ -295,7 +295,7 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
         Assert-True (-not (Test-YurunaControlProof -Token 'tok-1' -Wire ("$($now + 120).a.b.c") -Audience $hostA)) 'four fields rejected'
     }
     It 'mints the shared scoped golden wire (the Go controlproof.ProofForScope vector)' {
-        $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'extension', 'extension-sdk', 'hostrefresh', 'testdata', 'vectors.json')))
+        $vectors = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText([IO.Path]::Combine($PSScriptRoot, '..', 'extension', 'extension-sdk', 'hostrepair', 'testdata', 'vectors.json')))
         $s = $vectors.scoped
         Assert-Equal -Expected $s.wire -Actual (Get-YurunaControlProof -Token $s.token -ExpiryUnixSeconds $s.expiryUnix -Audience $s.audience -Scope $s.scope)
     }

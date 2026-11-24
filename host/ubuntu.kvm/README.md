@@ -21,7 +21,7 @@ on.)
 Installs `qemu-system-x86` / `qemu-system-arm` (per arch) + `qemu-utils`,
 `libvirt-daemon-system`, `virtinst`, `swtpm`,
 `ovmf` (or `qemu-efi-aarch64`), `genisoimage`, `whois`, `git`, `pwsh`,
-`tesseract-ocr`, and `virt-manager`; clones the repo to `~/git/yuruna`; enables
+`tesseract-ocr`, `tmux`, and `virt-manager`; clones the repo to `~/git/yuruna`; enables
 `libvirtd` + `virtlogd`; sets the libvirt `default` network to
 autostart; adds `$USER` to the `libvirt` and `kvm` groups; seeds
 `test/test.config.yml`. Idempotent; prompts for your sudo password
@@ -35,6 +35,85 @@ separate opt-in step -- run
 [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) manually after
 install, or let `pwsh install/setup.ps1` do it as one step of a guided
 [standalone-host or lab setup](../../install/README.md#guided-setup).
+
+## The host controller
+
+A host update (the Diagnostics page's **Update host**, or
+`pwsh test/lab/Invoke-HostUpdate.ps1`) is carried out by the host controller, which runs as
+the system unit `yuruna-host-controller.service` so that it outlives the runner and the
+listener it stops and starts. `Enable-TestAutomation.ps1` registers it on every run:
+
+- it deploys `~/.yuruna/host-repair/host-controller/shim` (a copy of
+  [`test/lab/yuruna-host-controller-shim.sh`](../../test/lab/yuruna-host-controller-shim.sh),
+  mode 0700) and a first snapshot of the controller's code (`versions/<hash>/`, named in
+  `current`);
+- it renders `/etc/systemd/system/yuruna-host-controller.service` from
+  [`host-controller/yuruna-host-controller.service`](host-controller/yuruna-host-controller.service):
+  `User=` the account that runs the script, `SupplementaryGroups=libvirt kvm`,
+  `ExecStart=/bin/sh "<shim>"`, `Restart=always`, `RestartSec=5`,
+  `StartLimitIntervalSec=0`, `KillMode=process`, `OOMPolicy=continue`,
+  `WantedBy=multi-user.target`;
+- with cached sudo, it writes the unit with `sudo -n tee` only when its text differs, runs
+  `daemon-reload`, `enable`, and `restart` when the unit or the shim changed (otherwise
+  `start`), then waits up to 15 seconds for the controller to take its lock;
+- without cached sudo it changes nothing in `/etc` and only checks that the unit is
+  current, enabled and active; anything else, a missing `libvirt` or `kvm` group, or a
+  controller that does not take its lock, is reported as not met (exit 2).
+
+Put your own settings for the unit in a drop-in under
+`/etc/systemd/system/yuruna-host-controller.service.d/`, which Enable never touches. Read
+the controller with:
+
+```
+systemctl status yuruna-host-controller
+journalctl -u yuruna-host-controller
+```
+
+Stopping or restarting the unit signals only the shim (`KillMode=process`), which passes the
+stop on to the controller: the runner, the listener and the runner's console keep running.
+The console of a runner the controller started is a `tmux` session (the installer installs
+`tmux`): `tmux -S ~/.yuruna/host-repair/host-controller/runner-console.sock attach`, and
+`Ctrl+B`, `D` to leave it running. A host without `tmux` starts the runner without a
+console and says so in the update's remarks.
+
+`Disable-TestAutomation.ps1` refuses, changing nothing, while a host update is running or
+recovering, or while the request journal cannot be read, which could hide one, and names
+`pwsh test/lab/Invoke-HostUpdate.ps1 -Release <id>` for an update that is recovering or
+whose controller no longer runs; a queued one does not block it. An update the controller
+claims while the unit is being stopped (or a journal that can no longer be read) is found
+when the unit has stopped: the unit is started again to continue it, and the script refuses
+the same way. When that start fails, it keeps the unit and the controller folder, says so
+in the list of what it left, leaves any temporary sudo rule in place, and goes on with the
+rest. Otherwise it stops, disables and removes the unit (`daemon-reload`), waits up to 30
+seconds for the controller's lock to be free, and removes the controller folder; both appear
+in its restored list, or in the list of what it left when a step fails or a controller still
+holds its lock. Once no controller runs, it also removes the temporary sudo rule a `full`
+host update may have left, and stops its timer.
+
+### The full scope
+
+A host update with the scope `full` also runs the installer of the checkout
+(`install/ubuntu.kvm.sh --unattended`) and `Enable-TestAutomation.ps1 -SkipPoolStorage
+-NoOperatorPrompt`, after the source update and before the listener and the runner start
+again. The Diagnostics page offers it while the runner's passwordless sudo rule for `systemctl`,
+`tee` and `rm` is in place. For each of the two phases the controller writes one rule,
+`/etc/sudoers.d/yuruna-host-update` (`<account> ALL=(ALL:ALL) NOPASSWD: ALL`), checked by
+`visudo -cf` before it is written and confirmed with `sudo -n -k true`, and root starts the
+transient timer `yuruna-host-update-expire` that removes the rule at the phase's bound (40
+minutes for the install, 5 for the settings) plus two minutes. The work runs in the
+transient unit `yuruna-host-update-<phase>-<attempt>`; the unit is ended and the rule
+removed as soon as the work ends, and again by the restore of a failed update.
+
+Unattended, the installer asks nothing and reads no standard input, runs no `git` command
+on the checkout, stops nothing (a runner still running fails it with `runner_present`),
+leaves `test/status` and the test VMs alone, captures no recovery state, and refuses a host
+the framework was never installed on (`not_provisioned`) or one where `sudo -n true` fails
+(`not_elevated`). A shortfall against the tested baseline is an issue, not a question.
+`Enable-TestAutomation.ps1 -NoOperatorPrompt` asks nothing either: no package offer, no
+module install, no sudo prompt, no storage questionnaire; it verifies the host controller's
+deployment instead of registering it, and reports what needs a person with exit 2. When the
+installer moved PowerShell to a new version, the controller stops the listener and starts
+again on the new PowerShell before the settings phase.
 
 ## Architecture support
 
@@ -309,6 +388,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../../README.md)

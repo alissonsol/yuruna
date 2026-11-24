@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4296b755-95ac-439b-8cc9-62f9188e5c59
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna status service route host-refresh body-reader worker
+.TAGS yuruna status service route host-operation body-reader worker
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -19,8 +19,8 @@
 <#
 .SYNOPSIS
     Route helpers for the status listener's mutating control routes: the
-    bounded body reader, the host-refresh request body and reply mapping, the
-    refresh capability summary, and the detached worker plumbing that keeps
+    bounded body reader, the host-repair request body and reply mapping, the
+    repair capability summary, and the detached worker plumbing that keeps
     diagnostics and start-cycle off the request loop.
 .DESCRIPTION
     The status listener handles one request context at a time, so anything a
@@ -43,18 +43,18 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
 # and a -Force here would evict a copy a caller already holds.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -DisableNameChecking
 
-# The request body a refresh POST may carry. Anything larger is refused one
+# The request body a repair POST may carry. Anything larger is refused one
 # byte past the cap, whatever length the client declared or whether it
 # declared one at all; a chunked body of unknown length gets no exemption.
-$script:HostRefreshBodyMaxBytes = 4096
-# Keys a refresh body may carry, compared case-sensitively. Duplicates in any
+$script:HostRepairBodyMaxBytes = 4096
+# Keys a repair body may carry, compared case-sensitively. Duplicates in any
 # casing are refused, so two spellings can never smuggle different values
 # past a reader that folds case.
-$script:HostRefreshBodyKey = @('requestId', 'tier', 'maxRung')
+$script:HostRepairBodyKey = @('requestId', 'tier', 'maxRung')
 # Normalized key fragments that name a local-only safety switch. A body that
 # names one is refused as forbidden rather than unsupported, because these are
 # the settings an HTTP caller must never be able to set, in any spelling.
-$script:HostRefreshForbiddenFragment = @('force', 'hardstop', 'allowhardstop', 'restoreservicevm', 'leavestoppedservicevm', 'configpath')
+$script:HostRepairForbiddenFragment = @('force', 'hardstop', 'allowhardstop', 'restoreservicevm', 'leavestoppedservicevm', 'configpath')
 # Canonical lowercase UUID in the 8-4-4-4-12 form; \A and \z because '$' also
 # matches before a trailing newline.
 $script:StatusRouteRequestIdPattern = '\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z'
@@ -65,8 +65,16 @@ $script:StatusRouteEchoFieldPattern = '\A[A-Za-z0-9_.-]{1,64}\z'
 # clamps to. A value outside it is replaced, never passed through.
 $script:StatusRouteWirePattern = '\A[a-z][a-z0-9_]{0,47}\z'
 $script:StatusRouteRungPattern = '\A[a-z][a-z-]{0,31}\z'
-$script:HostRefreshStateUrl = '/runtime/host-refresh.state.json'
+$script:HostRepairStateUrl = '/runtime/host-repair.state.json'
 $script:StartCycleStateUrl = '/runtime/start-cycle.state.json'
+$script:HostUpdateStateUrl = '/runtime/host-update.state.json'
+# Keys a host-update body may carry, compared case-sensitively and checked
+# before the forbidden fragments, so drainSeconds passes while every other name
+# that contains drain is forbidden: no HTTP request may end a running cycle.
+$script:HostUpdateBodyKey = @('requestId', 'scope', 'drainSeconds', 'expectCommit')
+$script:HostUpdateForbiddenFragment = @('drain') + $script:HostRepairForbiddenFragment
+$script:HostUpdateCommitPattern = '\A[0-9a-f]{7,40}\z'
+$script:HostUpdateScope = @('restart', 'full')
 # ExternalScriptInfo keyed by path, reused while the file is unchanged, so a
 # validation on every request does not re-parse the script.
 $script:StatusWorkerCommandCache = @{}
@@ -90,7 +98,8 @@ $script:StatusControlRouteGuard = [ordered]@{
     'control/cycle-pause'                = @{ Guard = 'Always'; ProofScope = @('pause') }
     'control/cycle-resume'               = @{ Guard = 'Always'; ProofScope = @('pause') }
     'control/lab-hold-release'           = @{ Guard = 'Always'; ProofScope = @() }
-    'control/host-refresh'               = @{ Guard = 'Always'; ProofScope = @() }
+    'control/host-repair'               = @{ Guard = 'Always'; ProofScope = @() }
+    'control/host-update'                = @{ Guard = 'Always'; ProofScope = @() }
     'control/test-config'                = @{ Guard = 'Write'; ProofScope = @() }
     'control/perf-aggregates'            = @{ Guard = 'Write'; ProofScope = @() }
 }
@@ -347,7 +356,7 @@ function ConvertTo-StatusRouteWireToken {
     .DESCRIPTION
         Private records keep hyphenated tokens; everything that crosses the
         listener boundary is lowercase with underscores. The conversion is the
-        one ConvertTo-HostRefreshWireCode applies, repeated here so a reply
+        one ConvertTo-HostRepairWireCode applies, repeated here so a reply
         never depends on another module having loaded to be well formed.
     #>
     [CmdletBinding()]
@@ -554,7 +563,7 @@ function Close-StatusBoundedBodyRead {
     $BodyRead.Buffer = $null
 }
 
-function Test-HostRefreshContentType {
+function Test-HostControlContentType {
     <#
     .SYNOPSIS
         True for application/json with no charset or charset utf-8.
@@ -581,10 +590,10 @@ function Test-HostRefreshContentType {
     return $true
 }
 
-function ConvertFrom-HostRefreshRequestBody {
+function ConvertFrom-HostRepairRequestBody {
     <#
     .SYNOPSIS
-        Validate a host-refresh request body against its closed schema.
+        Validate a host-repair request body against its closed schema.
     .DESCRIPTION
         Strict UTF-8 without a byte-order mark, a JSON object at most four
         levels deep, no comments and no trailing commas. The keys are exactly
@@ -622,7 +631,7 @@ function ConvertFrom-HostRefreshRequestBody {
         $result.Field = if ($Field -cmatch $script:StatusRouteEchoFieldPattern) { $Field } elseif ($Field) { 'field' } else { '' }
         [pscustomobject]$result
     }
-    if ($Bytes.Length -gt $script:HostRefreshBodyMaxBytes) { return (& $refuse 'invalid_json' '') }
+    if ($Bytes.Length -gt $script:HostRepairBodyMaxBytes) { return (& $refuse 'invalid_json' '') }
     if ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF) {
         return (& $refuse 'invalid_json' '')
     }
@@ -648,7 +657,7 @@ function ConvertFrom-HostRefreshRequestBody {
         $properties = @(foreach ($property in $root.EnumerateObject()) { $property })
         foreach ($property in $properties) {
             $normalized = ($property.Name.ToLowerInvariant() -replace '[^a-z0-9]', '')
-            foreach ($fragment in $script:HostRefreshForbiddenFragment) {
+            foreach ($fragment in $script:HostRepairForbiddenFragment) {
                 if ($normalized.Contains($fragment)) { return (& $refuse 'forbidden_field' $property.Name) }
             }
         }
@@ -658,14 +667,14 @@ function ConvertFrom-HostRefreshRequestBody {
         }
         $values = @{}
         foreach ($property in $properties) {
-            if ($script:HostRefreshBodyKey -cnotcontains $property.Name) { return (& $refuse 'unsupported_field' $property.Name) }
+            if ($script:HostRepairBodyKey -cnotcontains $property.Name) { return (& $refuse 'unsupported_field' $property.Name) }
             if ($property.Value.ValueKind -ne [System.Text.Json.JsonValueKind]::String) {
                 return (& $refuse 'invalid_value' $property.Name)
             }
             $values[$property.Name] = $property.Value.GetString()
         }
         if ($Remote) {
-            foreach ($required in $script:HostRefreshBodyKey) {
+            foreach ($required in $script:HostRepairBodyKey) {
                 if (-not $values.ContainsKey($required)) { return (& $refuse 'invalid_value' $required) }
             }
         }
@@ -698,15 +707,15 @@ function ConvertFrom-HostRefreshRequestBody {
     return [pscustomobject]$result
 }
 
-function Get-HostRefreshControlSummary {
+function Get-HostRepairControlSummary {
     <#
     .SYNOPSIS
-        The compact refresh capability /control/control-status advertises.
+        The compact repair capability /control/control-status advertises.
     .DESCRIPTION
-        Copies the capability the refresh module computed, clamps every field
+        Copies the capability the repair module computed, clamps every field
         to the vocabulary the aggregator accepts, applies the listener's own
         refusal (a route dependency it cannot load, a host type it does not
-        know) and adds the remote-refresh provisioning state. A missing or
+        know) and adds the remote-repair provisioning state. A missing or
         malformed capability reads as unavailable, never as available: this
         field decides whether a disruptive button is shown.
     .PARAMETER Capability
@@ -769,10 +778,10 @@ function Get-HostRefreshControlSummary {
     return $summary
 }
 
-function Get-HostRefreshAdmissionReply {
+function Get-HostRepairAdmissionReply {
     <#
     .SYNOPSIS
-        The HTTP reply for a host-refresh admission decision and, when the
+        The HTTP reply for a host-repair admission decision and, when the
         decision was spawn, the launch that followed it.
     .DESCRIPTION
         A pure mapping from the private admission record to the documented
@@ -798,6 +807,9 @@ function Get-HostRefreshAdmissionReply {
     .PARAMETER StartCycleStateUrl
         Where a start-cycle operation's progress is published, for a busy
         reply caused by one.
+    .PARAMETER HostUpdateStateUrl
+        Where a host update's progress is published, for a busy reply caused
+        by one.
     .OUTPUTS
         [pscustomobject] @{ StatusCode; Body; MessageKey; MessageArguments;
         Close; RetryAfter }.
@@ -808,8 +820,9 @@ function Get-HostRefreshAdmissionReply {
         [Parameter(Mandatory)][AllowNull()][object]$Admission,
         [AllowNull()][object]$Launch,
         [AllowEmptyString()][string]$Ceiling = '',
-        [string]$StateUrl = $script:HostRefreshStateUrl,
-        [string]$StartCycleStateUrl = $script:StartCycleStateUrl
+        [string]$StateUrl = $script:HostRepairStateUrl,
+        [string]$StartCycleStateUrl = $script:StartCycleStateUrl,
+        [string]$HostUpdateStateUrl = $script:HostUpdateStateUrl
     )
     $reply = { param([int]$Status, [System.Collections.IDictionary]$Body, [string]$Key, [hashtable]$Arguments)
         [pscustomobject]@{
@@ -841,19 +854,20 @@ function Get-HostRefreshAdmissionReply {
         }
         'busy' {
             $activeKind = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Admission -Name 'ActiveKind')
-            if (@('host_refresh', 'start_cycle') -cnotcontains $activeKind) { $activeKind = 'host_refresh' }
-            $activeUrl = if ($activeKind -ceq 'start_cycle') { $StartCycleStateUrl } else { $StateUrl }
+            if (@('host_repair', 'start_cycle', 'host_update') -cnotcontains $activeKind) { $activeKind = 'host_repair' }
+            $activeUrl = switch -CaseSensitive ($activeKind) { 'start_cycle' { $StartCycleStateUrl } 'host_update' { $HostUpdateStateUrl } default { $StateUrl } }
+            $busyKey = if ($activeKind -ceq 'host_update') { 'status.api_host_update_busy' } else { 'status.api_host_repair_busy' }
             $activeRequestId = [string](Get-StatusRouteField -Record $Admission -Name 'ActiveRequestId')
             return (& $reply 409 ([ordered]@{ ok = $false; reason = 'busy'; activeKind = $activeKind; activeRequestId = $activeRequestId; stateUrl = $activeUrl }) `
-                    'status.api_host_refresh_busy' $null)
+                    $busyKey $null)
         }
         'policy-mismatch' {
             return (& $reply 409 ([ordered]@{ ok = $false; reason = 'request_conflict'; requestId = $requestId; stateUrl = $StateUrl }) `
-                    'status.api_host_refresh_request_conflict' $null)
+                    'status.api_host_repair_request_conflict' $null)
         }
         'stored' {
             return (& $reply 409 ([ordered]@{ ok = $false; reason = 'request_closed'; requestId = $requestId; state = $state; verdict = $verdict; stateUrl = $StateUrl }) `
-                    'status.api_host_refresh_request_closed' @{ state = $(if ($state) { $state } else { 'unknown' }) })
+                    'status.api_host_repair_request_closed' @{ state = $(if ($state) { $state } else { 'unknown' }) })
         }
         'unavailable' {
             $admissionReason = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Admission -Name 'Reason')
@@ -874,7 +888,8 @@ function Get-StartCycleAdmissionReply {
           reserved + not launched  503 launcher_failed (the reservation is
                                    removed; nothing was changed)
           busy                     409 busy, with the operation holding the
-                                   host (activeKind host_refresh or start_cycle)
+                                   host (activeKind host_repair, start_cycle
+                                   or host_update)
           unavailable              503 admission_unavailable
         An unrecognized decision is 500 internal_error.
     .PARAMETER Reservation
@@ -885,8 +900,10 @@ function Get-StartCycleAdmissionReply {
         The operation the listener minted.
     .PARAMETER StateUrl
         Where start-cycle progress is published.
-    .PARAMETER RefreshStateUrl
-        Where host-refresh progress is published.
+    .PARAMETER RepairStateUrl
+        Where host-repair progress is published.
+    .PARAMETER HostUpdateStateUrl
+        Where host-update progress is published.
     .OUTPUTS
         [pscustomobject] @{ StatusCode; Body; MessageKey; MessageArguments;
         Close; RetryAfter }.
@@ -898,7 +915,8 @@ function Get-StartCycleAdmissionReply {
         [AllowNull()][object]$Launch,
         [Parameter(Mandatory)][string]$OperationId,
         [string]$StateUrl = $script:StartCycleStateUrl,
-        [string]$RefreshStateUrl = $script:HostRefreshStateUrl
+        [string]$RepairStateUrl = $script:HostRepairStateUrl,
+        [string]$HostUpdateStateUrl = $script:HostUpdateStateUrl
     )
     $reply = { param([int]$Status, [System.Collections.IDictionary]$Body, [string]$Key, [hashtable]$Arguments)
         [pscustomobject]@{
@@ -919,19 +937,359 @@ function Get-StartCycleAdmissionReply {
         }
         'busy' {
             $activeKind = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Reservation -Name 'ActiveKind')
-            if (@('host_refresh', 'start_cycle') -cnotcontains $activeKind) { $activeKind = 'host_refresh' }
+            if (@('host_repair', 'start_cycle', 'host_update') -cnotcontains $activeKind) { $activeKind = 'host_repair' }
             $activeRequestId = [string](Get-StatusRouteField -Record $Reservation -Name 'ActiveRequestId')
             if ($activeKind -ceq 'start_cycle') {
                 return (& $reply 409 ([ordered]@{ ok = $false; reason = 'busy'; activeKind = 'start_cycle'; activeRequestId = $activeRequestId; stateUrl = $StateUrl }) `
                         'status.api_another_start_cycle_request_is_in_progress_3f51d139' $null)
             }
-            return (& $reply 409 ([ordered]@{ ok = $false; reason = 'busy'; activeKind = 'host_refresh'; activeRequestId = $activeRequestId; stateUrl = $RefreshStateUrl }) `
-                    'status.api_host_refresh_busy' $null)
+            if ($activeKind -ceq 'host_update') {
+                return (& $reply 409 ([ordered]@{ ok = $false; reason = 'busy'; activeKind = 'host_update'; activeRequestId = $activeRequestId; stateUrl = $HostUpdateStateUrl }) `
+                        'status.api_host_update_busy' $null)
+            }
+            return (& $reply 409 ([ordered]@{ ok = $false; reason = 'busy'; activeKind = 'host_repair'; activeRequestId = $activeRequestId; stateUrl = $RepairStateUrl }) `
+                    'status.api_host_repair_busy' $null)
         }
         'unavailable' {
             $reservationReason = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Reservation -Name 'Reason')
             return (& $reply 503 ([ordered]@{ ok = $false; reason = 'admission_unavailable' }) `
                     'status.api_admission_unavailable' @{ reason = $(if ($reservationReason) { $reservationReason } else { 'admission_unavailable' }) })
+        }
+    }
+    return (& $reply 500 ([ordered]@{ ok = $false; reason = 'internal_error' }) 'status.api_internal_error' $null)
+}
+
+# --- REGION: Host update: body, loopback rule, capability and replies
+function ConvertFrom-HostUpdateRequestBody {
+    <#
+    .SYNOPSIS
+        Validate a host-update request body against its closed schema.
+    .DESCRIPTION
+        Strict UTF-8 without a byte-order mark, a JSON object at most four
+        levels deep, no comments and no trailing commas, no name repeated in
+        any casing. The keys requestId, scope, drainSeconds and expectCommit
+        are compared case-sensitively and accepted first; any other name that
+        contains drain, or a fragment the repair forbids, in any spelling, is
+        forbidden, and every other name is unsupported. requestId is the
+        canonical lowercase UUID; scope is restart or full; drainSeconds is a
+        JSON integer from 60 to 21600; expectCommit is 7 to 40 lowercase hex
+        digits. The effective values carry the defaults.
+    .PARAMETER Bytes
+        The complete body.
+    .OUTPUTS
+        [pscustomobject] @{ Valid; Reason ''|invalid_json|unsupported_field|
+        forbidden_field|invalid_value; Field; RequestId; RequestIdSupplied;
+        Scope; DrainSeconds; ExpectCommit }.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Bytes)
+    $result = [ordered]@{
+        Valid = $false; Reason = ''; Field = ''; RequestId = ''; RequestIdSupplied = $false; Scope = 'restart'; DrainSeconds = 7200; ExpectCommit = $null
+    }
+    $refuse = {
+        param([string]$Reason, [string]$Field)
+        $result.Reason = $Reason
+        $result.Field = if ($Field -cmatch $script:StatusRouteEchoFieldPattern) { $Field } elseif ($Field) { 'field' } else { '' }
+        [pscustomobject]$result
+    }
+    if ($Bytes.Length -gt $script:HostRepairBodyMaxBytes) { return (& $refuse 'invalid_json' '') }
+    if ($Bytes.Length -ge 3 -and $Bytes[0] -eq 0xEF -and $Bytes[1] -eq 0xBB -and $Bytes[2] -eq 0xBF) {
+        return (& $refuse 'invalid_json' '')
+    }
+    $text = $null
+    try {
+        $text = [System.Text.UTF8Encoding]::new($false, $true).GetString($Bytes)
+    } catch {
+        return (& $refuse 'invalid_json' '')
+    }
+    $options = [System.Text.Json.JsonDocumentOptions]::new()
+    $options.MaxDepth = 4
+    $options.CommentHandling = [System.Text.Json.JsonCommentHandling]::Disallow
+    $options.AllowTrailingCommas = $false
+    $document = $null
+    try {
+        $document = [System.Text.Json.JsonDocument]::Parse($text, $options)
+    } catch {
+        return (& $refuse 'invalid_json' '')
+    }
+    try {
+        $root = $document.RootElement
+        if ($root.ValueKind -ne [System.Text.Json.JsonValueKind]::Object) { return (& $refuse 'invalid_json' '') }
+        $properties = @(foreach ($property in $root.EnumerateObject()) { $property })
+        $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach ($property in $properties) {
+            if (-not $seen.Add($property.Name)) { return (& $refuse 'invalid_json' $property.Name) }
+        }
+        $values = @{}
+        foreach ($property in $properties) {
+            if ($script:HostUpdateBodyKey -ccontains $property.Name) { $values[$property.Name] = $property.Value; continue }
+            $normalized = ($property.Name.ToLowerInvariant() -replace '[^a-z0-9]', '')
+            foreach ($fragment in $script:HostUpdateForbiddenFragment) {
+                if ($normalized.Contains($fragment)) { return (& $refuse 'forbidden_field' $property.Name) }
+            }
+            return (& $refuse 'unsupported_field' $property.Name)
+        }
+        $stringValue = {
+            param([string]$Name)
+            if ($values[$Name].ValueKind -ne [System.Text.Json.JsonValueKind]::String) { return $null }
+            return $values[$Name].GetString()
+        }
+        if ($values.ContainsKey('requestId')) {
+            $candidate = & $stringValue 'requestId'
+            $parsed = [Guid]::Empty
+            if ($null -eq $candidate -or $candidate -cnotmatch $script:StatusRouteRequestIdPattern -or
+                -not [Guid]::TryParseExact($candidate, 'D', [ref]$parsed) -or
+                -not [string]::Equals($parsed.ToString('D'), $candidate, [StringComparison]::Ordinal)) {
+                return (& $refuse 'invalid_value' 'requestId')
+            }
+            $result.RequestId = $candidate
+            $result.RequestIdSupplied = $true
+        }
+        if ($values.ContainsKey('scope')) {
+            $scope = & $stringValue 'scope'
+            if ($null -eq $scope -or $script:HostUpdateScope -cnotcontains $scope) { return (& $refuse 'invalid_value' 'scope') }
+            $result.Scope = $scope
+        }
+        if ($values.ContainsKey('drainSeconds')) {
+            # A JSON integer only: a string, a fraction or an exponent form is
+            # refused rather than coerced, so a signed value means one thing.
+            $seconds = 0
+            if ($values['drainSeconds'].ValueKind -ne [System.Text.Json.JsonValueKind]::Number -or
+                -not $values['drainSeconds'].TryGetInt32([ref]$seconds) -or $seconds -lt 60 -or $seconds -gt 21600) {
+                return (& $refuse 'invalid_value' 'drainSeconds')
+            }
+            $result.DrainSeconds = $seconds
+        }
+        if ($values.ContainsKey('expectCommit')) {
+            $commit = & $stringValue 'expectCommit'
+            if ($null -eq $commit -or $commit -cnotmatch $script:HostUpdateCommitPattern) { return (& $refuse 'invalid_value' 'expectCommit') }
+            $result.ExpectCommit = $commit
+        }
+    } finally {
+        $document.Dispose()
+    }
+    $result.Valid = $true
+    return [pscustomobject]$result
+}
+
+function Test-HostUpdateLoopbackCaller {
+    <#
+    .SYNOPSIS
+        Whether a host-update caller is this host itself: a loopback address
+        and a Host header that names the loopback at the listener's port.
+    .DESCRIPTION
+        The address alone is not enough: a page from another site can make a
+        browser on this host send a request to the loopback under a foreign
+        name. So the Host header must be exactly one of localhost,
+        127.0.0.1 or [::1] with this port, the name in any casing, and the
+        port may be left out only when it is 80. No header, a list, a
+        trailing dot, userinfo, a path, another name or another port is not
+        loopback. An IPv4-mapped address is read as its IPv4 form.
+    .PARAMETER RemoteAddress
+        The connection's remote address.
+    .PARAMETER HostHeader
+        The raw Host header, or $null when the request has none.
+    .PARAMETER Port
+        The port the listener serves.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowNull()][System.Net.IPAddress]$RemoteAddress,
+        [AllowNull()][AllowEmptyString()][string]$HostHeader,
+        [Parameter(Mandatory)][ValidateRange(1, 65535)][int]$Port
+    )
+    if ($null -eq $RemoteAddress) { return $false }
+    $address = if ($RemoteAddress.IsIPv4MappedToIPv6) { $RemoteAddress.MapToIPv4() } else { $RemoteAddress }
+    if (-not [System.Net.IPAddress]::IsLoopback($address)) { return $false }
+    if ([string]::IsNullOrEmpty($HostHeader)) { return $false }
+    $value = $HostHeader.Trim(' ', "`t")
+    foreach ($name in @('localhost', '127.0.0.1', '[::1]')) {
+        if ([string]::Equals($value, ('{0}:{1}' -f $name, $Port), [StringComparison]::OrdinalIgnoreCase)) { return $true }
+        if ($Port -eq 80 -and [string]::Equals($value, $name, [StringComparison]::OrdinalIgnoreCase)) { return $true }
+    }
+    return $false
+}
+
+function Get-HostUpdateControlSummary {
+    <#
+    .SYNOPSIS
+        The compact host-update capability /control/control-status
+        advertises.
+    .DESCRIPTION
+        Fails closed, first that applies: the listener cannot run the route;
+        no controller holds its lock; the journal cannot be read; the
+        controller's published state says its session cannot start a runner.
+        Liveness comes from the lock, never from a timestamp. Scopes come
+        from the controller's state (restart when it names none) and are
+        empty when unavailable. remote is the state of the pool-control
+        record whatever the availability, and poolControl, pool-control's
+        base URL, is present only when remote is provisioned. The protocol
+        number is reported as read and does not decide availability.
+    .PARAMETER LockState
+        absent, free, held or unknown.
+    .PARAMETER JournalStatus
+        The journal read status.
+    .PARAMETER ControllerState
+        The controller's published state, or $null.
+    .PARAMETER Protocol
+        The host-update protocol number, -1 when unreadable.
+    .PARAMETER UpdateState
+        idle, active, recovering or unknown.
+    .PARAMETER ListenerReady
+        Whether every command the route needs resolves in this runspace.
+    .PARAMETER ListenerReason
+        The wire code to report when the listener is not ready.
+    .PARAMETER Remote
+        provisioned, missing or invalid, from the pool-control record.
+    .PARAMETER PoolControl
+        Pool-control's base URL from the record; reported only with
+        provisioned.
+    .OUTPUTS
+        [ordered] @{ protocol; availability; scopes; reason; remote; state;
+        poolControl when provisioned }, at most 512 bytes of compressed JSON.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [AllowEmptyString()][string]$LockState = 'unknown',
+        [AllowEmptyString()][string]$JournalStatus = '',
+        [AllowNull()][object]$ControllerState,
+        [int]$Protocol = -1,
+        [AllowEmptyString()][string]$UpdateState = 'unknown',
+        [Parameter(Mandatory)][bool]$ListenerReady,
+        [AllowEmptyString()][string]$ListenerReason = 'listener_dependency_missing',
+        [AllowEmptyString()][string]$Remote = 'missing',
+        [AllowEmptyString()][string]$PoolControl = ''
+    )
+    $state = ConvertTo-StatusRouteWireToken -Value $UpdateState
+    $remoteValue = if (@('provisioned', 'missing', 'invalid') -ccontains $Remote) { $Remote } else { 'invalid' }
+    # The one value outside the fixed vocabulary, so it is held to the shape
+    # the record's own reader enforces: an http(s) base of at most 256 bytes.
+    $poolControlValue = ''
+    if ($remoteValue -ceq 'provisioned') {
+        if ($PoolControl -cmatch '\Ahttps?://[^\s#?]{1,248}\z') { $poolControlValue = $PoolControl } else { $remoteValue = 'invalid' }
+    }
+    $summary = [ordered]@{
+        protocol     = $(if ($Protocol -ge -1 -and $Protocol -le 999999) { $Protocol } else { -1 })
+        availability = 'unavailable'
+        scopes       = ''
+        reason       = 'controller_absent'
+        remote       = $remoteValue
+        state        = $(if (@('idle', 'active', 'recovering', 'unknown') -ccontains $state) { $state } else { 'unknown' })
+    }
+    if ($poolControlValue) { $summary['poolControl'] = $poolControlValue }
+    if (-not $ListenerReady) {
+        $listenerCode = ConvertTo-StatusRouteWireToken -Value $ListenerReason
+        $summary.reason = if ($listenerCode) { $listenerCode } else { 'listener_dependency_missing' }
+        return $summary
+    }
+    if ($LockState -cne 'held') { return $summary }
+    if (@('ok', 'absent', 'recovered-previous') -cnotcontains $JournalStatus) { $summary.reason = 'journal_unreadable'; return $summary }
+    $sessionUsable = Get-StatusRouteField -Record $ControllerState -Name 'sessionUsable'
+    if ($sessionUsable -is [bool] -and -not $sessionUsable) { $summary.reason = 'session_unusable'; return $summary }
+    $scopes = [string](Get-StatusRouteField -Record $ControllerState -Name 'scopes')
+    $summary.availability = 'available'
+    $summary.reason = ''
+    $summary.scopes = if (@('restart', 'restart,full') -ccontains $scopes) { $scopes } else { 'restart' }
+    return $summary
+}
+
+function Get-HostUpdateAdmissionReply {
+    <#
+    .SYNOPSIS
+        The HTTP reply for a host-update admission decision.
+    .DESCRIPTION
+        A pure mapping from the private admission record to the documented
+        reply table. Nothing is launched: the host controller claims a
+        queued row itself.
+          queued, taken-over  202 queued (supersedes names the update taken
+                              over)
+          already-active      202 already_queued or already_claimed
+          completed           200 completed, with state and verdict
+          busy                409 busy, with activeKind and activeRequestId
+          policy-mismatch     409 request_conflict
+          policy-invalid      400 invalid_value, field drain
+          unavailable         503 admission_unavailable
+        An unrecognized decision is 500 internal_error.
+    .PARAMETER Admission
+        The admission record.
+    .PARAMETER RequestId
+        The request id, reported when the record has none.
+    .PARAMETER Scope
+        The scope the request asked for.
+    .PARAMETER StateUrl
+        Where host-update progress is published.
+    .PARAMETER RepairStateUrl
+        Where host-repair progress is published, for a busy reply caused by
+        a repair.
+    .PARAMETER StartCycleStateUrl
+        Where start-cycle progress is published, for a busy reply caused by
+        one.
+    .OUTPUTS
+        [pscustomobject] @{ StatusCode; Body; MessageKey; MessageArguments;
+        Close; RetryAfter }.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowNull()][object]$Admission,
+        [AllowEmptyString()][string]$RequestId = '',
+        [AllowEmptyString()][string]$Scope = 'restart',
+        [string]$StateUrl = $script:HostUpdateStateUrl,
+        [string]$RepairStateUrl = $script:HostRepairStateUrl,
+        [string]$StartCycleStateUrl = $script:StartCycleStateUrl
+    )
+    $reply = { param([int]$Status, [System.Collections.IDictionary]$Body, [string]$Key, [hashtable]$Arguments)
+        [pscustomobject]@{
+            StatusCode = $Status; Body = $Body; MessageKey = $Key
+            MessageArguments = if ($Arguments) { $Arguments } else { @{} }
+            Close = $false; RetryAfter = ''
+        }
+    }
+    $decision = [string](Get-StatusRouteField -Record $Admission -Name 'Decision')
+    $recordId = [string](Get-StatusRouteField -Record $Admission -Name 'RequestId')
+    $id = if ($recordId -cmatch $script:StatusRouteRequestIdPattern) { $recordId } elseif ($RequestId -cmatch $script:StatusRouteRequestIdPattern) { $RequestId } else { '' }
+    $scopeValue = if ($script:HostUpdateScope -ccontains $Scope) { $Scope } else { 'restart' }
+    $state = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Admission -Name 'State')
+    $verdict = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Admission -Name 'Verdict')
+    switch -CaseSensitive ($decision) {
+        { $_ -cin @('queued', 'taken-over') } {
+            $body = [ordered]@{ ok = $true; requestId = $id; action = 'queued'; scope = $scopeValue; stateUrl = $StateUrl }
+            $superseded = [string](Get-StatusRouteField -Record $Admission -Name 'SupersededId')
+            if ($decision -ceq 'taken-over' -and $superseded -cmatch $script:StatusRouteRequestIdPattern) { $body['supersedes'] = $superseded }
+            return (& $reply 202 $body '' $null)
+        }
+        'already-active' {
+            $action = if ($state -ceq 'queued') { 'already_queued' } else { 'already_claimed' }
+            return (& $reply 202 ([ordered]@{ ok = $true; requestId = $id; action = $action; scope = $scopeValue; stateUrl = $StateUrl }) '' $null)
+        }
+        'completed' {
+            return (& $reply 200 ([ordered]@{ ok = $true; requestId = $id; action = 'completed'; state = $state; verdict = $verdict; stateUrl = $StateUrl }) '' $null)
+        }
+        'busy' {
+            $activeKind = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Admission -Name 'ActiveKind')
+            if (@('host_repair', 'start_cycle', 'host_update') -cnotcontains $activeKind) { $activeKind = 'host_repair' }
+            $activeUrl = switch -CaseSensitive ($activeKind) { 'start_cycle' { $StartCycleStateUrl } 'host_update' { $StateUrl } default { $RepairStateUrl } }
+            $busyKey = if ($activeKind -ceq 'host_update') { 'status.api_host_update_busy' } else { 'status.api_host_repair_busy' }
+            $activeRequestId = [string](Get-StatusRouteField -Record $Admission -Name 'ActiveRequestId')
+            return (& $reply 409 ([ordered]@{ ok = $false; reason = 'busy'; activeKind = $activeKind; activeRequestId = $activeRequestId; stateUrl = $activeUrl }) $busyKey $null)
+        }
+        'policy-mismatch' {
+            return (& $reply 409 ([ordered]@{ ok = $false; reason = 'request_conflict'; requestId = $id; stateUrl = $StateUrl }) `
+                    'status.api_host_repair_request_conflict' $null)
+        }
+        'policy-invalid' {
+            return (& $reply 400 ([ordered]@{ ok = $false; reason = 'invalid_value'; field = 'drain' }) `
+                    'status.api_request_body_invalid' @{ reason = 'invalid_value'; field = 'drain' })
+        }
+        'unavailable' {
+            $admissionReason = ConvertTo-StatusRouteWireToken -Value (Get-StatusRouteField -Record $Admission -Name 'Reason')
+            return (& $reply 503 ([ordered]@{ ok = $false; reason = 'admission_unavailable' }) `
+                    'status.api_admission_unavailable' @{ reason = $(if ($admissionReason) { $admissionReason } else { 'admission_unavailable' }) })
         }
     }
     return (& $reply 500 ([ordered]@{ ok = $false; reason = 'internal_error' }) 'status.api_internal_error' $null)
@@ -1224,7 +1582,7 @@ function New-StatusOperationId {
     <#
     .SYNOPSIS
         A new operation or request id in the canonical lowercase 8-4-4-4-12
-        form every refresh channel uses.
+        form every repair channel uses.
     .OUTPUTS
         [string]
     #>
@@ -1313,7 +1671,7 @@ function Get-StatusServerOwnership {
         Who owns the status service a pidfile names: this service, someone
         else, nobody, or unknown.
     .DESCRIPTION
-        The refresh-safe start acts on this and never on a looser signal. The
+        The non-destructive start acts on this and never on a looser signal. The
         process-identity classifier is used when it is loaded; otherwise the
         pidfile is read here: an unreadable or malformed file is Unknown, a
         PID with no live process is DeadOrRecycled, and a live process is
@@ -1645,7 +2003,7 @@ function Get-StartCycleRefusalReason {
         The published start-cycle reason for a reservation the worker could
         not confirm.
     .DESCRIPTION
-        Maps the reasons Confirm-HostRefreshStartCycleReservation returns:
+        Maps the reasons Confirm-StartCycleReservation returns:
           reservation-lost   reservation_lost -- the reservation is gone or
                              belongs to another generation
           admission-busy     busy -- another operation held the admission
@@ -1654,8 +2012,8 @@ function Get-StartCycleRefusalReason {
                              held, the journal or private state could not be
                              read or written, or the confirmation returned
                              nothing
-        A refresh cannot become active while the reservation is held (its
-        admission answers busy), so no reason means "a refresh took over".
+        A repair cannot become active while the reservation is held (its
+        admission answers busy), so no reason means "a repair took over".
     .PARAMETER ConfirmReason
         The Reason of the confirmation, or '' when it returned nothing.
     .OUTPUTS
@@ -1672,9 +2030,10 @@ function Get-StartCycleRefusalReason {
 }
 
 Export-ModuleMember -Function New-StatusBoundedBodyRead, Update-StatusBoundedBodyRead, Get-StatusBoundedBodyReadWait,
-    Close-StatusBoundedBodyRead, Test-HostRefreshContentType, ConvertFrom-HostRefreshRequestBody, Get-HostRefreshControlSummary,
-    Get-HostRefreshAdmissionReply, Get-StartCycleAdmissionReply, Test-StatusWorkerArgument, Get-StatusWorkerDirectory,
+    Close-StatusBoundedBodyRead, Test-HostControlContentType, ConvertFrom-HostRepairRequestBody, Get-HostRepairControlSummary,
+    Get-HostRepairAdmissionReply, Get-StartCycleAdmissionReply, Test-StatusWorkerArgument, Get-StatusWorkerDirectory,
     Get-HostDiagnosticRouteState, Read-StatusWorkerState, New-StatusOperationId, Get-StatusRuntimeKey,
     Test-StatusPathOutsideServedRoot, Get-StatusServerOwnership, Test-StatusRouteCommandSet,
     Get-StartCycleRunnerDecision, Get-StartCycleRunnerArgument, Save-StatusLaunchOutcome, Get-StatusWorkerTranscriptStem,
-    Get-StartCycleRefusalReason, Get-StatusControlRouteGuard, New-StatusServiceLease, Update-StatusServiceLease, Get-StatusServiceLeaseVerdict, Invoke-StatusListenerWatch
+    Get-StartCycleRefusalReason, Get-StatusControlRouteGuard, New-StatusServiceLease, Update-StatusServiceLease, Get-StatusServiceLeaseVerdict, Invoke-StatusListenerWatch,
+    ConvertFrom-HostUpdateRequestBody, Test-HostUpdateLoopbackCaller, Get-HostUpdateControlSummary, Get-HostUpdateAdmissionReply

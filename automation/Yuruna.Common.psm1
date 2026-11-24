@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3791,7 +3791,7 @@ function Test-YurunaUserPrivateGroup {
     carrying the user's own name, with no other listed member.
 .DESCRIPTION
     A group-writable .yuruna is safe only when nobody else is in the group;
-    another member could otherwise swap host-refresh for a directory of
+    another member could otherwise swap host-repair for a directory of
     their own between check and use. The name convention alone does not
     prove that, so the group is read with a bounded `getent group <gid>`: its
     name must equal the user name and its member list must be empty or name
@@ -3973,22 +3973,259 @@ function Confirm-YurunaPrivateDirectory {
     return [pscustomobject]$result
 }
 
+function Move-YurunaLegacyPrivateStateRoot {
+<#
+.SYNOPSIS
+    Move the private state root from its earlier leaf, host-refresh, to
+    host-repair, re-keying the records whose names and kinds changed with it.
+.DESCRIPTION
+    Get-YurunaPrivateStateRoot calls this before it creates host-repair, after
+    .yuruna and the target location passed every check. Nothing happens when
+    no legacy root exists.
+
+    A legacy root beside a host-repair root is a conflict: nothing is merged,
+    moved or created, and both paths are reported. Without create rights
+    (-NoCreate or a preview) a legacy root is left in place and reported as
+    pending, so a read-only caller never mistakes it for an absent root.
+
+    The legacy root moves only when it is a plain directory this user owns,
+    no entry under it is a link or owned by anyone else (ownership is never
+    changed), and no lock under it is held: every *.lock under it, searched
+    recursively, is opened exclusively without waiting. On Unix those handles
+    stay open across the rename, because an advisory lock follows the inode.
+    On Windows they are released before the renames, because an open handle
+    inside a directory makes the move fail, and a failed move is reported as
+    pending with the legacy root left in place.
+
+    Before the directory moves, each record whose name or kind changed is
+    written under its new name inside the legacy root:
+      * host-refresh.journal (kind host-refresh.request-journal) becomes
+        host-operation.journal (kind host-operation.request-journal), a fresh
+        critical record read back before it counts; request, reservation and
+        tombstone rows of kind host-refresh become host-repair, and nothing
+        else in the payload changes;
+      * host-refresh.auto-budget.record becomes host-repair.auto-budget.record,
+        with kind host-repair-auto-budget in its header and payload;
+      * host-refresh.auto-streak.json becomes host-repair.auto-streak.json,
+        with kind host-repair-auto-streak, through a temporary file.
+    A record that does not read as valid is copied byte for byte under its new
+    name, so its reader finds it exactly as unreadable as before and keeps
+    holding the work it guards. The old files stay authoritative until the
+    directory has moved: a retry first discards new-name copies an earlier
+    attempt left, then writes them again. host-refresh.lock and
+    host-refresh.admission.lock are renamed to host-operation.lock and
+    host-operation.admission.lock; everything else moves unchanged.
+
+    Every moved item is reported as `previous -> new`.
+.PARAMETER StateDirectory
+    The checked .yuruna directory.
+.PARAMETER Root
+    The host-repair root that does not exist yet.
+.PARAMETER Platform
+    linux, macos or windows.
+.PARAMETER CurrentOwner
+    The Get-YurunaCurrentOwnerId record.
+.PARAMETER CreateAllowed
+    The resolver's create policy; $false leaves the legacy root in place.
+.OUTPUTS
+    [pscustomobject] @{ Status none|moved|refused; Reason; IoKind }. Reason
+    is the resolver Reason when Status is refused: migration-pending,
+    migration-conflict, or the check that failed on the legacy root.
+#>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '', Justification = 'Private protocol helper; caller passes its resolved create/preview policy.')]
+    param(
+        [Parameter(Mandatory)][string]$StateDirectory,
+        [Parameter(Mandatory)][string]$Root,
+        [Parameter(Mandatory)][string]$Platform,
+        [Parameter(Mandatory)]$CurrentOwner,
+        [bool]$CreateAllowed
+    )
+    $result = [ordered]@{ Status = 'none'; Reason = $null; IoKind = $null }
+    $legacy = Join-Path $StateDirectory 'host-refresh'
+    $legacyLinked = [bool]([IO.FileInfo]::new($legacy).LinkTarget)
+    if (-not $legacyLinked -and -not [IO.Directory]::Exists($legacy)) { return [pscustomobject]$result }
+    $refuse = {
+        param([string]$Reason, [string]$IoKind)
+        $result.Status = 'refused'; $result.Reason = $Reason; $result.IoKind = $IoKind
+        [pscustomobject]$result
+    }
+    if ([IO.Directory]::Exists($Root) -or [IO.File]::Exists($Root) -or [IO.FileInfo]::new($Root).LinkTarget) {
+        $conflict = Format-YurunaOperatorMessage -Key 'automation.private_state_migration_conflict' -Arguments @{ legacy = $legacy; current = $Root }
+        if ($CreateAllowed) { Write-Warning $conflict } else { Write-Verbose $conflict }
+        return (& $refuse 'migration-conflict' $null)
+    }
+    if ($legacyLinked) { return (& $refuse 'reparse-point' $null) }
+    if (-not $CreateAllowed) { return (& $refuse 'migration-pending' $null) }
+    $checked = Confirm-YurunaPrivateDirectory -Path $legacy -Platform $Platform -CurrentOwner $CurrentOwner -CreateAllowed $true
+    if (-not $checked.Resolved) { return (& $refuse $checked.Reason $checked.IoKind) }
+
+    # Walk the tree without following links, so neither the owner scan nor
+    # the lock probe can reach outside the legacy root.
+    $lockFiles = [System.Collections.Generic.List[string]]::new()
+    $pending = [System.Collections.Generic.Stack[string]]::new()
+    $pending.Push($legacy)
+    try {
+        while ($pending.Count -gt 0) {
+            foreach ($entry in [IO.Directory]::EnumerateFileSystemEntries($pending.Pop())) {
+                if ([IO.FileInfo]::new($entry).LinkTarget) { return (& $refuse 'reparse-point' $null) }
+                $owner = Get-YurunaPathOwnerId -Path $entry -Platform $Platform
+                if (-not $owner.Resolved) { return (& $refuse 'owner-unverified' $null) }
+                if (-not (Test-YurunaPrivateOwnerMatch -OwnerId $owner.OwnerId -CurrentOwner $CurrentOwner -Platform $Platform)) {
+                    return (& $refuse 'owner-mismatch' $null)
+                }
+                if ([IO.Directory]::Exists($entry)) { $pending.Push($entry) }
+                elseif ($entry.EndsWith('.lock', [StringComparison]::Ordinal)) { $lockFiles.Add($entry) }
+            }
+        }
+    } catch {
+        return (& $refuse 'migration-pending' (Get-YurunaIoFailureKind -Exception $_.Exception))
+    }
+
+    $handles = [System.Collections.Generic.List[IO.FileStream]]::new()
+    $release = {
+        foreach ($handle in $handles) {
+            try { $handle.Dispose() } catch { Write-Verbose "Move-YurunaLegacyPrivateStateRoot: releasing '$($handle.Name)' failed: $($_.Exception.Message)" }
+        }
+        $handles.Clear()
+    }
+    $moved = [System.Collections.Generic.List[object]]::new()
+    $retired = [System.Collections.Generic.List[string]]::new()
+    try {
+        foreach ($lockFile in $lockFiles) {
+            try {
+                $handles.Add([IO.FileStream]::new($lockFile, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None))
+            } catch {
+                Write-Verbose "Move-YurunaLegacyPrivateStateRoot: '$lockFile' is in use: $($_.Exception.Message)"
+                # Only a creating resolve reaches the lock probe, so the
+                # operator always sees which process to stop.
+                Write-Warning (Format-YurunaOperatorMessage -Key 'automation.private_state_migration_lock_held' -Arguments @{ legacy = $legacy; lockFile = $lockFile })
+                return (& $refuse 'migration-pending' (Get-YurunaIoFailureKind -Exception $_.Exception))
+            }
+        }
+
+        $recordCommands = $null
+        $jsonOption = @{}
+        if ((Get-Command -Name ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { $jsonOption.DateKind = 'String' }
+        $removeFile = { param([string]$Path) if ([IO.File]::Exists($Path)) { [IO.File]::Delete($Path) } }
+        $renameKinds = {
+            param($Payload, [string[]]$Collections, [string]$OldKind, [string]$NewKind)
+            foreach ($name in $Collections) {
+                foreach ($row in @($Payload[$name])) {
+                    if ($row -is [System.Collections.IDictionary] -and [string]$row['kind'] -ceq $OldKind) { $row['kind'] = $NewKind }
+                }
+            }
+            if ([string]$Payload['kind'] -ceq $OldKind) { $Payload['kind'] = $NewKind }
+        }
+        $records = @(
+            @{ Old = 'host-refresh.journal'; New = 'host-operation.journal'; OldKind = 'host-refresh.request-journal'
+                NewKind = 'host-operation.request-journal'; MaxBytes = 4194304; Collections = @('requests', 'reservations', 'tombstones')
+                RowOld = 'host-refresh'; RowNew = 'host-repair' }
+            @{ Old = 'host-refresh.auto-budget.record'; New = 'host-repair.auto-budget.record'; OldKind = 'host-refresh-auto-budget'
+                NewKind = 'host-repair-auto-budget'; MaxBytes = 1048576; Collections = @()
+                RowOld = 'host-refresh-auto-budget'; RowNew = 'host-repair-auto-budget' }
+        )
+        foreach ($spec in $records) {
+            $oldPath = Join-Path $legacy $spec.Old
+            $newPath = Join-Path $legacy $spec.New
+            if (-not ([IO.File]::Exists($oldPath) -or [IO.File]::Exists("$oldPath.prev"))) { continue }
+            & $removeFile $newPath
+            & $removeFile "$newPath.prev"
+            if ($null -eq $recordCommands) {
+                if (-not (Get-Command -Name Write-YurunaCriticalRecord -CommandType Function -ErrorAction Ignore)) {
+                    Import-Module ([IO.Path]::Combine((Split-Path -Parent $PSScriptRoot), 'test', 'modules', 'Test.CriticalRecord.psm1')) -DisableNameChecking -ErrorAction Stop
+                }
+                $recordCommands = $true
+            }
+            $read = Read-YurunaCriticalRecord -Path $oldPath -Kind $spec.OldKind -MaxBytes $spec.MaxBytes
+            if ($read.Status -in @('io-error', 'io-timeout')) { return (& $refuse 'migration-pending' $read.Status) }
+            if ($read.Status -eq 'ok') {
+                $payload = $read.Payload
+                & $renameKinds $payload $spec.Collections $spec.RowOld $spec.RowNew
+                $write = Write-YurunaCriticalRecord -Path $newPath -Kind $spec.NewKind -Payload $payload -ExpectedGeneration 0 -MaxBytes $spec.MaxBytes -Confirm:$false
+                $check = if ($write.Committed) { Read-YurunaCriticalRecord -Path $newPath -Kind $spec.NewKind -MaxBytes $spec.MaxBytes } else { $null }
+                if (-not $check -or $check.Status -ne 'ok' -or $check.Degraded) {
+                    Write-Verbose "Move-YurunaLegacyPrivateStateRoot: '$newPath' was not written ($($write.Reason))."
+                    return (& $refuse 'migration-pending' $write.IoKind)
+                }
+            } else {
+                foreach ($suffix in @('', '.prev')) {
+                    if ([IO.File]::Exists("$oldPath$suffix")) { [IO.File]::Copy("$oldPath$suffix", "$newPath$suffix") }
+                }
+            }
+            foreach ($suffix in @('', '.prev')) {
+                if ([IO.File]::Exists("$oldPath$suffix")) {
+                    $retired.Add("$($spec.Old)$suffix")
+                    $moved.Add(@("$oldPath$suffix", (Join-Path $Root "$($spec.New)$suffix")))
+                }
+            }
+        }
+
+        $streakOld = Join-Path $legacy 'host-refresh.auto-streak.json'
+        $streakNew = Join-Path $legacy 'host-repair.auto-streak.json'
+        if ([IO.File]::Exists($streakOld)) {
+            & $removeFile $streakNew
+            $bytes = [IO.File]::ReadAllBytes($streakOld)
+            try {
+                $streak = ConvertFrom-Json -InputObject ([Text.UTF8Encoding]::new($false, $true).GetString($bytes)) -AsHashtable -ErrorAction Stop @jsonOption
+            } catch { $streak = $null }
+            if ($streak -is [System.Collections.IDictionary]) {
+                & $renameKinds $streak @() 'host-refresh-auto-streak' 'host-repair-auto-streak'
+                $bytes = [Text.UTF8Encoding]::new($false).GetBytes((ConvertTo-Json -InputObject $streak -Depth 8 -Compress))
+            }
+            $temp = "$streakNew.$([Guid]::NewGuid().ToString('N')).tmp"
+            [IO.File]::WriteAllBytes($temp, $bytes)
+            [IO.File]::Move($temp, $streakNew)
+            $retired.Add('host-refresh.auto-streak.json')
+            $moved.Add(@($streakOld, (Join-Path $Root 'host-repair.auto-streak.json')))
+        }
+
+        if ($Platform -eq 'windows') { & $release }
+        foreach ($lock in @(@('host-refresh.lock', 'host-operation.lock'), @('host-refresh.admission.lock', 'host-operation.admission.lock'))) {
+            $oldLock = Join-Path $legacy $lock[0]
+            $newLock = Join-Path $legacy $lock[1]
+            if ([IO.File]::Exists($oldLock) -and -not [IO.File]::Exists($newLock)) {
+                [IO.File]::Move($oldLock, $newLock)
+                $moved.Add(@($oldLock, (Join-Path $Root $lock[1])))
+            }
+        }
+        [IO.Directory]::Move($legacy, $Root)
+    } catch {
+        Write-Verbose "Move-YurunaLegacyPrivateStateRoot: '$legacy' was not moved: $($_.Exception.Message)"
+        return (& $refuse 'migration-pending' (Get-YurunaIoFailureKind -Exception $_.Exception))
+    } finally {
+        & $release
+    }
+
+    Write-Warning (Format-YurunaOperatorMessage -Key 'automation.private_state_moved' -Arguments @{ previous = $legacy; current = $Root })
+    foreach ($item in $moved) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'automation.private_state_moved' -Arguments @{ previous = $item[0]; current = $item[1] })
+    }
+    # The old names are no longer read by anything once the directory has moved.
+    foreach ($leaf in $retired) {
+        try { & $removeFile (Join-Path $Root $leaf) } catch { Write-Verbose "Move-YurunaLegacyPrivateStateRoot: '$leaf' was not removed: $($_.Exception.Message)" }
+    }
+    $result.Status = 'moved'
+    return [pscustomobject]$result
+}
+
 function Get-YurunaPrivateStateRoot {
 <#
 .SYNOPSIS
     Resolve, and on first use create and secure, the private per-host-owner
-    application-data root at $HOME/.yuruna/host-refresh, beside the existing
+    application-data root at $HOME/.yuruna/host-repair, beside the existing
     cross-host per-user state Get-HostProxyBackupPath already keeps at
     $HOME/.yuruna.
 .DESCRIPTION
-    Everything the host-refresh protocol treats as authoritative -- the
+    Everything the host-repair protocol treats as authoritative -- the
     lifetime single-flight lock, the request journal, the recovery snapshot
     -- has to live outside every HTTP-served root. The status service serves
     runtime/, log/, test/status/ and the whole repository by deny-list, not
     allow-list, so anything written under a served tree is public unless its
     name shape happens to be denied; this root is never inside one of those
     trees regardless of naming. A single owning runtime is registered under
-    this root by the refresh journal; this function only resolves and
+    this root by the host operation journal; this function only resolves and
     secures the directory.
 
     Every check fails closed. The root is refused, rather than degraded to an
@@ -3996,7 +4233,7 @@ function Get-YurunaPrivateStateRoot {
       * HOME is unset (no-home), or -VerifyHome finds it differs from the
         account's home (home-mismatch): two HOME values for one account
         would give two lock namespaces for one hypervisor;
-      * .yuruna or host-refresh is a symbolic link or reparse point
+      * .yuruna or host-repair is a symbolic link or reparse point
         (reparse-point) -- there is no legitimate reason for this path to be
         an alias, and chasing a link reopens the redirect risk it closes;
       * the canonical root is inside, or contains, a served tree
@@ -4009,24 +4246,28 @@ function Get-YurunaPrivateStateRoot {
         owner cannot be read at all (owner-unverified) -- an unknown owner is
         a refusal, never a pass;
       * .yuruna is writable by other users (parent-untrusted), who could
-        swap host-refresh for their own directory between check and use.
+        swap host-repair for their own directory between check and use.
         Group write is accepted only on Linux and only for a user-private
         group: this account's primary group, carrying the user's own name, with
         no other member in the account database (a lookup that does not
         answer refuses). The directory is shared with other tools, so it is
         never re-moded;
-      * host-refresh cannot be locked to owner-only access, 0700 on Unix or
+      * host-repair cannot be locked to owner-only access, 0700 on Unix or
         an ACL granting only the current identity on Windows
         (permission-failed), or, without create rights, is looser than that
         (permission-loose);
       * a directory cannot be created (create-failed) or found again right
-        after creation (resolve-failed).
+        after creation (resolve-failed);
+      * the earlier root, $HOME/.yuruna/host-refresh, is still in place
+        beside host-repair (migration-conflict), or could not be moved yet
+        (migration-pending); see Move-YurunaLegacyPrivateStateRoot.
 
     With -NoCreate, and whenever $WhatIfPreference is set -- globally, in
     this module, or for the caller, including an advanced function in
-    another module that was given -WhatIf -- nothing is created or re-moded:
-    a missing root is 'absent' and a loose one 'permission-loose'. A preview
-    therefore observes without writing.
+    another module that was given -WhatIf -- nothing is created, moved or
+    re-moded: a missing root is 'absent', a loose one 'permission-loose', and
+    an earlier root not yet moved 'migration-pending', never 'absent'. A
+    preview therefore observes without writing.
 .PARAMETER NoCreate
     Observe only: create nothing, change no permission.
 .PARAMETER VerifyHome
@@ -4042,11 +4283,12 @@ function Get-YurunaPrivateStateRoot {
 .OUTPUTS
     [pscustomobject] @{ Resolved; Path; Reason; CanonicalPath; IoKind;
     FileSystem; DriveType; OwnerVerified; HomeVerified }. Trust Path only
-    when Resolved is $true; Path keeps the textual $HOME/.yuruna/host-refresh
+    when Resolved is $true; Path keeps the textual $HOME/.yuruna/host-repair
     spelling and CanonicalPath the resolved one. Reason is one of: ok,
     absent, no-home, home-mismatch, create-failed, resolve-failed,
     reparse-point, owner-mismatch, owner-unverified, parent-untrusted,
-    permission-failed, permission-loose, network-filesystem, served-tree.
+    permission-failed, permission-loose, network-filesystem, served-tree,
+    migration-pending, migration-conflict.
     HomeVerified is verified, mismatch, unverified or not-requested.
 #>
     [CmdletBinding()]
@@ -4070,7 +4312,7 @@ function Get-YurunaPrivateStateRoot {
         return [pscustomobject]$record
     }
     $stateDir = Join-Path $homeDir '.yuruna'
-    $root     = Join-Path $stateDir 'host-refresh'
+    $root     = Join-Path $stateDir 'host-repair'
     $comparison = if ($platform -eq 'linux') { [StringComparison]::Ordinal } else { [StringComparison]::OrdinalIgnoreCase }
 
     if ($VerifyHome) {
@@ -4133,14 +4375,11 @@ function Get-YurunaPrivateStateRoot {
     }
 
     $currentOwner = Get-YurunaCurrentOwnerId
-    foreach ($component in @($stateDir, $root)) {
-        $checked = Confirm-YurunaPrivateDirectory -Path $component -Platform $platform -CurrentOwner $currentOwner -CreateAllowed $createAllowed -SecurePermissions $false
-        if (-not $checked.Resolved) {
-            $record.Reason = $checked.Reason; $record.IoKind = $checked.IoKind
-            return [pscustomobject]$record
-        }
+    $checked = Confirm-YurunaPrivateDirectory -Path $stateDir -Platform $platform -CurrentOwner $currentOwner -CreateAllowed $createAllowed -SecurePermissions $false
+    if (-not $checked.Resolved) {
+        $record.Reason = $checked.Reason; $record.IoKind = $checked.IoKind
+        return [pscustomobject]$record
     }
-    $record.OwnerVerified = $true
 
     if ($platform -ne 'windows') {
         try {
@@ -4164,6 +4403,20 @@ function Get-YurunaPrivateStateRoot {
             }
         }
     }
+    # The legacy root moves only into a trusted parent, and before host-repair
+    # is created: a host-repair created first would leave the two roots side
+    # by side, which is refused.
+    $migration = Move-YurunaLegacyPrivateStateRoot -StateDirectory $stateDir -Root $root -Platform $platform -CurrentOwner $currentOwner -CreateAllowed $createAllowed
+    if ($migration.Status -eq 'refused') {
+        $record.Reason = $migration.Reason; $record.IoKind = $migration.IoKind
+        return [pscustomobject]$record
+    }
+    $checked = Confirm-YurunaPrivateDirectory -Path $root -Platform $platform -CurrentOwner $currentOwner -CreateAllowed $createAllowed -SecurePermissions $false
+    if (-not $checked.Resolved) {
+        $record.Reason = $checked.Reason; $record.IoKind = $checked.IoKind
+        return [pscustomobject]$record
+    }
+    $record.OwnerVerified = $true
     $secured = Confirm-YurunaPrivateDirectory -Path $root -Platform $platform -CurrentOwner $currentOwner -CreateAllowed $createAllowed
     if (-not $secured.Resolved) {
         $record.Reason = $secured.Reason; $record.IoKind = $secured.IoKind
@@ -4183,7 +4436,7 @@ function Get-YurunaPrivateStatePath {
     private state root, with the same checks the root gets.
 .DESCRIPTION
     One helper for every channel, hop and service script, so nothing composes
-    its own path under $HOME/.yuruna/host-refresh and nothing introduces a
+    its own path under $HOME/.yuruna/host-repair and nothing introduces a
     second application-data location. Names are restricted to a plain
     file-name shape, so no caller value can climb out of the root or name a
     hidden file. The subdirectory is created owner-only (unless -NoCreate or
@@ -4921,6 +5174,9 @@ $script:YurunaStaleTempPattern = [ordered]@{
     'move-cache-askpass'    = @{ Pattern = '^yuruna-move-cache-[0-9a-f]{32}$'; Source = 'test/service/Move-CachingProxyService.ps1'; Literal = 'yuruna-move-cache-' }
     'gpg-home'              = @{ Pattern = '^yuruna-gpg-[0-9a-f]{32}$'; Source = 'host/modules/Yuruna.Image.psm1'; Literal = 'yuruna-gpg-' }
     'installer-copy'        = @{ Pattern = '^yuruna-windows-hyper-v-[0-9a-f]{32}\.ps1$'; Source = 'install/windows.hyper-v.ps1'; Literal = 'yuruna-windows-hyper-v-' }
+    # tapOn's doubled copy of a frame, left behind when its process was
+    # killed before the finally that removes it ran.
+    'tapon-frame'           = @{ Pattern = '^yuruna-tapon-[0-9a-f]{32}\.png$'; Source = 'test/modules/Test.SequenceEngine.psm1'; Literal = 'yuruna-tapon-' }
     # The guest wrapper's; a guest prunes them on its next run, and a host has
     # them only from test runs of the wrapper.
     'fae-recorder'          = @{ Pattern = '^yuruna-fae-recorder\.[A-Za-z0-9]{8}$'; Source = 'automation/fetch-and-execute.sh'; Literal = 'yuruna-fae-recorder.' }
@@ -4938,7 +5194,7 @@ $script:YurunaStaleTempPattern = [ordered]@{
     'dlagent-test'          = @{ Pattern = '^yrn-dlagent(?:-client)?-\d+$'; Source = 'test/modules/Test.DownloadAgentService.Tests.ps1'; Literal = 'yrn-dlagent-client-' }
     'configpreflight-test'  = @{ Pattern = '^yuruna-configpreflight-[0-9a-f]{32}$'; Source = 'test/modules/Test.ConfigPreflight.Tests.ps1'; Literal = 'yuruna-configpreflight' }
     'image-test'            = @{ Pattern = '^yuruna-image-test-[0-9a-f]{32}$'; Source = 'host/modules/Yuruna.Image.Tests.ps1'; Literal = 'yuruna-image-test' }
-    'refresh-safe-test'     = @{ Pattern = '^yuruna-refresh-safe-[0-9a-f]{32}$'; Source = 'test/modules/Test.StatusServiceRefreshSafe.Tests.ps1'; Literal = 'yuruna-refresh-safe' }
+    'non-destructive-test'  = @{ Pattern = '^yuruna-non-destructive-[0-9a-f]{32}$'; Source = 'test/modules/Test.StatusServiceNonDestructive.Tests.ps1'; Literal = 'yuruna-non-destructive' }
     'chain-test'            = @{ Pattern = '^yrn-chain-[0-9a-f]{32}$'; Source = 'test/modules/Test.RunnerThreeProcess.Tests.ps1'; Literal = 'yrn-chain' }
     'utmctl-outside-test'   = @{ Pattern = '^utmctl-outside-[0-9a-f]{32}$'; Source = 'test/modules/Test.UtmctlOutsideDriver.Tests.ps1'; Literal = 'utmctl-outside' }
     'status-test'           = @{ Pattern = '^yrn-status-test-[0-9a-z]{8}\.[0-9a-z]{3}$'; Source = 'test/modules/Test.Status.Tests.ps1'; Literal = 'yrn-status-test' }
@@ -5296,7 +5552,7 @@ function New-YurunaVirtualizationProbeRecord {
         Build the common probe schema from driver evidence and a sanitized diagnostic.
     .DESCRIPTION
         The one builder of the record every driver's Test-VirtualizationResponsive
-        returns and the refresh worker synthesizes. Its consumers branch on the
+        returns and the repair worker synthesizes. Its consumers branch on the
         state and the reason, so both are checked here: a state outside the three
         the schema names, or a reason that is not a lowercase token, is a driver
         bug that would otherwise pass every gate it reaches unnoticed.

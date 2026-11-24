@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42c9a53a-2f6e-4b3f-9f81-3316fd505899
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,10 +43,6 @@ function Test-MacProxyIsYurunaManaged {
     return (Test-Path -LiteralPath (Get-MacProxyMarkerPath))
 }
 
-<#
-.SYNOPSIS
-    Return the macOS network service for the default-route interface.
-#>
 function Get-MacDefaultRouteInterface {
     <#
     .SYNOPSIS

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -443,7 +443,13 @@ Describe 'The guest GitHub token reaches github.com alone' {
         function Get-SeedAskpass {
             param([string]$Seed)
             $lines = [IO.File]::ReadAllLines((Join-Path $repoRoot "host/vmconfig/$Seed"))
-            $start = [Array]::FindIndex($lines, [Predicate[string]] { param($l) $l.Trim() -eq '#!/bin/sh' })
+            # The seed embeds other shell scripts; select the named askpass
+            # installation in either late-commands or write_files first.
+            $definition = [Array]::FindIndex($lines, [Predicate[string]] {
+                    param($l) $l -match '^\s*(?:cat > /target|-\s+path:\s*)/usr/local/lib/yuruna/git-askpass\.sh(?:\s|$)'
+                })
+            if ($definition -lt 0) { throw "The seed '$Seed' does not install git-askpass.sh." }
+            $start = [Array]::FindIndex($lines, $definition, [Predicate[string]] { param($l) $l.Trim() -eq '#!/bin/sh' })
             $end = [Array]::FindIndex($lines, $start, [Predicate[string]] { param($l) $l.Trim() -eq 'esac' })
             $indent = $lines[$start].Length - $lines[$start].TrimStart().Length
             return (($lines[$start..$end] | ForEach-Object { if ($_.Length -ge $indent) { $_.Substring($indent) } else { $_.TrimStart() } }) -join "`n") + "`n"
@@ -1284,7 +1290,7 @@ Describe 'the Windows updater verifies host archives through the guest channel' 
             . ([scriptblock]::Create($script:DigestFn))
             $script:Repo = Join-Path $TestDrive 'framework'
             $null = New-Item -ItemType Directory -Path (Join-Path $script:Repo 'docs') -Force
-            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.11.16'
+            Set-Content -LiteralPath (Join-Path $script:Repo 'VERSION') -Value '2026.11.23'
             Set-Content -LiteralPath (Join-Path $script:Repo 'docs/x.md') -Value 'excluded'
             $null = New-YurunaTestGitRepository -Path $script:Repo -AddExisting -CommitMessage 'seed'
             $script:Commit = ([string](Invoke-YurunaTestGit -Path $script:Repo -Argument @('rev-parse', 'HEAD'))).Trim()

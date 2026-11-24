@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42fff0b4-1eb3-4eba-8efc-bcdaf457e9b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@ Describe 'the module-set loader refuses a missing module' {
         $probe = Join-Path $TestDrive 'imported.txt'
         $set = @('Test.HostContract.psm1', 'Test.YurunaDir.psm1', 'Test.Config.psm1', 'Test.StateFile.psm1', 'Test.OuterLog.psm1',
             'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1',
-            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostRefreshIntent.psm1', 'Test.HostRefresh.psm1')
+            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostOperationJournal.psm1', 'Test.HostRepair.psm1')
         foreach ($name in $set) {
             if ($name -eq 'Test.ServiceVm.psm1') { continue }
             Set-Content -LiteralPath (Join-Path $modules $name) -Value "Add-Content -LiteralPath '$probe' -Value '$name'"
@@ -100,7 +100,7 @@ Describe 'the module-set loader refuses a missing module' {
         Set-Content -LiteralPath $child -Value @"
 `$PSStyle.OutputRendering = 'PlainText'
 Import-Module '$(Join-Path $here 'Test.Prelude.psm1')' -Force
-try { Initialize-YurunaEntryPointModuleSet -For Refresh -ModulesDir '$modules'; 'no-throw' } catch { "threw: `$(`$_.Exception.Message)" }
+try { Initialize-YurunaEntryPointModuleSet -For Repair -ModulesDir '$modules'; 'no-throw' } catch { "threw: `$(`$_.Exception.Message)" }
 "@
         $out = @(& ([Environment]::ProcessPath) -NoProfile -NonInteractive -File $child 2>&1) -join "`n"
         Assert-Match -Pattern '^threw: .*Test\.ServiceVm\.psm1' -Actual $out -Because 'the refusal names the missing file'
@@ -177,7 +177,7 @@ Describe 'the cycle-start host-network gate' {
         $script:Health = [pscustomobject]@{ Healthy = $true; Degraded = $false; Path = 'external'; Reason = 'fine'; Verdicts = @() }
         Mock -ModuleName Test.RunnerInnerLoop Test-HostGuestNetworkHealth { $script:Health }
         Mock -ModuleName Test.RunnerInnerLoop Write-HostRegistrationRecord { }
-        Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRefreshSpawnAllowed { $true }
+        Mock -ModuleName Test.RunnerInnerLoop Test-YurunaRunnerSpawnAllowed { $true }
         Mock -ModuleName Test.RunnerInnerLoop Get-PwshApplicationPath { 'pwsh' }
         Mock -ModuleName Test.RunnerInnerLoop Invoke-BoundedNativeCommand { @{ TimedOut = $false; ExitCode = 0; StdOut = 'swept'; StdErr = '' } }
         Mock -ModuleName Test.RunnerInnerLoop Get-BoundedNativeOutputLine { 'swept one VM' }
@@ -236,7 +236,7 @@ Describe 'the cycle-start host-network gate' {
 Describe 'the cycle-start service-VM restore' {
     BeforeAll {
         Initialize-YurunaEntryPointModuleSet -For Inner -ModulesDir $here
-        Import-Module (Join-Path $here 'Test.HostRefreshTrigger.psm1') -Global -DisableNameChecking
+        Import-Module (Join-Path $here 'Test.HostRepairTrigger.psm1') -Global -DisableNameChecking
         $script:Runtime = Join-Path $TestDrive 'restore-runtime'
         $null = New-Item -ItemType Directory -Force -Path $script:Runtime
     }
@@ -245,7 +245,7 @@ Describe 'the cycle-start service-VM restore' {
         $script:Keys = [System.Collections.Generic.List[string]]::new()
         Mock -ModuleName Test.RunnerInnerLoop Format-YurunaOperatorMessage { $script:Keys.Add($Key); $Key }
         Mock -ModuleName Test.RunnerInnerLoop Write-YurunaServiceVmRestoreReport { }
-        Mock -ModuleName Test.RunnerInnerLoop Write-HostRefreshAutoEvidence { }
+        Mock -ModuleName Test.RunnerInnerLoop Write-HostRepairAutoEvidence { }
     }
     AfterEach { Restore-YurunaTestEnvironment -Saved $script:SavedGeneration }
 
@@ -256,7 +256,7 @@ Describe 'the cycle-start service-VM restore' {
         Assert-True $restore.Attempted 'the restore ran'
         Assert-Equal -Expected 'stash' -Actual $restore.Results[0].Key
         Should -Invoke -ModuleName Test.RunnerInnerLoop Write-YurunaServiceVmRestoreReport -Times 1 -Exactly -ParameterFilter { $Result[0].Key -eq 'stash' }
-        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-HostRefreshAutoEvidence -Times 1 -Exactly -ParameterFilter {
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-HostRepairAutoEvidence -Times 1 -Exactly -ParameterFilter {
             $Generation -eq '7' -and $Phase -eq 'service-vm-restore' -and $RuntimeDir -eq $script:Runtime -and $ServiceRestoreResult[0].Key -eq 'stash' }
         Assert-True $restore.EvidenceWritten 'the evidence was written'
     }
@@ -267,7 +267,7 @@ Describe 'the cycle-start service-VM restore' {
         $restore = Invoke-CycleServiceVmRestore -HostType 'host.ubuntu.kvm' -RuntimeDir $script:Runtime 3>$null
         Assert-Equal -Expected 0 -Actual @($restore.Results).Count
         Assert-True ($script:Keys -contains 'runner.operator_96a9c1c4155d58e1') 'the failure is warned'
-        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-HostRefreshAutoEvidence -Times 1 -Exactly -ParameterFilter { @($ServiceRestoreResult).Count -eq 0 }
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-HostRepairAutoEvidence -Times 1 -Exactly -ParameterFilter { @($ServiceRestoreResult).Count -eq 0 }
     }
 
     It 'writes no evidence without a generation from the outer loop' {
@@ -275,16 +275,16 @@ Describe 'the cycle-start service-VM restore' {
         Mock -ModuleName Test.RunnerInnerLoop Restore-YurunaServiceVM { @() }
         $restore = Invoke-CycleServiceVmRestore -HostType 'host.ubuntu.kvm' -RuntimeDir $script:Runtime 3>$null
         Assert-False $restore.EvidenceWritten 'no generation, no evidence'
-        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-HostRefreshAutoEvidence -Times 0 -Exactly
+        Should -Invoke -ModuleName Test.RunnerInnerLoop Write-HostRepairAutoEvidence -Times 0 -Exactly
     }
 
     It 'keeps the evidence failure from reaching the cycle' {
         $env:YURUNA_CYCLE_GENERATION = '9'
         Mock -ModuleName Test.RunnerInnerLoop Restore-YurunaServiceVM { @() }
-        Mock -ModuleName Test.RunnerInnerLoop Write-HostRefreshAutoEvidence { throw 'sidecar unwritable' }
+        Mock -ModuleName Test.RunnerInnerLoop Write-HostRepairAutoEvidence { throw 'sidecar unwritable' }
         $restore = Invoke-CycleServiceVmRestore -HostType 'host.ubuntu.kvm' -RuntimeDir $script:Runtime 3>$null
         Assert-False $restore.EvidenceWritten 'the write failed'
-        Assert-True ($script:Keys -contains 'runner.refresh_trigger_call_failed') 'the failure is warned'
+        Assert-True ($script:Keys -contains 'runner.host_repair_trigger_call_failed') 'the failure is warned'
     }
 }
 

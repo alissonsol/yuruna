@@ -26,6 +26,9 @@ import (
 // launched without an aggregator, which the UI reads as "render the id
 // unlinked".
 //
+// hostUpdate says whether this daemon can sign a remote host update, so a
+// table offers the action only where its confirmation page can carry it out.
+//
 // The version is also on /api/session and /api/diagnostics, but neither is the
 // right dependency for page furniture: one describes the write gate and the
 // other runs a full dependency probe.
@@ -36,6 +39,7 @@ func (s *Server) handleHostInfo(w http.ResponseWriter, _ *http.Request) {
 		"version":     s.opts.Version,
 		"serverIps":   hostinfo.IPLines(),
 		"goBaseUrl":   goBaseURL(s.opts.AggregatorURL),
+		"hostUpdate":  s.updateEnabled(),
 	})
 }
 

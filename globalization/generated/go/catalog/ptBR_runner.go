@@ -30,8 +30,50 @@ const DataptBRrunner = `{
     },
     "\n  Correção (uma das duas): conceda acesso ao GH_TOKEN deste hospedeiro a esse repositório,\n                ou defina a URL de projeto do grupo como um repositório que todos os membros possam ler."
   ],
+  "runner.auth_state_users_restarted": [
+    "Não foi possível ler users.yml como um mapeamento (",
+    {
+      "arg": "problem",
+      "type": "token",
+      "trust": "internal"
+    },
+    "): ",
+    {
+      "arg": "usersPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Seus bytes foram movidos para ",
+    {
+      "arg": "backupPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " e um novo users.yml foi copiado do modelo; informe novamente os mapeamentos corporativos e as chaves do cofre a partir da cópia movida."
+  ],
+  "runner.auth_state_vault_restarted": [
+    "Não foi possível ler vault.yml como um mapeamento (",
+    {
+      "arg": "problem",
+      "type": "token",
+      "trust": "internal"
+    },
+    "): ",
+    {
+      "arg": "vaultPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Seus bytes foram movidos para ",
+    {
+      "arg": "backupPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " e o cofre começa vazio; cada senha que ele guardava precisa ser definida novamente com Set-Password (veja docs/test-config.md)."
+  ],
   "runner.boot_recovery_preserved_controls": [
-    "A recuperação na inicialização (preservação do refresh) manteve ",
+    "A recuperação na inicialização (preservação da transferência) manteve ",
     {
       "arg": "count",
       "type": "integer",
@@ -59,6 +101,28 @@ const DataptBRrunner = `{
   "runner.capability_gate_host_command_missing": "  As sequências executam comandos que não existem neste hospedeiro:",
   "runner.capability_gate_host_command_remedy": "  Instale neste hospedeiro os comandos ausentes ou retire dos YAMLs de sequência do ciclo as etapas que os executam.",
   "runner.capability_gate_host_command_step": [
+    "        ",
+    {
+      "arg": "sequence",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", etapa ",
+    {
+      "arg": "step",
+      "type": "integer",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "action",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.capability_gate_ocr_engine_missing": "  As sequências localizam texto com mecanismos de OCR que este hospedeiro não tem:",
+  "runner.capability_gate_ocr_engine_remedy": "  Instale neste hospedeiro o mecanismo ausente ou retire dos YAMLs de sequência do ciclo as etapas que precisam dele.",
+  "runner.capability_gate_ocr_engine_step": [
     "        ",
     {
       "arg": "sequence",
@@ -108,6 +172,44 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.config_naming_change": [
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "old",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "new",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (arquivo anterior mantido como ",
+    {
+      "arg": "backupPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
   ],
   "runner.config_port_firewall_unconfirmed": [
     "O serviço de configuração não conseguiu confirmar que a porta TCP :",
@@ -733,6 +835,170 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.handoff_barrier_held": [
+    "Retomado após a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": retido por ",
+    {
+      "arg": "controls",
+      "type": "text",
+      "trust": "internal"
+    },
+    ". Libere-os na página de status; nenhuma VM é criada ou alterada até lá."
+  ],
+  "runner.handoff_barrier_released": [
+    "Controles retidos liberados após ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s; o ciclo retomado continua."
+  ],
+  "runner.handoff_complete": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] prontidão verificada para a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; saindo do portão do executor."
+  ],
+  "runner.handoff_complete_action": [
+    "Concluir uma transferência do executor (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.handoff_issue_action": [
+    "Emitir um token de transferência do executor (",
+    {
+      "arg": "purpose",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "runner.handoff_preflight_cycle": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] apenas verificação prévia da transferência: sem git pull, alteração de VM ou varredura de controles neste ciclo."
+  ],
+  "runner.handoff_preflight_failed": [
+    "A verificação prévia da transferência falhou (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); nada foi alterado e o executor permanece retido."
+  ],
+  "runner.handoff_preflight_ready": [
+    "Verificação prévia da transferência pronta para a solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; aguardando a operação do hospedeiro liberar o executor."
+  ],
+  "runner.handoff_preflight_released": [
+    "Verificação prévia da transferência encerrada (",
+    {
+      "arg": "outcome",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); saindo para que o executor possa continuar."
+  ],
+  "runner.handoff_preflight_result": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o ciclo de verificação prévia da transferência terminou com código de saída ",
+    {
+      "arg": "exitCode",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.handoff_resume_action": "Reiniciar o executor após uma operação do hospedeiro",
+  "runner.handoff_resume_record_refused": [
+    "Start-TestRunner: ",
+    {
+      "arg": "pidFile",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " está ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; uma retomada após transferência nunca assume nem exclui um registro de executor ativo ou desconhecido."
+  ],
+  "runner.handoff_resume_started": [
+    "Start-TestRunner: retomando após a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; pausas, retenções e solicitações de reinício do operador são preservadas."
+  ],
+  "runner.handoff_resume_switch_pair": "Start-TestRunner: -HandoffResume e -HandoffToken devem ser informados juntos; não iniciando.",
+  "runner.handoff_resume_token_refused": [
+    "Start-TestRunner: a transferência do executor foi recusada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); não iniciando."
+  ],
+  "runner.handoff_unverified": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] não foi possível verificar a prontidão para a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); o executor permanece retido."
+  ],
   "runner.host_action_exit_detail": [
     "a ação da máquina '",
     {
@@ -802,6 +1068,73 @@ const DataptBRrunner = `{
     },
     " não respondeu, então a configuração está indeterminada, e não se sabe se é segura."
   ],
+  "runner.host_controller_session_action": "Encerrar a sessão yuruna-controller do controlador do hospedeiro",
+  "runner.host_controller_start_error": [
+    "Controlador do hospedeiro: a etapa de início falhou (",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); nenhum controlador foi iniciado."
+  ],
+  "runner.host_controller_start_lock_unreadable": "Controlador do hospedeiro: a trava dele não pode ser lida, então não se arrisca um segundo controlador; nenhum foi iniciado.",
+  "runner.host_controller_start_no_multiplexer": "Controlador do hospedeiro: nem tmux nem screen foram encontrados, então nenhum controlador foi iniciado; o executor inicia sem um.",
+  "runner.host_controller_start_not_deployed": "Controlador do hospedeiro: não implantado neste hospedeiro; execute Enable-TestAutomation para implantá-lo. Nenhum controlador foi iniciado.",
+  "runner.host_controller_start_not_desktop_session": "Controlador do hospedeiro: não iniciado, porque este início do executor não está na sessão da área de trabalho (um login por SSH ou uma sessão em segundo plano). Inicie o executor em um terminal da sessão da área de trabalho para iniciá-lo.",
+  "runner.host_controller_start_not_held": [
+    "Controlador do hospedeiro: a sessão ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " yuruna-controller foi criada, mas nenhum controlador obteve a trava em 10 s. Para lê-la: ",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_controller_start_running": "Controlador do hospedeiro: em execução.",
+  "runner.host_controller_start_session_exists": [
+    "Controlador do hospedeiro: a sessão ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " yuruna-controller dele já existe; o shim dela inicia o controlador. Para lê-la: ",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_controller_start_session_unknown": "Controlador do hospedeiro: não foi possível saber se a sessão yuruna-controller existe, então nenhuma foi iniciada.",
+  "runner.host_controller_start_start_failed": [
+    "Controlador do hospedeiro: não foi possível criar a sessão ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " yuruna-controller; nenhum controlador foi iniciado."
+  ],
+  "runner.host_controller_start_started": [
+    "Controlador do hospedeiro: iniciado na sessão ",
+    {
+      "arg": "multiplexer",
+      "type": "token",
+      "trust": "internal"
+    },
+    " yuruna-controller dele. Para lê-la: ",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
   "runner.host_diagnostic_timeout": "Diagnósticos do hospedeiro cronometraram após 120s; veja a amostra anterior do hospedeiro.",
   "runner.host_diagnostic_worker_failed": [
     "O diagnóstico do hospedeiro ",
@@ -866,128 +1199,130 @@ const DataptBRrunner = `{
     },
     " s e foi interrompida; o ciclo continua recusado."
   ],
-  "runner.host_refresh_action_dispose_obligations": [
-    "Próximo passo: após verificar cada item manualmente, registre-o com: pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation ",
+  "runner.host_operation_should_process_admission": "Registrar a admissão da operação do hospedeiro",
+  "runner.host_operation_should_process_listener": "Iniciar o listener de status em modo não destrutivo",
+  "runner.host_repair_action_dispose_obligations": [
+    "Próxima etapa: após verificar cada item manualmente, registre-o com: pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation ",
     {
       "arg": "obligations",
       "type": "detail",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_action_elevate": [
-    "Próximo passo: conceda a esta conta o privilégio exigido pelo nível ",
+  "runner.host_repair_action_elevate": [
+    "Próxima etapa: conceda a esta conta o privilégio exigido pelo nível ",
     {
       "arg": "rung",
       "type": "identifier",
       "trust": "internal"
     },
-    " (o comando exato aparece acima, quando aplicável) e execute o refresh novamente."
+    " (o comando exato aparece acima, quando aplicável) e execute o reparo novamente."
   ],
-  "runner.host_refresh_action_grant_automation": "Próximo passo: permita o acesso de Automação ao UTM para o aplicativo que executa este shell e execute o refresh novamente.",
-  "runner.host_refresh_action_gui_session": "Próximo passo: execute o refresh na sessão de desktop conectada; esta sessão só pode observar.",
-  "runner.host_refresh_action_install_client": [
-    "Próximo passo: restaure o cliente de linha de comando do hipervisor (",
+  "runner.host_repair_action_grant_automation": "Próxima etapa: permita o acesso de Automação ao UTM para o aplicativo que executa este shell e execute o reparo novamente.",
+  "runner.host_repair_action_gui_session": "Próxima etapa: execute o reparo na sessão de desktop conectada; esta sessão só pode observar.",
+  "runner.host_repair_action_install_client": [
+    "Próxima etapa: restaure o cliente de linha de comando do hipervisor (",
     {
       "arg": "client",
       "type": "identifier",
       "trust": "internal"
     },
-    "); o refresh não o reinstala."
+    "); o reparo não o reinstala."
   ],
-  "runner.host_refresh_action_resume_request": "Próximo passo: retome a solicitação pendente com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume",
-  "runner.host_refresh_action_start_runner": "Próximo passo: inicie o runner manualmente: pwsh test/Start-TestRunner.ps1",
-  "runner.host_refresh_auth_action_create_authority": "Criar a autoridade de assinatura de atualização e a credencial do operador",
-  "runner.host_refresh_auth_action_export_host_key": [
-    "Gravar a chave de verificação de atualização do hospedeiro ",
+  "runner.host_repair_action_resume_request": "Próxima etapa: retome a solicitação pendente com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume",
+  "runner.host_repair_action_start_runner": "Próxima etapa: inicie o executor manualmente: pwsh test/Start-TestRunner.ps1",
+  "runner.host_repair_auth_action_create_authority": "Criar a autoridade de assinatura de reparo e a credencial do operador",
+  "runner.host_repair_auth_action_export_host_key": [
+    "Gravar a chave de verificação de reparo do hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auth_action_install_host_key": [
-    "Instalar a chave de verificação de atualização do hospedeiro ",
+  "runner.host_repair_auth_action_install_host_key": [
+    "Instalar a chave de verificação de reparo do hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auth_action_remove_host_key": "Remover a chave de verificação de atualização",
-  "runner.host_refresh_auto_action_admit": [
-    "Admitir uma solicitação automática de refresh do hospedeiro para a geração de ciclo ",
+  "runner.host_repair_auth_action_remove_host_key": "Remover a chave de verificação de reparo",
+  "runner.host_repair_auto_action_admit": [
+    "Admitir uma solicitação automática de reparo do hospedeiro para a geração de ciclo ",
     {
       "arg": "generation",
       "type": "token",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_consume_evidence": "Consumir o arquivo de evidências do refresh do hospedeiro",
-  "runner.host_refresh_auto_action_decide": [
-    "Decidir se deve executar um refresh automático do hospedeiro após o ciclo externo ",
+  "runner.host_repair_auto_action_consume_evidence": "Consumir o arquivo de evidências do reparo do hospedeiro",
+  "runner.host_repair_auto_action_decide": [
+    "Decidir se deve executar um reparo automático do hospedeiro após o ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_record_outcome": [
+  "runner.host_repair_auto_action_record_outcome": [
     "Registrar o resultado ",
     {
       "arg": "verdict",
       "type": "identifier",
       "trust": "internal"
     },
-    " do refresh automático do hospedeiro"
+    " do reparo automático do hospedeiro"
   ],
-  "runner.host_refresh_auto_action_reserve": [
-    "Reservar a tentativa de refresh automático do hospedeiro para o dia UTC ",
+  "runner.host_repair_auto_action_reserve": [
+    "Reservar a tentativa de reparo automático do hospedeiro para o dia UTC ",
     {
       "arg": "utcDay",
       "type": "text",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_run_worker": [
-    "Executar o worker de refresh do hospedeiro para a solicitação ",
+  "runner.host_repair_auto_action_run_worker": [
+    "Executar o worker de reparo do hospedeiro para a solicitação ",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_update_streak": [
-    "Definir a contagem de evidências do refresh do hospedeiro como ",
+  "runner.host_repair_auto_action_update_streak": [
+    "Definir a contagem de evidências do reparo do hospedeiro como ",
     {
       "arg": "streak",
       "type": "integer",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_withdraw": [
-    "Retirar a solicitação automática de refresh do hospedeiro na fila ",
+  "runner.host_repair_auto_action_withdraw": [
+    "Retirar a solicitação automática de reparo do hospedeiro na fila ",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_action_write_evidence": [
-    "Registrar evidências de refresh do hospedeiro para a geração de ciclo ",
+  "runner.host_repair_auto_action_write_evidence": [
+    "Registrar evidências de reparo do hospedeiro para a geração de ciclo ",
     {
       "arg": "generation",
       "type": "token",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_auto_dependency_missing": [
+  "runner.host_repair_auto_dependency_missing": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] o refresh automático do hospedeiro está indisponível: não foi possível carregar ",
+    "] o reparo automático do hospedeiro está indisponível: não foi possível carregar ",
     {
       "arg": "command",
       "type": "identifier",
@@ -1001,29 +1336,29 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_auto_error": [
+  "runner.host_repair_auto_error": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] a decisão de refresh automático do hospedeiro falhou (",
+    "] a decisão de reparo automático do hospedeiro falhou (",
     {
       "arg": "message",
       "type": "detail",
       "trust": "external"
     },
-    "); o runner continua sem ela."
+    "); o executor continua sem ela."
   ],
-  "runner.host_refresh_auto_evidence_counted": [
+  "runner.host_repair_auto_evidence_counted": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] evidência de refresh do hospedeiro: ",
+    "] evidência de reparo do hospedeiro: ",
     {
       "arg": "phase",
       "type": "identifier",
@@ -1043,14 +1378,14 @@ const DataptBRrunner = `{
     },
     " ciclos)."
   ],
-  "runner.host_refresh_auto_evidence_reset": [
+  "runner.host_repair_auto_evidence_reset": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] evidências de refresh do hospedeiro limpas: o hipervisor respondeu durante ",
+    "] evidências de reparo do hospedeiro limpas: o hipervisor respondeu durante ",
     {
       "arg": "phase",
       "type": "identifier",
@@ -1058,14 +1393,14 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_auto_finished": [
+  "runner.host_repair_auto_finished": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] refresh automático do hospedeiro ",
+    "] reparo automático do hospedeiro ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1079,23 +1414,23 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_auto_knob_invalid": [
-    "testCycle.autoRefreshAfterStalls é '",
+  "runner.host_repair_auto_knob_invalid": [
+    "testCycle.autoRepairAfterStalls é '",
     {
       "arg": "value",
       "type": "text",
       "trust": "external"
     },
-    "', que não é um número inteiro não negativo; o refresh automático do hospedeiro permanece desativado."
+    "', que não é um número inteiro não negativo; o reparo automático do hospedeiro permanece desativado."
   ],
-  "runner.host_refresh_auto_operator_action": [
+  "runner.host_repair_auto_operator_action": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] o refresh automático do hospedeiro ",
+    "] o reparo automático do hospedeiro ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1113,25 +1448,34 @@ const DataptBRrunner = `{
       "type": "text",
       "trust": "internal"
     },
-    ". Verifique o hospedeiro; enquanto esta solicitação estiver aberta, conclua-a com test/lab/Invoke-HostRefresh.ps1 -Resume; caso contrário, execute test/lab/Invoke-HostRefresh.ps1."
+    ". Verifique o hospedeiro; enquanto esta solicitação estiver aberta, conclua-a com test/lab/Invoke-HostRepair.ps1 -Resume; caso contrário, execute test/lab/Invoke-HostRepair.ps1."
   ],
-  "runner.host_refresh_auto_pause_skipped": [
+  "runner.host_repair_auto_pause_skipped": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] o refresh automático reparou o hospedeiro; o próximo ciclo começa sem a pausa de falha."
+    "] o reparo automático corrigiu o hospedeiro; o próximo ciclo começa sem a pausa de falha."
   ],
-  "runner.host_refresh_auto_queued_revoked": [
+  "runner.host_repair_auto_pool_key_retired": [
+    "A configuração do grupo define a chave aposentada config.testCycle.autoRefreshAfterStalls (",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    },
+    "); ela não é mais lida. Defina config.testCycle.autoRepairAfterStalls no repositório do grupo em vez dela."
+  ],
+  "runner.host_repair_auto_queued_revoked": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] a solicitação automática de refresh do hospedeiro na fila ",
+    "] a solicitação automática de reparo do hospedeiro na fila ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1139,14 +1483,14 @@ const DataptBRrunner = `{
     },
     " foi retirada porque o grupo está sendo drenado."
   ],
-  "runner.host_refresh_auto_refused": [
+  "runner.host_repair_auto_refused": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] refresh automático do hospedeiro não iniciado: ",
+    "] reparo automático do hospedeiro não iniciado: ",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1154,44 +1498,44 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_auto_resume_caller_changed": [
+  "runner.host_repair_auto_resume_caller_changed": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] o refresh automático do hospedeiro ",
+    "] o reparo automático do hospedeiro ",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    " foi iniciado para um processo anterior do runner, então este runner não o retoma. Conclua-o com test/lab/Invoke-HostRefresh.ps1 -Resume ou libere o que ele mantém com test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
+    " foi iniciado para um processo anterior do executor, então este executor não o retoma. Conclua-o com test/lab/Invoke-HostRepair.ps1 -Resume ou libere o que ele mantém com test/lab/Invoke-HostRepair.ps1 -DisposeObligation."
   ],
-  "runner.host_refresh_auto_resume_disabled": [
+  "runner.host_repair_auto_resume_disabled": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] o refresh automático do hospedeiro ",
+    "] o reparo automático do hospedeiro ",
     {
       "arg": "requestId",
       "type": "token",
       "trust": "internal"
     },
-    " não é retomado enquanto autoRefreshAfterStalls for 0. Uma solicitação não reivindicada expira sozinha; conclua uma já iniciada com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    " não é retomado enquanto autoRepairAfterStalls for 0. Uma solicitação não reivindicada expira sozinha; conclua uma já iniciada com test/lab/Invoke-HostRepair.ps1 -Resume."
   ],
-  "runner.host_refresh_auto_resuming": [
+  "runner.host_repair_auto_resuming": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] retomando o refresh automático do hospedeiro ",
+    "] retomando o reparo automático do hospedeiro ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1211,14 +1555,14 @@ const DataptBRrunner = `{
     },
     ": apenas restaurando serviços, sem nova desmontagem."
   ],
-  "runner.host_refresh_auto_starting": [
+  "runner.host_repair_auto_starting": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] refresh automático do hospedeiro ",
+    "] reparo automático do hospedeiro ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1238,30 +1582,30 @@ const DataptBRrunner = `{
     },
     "); o hipervisor pode ser reiniciado, e os serviços afetados são restaurados depois."
   ],
-  "runner.host_refresh_auto_threshold_raised": "'testCycle.autoRefreshAfterStalls' é 1; o runner precisa do timeout em pelo menos dois ciclos e o trata como 2.",
-  "runner.host_refresh_auto_unavailable": [
+  "runner.host_repair_auto_threshold_raised": "'testCycle.autoRepairAfterStalls' é 1; o executor precisa do timeout em pelo menos dois ciclos e o trata como 2.",
+  "runner.host_repair_auto_unavailable": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] a atualização automática do hospedeiro está configurada, mas não está disponível neste hospedeiro (",
+    "] o reparo automático do hospedeiro está configurado, mas não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "); o executor registra a evidência e não age sobre ela. Execute test/lab/Invoke-HostRefresh.ps1 localmente se o hipervisor precisar de reparo."
+    "); o executor registra a evidência e não age sobre ela. Execute test/lab/Invoke-HostRepair.ps1 localmente se o hipervisor precisar de reparo."
   ],
-  "runner.host_refresh_auto_unavailable_on_host": [
-    "'testCycle.autoRefreshAfterStalls' é ",
+  "runner.host_repair_auto_unavailable_on_host": [
+    "'testCycle.autoRepairAfterStalls' é ",
     {
       "arg": "value",
       "type": "integer",
       "trust": "internal"
     },
-    ", mas a atualização automática do hospedeiro não está disponível neste hospedeiro (",
+    ", mas o reparo automático do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1269,23 +1613,23 @@ const DataptBRrunner = `{
     },
     "); o executor registra a evidência e não age sobre ela."
   ],
-  "runner.host_refresh_auto_value_not_integer": [
-    "'testCycle.autoRefreshAfterStalls' é '",
+  "runner.host_repair_auto_value_not_integer": [
+    "'testCycle.autoRepairAfterStalls' é '",
     {
       "arg": "value",
       "type": "text",
       "trust": "external"
     },
-    "' -- não é um número inteiro; o executor o trata como 0 (atualização automática do hospedeiro desativada)."
+    "' -- não é um número inteiro; o executor o trata como 0 (reparo automático do hospedeiro desativado)."
   ],
-  "runner.host_refresh_auto_verdict_mismatch": [
+  "runner.host_repair_auto_verdict_mismatch": [
     "[ciclo externo ",
     {
       "arg": "cycle",
       "type": "integer",
       "trust": "internal"
     },
-    "] a atualização automática do hospedeiro ",
+    "] o reparo automático do hospedeiro ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1297,10 +1641,10 @@ const DataptBRrunner = `{
       "type": "identifier",
       "trust": "internal"
     },
-    "); tratando-a como falha."
+    "); tratando-o como falha."
   ],
-  "runner.host_refresh_auto_waiting_on_worker": [
-    "Encerramento solicitado; aguardando o worker de atualização do hospedeiro da solicitação automática ",
+  "runner.host_repair_auto_waiting_on_worker": [
+    "Encerramento solicitado; aguardando o worker de reparo do hospedeiro da solicitação automática ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1314,8 +1658,8 @@ const DataptBRrunner = `{
     },
     " segundos)."
   ],
-  "runner.host_refresh_auto_worker_launch_failed": [
-    "Não foi possível iniciar o worker de atualização do hospedeiro da solicitação automática ",
+  "runner.host_repair_auto_worker_launch_failed": [
+    "Não foi possível iniciar o worker de reparo do hospedeiro da solicitação automática ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1329,8 +1673,8 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_auto_worker_timeout": [
-    "O worker de atualização do hospedeiro da solicitação automática ",
+  "runner.host_repair_auto_worker_timeout": [
+    "O worker de reparo do hospedeiro da solicitação automática ",
     {
       "arg": "requestId",
       "type": "token",
@@ -1342,10 +1686,57 @@ const DataptBRrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    " segundos e foi interrompido; a solicitação continua aberta. O executor pode retomá-la, ou conclua-a com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    " segundos e foi interrompido; a solicitação continua aberta. O executor pode retomá-la, ou conclua-a com test/lab/Invoke-HostRepair.ps1 -Resume."
   ],
-  "runner.host_refresh_command_missing": [
-    "Invoke-HostRefresh: o comando obrigatório ",
+  "runner.host_repair_boot_resume": [
+    "Start-TestRunner: o reparo do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ficou inacabado em uma inicialização anterior; retomando-o uma vez com test/lab/Invoke-HostRepair.ps1 -Resume (pid ",
+    {
+      "arg": "pid",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "). Este início continua recusado; o reparo inicia o executor quando terminar, e seus erros vão para ",
+    {
+      "arg": "stdErrPath",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_repair_boot_resume_failed": [
+    "Start-TestRunner: o reparo do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ficou inacabado em uma inicialização anterior, e retomá-lo falhou (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); retome-o com test/lab/Invoke-HostRepair.ps1 -Resume."
+  ],
+  "runner.host_repair_boot_resume_tried": [
+    "Start-TestRunner: o reparo do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", inacabado desde uma inicialização anterior, já foi retomado uma vez nesta inicialização; retome-o novamente com test/lab/Invoke-HostRepair.ps1 -Resume."
+  ],
+  "runner.host_repair_capability_unverified_macos": "A recuperação e a reinicialização do executor ainda não são qualificadas no macOS: a tabela de processos do ps e a execução desanexada são testadas apenas com fixtures.",
+  "runner.host_repair_capability_unverified_windows": "A recuperação e a reinicialização do executor ainda não são qualificadas no Windows: a tabela de processos CIM, o encerramento de processo único e o salto de reatribuição de pai são testados apenas com fixtures.",
+  "runner.host_repair_command_missing": [
+    "Invoke-HostRepair: o comando obrigatório ",
     {
       "arg": "command",
       "type": "identifier",
@@ -1357,10 +1748,10 @@ const DataptBRrunner = `{
       "type": "identifier",
       "trust": "internal"
     },
-    ") não está disponível após carregar o conjunto de módulos de atualização; recusando."
+    ") não está disponível após carregar o conjunto de módulos de reparo; recusando."
   ],
-  "runner.host_refresh_config_ambiguous": [
-    "Invoke-HostRefresh: ",
+  "runner.host_repair_config_ambiguous": [
+    "Invoke-HostRepair: ",
     {
       "arg": "count",
       "type": "integer",
@@ -1374,8 +1765,8 @@ const DataptBRrunner = `{
     },
     " indicam arquivos de origem diferentes; use -ConfigPath para escolher um."
   ],
-  "runner.host_refresh_config_conflict": [
-    "Invoke-HostRefresh: -ConfigPath ",
+  "runner.host_repair_config_conflict": [
+    "Invoke-HostRepair: -ConfigPath ",
     {
       "arg": "configPath",
       "type": "detail",
@@ -1389,8 +1780,8 @@ const DataptBRrunner = `{
     },
     "; recusando em vez de reiniciar o executor com outro arquivo."
   ],
-  "runner.host_refresh_config_missing": [
-    "Invoke-HostRefresh: a configuração registrada para este runtime (",
+  "runner.host_repair_config_missing": [
+    "Invoke-HostRepair: a configuração registrada para este runtime (",
     {
       "arg": "configPath",
       "type": "detail",
@@ -1398,8 +1789,8 @@ const DataptBRrunner = `{
     },
     ") não existe; use -ConfigPath."
   ],
-  "runner.host_refresh_convergence_skipped": [
-    "Invoke-HostRefresh: a sondagem final indica ",
+  "runner.host_repair_convergence_skipped": [
+    "Invoke-HostRepair: a sondagem final indica ",
     {
       "arg": "state",
       "type": "identifier",
@@ -1413,8 +1804,8 @@ const DataptBRrunner = `{
     },
     "); os serviços e o executor não foram retomados."
   ],
-  "runner.host_refresh_credential_authority_created": [
-    "Set-HostRefreshCredential: uma autoridade de assinatura de atualização (tag ",
+  "runner.host_repair_credential_authority_created": [
+    "Set-HostRepairCredential: uma autoridade de assinatura de reparo (tag ",
     {
       "arg": "authorityTag",
       "type": "token",
@@ -1432,10 +1823,10 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "internal"
     },
-    ". Copie authority.key e operator.credential para /etc/yuruna/host-refresh/ no serviço pool-control, com permissões exclusivas do proprietário; nunca os copie para um hospedeiro do grupo."
+    ". Copie authority.key e operator.credential para /etc/yuruna/host-repair/ no serviço pool-control, com permissões exclusivas do proprietário; nunca os copie para um hospedeiro do grupo."
   ],
-  "runner.host_refresh_credential_authority_exists": [
-    "Set-HostRefreshCredential: já existe uma autoridade de atualização em ",
+  "runner.host_repair_credential_authority_exists": [
+    "Set-HostRepairCredential: já existe uma autoridade de reparo em ",
     {
       "arg": "path",
       "type": "detail",
@@ -1443,8 +1834,8 @@ const DataptBRrunner = `{
     },
     "; passe -Rotate para substituí-la, o que invalida todas as chaves de hospedeiro instaladas."
   ],
-  "runner.host_refresh_credential_host_key_exported": [
-    "Set-HostRefreshCredential: a chave de atualização do hospedeiro ",
+  "runner.host_repair_credential_host_key_exported": [
+    "Set-HostRepairCredential: a chave de verificação de reparo do hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
@@ -1464,24 +1855,24 @@ const DataptBRrunner = `{
     },
     ". Transfira-a para esse hospedeiro por um canal privado, execute este script lá com -InstallHostKey -KeyPath e, em seguida, exclua o arquivo."
   ],
-  "runner.host_refresh_credential_host_key_installed": [
-    "Set-HostRefreshCredential: a chave de atualização deste hospedeiro ",
+  "runner.host_repair_credential_host_key_installed": [
+    "Set-HostRepairCredential: a chave de verificação de reparo deste hospedeiro (",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     },
-    " (tag ",
+    ", tag ",
     {
       "arg": "keyTag",
       "type": "token",
       "trust": "internal"
     },
-    ") foi instalada; agora as solicitações de atualização remota assinadas pela autoridade correspondente podem ser verificadas aqui."
+    ") foi instalada; agora as solicitações de reparo remoto assinadas pela autoridade correspondente podem ser verificadas aqui."
   ],
-  "runner.host_refresh_credential_host_key_removed": "Set-HostRefreshCredential: a chave de atualização foi removida; agora este hospedeiro recusa toda solicitação de atualização que não venha do loopback.",
-  "runner.host_refresh_credential_output_exists": [
-    "Set-HostRefreshCredential: ",
+  "runner.host_repair_credential_host_key_removed": "Set-HostRepairCredential: a chave de verificação de reparo deste hospedeiro foi removida; agora este hospedeiro recusa toda solicitação de reparo que não venha do loopback.",
+  "runner.host_repair_credential_output_exists": [
+    "Set-HostRepairCredential: ",
     {
       "arg": "path",
       "type": "detail",
@@ -1489,14 +1880,14 @@ const DataptBRrunner = `{
     },
     " já existe; escolha outro -OutputPath ou exclua o arquivo primeiro."
   ],
-  "runner.host_refresh_credential_status": [
-    "Set-HostRefreshCredential: hospedeiro ",
+  "runner.host_repair_credential_status": [
+    "Set-HostRepairCredential: hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "internal"
     },
-    ": chave de atualização remota ",
+    ": chave de verificação de reparo ",
     {
       "arg": "state",
       "type": "identifier",
@@ -1516,8 +1907,8 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_deadline_exhausted": [
-    "Invoke-HostRefresh: o tempo disponível se esgotou durante ",
+  "runner.host_repair_deadline_exhausted": [
+    "Invoke-HostRepair: o tempo disponível se esgotou durante ",
     {
       "arg": "phase",
       "type": "identifier",
@@ -1525,21 +1916,21 @@ const DataptBRrunner = `{
     },
     "; o trabalho não concluído foi registrado como pendente."
   ],
-  "runner.host_refresh_disruption_warning": "Invoke-HostRefresh: reiniciar o aplicativo do hipervisor pode suspender convidados em execução; uma parada forçada, permitida apenas com -AllowHardStop, pode desligá-los de forma não limpa.",
-  "runner.host_refresh_evidence_write_failed": [
-    "Não foi possível registrar a evidência de atualização do hospedeiro deste ciclo (",
+  "runner.host_repair_disruption_warning": "Invoke-HostRepair: reiniciar o aplicativo do hipervisor pode suspender convidados em execução; uma parada forçada, permitida apenas com -AllowHardStop, pode desligá-los de forma não limpa.",
+  "runner.host_repair_evidence_write_failed": [
+    "Não foi possível registrar a evidência de reparo do hospedeiro deste ciclo (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "); a atualização automática do hospedeiro não a contabilizará."
+    "); o reparo automático do hospedeiro não a contabilizará."
   ],
-  "runner.host_refresh_hung_hypervisor_manual_hyperv": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie o serviço de gerenciamento do Hyper-V em um console elevado (Restart-Service vmms) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
-  "runner.host_refresh_hung_hypervisor_manual_kvm": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie os daemons do libvirt (sudo systemctl restart libvirtd) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
-  "runner.host_refresh_hung_hypervisor_manual_utm": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Feche e reabra o UTM na sessão de desktop conectada ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRefresh.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
-  "runner.host_refresh_identity_refused": [
-    "Invoke-HostRefresh: recusando executar como ",
+  "runner.host_repair_hung_hypervisor_manual_hyperv": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie o serviço de gerenciamento do Hyper-V em um console elevado (Restart-Service vmms) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
+  "runner.host_repair_hung_hypervisor_manual_kvm": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Reinicie os daemons do libvirt (sudo systemctl restart libvirtd) ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
+  "runner.host_repair_hung_hypervisor_manual_utm": "O canal de controle do hipervisor está travado e nenhum nível alcançável repara isso neste hospedeiro. Feche e reabra o UTM na sessão de desktop conectada ou reinicie o hospedeiro manualmente e então retome com: pwsh test/lab/Invoke-HostRepair.ps1 -Resume. Uma retomada sem esse reparo apenas refaz a sonda e consome uma das tentativas limitadas.",
+  "runner.host_repair_identity_refused": [
+    "Invoke-HostRepair: recusando executar como ",
     {
       "arg": "identity",
       "type": "identifier",
@@ -1559,8 +1950,8 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_launcher_wait_timeout": [
-    "Invoke-HostRefresh: o processo iniciador ",
+  "runner.host_repair_launcher_wait_timeout": [
+    "Invoke-HostRepair: o processo iniciador ",
     {
       "arg": "launcherPid",
       "type": "integer",
@@ -1580,8 +1971,8 @@ const DataptBRrunner = `{
     },
     " continua na fila para nova tentativa."
   ],
-  "runner.host_refresh_lock_busy": [
-    "Invoke-HostRefresh: outro reparo detém o bloqueio vitalício (",
+  "runner.host_repair_lock_busy": [
+    "Invoke-HostRepair: outra operação do hospedeiro detém o bloqueio vitalício (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1589,16 +1980,16 @@ const DataptBRrunner = `{
     },
     "); recusando executar em paralelo."
   ],
-  "runner.host_refresh_manual_command": [
-    "Invoke-HostRefresh: execute manualmente ou permita-o sem solicitação de senha: sudo ",
+  "runner.host_repair_manual_command": [
+    "Invoke-HostRepair: execute manualmente ou permita-o sem solicitação de senha: sudo ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_obligation_disposed": [
-    "Invoke-HostRefresh: ",
+  "runner.host_repair_obligation_disposed": [
+    "Invoke-HostRepair: ",
     {
       "arg": "obligation",
       "type": "identifier",
@@ -1618,8 +2009,8 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_obligation_unknown": [
-    "Invoke-HostRefresh: ",
+  "runner.host_repair_obligation_unknown": [
+    "Invoke-HostRepair: ",
     {
       "arg": "obligation",
       "type": "identifier",
@@ -1633,8 +2024,8 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_oneshot_active": [
-    "Invoke-HostRefresh: uma execução única (PID ",
+  "runner.host_repair_oneshot_active": [
+    "Invoke-HostRepair: uma execução única (PID ",
     {
       "arg": "pid",
       "type": "identifier",
@@ -1648,8 +2039,8 @@ const DataptBRrunner = `{
     },
     ") está usando este runtime; nenhuma etapa de reparo é executada enquanto ela detiver a concessão."
   ],
-  "runner.host_refresh_oneshot_unconfirmed": [
-    "Invoke-HostRefresh: a concessão de execução única ",
+  "runner.host_repair_oneshot_unconfirmed": [
+    "Invoke-HostRepair: a concessão de execução única ",
     {
       "arg": "leasePath",
       "type": "detail",
@@ -1669,7 +2060,7 @@ const DataptBRrunner = `{
     },
     "); reparando mesmo assim."
   ],
-  "runner.host_refresh_operator_instruction": [
+  "runner.host_repair_operator_instruction": [
     "  Solução: ",
     {
       "arg": "instruction",
@@ -1677,7 +2068,21 @@ const DataptBRrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_preview_group_relaunch": [
+  "runner.host_repair_other_kind": [
+    "Invoke-HostRepair: a solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " é uma atualização do hospedeiro, não um reparo; o controlador dela a continua. Para encerrá-la neste hospedeiro, execute: pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_repair_preview_group_relaunch": [
     "  Uma execução real primeiro reiniciaria sob o grupo libvirt (",
     {
       "arg": "reason",
@@ -1686,8 +2091,8 @@ const DataptBRrunner = `{
     },
     ")."
   ],
-  "runner.host_refresh_preview_notice": "  Apenas prévia: nada foi bloqueado, gravado, sinalizado ou iniciado.",
-  "runner.host_refresh_preview_would_consider": [
+  "runner.host_repair_preview_notice": "  Apenas prévia: nada foi bloqueado, gravado, sinalizado ou iniciado.",
+  "runner.host_repair_preview_would_consider": [
     "  Degraus que uma execução real consideraria, em ordem: ",
     {
       "arg": "rungs",
@@ -1695,8 +2100,8 @@ const DataptBRrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_private_root_unavailable": [
-    "Invoke-HostRefresh: não foi possível proteger a raiz de estado privada em $HOME/.yuruna/host-refresh (",
+  "runner.host_repair_private_root_unavailable": [
+    "Invoke-HostRepair: não foi possível proteger a raiz de estado privada em $HOME/.yuruna/host-repair (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1704,9 +2109,9 @@ const DataptBRrunner = `{
     },
     "); recusando sem uma raiz privada restrita ao proprietário."
   ],
-  "runner.host_refresh_progress_degraded": "Invoke-HostRefresh: não foi possível publicar o progresso; o reparo continuou e o diário privado continua sendo a referência.",
-  "runner.host_refresh_protocol_mismatch": [
-    "Invoke-HostRefresh: ",
+  "runner.host_repair_progress_degraded": "Invoke-HostRepair: não foi possível publicar o progresso; o reparo continuou e o diário privado continua sendo a referência.",
+  "runner.host_repair_protocol_mismatch": [
+    "Invoke-HostRepair: ",
     {
       "arg": "path",
       "type": "detail",
@@ -1726,8 +2131,8 @@ const DataptBRrunner = `{
     },
     "'."
   ],
-  "runner.host_refresh_refused": [
-    "Invoke-HostRefresh: recusado antes de qualquer alteração (",
+  "runner.host_repair_refused": [
+    "Invoke-HostRepair: recusado antes de qualquer alteração (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1735,8 +2140,8 @@ const DataptBRrunner = `{
     },
     ")."
   ],
-  "runner.host_refresh_request_refused": [
-    "Invoke-HostRefresh: solicitação ",
+  "runner.host_repair_request_refused": [
+    "Invoke-HostRepair: solicitação ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1762,9 +2167,9 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.host_refresh_resume_none": "Invoke-HostRefresh: não há solicitação não resolvida para retomar.",
-  "runner.host_refresh_resume_started": [
-    "Invoke-HostRefresh: retomando a solicitação ",
+  "runner.host_repair_resume_none": "Invoke-HostRepair: não há solicitação não resolvida para retomar.",
+  "runner.host_repair_resume_started": [
+    "Invoke-HostRepair: retomando a solicitação ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -1784,8 +2189,8 @@ const DataptBRrunner = `{
     },
     ")."
   ],
-  "runner.host_refresh_rung_finished": [
-    "Invoke-HostRefresh: degrau ",
+  "runner.host_repair_rung_finished": [
+    "Invoke-HostRepair: degrau ",
     {
       "arg": "name",
       "type": "identifier",
@@ -1811,22 +2216,22 @@ const DataptBRrunner = `{
     },
     ")."
   ],
-  "runner.host_refresh_rung_reason_broker_recipe_missing": "requer uma receita verificada de rótulo, domínio e proprietário específica da versão do SO, com testes colaterais",
-  "runner.host_refresh_rung_reason_daemon_layout_unqualified": "requer testes de layout de daemons e de preservação de convidados aprovados em um hospedeiro suportado",
-  "runner.host_refresh_rung_reason_gui_launch_unqualified": "iniciar o UTM requer uma verificação de ausência do mesmo usuário e um caminho de inicialização da GUI que não foram qualificados em um hospedeiro macOS real",
-  "runner.host_refresh_rung_reason_lock_unqualified": "a exclusão do bloqueio de reparo não foi demonstrada nesta plataforma",
-  "runner.host_refresh_rung_reason_modular_daemon_recipe_missing": "requer uma receita validada para os daemons modulares do libvirt",
-  "runner.host_refresh_rung_reason_no_reboot_supervision": "não existe supervisão verificada do executor e do status-service durante uma reinicialização do hospedeiro",
-  "runner.host_refresh_rung_reason_not_implemented": "não há executor para este degrau neste checkout",
-  "runner.host_refresh_rung_reason_package_recovery_unqualified": "requer um bootstrap assinado autossuficiente e um procedimento testado de recuperação de pacotes",
-  "runner.host_refresh_rung_reason_provider_recipe_missing": "requer uma receita separada de recuperação do provedor testada em um hospedeiro suportado",
-  "runner.host_refresh_rung_reason_runner_restart_unqualified": "a recuperação do executor e a reinicialização verificada não foram qualificadas em um hospedeiro real desta plataforma",
-  "runner.host_refresh_rung_reason_settings_recipe_unsafe": "a receita de configurações ainda chega a diálogos de consentimento, instalações de pacotes ou chamadas nativas sem limite que um reparo não assistido não deve executar",
-  "runner.host_refresh_rung_reason_unsupported_on_platform": "não oferecido nesta plataforma",
-  "runner.host_refresh_rung_reason_utm_restart_unqualified": "reiniciar o UTM requer um caminho de inicialização e de sessão testado, evidência capturada de recuperação de convidados, exclusão do executor e a política de encerramento gracioso, validados em um hospedeiro macOS real",
-  "runner.host_refresh_rung_reason_vmms_start_unqualified": "iniciar um serviço vmms parado está implementado, mas não foi qualificado em um hospedeiro Windows Hyper-V real",
-  "runner.host_refresh_rung_started": [
-    "Invoke-HostRefresh: degrau ",
+  "runner.host_repair_rung_reason_broker_recipe_missing": "requer uma receita verificada de rótulo, domínio e proprietário específica da versão do SO, com testes colaterais",
+  "runner.host_repair_rung_reason_daemon_layout_unqualified": "requer testes de layout de daemons e de preservação de convidados aprovados em um hospedeiro suportado",
+  "runner.host_repair_rung_reason_gui_launch_unqualified": "iniciar o UTM requer uma verificação de ausência do mesmo usuário e um caminho de inicialização da GUI que não foram qualificados em um hospedeiro macOS real",
+  "runner.host_repair_rung_reason_lock_unqualified": "a exclusão do bloqueio de reparo não foi demonstrada nesta plataforma",
+  "runner.host_repair_rung_reason_modular_daemon_recipe_missing": "requer uma receita validada para os daemons modulares do libvirt",
+  "runner.host_repair_rung_reason_no_reboot_supervision": "não existe supervisão verificada do executor e do status-service durante uma reinicialização do hospedeiro",
+  "runner.host_repair_rung_reason_not_implemented": "não há executor para este degrau neste checkout",
+  "runner.host_repair_rung_reason_package_recovery_unqualified": "requer um bootstrap assinado autossuficiente e um procedimento testado de recuperação de pacotes",
+  "runner.host_repair_rung_reason_provider_recipe_missing": "requer uma receita separada de recuperação do provedor testada em um hospedeiro suportado",
+  "runner.host_repair_rung_reason_runner_restart_unqualified": "a recuperação do executor e a reinicialização verificada não foram qualificadas em um hospedeiro real desta plataforma",
+  "runner.host_repair_rung_reason_settings_recipe_unsafe": "a receita de configurações ainda chega a diálogos de consentimento, instalações de pacotes ou chamadas nativas sem limite que um reparo não assistido não deve executar",
+  "runner.host_repair_rung_reason_unsupported_on_platform": "não oferecido nesta plataforma",
+  "runner.host_repair_rung_reason_utm_restart_unqualified": "reiniciar o UTM requer um caminho de inicialização e de sessão testado, evidência capturada de recuperação de convidados, exclusão do executor e a política de encerramento gracioso, validados em um hospedeiro macOS real",
+  "runner.host_repair_rung_reason_vmms_start_unqualified": "iniciar um serviço vmms parado está implementado, mas não foi qualificado em um hospedeiro Windows Hyper-V real",
+  "runner.host_repair_rung_started": [
+    "Invoke-HostRepair: degrau ",
     {
       "arg": "name",
       "type": "identifier",
@@ -1840,8 +2245,8 @@ const DataptBRrunner = `{
     },
     " s do orçamento de reparo."
   ],
-  "runner.host_refresh_runner_not_ready": [
-    "Invoke-HostRefresh: o executor reiniciado não confirmou que está pronto (",
+  "runner.host_repair_runner_not_ready": [
+    "Invoke-HostRepair: o executor reiniciado não confirmou que está pronto (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1849,8 +2254,8 @@ const DataptBRrunner = `{
     },
     ")."
   ],
-  "runner.host_refresh_runtime_missing": [
-    "Invoke-HostRefresh: o diretório de runtime ",
+  "runner.host_repair_runtime_missing": [
+    "Invoke-HostRepair: o diretório de runtime ",
     {
       "arg": "runtimeDir",
       "type": "detail",
@@ -1858,8 +2263,8 @@ const DataptBRrunner = `{
     },
     " não existe; defina YURUNA_RUNTIME_DIR como o diretório de runtime do executor."
   ],
-  "runner.host_refresh_runtime_owner_mismatch": [
-    "Invoke-HostRefresh: o estado de atualização desta conta está registrado para o runtime ",
+  "runner.host_repair_runtime_owner_mismatch": [
+    "Invoke-HostRepair: o estado de reparo desta conta está registrado para o runtime ",
     {
       "arg": "registeredRuntimeDir",
       "type": "detail",
@@ -1873,8 +2278,8 @@ const DataptBRrunner = `{
     },
     "; há suporte a um único runtime proprietário por conta."
   ],
-  "runner.host_refresh_service_unverified": [
-    "Invoke-HostRefresh: o serviço ",
+  "runner.host_repair_service_unverified": [
+    "Invoke-HostRepair: o serviço ",
     {
       "arg": "key",
       "type": "identifier",
@@ -1888,8 +2293,8 @@ const DataptBRrunner = `{
     },
     ")."
   ],
-  "runner.host_refresh_session_passive": [
-    "Invoke-HostRefresh: o tipo de sessão é ",
+  "runner.host_repair_session_passive": [
+    "Invoke-HostRepair: o tipo de sessão é ",
     {
       "arg": "sessionKind",
       "type": "identifier",
@@ -1897,18 +2302,16 @@ const DataptBRrunner = `{
     },
     "; as etapas que exigem a sessão da área de trabalho são ignoradas."
   ],
-  "runner.host_refresh_should_process_admission": "Registrar a admissão da atualização do hospedeiro",
-  "runner.host_refresh_should_process_listener": "Iniciar o listener de status em modo seguro para atualização",
-  "runner.host_refresh_should_process_publish": "Publicar o progresso da atualização do hospedeiro",
-  "runner.host_refresh_should_process_run": [
-    "Executar a solicitação de atualização do hospedeiro ",
+  "runner.host_repair_should_process_publish": "Publicar o progresso do reparo do hospedeiro",
+  "runner.host_repair_should_process_run": [
+    "Executar a solicitação de reparo do hospedeiro ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_active_request": [
+  "runner.host_repair_summary_active_request": [
     "  Solicitação pendente: ",
     {
       "arg": "requestId",
@@ -1929,7 +2332,7 @@ const DataptBRrunner = `{
     },
     ")"
   ],
-  "runner.host_refresh_summary_context": [
+  "runner.host_repair_summary_context": [
     "  Runtime:          ",
     {
       "arg": "runtimeDir",
@@ -1950,8 +2353,8 @@ const DataptBRrunner = `{
     },
     ")"
   ],
-  "runner.host_refresh_summary_header": [
-    "Atualização do hospedeiro (",
+  "runner.host_repair_summary_header": [
+    "Reparo do hospedeiro (",
     {
       "arg": "mode",
       "type": "identifier",
@@ -1964,7 +2367,7 @@ const DataptBRrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_ladder": [
+  "runner.host_repair_summary_ladder": [
     "  Escada de reparo, limite ",
     {
       "arg": "ceiling",
@@ -1973,7 +2376,7 @@ const DataptBRrunner = `{
     },
     ":"
   ],
-  "runner.host_refresh_summary_obligation": [
+  "runner.host_repair_summary_obligation": [
     "  Pendente:         ",
     {
       "arg": "obligation",
@@ -1981,7 +2384,7 @@ const DataptBRrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_probe": [
+  "runner.host_repair_summary_probe": [
     "  Sonda do hipervisor: ",
     {
       "arg": "state",
@@ -2002,7 +2405,7 @@ const DataptBRrunner = `{
     },
     " ms)"
   ],
-  "runner.host_refresh_summary_rung_above_ceiling": [
+  "runner.host_repair_summary_rung_above_ceiling": [
     "    [",
     {
       "arg": "order",
@@ -2017,7 +2420,7 @@ const DataptBRrunner = `{
     },
     ": acima do limite solicitado"
   ],
-  "runner.host_refresh_summary_rung_available": [
+  "runner.host_repair_summary_rung_available": [
     "    [",
     {
       "arg": "order",
@@ -2032,7 +2435,7 @@ const DataptBRrunner = `{
     },
     ": disponível"
   ],
-  "runner.host_refresh_summary_rung_result": [
+  "runner.host_repair_summary_rung_result": [
     "    [",
     {
       "arg": "order",
@@ -2059,7 +2462,7 @@ const DataptBRrunner = `{
     },
     ")"
   ],
-  "runner.host_refresh_summary_rung_unavailable": [
+  "runner.host_repair_summary_rung_unavailable": [
     "    [",
     {
       "arg": "order",
@@ -2079,15 +2482,15 @@ const DataptBRrunner = `{
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_runner": [
-    "  Runner:           ",
+  "runner.host_repair_summary_runner": [
+    "  Executor:         ",
     {
       "arg": "status",
       "type": "identifier",
       "trust": "internal"
     }
   ],
-  "runner.host_refresh_summary_verdict": [
+  "runner.host_repair_summary_verdict": [
     "  Veredito:         ",
     {
       "arg": "verdict",
@@ -2114,8 +2517,22 @@ const DataptBRrunner = `{
     },
     ")"
   ],
-  "runner.host_refresh_unexpected_error": [
-    "Invoke-HostRefresh: erro inesperado durante ",
+  "runner.host_repair_trigger_call_failed": [
+    "A chamada automática de reparo do hospedeiro em ",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " falhou e foi ignorada: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.host_repair_unexpected_error": [
+    "Invoke-HostRepair: erro inesperado durante ",
     {
       "arg": "phase",
       "type": "identifier",
@@ -2128,7 +2545,371 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
-  "runner.host_refresh_verified_noop": "Invoke-HostRefresh: o hipervisor respondeu e o runner está íntegro; nada foi alterado.",
+  "runner.host_repair_verified_noop": "Invoke-HostRepair: o hipervisor respondeu e o executor está íntegro; nada foi alterado.",
+  "runner.host_update_access_entry_action": "Instalar ou remover a entrada do sudoers que permite ao controlador do hospedeiro gravar sua regra temporária do sudo",
+  "runner.host_update_auth_action_create_signing_key": "Criar a chave de assinatura de atualização de hospedeiro",
+  "runner.host_update_auth_action_install_record": [
+    "Instalar o registro do pool-control para ",
+    {
+      "arg": "poolControl",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_auth_action_remove_record": "Remover o registro do pool-control",
+  "runner.host_update_busy": [
+    "Invoke-HostUpdate: nada foi enfileirado; uma operação ",
+    {
+      "arg": "activeKind",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " ocupa o hospedeiro (",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "). Aguarde o término dela ou encerre o ciclo em execução no console do executor."
+  ],
+  "runner.host_update_console_window": "uma janela de console própria na área de trabalho da conta de teste, na máquina ou por uma conexão de área de trabalho remota a essa sessão",
+  "runner.host_update_controller_absent": [
+    "Invoke-HostUpdate: nenhum controlador do hospedeiro está em execução neste hospedeiro (trava ",
+    {
+      "arg": "lockState",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); nada foi enfileirado."
+  ],
+  "runner.host_update_credential_record_installed": [
+    "Set-HostRepairCredential: registro do pool-control deste hospedeiro instalado (pool-control ",
+    {
+      "arg": "poolControl",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", tag da chave ",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); atualizações de hospedeiro assinadas por essa chave agora podem ser verificadas aqui, e a página Diagnósticos deste hospedeiro envia para lá um acionamento remoto."
+  ],
+  "runner.host_update_credential_record_removed": "Set-HostRepairCredential: registro do pool-control deste hospedeiro removido; este hospedeiro agora recusa toda atualização de hospedeiro vinda de outra máquina.",
+  "runner.host_update_credential_record_value_replaced": [
+    "Set-HostRepairCredential: registro do pool-control ",
+    {
+      "arg": "key",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "previous",
+      "type": "token",
+      "trust": "internal"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "token",
+      "trust": "internal"
+    },
+    ". Esta linha guarda o valor anterior; instale-o novamente com -InstallPoolControlRecord se a mudança não foi intencional."
+  ],
+  "runner.host_update_credential_signing_key_created": [
+    "Set-HostRepairCredential: criou uma chave de assinatura de atualização de hospedeiro (tag ",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    ") em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Copie-a para /etc/yuruna/host-repair/update-signing.key do serviço pool-control com permissões somente do proprietário; nunca a copie para um hospedeiro do grupo. Em cada hospedeiro do grupo, execute: pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl <pool-control URL> -PublicKey ",
+    {
+      "arg": "publicKey",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_credential_signing_key_exists": [
+    "Set-HostRepairCredential: já existe uma chave de assinatura de atualização de hospedeiro em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "; passe -Rotate para substituí-la, depois do que o registro do pool-control de cada hospedeiro deve ser instalado novamente."
+  ],
+  "runner.host_update_credential_status": [
+    "Set-HostRepairCredential: registro do pool-control ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; pool-control ",
+    {
+      "arg": "poolControl",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", tag da chave ",
+    {
+      "arg": "keyTag",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); chave de assinatura de atualização ",
+    {
+      "arg": "signingKeyState",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.host_update_elevated_work_action": "Encerrar os processos da fase de instalação ou de habilitação de uma atualização do hospedeiro, incluindo os que são executados como root",
+  "runner.host_update_elevation_action": "Alterar a regra temporária do sudo, uma unidade transitória ou uma cópia do instalador de uma atualização do hospedeiro",
+  "runner.host_update_gate_controller_absent": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor deste hospedeiro e nenhum controlador do hospedeiro está em execução; o serviço do sistema dele inicia um em poucos segundos para continuar a atualização. Para encerrar a atualização em vez disso, execute: ",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_absent_macos": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor deste hospedeiro e nenhum controlador do hospedeiro está em execução. ",
+    {
+      "arg": "result",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " Inicie o executor em um terminal da sessão da área de trabalho para iniciar o controlador, que continua a atualização; ou encerre a atualização com: ",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_restarting_macos": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor deste hospedeiro, e o controlador do hospedeiro que esta inicialização encontrou está entre duas execuções: o shim na sessão dele o inicia de novo em instantes, e ele continua a atualização e inicia o próprio executor. Para encerrar a atualização, execute: ",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_running": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor deste hospedeiro; o controlador do hospedeiro a continua e inicia o executor ele mesmo. O console dele: ",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_gate_controller_unknown_macos": [
+    "Start-TestRunner: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor deste hospedeiro. A etapa do controlador do hospedeiro desta inicialização encontrou um controlador em execução ou iniciou um, mas a trava do controlador não pode ser lida agora, então não se sabe se um controlador continua a atualização. Se nenhum continuar, inicie o executor em um terminal da sessão da área de trabalho para iniciar o controlador; ou encerre a atualização com: ",
+    {
+      "arg": "release",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_queued": [
+    "Invoke-HostUpdate: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " está na fila (escopo ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", drenagem ",
+    {
+      "arg": "drain",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "). Progresso: ",
+    {
+      "arg": "stateFile",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". O console do executor, depois que ele iniciar: ",
+    {
+      "arg": "attach",
+      "type": "detail",
+      "trust": "internal"
+    }
+  ],
+  "runner.host_update_refused": [
+    "Invoke-HostUpdate: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não foi enfileirada (",
+    {
+      "arg": "decision",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_update_release_controller_running": [
+    "Invoke-HostUpdate: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " está em andamento sob o controlador do hospedeiro (pid ",
+    {
+      "arg": "pid",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); ela só pode ser liberada enquanto estiver em recuperação ou quando nenhum controlador estiver em execução. Aguarde o veredito."
+  ],
+  "runner.host_update_release_marked": [
+    "Invoke-HostUpdate: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " está marcada para liberação; o controlador do hospedeiro a libera após a tentativa atual."
+  ],
+  "runner.host_update_release_refused": [
+    "Invoke-HostUpdate: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não pode ser liberada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.host_update_released": [
+    "Invoke-HostUpdate: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " terminou como ",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; ainda a resolver: ",
+    {
+      "arg": "debt",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ". Um início normal do executor volta a funcionar."
+  ],
+  "runner.host_update_scope_unavailable": [
+    "Invoke-HostUpdate: o controlador do hospedeiro executa ",
+    {
+      "arg": "scopes",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", não ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; nada foi enfileirado."
+  ],
+  "runner.host_update_takeover": [
+    "Invoke-HostUpdate: ela assume a atualização do hospedeiro ",
+    {
+      "arg": "supersededId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", que estava em recuperação."
+  ],
+  "runner.host_update_unexpected_error": [
+    "Invoke-HostUpdate: erro inesperado durante ",
+    {
+      "arg": "phase",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "runner.hypervisor_control_unresponsive": [
     "O canal de controle do hipervisor nesta máquina responde a consultas de estado, mas não atende mais às solicitações de ciclo de vida (sondagem ",
     {
@@ -2148,7 +2929,7 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "). O ciclo para antes de construir qualquer coisa, porque cada início e parada de VM esperaria até o fim do seu tempo limite. Reinicie o aplicativo do hipervisor nesta máquina (no macOS, encerre o UTM.app na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e então retome o executor."
+    "). O ciclo para antes de construir qualquer coisa, porque cada início e parada de VM esperaria até o fim do seu tempo limite. Reinicie o aplicativo do hipervisor nesta máquina (no macOS, encerre o UTM.app na sessão da área de trabalho ou execute test/lab/Invoke-HostRepair.ps1) e então retome o executor."
   ],
   "runner.inner_attempt_exited": [
     "A tentativa do executor terminou com código ",
@@ -2189,8 +2970,67 @@ const DataptBRrunner = `{
     },
     "' não tem uma chave de sistema operacional em 'resource:'; não é uma sequência executável de convidado."
   ],
-  "runner.launch_record_complete_action": "Marcar o registro de inicialização do runner como encerrado",
-  "runner.launch_record_write_action": "Gravar o registro de inicialização do runner",
+  "runner.kvm_pointer_button_held": [
+    "Ponteiro KVM em '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "': o botão ",
+    {
+      "arg": "button",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " foi pressionado e não foi possível confirmar sua liberação; ele ainda pode estar pressionado no convidado."
+  ],
+  "runner.kvm_pointer_event": [
+    "Ponteiro KVM em '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' (",
+    {
+      "arg": "stage",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.kvm_pointer_no_device": [
+    "Ponteiro KVM em '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "': o convidado não tem dispositivo de ponteiro absoluto (QEMU: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Nada foi enviado; adicione um tablet USB ao domínio."
+  ],
+  "runner.launch_record_complete_action": "Marcar o registro de inicialização do executor como encerrado",
+  "runner.launch_record_skipped": [
+    "Start-TestRunner: o registro de inicialização do executor não foi gravado (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); um reparo ou uma atualização do hospedeiro não pode reiniciar este executor e pede ao operador que o inicie."
+  ],
+  "runner.launch_record_write_action": "Gravar o registro de inicialização do executor",
   "runner.m1ff7f8f2d1": [
     {
       "arg": "action",
@@ -2423,6 +3263,59 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.mcp_workload_action": "Execute um verbo registrado, para o que nenhuma sentença cobre. Execute com operationId e os campos de execução action, fields e intent. Consulte com operationId sozinho; cancele com operationId e cancel true. Uma chamada responde dentro do orçamento de resposta, e uma operação mais longa continua em execução. O mesmo id com a mesma entrada nunca roda duas vezes. Um cliente que abandona uma requisição não cancela a operação. Um cancelamento tem efeito antes da próxima primitiva e não interrompe uma que esteja em execução.",
+  "runner.mcp_workload_cancel_with_run_fields": "Um cancelamento recebe somente operationId; remova os campos de execução.",
+  "runner.mcp_workload_failure": "Leia a última falha da sessão como uma visão filtrada: a classe, o passo, a sentença, o detalhe da causa e os caminhos de evidência que ela pode mostrar.",
+  "runner.mcp_workload_instructions": [
+    "1. Observe antes de agir. Chame workload_snapshot para a superfície antes de escolher um passo e escolha a partir do que ele mostra. Uma referência como s14 ou p7 vale apenas até o próximo instantâneo ou passo nessa superfície.\n2. Diga como uma sentença. Encontre a sentença com workload_phrases ou workload_suggest_step e execute-a com workload_step. Use workload_action apenas para o que nenhuma sentença cobre.\n3. Dê a cada passo o seu motivo. intent é uma linha em inglês simples para quem lerá o teste depois; ela se torna a descrição do passo. Não contém senha, token ou outro valor secreto, nem referência a variável.\n4. Nunca digite um segredo. Onde uma senha for necessária, escreva a referência, por exemplo ",
+    {
+      "arg": "reference",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ". Um literal em uma posição secreta é recusado.\n5. Um passo por vez, nunca duas vezes. Escolha um novo operationId para cada novo passo. Quando uma chamada responder workload_still_waiting, chame a mesma ferramenta de novo apenas com esse id. Não envie um passo de novo porque a resposta demorou ou se perdeu.\n6. Pare e pergunte à pessoa quando um resultado disser que o efeito é incerto, quando dois elementos corresponderem e nada na página os distinguir, quando um passo apagaria dados ou desligaria o convidado, quando a tela mostrar uma credencial, ou quando o produto não mostrar mais o que o teste espera.\n7. Termine nesta ordem: workload_journal, workload_save_sequence, workload_run_sequence, workload_session_end."
+  ],
+  "runner.mcp_workload_invalid_arguments": [
+    "Os argumentos de ",
+    {
+      "arg": "name",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não são válidos: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.mcp_workload_invalid_request": "A requisição não é uma requisição JSON-RPC válida.",
+  "runner.mcp_workload_journal": "Leia o diário: os passos que tiveram sucesso até agora, em YAML, um resumo de cada operação e as mudanças de estado que o YAML não carrega.",
+  "runner.mcp_workload_phrases": "Liste as sentenças em vigor, cada uma com seu id, superfícies, slots e nível. Opcional: search, que filtra a lista. Responde antes de existir uma sessão, a partir da biblioteca do framework.",
+  "runner.mcp_workload_request_too_large": [
+    "A requisição tem mais de ",
+    {
+      "arg": "limit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " caracteres."
+  ],
+  "runner.mcp_workload_run_form_incomplete": [
+    "Uma chamada que executa uma operação também precisa de: ",
+    {
+      "arg": "fields",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.mcp_workload_run_sequence": "Reexecute os passos próprios da sequência nomeada na VM anexada por meio de Debug-TestSequence.ps1 em um processo filho. Execute com operationId e o campo de execução sequence, opcionalmente timeoutSeconds (60 a 43200). Consulte com operationId sozinho; cancele com operationId e cancel true. Uma chamada responde dentro do orçamento de resposta, e uma operação mais longa continua em execução. O mesmo id com a mesma entrada nunca roda duas vezes. Um cliente que abandona uma requisição não cancela a operação. Antes do primeiro passo, a reexecução para todas as outras VMs em execução no hospedeiro, exceto as VMs de serviço, como faz qualquer execução de Debug-TestSequence.ps1; o resultado de workload_session_start as lista em otherRunningVms.",
+  "runner.mcp_workload_save_sequence": "Salve o diário como um novo arquivo de sequência. O arquivo é gravado na pasta test/sequences do framework, e um arquivo existente nunca é substituído. Obrigatórios: name, description e resource, a lista de sequências após as quais ela roda. Opcional: componentSteps, quantos passos iniciais se tornam passos de componente.",
+  "runner.mcp_workload_session_end": "Encerre a sessão: interrompa uma operação em execução, feche o ciclo proprietário, libere a concessão do runtime e encerre o worker. A VM continua em execução. Sem sessão, responde ended false.",
+  "runner.mcp_workload_session_start": "Anexe uma sessão de carga de trabalho a uma VM em execução. Obrigatórios: guestKey e vmName. Opcionais: sequence, uma sequência de convidado cuja cadeia de recursos fornece as variáveis e cujas bibliotecas de frases estão em vigor, e variables, no máximo 64 valores aplicados sobre elas. Um início que ultrapassa o orçamento de resposta continua em execução e responde workload_session_starting; chame de novo com a mesma entrada para ler o resultado. O resultado lista as outras VMs em execução em otherRunningVms.",
+  "runner.mcp_workload_snapshot": "Leia o que uma superfície mostra agora. Obrigatório: surface (screen ou page). Opcionais: find, que filtra a visão retornada, e image, que também retorna o quadro da tela. Cada entrada traz uma referência como s14, válida apenas até o próximo instantâneo ou passo nessa superfície.",
+  "runner.mcp_workload_step": "Execute uma sentença como um passo. Execute com operationId e os campos de execução step e intent, opcionalmente on e timeoutSeconds (1 a 7200). Consulte com operationId sozinho; cancele com operationId e cancel true. Uma chamada responde dentro do orçamento de resposta, e uma operação mais longa continua em execução. O mesmo id com a mesma entrada nunca roda duas vezes. Um cliente que abandona uma requisição não cancela a operação. Um cancelamento tem efeito antes da próxima primitiva e não interrompe uma que esteja em execução.",
+  "runner.mcp_workload_suggest_step": "Sugira um passo para uma entrada do instantâneo atual. Obrigatório: ref, uma referência como s14. Retorna as sentenças que miram exatamente essa entrada, ou uma primitiva tapOn com nth quando nenhuma sentença a distingue.",
   "runner.mcp_yuruna_dependency_version": "Reporte as versões de dependência fixadas e o que está instalado. Emits JSON nativamente.",
   "runner.mcp_yuruna_invoke_clear": "Limpar o estado gerado. DEStruTIVO: o que remove não é recuperável chamando-o novamente.",
   "runner.mcp_yuruna_set_component": "Aplicar as definições dos componentes. Grava a configuração; sai não-zero com uma transcrição na falha.",
@@ -2527,25 +3420,25 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
-  "runner.no_other_runner_refresh_active": [
+  "runner.no_other_runner_gate_held": [
     {
       "arg": "callerName",
       "type": "identifier",
       "trust": "internal"
     },
-    ": a atualização do hospedeiro ",
+    ": a operação do hospedeiro ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "internal"
     },
-    " mantém o runner deste hospedeiro (portão ",
+    " mantém o executor deste hospedeiro (portão ",
     {
       "arg": "state",
       "type": "identifier",
       "trust": "internal"
     },
-    "); a inicialização foi recusada. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "); a inicialização foi recusada. Aguarde a conclusão ou, para um reparo do hospedeiro, retome-o com test/lab/Invoke-HostRepair.ps1 -Resume."
   ],
   "runner.ocr_known_answer_degraded": [
     "Um provedor de OCR não consegue ler um quadro conhecido (",
@@ -4452,7 +5345,7 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "' no host -- executando cadeia de linha de base completa (caminho frio; VM será renomeado para '",
+    "' no host -- executando a cadeia de recursos completa (caminho frio; VM será renomeado para '",
     {
       "arg": "requiredSnapshotId",
       "type": "detail",
@@ -4687,7 +5580,7 @@ const DataptBRrunner = `{
   "runner.operator_1a355714114b86a7": "Falta o UTM.app -- install it: brew install --cask utm (ou https://mac.getutm.app)",
   "runner.operator_1a3ffa06ec11b7a6": "virsh não encontrado no PATH -- os pacotes libvirt/QEMU não estão instalados. Executar install/ubuntu.kvm.sh, ou: sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86",
   "runner.operator_1a5944a737ed4e90": [
-    "Atualizar a máquina ",
+    "  Reparo do hospedeiro ",
     {
       "arg": "report",
       "type": "detail",
@@ -5774,7 +6667,7 @@ const DataptBRrunner = `{
   "runner.operator_2911629c58691e3f": "um ciclo pararia no meio de um prompt de senha que ninguém é",
   "runner.operator_29160309e2dd574e": "/dev/kvm presente.",
   "runner.operator_29205489a1013ab0": "host.windows.hyper-v requer elevação. Re-run Start-TestRunner.ps1 como Administrador.",
-  "runner.operator_292bf0f1ef450037": "Invoke-HostRefresh: o hipervisor está respondendo; o corredor está morto ou ausente. A execução 1 (reclamação) não é implementada nesta fatia -- inicia-a manualmente: pwsh test/Start-TestRunner.ps1",
+  "runner.operator_292bf0f1ef450037": "Invoke-HostRepair: o hipervisor está respondendo; o corredor está morto ou ausente. A execução 1 (reclamação) não é implementada nesta fatia -- inicia-a manualmente: pwsh test/Start-TestRunner.ps1",
   "runner.operator_29607e704f43acdc": [
     "users.yml[",
     {
@@ -6381,7 +7274,7 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_2fb31966478fca46": "Invoke-HostRefresh: não foi possível resolver/segurar a raiz de estado de atualização da máquina privada ($HOME/.yuruna/host-refresh). Recusando-se a prosseguir sem uma raiz privada durável, somente para o proprietário.",
+  "runner.operator_2fb31966478fca46": "Invoke-HostRepair: não foi possível resolver/proteger a raiz de estado privada do reparo do hospedeiro ($HOME/.yuruna/host-repair). Recusando-se a prosseguir sem uma raiz privada durável, somente para o proprietário.",
   "runner.operator_2fce8fc42e5b8f1f": "Executando no macOS mas UTM não encontrado em /Aplications/UTM.app.",
   "runner.operator_300e4e9499987ed4": [
     "Wait-YurunaAggregatorReady: o serviço pool-aggregator não ficou pronto dentro do ",
@@ -7287,7 +8180,7 @@ const DataptBRrunner = `{
     " para o diário de bordo por ciclo."
   ],
   "runner.operator_3d35ece66aa84b79": [
-    "Chave de visita (da linha de base): ",
+    "Chave de visita (da cadeia de recursos): ",
     {
       "arg": "guestKey",
       "type": "detail",
@@ -8101,7 +8994,7 @@ const DataptBRrunner = `{
   "runner.operator_46e3cbe0614b1d51": "poolStorage setup: networkPath/networkO usuário não deve conter uma única citação (quebraria a semente convidada). Nada escrito.",
   "runner.operator_46f30de3d812ddd8": "Configurações do sistema > Privacidade e segurança > Automação",
   "runner.operator_47371277eaeea492": [
-    "Não foi possível iniciar o salto do servidor de estado: ",
+    "Não foi possível iniciar o salto do serviço de status: ",
     {
       "arg": "message",
       "type": "detail",
@@ -10846,7 +11739,7 @@ const DataptBRrunner = `{
     },
     " Veja o link e o caminho da renovação, não na identidade DHCP."
   ],
-  "runner.operator_677303e3823afe8d": "'testCycle.autoRefreshAfterStalls' não está definido -- padrão para 0 (atualização automática da máquina desabilitada).",
+  "runner.operator_677303e3823afe8d": "'testCycle.autoRepairAfterStalls' não está definido -- padrão para 0 (reparo automático do hospedeiro desabilitado).",
   "runner.operator_67a649b2f9792d49": [
     "Falha ao instalar o ",
     {
@@ -11380,13 +12273,13 @@ const DataptBRrunner = `{
   "runner.operator_6e9385fec86f1e3d": "Caching-proxy service: um caching-proxy-service bring-up detém a fechadura -- deixando o mapa da porta para ele.",
   "runner.operator_6ec6add9e9a298c1": "Causa comum: o cache VM está pronto, mas lula está reiniciando -- um cache recentemente reconstruído faz isso uma vez enquanto o provisionamento aplica sua configuração ssl-bump.",
   "runner.operator_6eca51811f4cfdd3": [
-    "Invoke-HostRefresh: outro reparo já mantém o bloqueio vitalício (",
+    "Invoke-HostRepair: outra operação do hospedeiro já mantém o bloqueio vitalício (",
     {
       "arg": "reason",
       "type": "detail",
       "trust": "external"
     },
-    "). Recusando-se a correr ao lado dele."
+    "). Recusando-se a executar em paralelo."
   ],
   "runner.operator_6f45c80f05654384": [
     "A configuração de referência do ",
@@ -12558,13 +13451,13 @@ const DataptBRrunner = `{
     ". Os registros do NAS foram removidos; as associações NÃO foram alteradas."
   ],
   "runner.operator_7d74f75db443e9e2": [
-    "O salto do servidor de estado ainda está em execução após o ",
+    "O salto do serviço de status ainda está em execução após ",
     {
       "arg": "bounceTimeoutSeconds",
       "type": "detail",
       "trust": "external"
     },
-    "s; ficou sozinho (matando-o iria derrubar o servidor com ele). Transcrição: ",
+    "s; foi deixado como está (encerrá-lo derrubaria o serviço junto). Transcrição: ",
     {
       "arg": "logPath",
       "type": "detail",
@@ -12766,7 +13659,7 @@ const DataptBRrunner = `{
     "'"
   ],
   "runner.operator_7f5c0d3fa4f8cdf8": [
-    "O salto do servidor de estado terminou ",
+    "O salto do serviço de status terminou ",
     {
       "arg": "exitCode",
       "type": "detail",
@@ -13476,7 +14369,7 @@ const DataptBRrunner = `{
     ")"
   ],
   "runner.operator_88f502760b28fd59": [
-    "Invoke-HostRefresh: a sonda do hipervisor é ",
+    "Invoke-HostRepair: a sonda do hipervisor é ",
     {
       "arg": "state",
       "type": "detail",
@@ -15931,7 +16824,7 @@ const DataptBRrunner = `{
     "' seja regenerado com 'dhcp-identifier: mac', então: sudo netplan aplicar"
   ],
   "runner.operator_a6cceb1dcf23a282": [
-    "Invoke-HostRefresh: pedido recusado (",
+    "Invoke-HostRepair: pedido recusado (",
     {
       "arg": "reason",
       "type": "detail",
@@ -16423,7 +17316,7 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_ae404c37892f11d1": "Gravar o diário de requisição da máquina",
+  "runner.operator_ae404c37892f11d1": "Gravar o diário de solicitações das operações do hospedeiro",
   "runner.operator_ae4e8052943a33cd": [
     "Regra de Firewall do Windows assegurada '",
     {
@@ -20248,7 +21141,7 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
-  "runner.operator_dfd19c97aaa9ff6e": "Invoke-HostRefresh: hipervisor responsivo e um corredor está presente -- no-op verificado.",
+  "runner.operator_dfd19c97aaa9ff6e": "Invoke-HostRepair: hipervisor responsivo e um corredor está presente -- no-op verificado.",
   "runner.operator_dfd80a749d4fee8f": "Adicionar Get-Image.ps1 + New-VM.ps1 sob esse caminho para habilitar este convidado, ou",
   "runner.operator_e00026446a75f063": [
     "Perdeu a corrida pidfile contra um Start-TestRunner concorrente. Inspecione ",
@@ -22410,7 +23303,7 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "external"
     },
-    "' -- pulando a cadeia basal (caminho quente)."
+    "' -- pulando a cadeia de recursos (caminho quente)."
   ],
   "runner.operator_f8a43d6f86299328": [
     "Verifique o registro de erros do servidor: ",
@@ -22974,7 +23867,7 @@ const DataptBRrunner = `{
   ],
   "runner.operator_fff495323f51f508": "Windows.Media.Ocr está instalado em cada máquina do Windows, mas:",
   "runner.operator_fffaa1debcc46863": [
-    "'testCycle.autoRefreshAfterStalls' é ",
+    "'testCycle.autoRepairAfterStalls' é ",
     {
       "arg": "arasVal",
       "type": "detail",
@@ -23060,6 +23953,29 @@ const DataptBRrunner = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "runner.phrase_library_invalid": [
+    "_phrases.yml: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.phrase_library_valid": [
+    "_phrases.yml: ",
+    {
+      "arg": "count",
+      "type": "detail",
+      "trust": "external"
+    },
+    " frase(s) em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
   ],
   "runner.pool_configuration_library_removed": "test-sets.yml removido do repositório de configuração; nada o lê.",
   "runner.pool_configuration_schema_already_current": [
@@ -23217,6 +24133,15 @@ const DataptBRrunner = `{
     ". Consulte os diagnósticos de rede para ver todas as tentativas."
   ],
   "runner.prior_runner_cleanup_action": "Ação: parando-o e rodando\nRemove-TestVMFiles.ps1 antes de iniciar",
+  "runner.private_state_migration_blocked": [
+    "Start-TestRunner: a raiz de estado privada não pôde ser movida do seu local anterior host-refresh (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); não iniciando. Pare o runner, o ouvinte de status e o controlador de hospedeiro antigos e inicie o runner novamente. Consulte https://yuruna.link/42f909ad-0022"
+  ],
   "runner.process_start_record_write_action": "Gravar um registro de hora de início do processo",
   "runner.project_checkout_replace_action": [
     "Substituir por um checkout novo de ",
@@ -23243,7 +24168,7 @@ const DataptBRrunner = `{
       "type": "identifier",
       "trust": "internal"
     },
-    "): um pool drenado ou pausado, uma atualização do host ou Ctrl+C o reteve antes de um veredito."
+    "): um pool drenado ou pausado, uma operação do hospedeiro ou Ctrl+C o reteve antes de um veredito."
   ],
   "runner.project_previous_cleanup_failed": [
     "Não foi possível excluir o checkout anterior do projeto em ",
@@ -23326,8 +24251,8 @@ const DataptBRrunner = `{
     },
     "), então essa CA não é confiável."
   ],
-  "runner.readiness_ack_remove_action": "Remover uma confirmação de prontidão de atualização obsoleta",
-  "runner.readiness_ack_write_action": "Gravar a confirmação de prontidão da atualização",
+  "runner.readiness_ack_remove_action": "Remover uma confirmação de prontidão da transferência obsoleta",
+  "runner.readiness_ack_write_action": "Gravar a confirmação de prontidão da transferência",
   "runner.recovery_applied": [
     "[ciclo externo ",
     {
@@ -23418,419 +24343,6 @@ const DataptBRrunner = `{
     },
     "). O resultado do ciclo não é afetado."
   ],
-  "runner.refresh_barrier_held": [
-    "Retomado após a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ": retido por ",
-    {
-      "arg": "controls",
-      "type": "text",
-      "trust": "internal"
-    },
-    ". Libere-os na página de status; nenhuma VM é criada ou alterada até lá."
-  ],
-  "runner.refresh_barrier_released": [
-    "Controles retidos liberados após ",
-    {
-      "arg": "seconds",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " s; o ciclo retomado continua."
-  ],
-  "runner.refresh_capability_unverified_macos": "A recuperação e a reinicialização do runner ainda não são qualificadas no macOS: a tabela de processos do ps e a execução desanexada são testadas apenas com fixtures.",
-  "runner.refresh_capability_unverified_windows": "A recuperação e a reinicialização do runner ainda não são qualificadas no Windows: a tabela de processos CIM, o encerramento de processo único e o salto de reatribuição de pai são testados apenas com fixtures.",
-  "runner.refresh_cycle_held": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] o interno parou em ",
-    {
-      "arg": "site",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " porque uma atualização do hospedeiro retém este hospedeiro; nada foi alterado."
-  ],
-  "runner.refresh_gate_blocks_start": [
-    "Start-TestRunner: a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " retém o runner deste hospedeiro (portão ",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); um segundo runner não será iniciado. Aguarde a conclusão ou retome com test/lab/Invoke-HostRefresh.ps1 -Resume."
-  ],
-  "runner.refresh_gate_boot_resume": [
-    "Start-TestRunner: a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " ficou inacabada em uma inicialização anterior; retomando-a uma vez com test/lab/Invoke-HostRefresh.ps1 -Resume (pid ",
-    {
-      "arg": "pid",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "). Este início continua recusado; a atualização inicia o runner quando terminar, e seus erros vão para ",
-    {
-      "arg": "stdErrPath",
-      "type": "detail",
-      "trust": "internal"
-    },
-    "."
-  ],
-  "runner.refresh_gate_boot_resume_failed": [
-    "Start-TestRunner: a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " ficou inacabada em uma inicialização anterior, e retomá-la falhou (",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); retome-a com test/lab/Invoke-HostRefresh.ps1 -Resume."
-  ],
-  "runner.refresh_gate_boot_resume_tried": [
-    "Start-TestRunner: a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ", inacabada desde uma inicialização anterior, já foi retomada uma vez nesta inicialização; retome-a novamente com test/lab/Invoke-HostRefresh.ps1 -Resume."
-  ],
-  "runner.refresh_gate_hold": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " retém o runner (portão ",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); nenhum ciclo inicia até a liberação."
-  ],
-  "runner.refresh_gate_orphaned": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " deixou o runner retido (portão ",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ") e seu worker não está mais em execução. Execute test/lab/Invoke-HostRefresh.ps1 -Resume para concluir a recuperação."
-  ],
-  "runner.refresh_gate_released": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] o portão de atualização do hospedeiro liberou o runner; os ciclos são retomados."
-  ],
-  "runner.refresh_gate_status_ensure_failed": [
-    "Start-TestRunner: não foi possível iniciar o status-service enquanto o portão retém: ",
-    {
-      "arg": "message",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "runner.refresh_gate_status_ensured": [
-    "Start-TestRunner: a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " não tem worker ativo; o status-service foi iniciado na porta ",
-    {
-      "arg": "port",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " para que seu painel possa mostrar e retomar a solicitação não resolvida. O início do runner continua recusado até que a solicitação seja resolvida."
-  ],
-  "runner.refresh_gate_unreadable": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] não foi possível ler o registro do portão de atualização do hospedeiro (",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); o runner permanece retido até que test/lab/Invoke-HostRefresh.ps1 -Resume o resolva."
-  ],
-  "runner.refresh_gate_write_action": [
-    "Gravar o portão do runner da atualização do hospedeiro (",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ")"
-  ],
-  "runner.refresh_handoff_complete": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] prontidão verificada para a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "; saindo do portão de atualização."
-  ],
-  "runner.refresh_handoff_complete_action": [
-    "Concluir uma transferência do runner na atualização do hospedeiro (",
-    {
-      "arg": "verdict",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ")"
-  ],
-  "runner.refresh_handoff_issue_action": [
-    "Emitir um token de transferência do runner na atualização do hospedeiro (",
-    {
-      "arg": "purpose",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ")"
-  ],
-  "runner.refresh_handoff_unverified": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] não foi possível verificar a prontidão para a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " (",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); o runner permanece retido."
-  ],
-  "runner.refresh_launch_record_skipped": [
-    "Start-TestRunner: o registro de inicialização do runner não foi gravado (",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); uma atualização do hospedeiro não pode reiniciar este runner e pede ao operador que o inicie."
-  ],
-  "runner.refresh_preflight_cycle": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] apenas verificação prévia da atualização: sem git pull, alteração de VM ou varredura de controles neste ciclo."
-  ],
-  "runner.refresh_preflight_failed": [
-    "A verificação prévia da atualização falhou (",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); nada foi alterado e o runner permanece retido."
-  ],
-  "runner.refresh_preflight_ready": [
-    "Verificação prévia da atualização pronta para a solicitação ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "; aguardando o worker de atualização liberar o runner."
-  ],
-  "runner.refresh_preflight_released": [
-    "Verificação prévia da atualização encerrada (",
-    {
-      "arg": "outcome",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); saindo para que o runner possa continuar."
-  ],
-  "runner.refresh_preflight_result": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] o ciclo de verificação prévia da atualização terminou com código de saída ",
-    {
-      "arg": "exitCode",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "."
-  ],
-  "runner.refresh_resume_action": "Reiniciar o runner após uma atualização do hospedeiro",
-  "runner.refresh_resume_record_refused": [
-    "Start-TestRunner: ",
-    {
-      "arg": "pidFile",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " está ",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "; uma retomada de atualização nunca assume nem exclui um registro de runner ativo ou desconhecido."
-  ],
-  "runner.refresh_resume_started": [
-    "Start-TestRunner: retomando após a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "; pausas, retenções e solicitações de reinício do operador são preservadas."
-  ],
-  "runner.refresh_resume_switch_pair": "Start-TestRunner: -RefreshResume e -RefreshHandoffToken devem ser informados juntos; não iniciando.",
-  "runner.refresh_resume_token_refused": [
-    "Start-TestRunner: a transferência da atualização foi recusada (",
-    {
-      "arg": "reason",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "); não iniciando."
-  ],
-  "runner.refresh_site_gated": [
-    "Ciclo encerrado antes de ",
-    {
-      "arg": "site",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ": a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " retém este hospedeiro (portão ",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    "). Nada foi alterado; o runner aguarda a atualização."
-  ],
-  "runner.refresh_status_ensure_orphaned": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] a atualização do hospedeiro ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " retém o runner (portão ",
-    {
-      "arg": "state",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    ") e seu worker não está mais em execução; garantindo novamente o status-service para que seu painel possa mostrar e retomar a solicitação não resolvida."
-  ],
-  "runner.refresh_status_ensure_skipped": [
-    "[ciclo externo ",
-    {
-      "arg": "cycle",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "] nova garantia do status-service ignorada: uma atualização do hospedeiro retém este hospedeiro."
-  ],
-  "runner.refresh_trigger_call_failed": [
-    "A chamada automática de atualização do hospedeiro em ",
-    {
-      "arg": "site",
-      "type": "identifier",
-      "trust": "internal"
-    },
-    " falhou e foi ignorada: ",
-    {
-      "arg": "message",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
   "runner.resident_watchdog_kill_preamble": [
     "[ciclo externo ",
     {
@@ -23890,6 +24402,185 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     " com sua árvore de processos."
+  ],
+  "runner.runner_gate_blocks_start": [
+    "Start-TestRunner: a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor deste hospedeiro (portão ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); um segundo executor não será iniciado. Aguarde a conclusão ou, para um reparo do hospedeiro, retome-o com test/lab/Invoke-HostRepair.ps1 -Resume."
+  ],
+  "runner.runner_gate_cycle_held": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o interno parou em ",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " porque uma operação do hospedeiro retém este hospedeiro; nada foi alterado."
+  ],
+  "runner.runner_gate_hold": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor (portão ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); nenhum ciclo inicia até a liberação."
+  ],
+  "runner.runner_gate_orphaned": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " deixou o executor retido (portão ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") e seu worker não está mais em execução. Para um reparo do hospedeiro, execute test/lab/Invoke-HostRepair.ps1 -Resume para concluir a recuperação."
+  ],
+  "runner.runner_gate_released": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] o portão do executor liberou o executor; os ciclos são retomados."
+  ],
+  "runner.runner_gate_site_held": [
+    "Ciclo encerrado antes de ",
+    {
+      "arg": "site",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém este hospedeiro (portão ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "). Nada foi alterado; o executor aguarda a conclusão dela."
+  ],
+  "runner.runner_gate_status_ensure_failed": [
+    "Start-TestRunner: não foi possível iniciar o status-service enquanto o portão retém: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.runner_gate_status_ensure_orphaned": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " retém o executor (portão ",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") e seu worker não está mais em execução; garantindo novamente o status-service para que seu painel possa mostrar e retomar a solicitação não resolvida."
+  ],
+  "runner.runner_gate_status_ensure_skipped": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] nova garantia do status-service ignorada: uma operação do hospedeiro retém este hospedeiro."
+  ],
+  "runner.runner_gate_status_ensured": [
+    "Start-TestRunner: a operação do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não tem worker ativo; o status-service foi iniciado na porta ",
+    {
+      "arg": "port",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " para que seu painel possa mostrar e retomar a solicitação não resolvida. O início do executor continua recusado até que a solicitação seja resolvida."
+  ],
+  "runner.runner_gate_unreadable": [
+    "[ciclo externo ",
+    {
+      "arg": "cycle",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "] não foi possível ler o registro do portão do executor (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); o executor permanece retido até que test/lab/Invoke-HostRepair.ps1 -Resume o resolva."
+  ],
+  "runner.runner_gate_write_action": [
+    "Gravar o portão do executor (",
+    {
+      "arg": "state",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
   ],
   "runner.runner_process_signal_action": [
     "Enviar sinal a um processo de runner verificado (",
@@ -24567,6 +25258,145 @@ const DataptBRrunner = `{
     },
     ")."
   ],
+  "runner.ssh_host_key_pin_unconfirmed_reset": [
+    "A chave de host SSH fixada para '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' foi registrada durante esta espera e nenhum login foi autenticado com ela, e o convidado em ",
+    {
+      "arg": "address",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " agora apresenta outra chave, como faz um convidado novo quando o servidor SSH do instalador dá lugar ao do sistema instalado. A fixação é esquecida e a espera continua (redefinição ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " de ",
+    {
+      "arg": "limit",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "; chave fixada: ",
+    {
+      "arg": "pin",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "runner.ssh_password_rotated": [
+    "O sshWaitReady trocou por SSH a senha expirada de ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.ssh_password_rotation_failed": [
+    "O sshWaitReady não conseguiu trocar por SSH a senha expirada de ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), portanto a etapa falha. Saída do convidado: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.ssh_password_set": [
+    "O sshWaitReady definiu por SSH a senha de ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", porque o login não estava expirado."
+  ],
+  "runner.ssh_password_set_failed": [
+    "O sshWaitReady não conseguiu definir por SSH a senha de ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), portanto a etapa falha e nenhuma etapa posterior grava a nova senha. Saída do convidado: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.ssh_password_still_expired": [
+    "O convidado ainda informa uma senha expirada para ",
+    {
+      "arg": "user",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " depois que o sshWaitReady a trocou, portanto a etapa falha."
+  ],
+  "runner.ssh_wait_rotation_fields_incomplete": [
+    "O sshWaitReady só troca uma senha expirada com currentPassword e newPassword juntos, e esta etapa informa apenas ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ", portanto a etapa falha."
+  ],
   "runner.start_cycle_worker_cleanup_failed": [
     "Início de ciclo ",
     {
@@ -24868,7 +25698,7 @@ const DataptBRrunner = `{
     },
     "') e iniciando um novo."
   ],
-  "runner.status_refresh_safe_existing_ready": [
+  "runner.status_non_destructive_existing_ready": [
     "O status service de PID ",
     {
       "arg": "processId",
@@ -24881,9 +25711,9 @@ const DataptBRrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    "; o início seguro para atualização o manteve em execução."
+    "; o início não destrutivo o manteve em execução."
   ],
-  "runner.status_refresh_safe_not_ready": [
+  "runner.status_non_destructive_not_ready": [
     "O status service foi iniciado com PID ",
     {
       "arg": "processId",
@@ -24898,8 +25728,8 @@ const DataptBRrunner = `{
     },
     " segundos; ele foi mantido em execução."
   ],
-  "runner.status_refresh_safe_partial": [
-    "O início seguro para atualização do status service na porta ",
+  "runner.status_non_destructive_partial": [
+    "O início não destrutivo do status service na porta ",
     {
       "arg": "port",
       "type": "integer",
@@ -24919,8 +25749,8 @@ const DataptBRrunner = `{
     },
     ")."
   ],
-  "runner.status_refresh_safe_refused": [
-    "Start-StatusService.ps1 -RefreshSafe recusado: ",
+  "runner.status_non_destructive_refused": [
+    "Start-StatusService.ps1 -NonDestructive recusado: ",
     {
       "arg": "reason",
       "type": "identifier",
@@ -24928,8 +25758,8 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.status_refresh_safe_result_unwritable": [
-    "O início seguro para atualização não pôde gravar seu registro de resultado em ",
+  "runner.status_non_destructive_result_unwritable": [
+    "O início não destrutivo não pôde gravar seu registro de resultado em ",
     {
       "arg": "path",
       "type": "detail",
@@ -24937,7 +25767,7 @@ const DataptBRrunner = `{
     },
     "."
   ],
-  "runner.status_refresh_safe_started": [
+  "runner.status_non_destructive_started": [
     "O status service foi iniciado com PID ",
     {
       "arg": "processId",
@@ -24950,7 +25780,7 @@ const DataptBRrunner = `{
       "type": "integer",
       "trust": "internal"
     },
-    " (início seguro para atualização)."
+    " (início não destrutivo)."
   ],
   "runner.status_restart_changed_head": [
     "Reiniciando o serviço de status (PID ",
@@ -24993,6 +25823,21 @@ const DataptBRrunner = `{
   ],
   "runner.status_worker_directory_prepare_action": "Preparar o diretório privado do worker",
   "runner.status_worker_state_write_action": "Publicar o registro de estado do worker",
+  "runner.step_form_invalid": [
+    "O passo em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " deve ter exatamente um de 'step', 'action' e 'snippet'; ele tem: ",
+    {
+      "arg": "found",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
   "runner.step_handler_threw": [
     "Etapa ",
     {
@@ -25034,6 +25879,410 @@ const DataptBRrunner = `{
       "trust": "external"
     },
     ". O watchdog avalia o ciclo por este arquivo e o encerra como travado quando ele fica desatualizado; verifique o espaço livre e os bloqueios de arquivo nesse local."
+  ],
+  "runner.step_phrase_duplicate_id": [
+    "A frase '",
+    {
+      "arg": "phrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' está definida em ",
+    {
+      "arg": "first",
+      "type": "detail",
+      "trust": "external"
+    },
+    " e novamente em ",
+    {
+      "arg": "second",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Um id de frase é definido uma única vez; uma biblioteca acrescenta frases e nunca redefine uma."
+  ],
+  "runner.step_phrase_file_unreadable": [
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não pode ser lido: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Passos de sentença não podem ser resolvidos sem ele."
+  ],
+  "runner.step_phrase_library_invalid": [
+    "A biblioteca de frases ",
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não é válida (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    ") em '",
+    {
+      "arg": "phrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "': ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "runner.step_phrase_malformed": [
+    "A sentença em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não pode ser lida (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    ") no caractere ",
+    {
+      "arg": "position",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Feche cada aspa e cada expressão de variável, e duplique uma aspa para escrevê-la dentro de um valor entre aspas."
+  ],
+  "runner.step_phrase_no_library": [
+    "A sentença em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não pode ser resolvida: nenhuma biblioteca de frases foi encontrada. A biblioteca do framework é test/sequences/_phrases.yml."
+  ],
+  "runner.step_phrase_no_match": [
+    "Nenhuma frase corresponde à sentença em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", lida como: ",
+    {
+      "arg": "shape",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Sentenças mais próximas: ",
+    {
+      "arg": "nearest",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Um valor que contém espaços deve estar entre aspas."
+  ],
+  "runner.step_phrase_overlap": [
+    "As frases '",
+    {
+      "arg": "firstPhrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ('",
+    {
+      "arg": "firstSentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "', ",
+    {
+      "arg": "firstFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    ") e '",
+    {
+      "arg": "secondPhrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ('",
+    {
+      "arg": "secondSentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "', ",
+    {
+      "arg": "secondFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    ") podem corresponder à mesma sentença. Uma sentença tem um único significado; altere ou remova uma delas."
+  ],
+  "runner.step_phrase_slot_empty": [
+    "O valor de <",
+    {
+      "arg": "slot",
+      "type": "detail",
+      "trust": "external"
+    },
+    "> de '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " está vazio. Informe um valor."
+  ],
+  "runner.step_phrase_slot_not_integer": [
+    "O valor de <",
+    {
+      "arg": "slot",
+      "type": "detail",
+      "trust": "external"
+    },
+    "> de '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " deve ser um número inteiro de 0 a 999999999, escrito sem aspas e sem zero à esquerda. Uma expressão de variável não é aceita ali."
+  ],
+  "runner.step_phrase_slot_not_key": [
+    "O valor de <",
+    {
+      "arg": "slot",
+      "type": "detail",
+      "trust": "external"
+    },
+    "> de '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " deve ser um destes nomes de tecla, escrito sem aspas: ",
+    {
+      "arg": "keyNames",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Uma expressão de variável não é aceita ali."
+  ],
+  "runner.step_phrase_surface_missing": [
+    "A sentença '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não tem passos para a superfície '",
+    {
+      "arg": "surface",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'. Ela está definida para: ",
+    {
+      "arg": "surfaces",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "runner.step_phrase_template_invalid": [
+    "O passo ",
+    {
+      "arg": "index",
+      "type": "detail",
+      "trust": "external"
+    },
+    " da frase '",
+    {
+      "arg": "phrase",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' para a superfície '",
+    {
+      "arg": "surface",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' em ",
+    {
+      "arg": "file",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não é um passo '",
+    {
+      "arg": "action",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' válido. Seus campos são definidos em test/schemas/sequence.schema.yml; a ação exige: ",
+    {
+      "arg": "required",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "runner.step_phrase_timeout_unused": [
+    "timeoutSeconds está definido na sentença '",
+    {
+      "arg": "sentence",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    ", e nenhum dos seus passos aceita um tempo limite. Remova-o."
+  ],
+  "runner.step_sentence_invalid": [
+    "O passo de sentença em ",
+    {
+      "arg": "location",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não é válido (",
+    {
+      "arg": "reason",
+      "type": "detail",
+      "trust": "external"
+    },
+    "): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Um passo de sentença recebe 'step' como texto e, opcionalmente, 'on' (screen ou page), 'timeoutSeconds' (um número inteiro de 1 ou mais), 'description' e, junto com ela, 'descriptionLocalized'."
+  ],
+  "runner.tapon_argument_invalid": [
+    "O tapOn não pode ser executado: ",
+    {
+      "arg": "field",
+      "type": "token",
+      "trust": "internal"
+    },
+    " é '",
+    {
+      "arg": "value",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'. Use um destes: ",
+    {
+      "arg": "allowed",
+      "type": "token",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.tapon_click_kind_unsupported": [
+    "tapOn: o hospedeiro '",
+    {
+      "arg": "hostType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' não consegue enviar um clique ",
+    {
+      "arg": "click",
+      "type": "token",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.tapon_label_ambiguous": [
+    "tapOn: '",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' aparece ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " vezes na tela: ",
+    {
+      "arg": "candidates",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Adicione nth ao passo para escolher um deles."
+  ],
+  "runner.tapon_label_unusable": [
+    "O tapOn não pode ser executado: o rótulo '",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' não tem letra nem dígito para procurar com match: ",
+    {
+      "arg": "match",
+      "type": "token",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.tapon_second_look_failed": [
+    "tapOn: a segunda leitura de uma cópia ampliada ao dobro do quadro falhou (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Este passo lê apenas o quadro como foi capturado."
   ],
   "runner.telemetry_event_dropped": [
     "Não foi possível registrar um evento do ciclo ('",
@@ -25107,6 +26356,13 @@ const DataptBRrunner = `{
       "trust": "external"
     }
   ],
+  "runner.verb_web_click": "Clica no elemento da página encontrado por papel e nome, ou marca uma caixa de seleção.",
+  "runner.verb_web_close": "Fecha a página do navegador do convidado e a sua conexão.",
+  "runner.verb_web_expect": "Aguarda até que um elemento ou um texto esteja na página, ou tenha saído dela.",
+  "runner.verb_web_fill": "Substitui o conteúdo de um campo de texto da página.",
+  "runner.verb_web_open": "Abre uma URL na página do navegador do convidado e aguarda o carregamento.",
+  "runner.verb_web_press": "Pressiona uma tecla na página.",
+  "runner.verb_web_select": "Escolhe uma opção de uma lista de seleção nativa pelo seu rótulo.",
   "runner.vm_admission_occupied": [
     "Recusando o início de um ciclo: estas VMs estão em execução no hospedeiro e não pararam: ",
     {
@@ -25328,6 +26584,899 @@ const DataptBRrunner = `{
       "trust": "internal"
     },
     " s, em que 0 significa sem limite)."
-  ]
+  ],
+  "runner.web_session_close_incomplete": [
+    "A sessão de navegador em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " não foi encerrada de forma limpa (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.web_session_open_failed": [
+    "Nenhuma sessão de navegador em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "code",
+      "type": "token",
+      "trust": "internal"
+    },
+    ". ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.web_session_opened": [
+    "Sessão de navegador ",
+    {
+      "arg": "generation",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " em ",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "browser",
+      "type": "detail",
+      "trust": "external"
+    },
+    " na porta ",
+    {
+      "arg": "remotePort",
+      "type": "detail",
+      "trust": "external"
+    },
+    " do convidado, acessada por 127.0.0.1:",
+    {
+      "arg": "localPort",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.workload_argument_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o argumento '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' deve corresponder a ",
+    {
+      "arg": "pattern",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.workload_busy": [
+    "A operação '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ainda está em execução. Consulte-a ou cancele-a antes de iniciar outra."
+  ],
+  "runner.workload_call_timeout": [
+    "O worker da sessão não respondeu em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos."
+  ],
+  "runner.workload_candidate_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a sequência gerada falhou na verificação ",
+    {
+      "arg": "check",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    " Nada foi gravado."
+  ],
+  "runner.workload_capture_failed": "Não foi possível capturar o quadro da tela.",
+  "runner.workload_config_unreadable": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": não foi possível ler a configuração ",
+    {
+      "arg": "configPath",
+      "type": "detail",
+      "trust": "external"
+    },
+    "."
+  ],
+  "runner.workload_elevation_required": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "hostType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " controla VMs somente a partir de um processo elevado. Inicie o cliente MCP com privilégios elevados."
+  ],
+  "runner.workload_field_invalid": [
+    "O campo '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' do verbo '",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não corresponde ao esquema de sequência: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_field_missing": [
+    "O verbo '",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' exige o campo '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'."
+  ],
+  "runner.workload_field_reserved": [
+    "O campo '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' é definido pela sessão e não pode ser fornecido."
+  ],
+  "runner.workload_field_undeclared": [
+    "O campo '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não está declarado para o verbo '",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' no esquema de sequência; o manipulador pode ignorá-lo."
+  ],
+  "runner.workload_folder_outside": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": ",
+    {
+      "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    },
+    " é resolvido fora do checkout do framework (",
+    {
+      "arg": "resolved",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Nada foi gravado."
+  ],
+  "runner.workload_guest_unknown": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o convidado '",
+    {
+      "arg": "guestKey",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não tem pasta para ",
+    {
+      "arg": "hostType",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "folder",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "runner.workload_host_driver_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o driver do hospedeiro não foi carregado: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_host_not_ready": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o hospedeiro não está pronto para controlar um convidado (condição ",
+    {
+      "arg": "condition",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "): ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_host_unsupported": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": esta plataforma não tem driver de hospedeiro."
+  ],
+  "runner.workload_intent_invalid": "O intent deve ser uma linha de 1 a 200 caracteres e não deve conter um token de variável.",
+  "runner.workload_internal_error": [
+    "O worker da sessão não conseguiu concluir a requisição: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_journal_empty": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o diário não contém nenhum passo bem-sucedido para salvar."
+  ],
+  "runner.workload_journal_write_failed": [
+    "Não foi possível gravar o arquivo do diário; a entrada foi mantida na memória: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_lease_incomplete": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a concessão ",
+    {
+      "arg": "leasePath",
+      "type": "detail",
+      "trust": "external"
+    },
+    " foi gravada sem o seu registro de início e foi liberada. Chame de novo."
+  ],
+  "runner.workload_libvirt_group_missing": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": este processo não possui o grupo libvirt. Inicie o cliente MCP a partir de uma sessão em que 'id -nG' liste libvirt, ou envolva o comando do servidor em 'sg libvirt -c'."
+  ],
+  "runner.workload_mask_failed": "O front-end não confirmou os valores a ocultar.",
+  "runner.workload_mask_unconfirmed": "O front-end não confirmou os valores a ocultar; os logs do worker podem mostrá-los.",
+  "runner.workload_name_exists": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": já existe um arquivo de sequência para '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "': ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    ". Nada foi gravado."
+  ],
+  "runner.workload_name_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o nome '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' deve corresponder a ",
+    {
+      "arg": "pattern",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ", começar com '",
+    {
+      "arg": "prefix",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "' e não terminar em .yml, .yaml ou um sufixo de hospedeiro (.ubuntu.kvm, .windows.hyper-v, .macos.utm)."
+  ],
+  "runner.workload_no_page": "Nenhuma página está aberta nesta sessão. Execute primeiro a frase 'open page <url>'.",
+  "runner.workload_no_session": "Nenhuma sessão de carga de trabalho está anexada. Inicie uma com workload_session_start.",
+  "runner.workload_not_dispatched": [
+    "A operação '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' terminou antes de ser enviada ao worker; nada foi executado."
+  ],
+  "runner.workload_operation_canceled": [
+    "A operação foi cancelada após ",
+    {
+      "arg": "completed",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " de ",
+    {
+      "arg": "total",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " primitivas."
+  ],
+  "runner.workload_operation_conflict": [
+    "O id de operação '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' já foi usado por outra ferramenta ou com outra entrada. Escolha um novo operationId para um novo passo."
+  ],
+  "runner.workload_operation_unknown": [
+    "Nenhuma operação desta sessão tem o id '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'."
+  ],
+  "runner.workload_ownership_lost": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": esta sessão não é mais dona do runtime (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). Encerre a sessão."
+  ],
+  "runner.workload_plan_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": não foi possível planejar a cadeia de '",
+    {
+      "arg": "sequence",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "': ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_publish_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": não foi possível publicar ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    " Nada foi gravado."
+  ],
+  "runner.workload_queue_full": "Dezesseis chamadas já aguardam o worker. Chame de novo depois que uma delas for respondida.",
+  "runner.workload_replay_spawn_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o processo de reexecução não foi iniciado: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_resource_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": resource deve conter de 1 a 16 nomes de sequência que correspondam a ",
+    {
+      "arg": "pattern",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.workload_runtime_owned": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": outra execução é dona deste runtime: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_secret_filter_failed": "A resposta foi retida: depois da filtragem de segredos, ela ainda continha um ou não podia mais ser lida.",
+  "runner.workload_secret_found": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a sequência gerada conteria um segredo resolvido. Use uma referência de variável no passo. Nada foi gravado."
+  ],
+  "runner.workload_secret_literal": "A requisição contém um valor que esta sessão mantém como segredo. Refira-se a ele por meio da sua variável.",
+  "runner.workload_secret_reference_required": [
+    "O campo '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' carrega um segredo e deve se referir a ele por meio de uma variável ou de uma expressão de extensão."
+  ],
+  "runner.workload_secret_too_short": [
+    "A variável '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' contém um segredo com menos de ",
+    {
+      "arg": "minimum",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " caracteres, que a sessão não consegue mascarar."
+  ],
+  "runner.workload_secret_variable_unknown": [
+    "O campo '",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' se refere à variável '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "', que esta sessão não define."
+  ],
+  "runner.workload_sequence_not_found": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a sequência '",
+    {
+      "arg": "sequence",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não foi encontrada. Locais pesquisados: ",
+    {
+      "arg": "list",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_sequence_not_guest": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": '",
+    {
+      "arg": "sequence",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não é uma sequência de convidado com uma cadeia de recursos para ",
+    {
+      "arg": "osKey",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.workload_session_active": [
+    "Uma sessão com outra entrada está anexada à VM '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'. Encerre-a primeiro com workload_session_end."
+  ],
+  "runner.workload_session_detached": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a sessão não tem VM em execução (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). Encerre a sessão, suba a VM com test/Debug-TestSequence.ps1 e anexe novamente."
+  ],
+  "runner.workload_session_starting": "A sessão ainda está iniciando. Chame workload_session_start de novo com a mesma entrada para ler o resultado.",
+  "runner.workload_split_invalid": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": componentSteps ",
+    {
+      "arg": "value",
+      "type": "integer",
+      "trust": "external"
+    },
+    " deve estar entre 0 e ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "runner.workload_stale_reference": [
+    "A referência '",
+    {
+      "arg": "reference",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não está no instantâneo atual. Tire um novo instantâneo e escolha a partir dele."
+  ],
+  "runner.workload_start_failed": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a sessão não foi iniciada: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_step_failed": [
+    "A primitiva ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " de ",
+    {
+      "arg": "total",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " (",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") falhou: ",
+    {
+      "arg": "label",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_step_too_large": [
+    "O passo é maior que ",
+    {
+      "arg": "maximum",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " caracteres."
+  ],
+  "runner.workload_step_unresolved": [
+    "A sentença não foi resolvida: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_still_waiting": [
+    "A operação '",
+    {
+      "arg": "operationId",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' ainda está em execução. Chame a mesma ferramenta de novo apenas com este operationId para ler o resultado."
+  ],
+  "runner.workload_surface_unsupported": [
+    "Este worker não oferece a superfície '",
+    {
+      "arg": "surface",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "'. Ele oferece: ",
+    {
+      "arg": "surfaces",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "runner.workload_variable_reserved": [
+    "A variável '",
+    {
+      "arg": "name",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' é definida pela sessão e não pode ser fornecida."
+  ],
+  "runner.workload_variables_failed": [
+    "Não foi possível resolver as variáveis da sessão: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_verb_alias": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' é outra grafia de '",
+    {
+      "arg": "canonical",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'. Use '",
+    {
+      "arg": "canonical",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'."
+  ],
+  "runner.workload_verb_denied_composite": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' envolve outros passos. Adicione-o à sequência salva manualmente."
+  ],
+  "runner.workload_verb_denied_operator_hold": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' aguarda um operador e não pode ser executado em uma sessão de carga de trabalho."
+  ],
+  "runner.workload_verb_denied_unclassified": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não declara classe de reexecução e não pode ser executado em uma sessão de carga de trabalho."
+  ],
+  "runner.workload_verb_denied_vm_state": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' altera o estado de energia ou o nome da VM. Em vez disso, execute uma sequência com workload_run_sequence."
+  ],
+  "runner.workload_verb_unregistered": [
+    "'",
+    {
+      "arg": "action",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não é um verbo registrado."
+  ],
+  "runner.workload_vm_absent": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não existe neste hospedeiro. Crie-a e inicie-a com test/Debug-TestSequence.ps1 e depois anexe."
+  ],
+  "runner.workload_vm_stopped": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": a VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "' não está em execução. Inicie-a com test/Debug-TestSequence.ps1 e depois anexe."
+  ],
+  "runner.workload_vm_unknown": [
+    {
+      "arg": "tool",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ": o hipervisor não informou o estado da VM '",
+    {
+      "arg": "vmName",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "'. Nada foi alterado."
+  ],
+  "runner.workload_worker_lost": "O worker da sessão terminou enquanto mantinha a sessão, então a sessão acabou. Inicie uma nova.",
+  "runner.workload_worker_start_failed": [
+    "O worker da sessão não iniciou ou não se anexou: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "runner.workload_yaml_mismatch": "O passo não pode ser escrito como YAML que seja lido de volta sem alterações, por isso não foi executado."
 }
 `

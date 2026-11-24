@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1020,7 +1020,7 @@ try {
                 # when the child exits successfully. Logs stay quiet unless evidence fails.
                 $stdout = $p.StandardOutput.ReadToEndAsync()
                 $stderr = $p.StandardError.ReadToEndAsync()
-                $cancelled = $false
+                $canceled = $false
                 if ($using:FailFast -or -not $using:Quiet) {
                     $waitClock = [Diagnostics.Stopwatch]::StartNew()
                     $timedOut = $false
@@ -1028,7 +1028,7 @@ try {
                     while ($true) {
                         $remaining = [Math]::Max(1, [int][Math]::Ceiling($limit * 1000 - $waitClock.Elapsed.TotalMilliseconds))
                         if ($p.WaitForExit([Math]::Min(1000, $remaining))) { break }
-                        if ($using:FailFast -and $signal.IsSet) { $cancelled = $true; break }
+                        if ($using:FailFast -and $signal.IsSet) { $canceled = $true; break }
                         if ($waitClock.Elapsed.TotalSeconds -ge $limit) { $timedOut = $true; break }
                         if (-not $using:Quiet -and $waitClock.Elapsed.TotalSeconds -ge $nextProgress) {
                             Write-Information ("Still running {0}: {1:n0}s elapsed, limit {2}s" -f $rel,
@@ -1037,7 +1037,7 @@ try {
                         }
                     }
                 } else { $timedOut = -not $p.WaitForExit($limit * 1000) }
-                if ($timedOut -or $cancelled) {
+                if ($timedOut -or $canceled) {
                     # Only this worker's owned child and its descendants are stopped.
                     # A failed stop cannot turn timeout or cancellation into a passing row.
                     try { $p.Kill($true) } catch { Write-Debug "kill after timeout failed: $($_.Exception.Message)" }
@@ -1051,7 +1051,7 @@ try {
                     $leftovers += "$($left.Pid) $($left.Name)"
                 }
 
-                $rc  = if ($timedOut) { 124 } elseif ($cancelled) { 125 } else { $p.ExitCode }
+                $rc  = if ($timedOut) { 124 } elseif ($canceled) { 125 } else { $p.ExitCode }
                 $out = if ($stdout.Wait(5000)) { $stdout.Result } else { '[stdout did not close after process exit or timeout]' }
                 $err = if ($stderr.Wait(5000)) { $stderr.Result } else { '[stderr did not close after process exit or timeout]' }
                 [IO.File]::WriteAllText($stdoutLog, $out, [Text.UTF8Encoding]::new($false))
@@ -1060,7 +1060,7 @@ try {
                 $p = $null
                 $err = $err.Trim()
                 if ($timedOut) { $err = "timed out after ${limit}s`n$err".Trim() }
-                if ($cancelled) { $err = "cancelled after another suite failed (FailFast)`n$err".Trim() }
+                if ($canceled) { $err = "canceled after another suite failed (FailFast)`n$err".Trim() }
 
                 $total = $failed = $skipped = $errors = 0
                 $haveXml = Test-Path -LiteralPath $xml -PathType Leaf
@@ -1108,7 +1108,7 @@ try {
                     $err = (@($err, $out.Trim(), "Worker logs: $stdoutLog ; $stderrLog") | Where-Object { $_ }) -join "`n"
                 }
                 $passed = $rc -eq 0 -and $haveXml -and $total -gt 0 -and $failed -eq 0 -and $errors -eq 0
-                if ($trace -and -not $passed -and -not $cancelled) {
+                if ($trace -and -not $passed -and -not $canceled) {
                     $tracedFailure = (@(($err -split "`n") | Where-Object { $_.Trim() }) + "rc=$rc")[0].Trim()
                     if ($tracedFailure.Length -gt 200) { $tracedFailure = $tracedFailure.Substring(0, 200) + '...' }
                     if (Test-Path -LiteralPath $xml) { Remove-Item -LiteralPath $xml -Force }

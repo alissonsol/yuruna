@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,9 +115,9 @@ Describe 'the inventory measures the tree it ships with' {
     It 'parses only reachable project display YAML' {
         $doc = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($script:Path))
         $project = $doc.domains | Where-Object domain -EQ 'project-config'
-        Assert-Equal -Expected 28 -Actual $project.files `
+        Assert-Equal -Expected 29 -Actual $project.files `
             'the reachable project YAML set changed without an inventory decision'
-        Assert-Equal -Expected 89 -Actual $project.englishScalars `
+        Assert-Equal -Expected 96 -Actual $project.englishScalars `
             'the structured reader did not find the current English display fields'
         # How many scalars carry a translation is a census: it moves every time a
         # locale is delivered, and pinning it turns each delivery into a test

@@ -67,6 +67,11 @@
       "description": "Write-Information in host/macos.utm/Enable-TestAutomation.ps1, printed once when -NoOperatorPrompt is set; preserve command names, switch names and the config key networkStorage.",
       "lifecycle": "active"
     },
+    "host.enable_automation_no_prompt_mode_host": {
+      "message": "Enable-TestAutomation: running with -NoOperatorPrompt -- no package offer, no module installs, no sudo prompt, no networkStorage questionnaire and no change to the host controller's registration. Settings that need an operator are reported as still unmet.",
+      "description": "Printed once by host/ubuntu.kvm/Enable-TestAutomation.ps1 and host/windows.hyper-v/Enable-TestAutomation.ps1 when -NoOperatorPrompt is set, as the enable phase of a host update runs them; preserve command names, switch names and the config key networkStorage.",
+      "lifecycle": "active"
+    },
     "host.enable_automation_no_prompt_unsupported": {
       "message": "Enable-TestAutomation: -NoOperatorPrompt needs Set-MacHostConditionSet -NoGuiDisruption, which this checkout does not provide; nothing was captured or changed. Run it without -NoOperatorPrompt from an attended session instead.",
       "description": "Write-Error in host/macos.utm/Enable-TestAutomation.ps1 when the loaded host-condition module cannot run without disrupting the desktop session; the script then exits 1. Preserve command names and switch names.",
@@ -260,26 +265,8 @@
       }
     },
     "host.operator_00de7e0959068c8c": {
-      "message": "Send-Click on host.ubuntu.kvm: not implemented (Hyper-V-only today). Use SSH-mode workloads on KVM. (vm='{vMName}' ignored x={x} y={y})",
       "description": "Whole Write-Warning message in host/ubuntu.kvm/modules/Yuruna.Host.psm1; preserve command names, paths, codes, and argument boundaries.",
-      "lifecycle": "active",
-      "placeholders": {
-        "vMName": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$VMName"
-        },
-        "x": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$X"
-        },
-        "y": {
-          "type": "detail",
-          "trust": "external",
-          "example": "$Y"
-        }
-      }
+      "lifecycle": "tombstone"
     },
     "host.operator_00df328f839cec6c": {
       "message": "Reconnect vmconnect",
@@ -2259,7 +2246,7 @@
       "lifecycle": "active"
     },
     "host.operator_2679edd915af22f8": {
-      "message": "Nothing will be changed: every macOS knob Enable touches is a pre-existing setting, so with no record of its prior value there is nothing safe to restore.",
+      "message": "No setting will be restored: every macOS knob Enable touches is a pre-existing setting, so with no record of its prior value there is nothing safe to restore. The host controller, its files and its sudoers entries are still removed.",
       "description": "Whole Write-Warning message in host/macos.utm/Disable-TestAutomation.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active"
     },
@@ -5110,7 +5097,7 @@
       }
     },
     "host.operator_641824f231dc3781": {
-      "message": "Could not store a freshly minted internal authentication key in this host's vault (keyChanged={keyChanged}, verified={verified}); building with an EMPTY token: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token until one is provisioned and the proxy rebuilt.",
+      "message": "Could not store a freshly minted internal authentication key in this host's vault (keyChanged={keyChanged}, verified={verified}); building with an EMPTY key: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token until one is provisioned and the proxy rebuilt.",
       "description": "Whole Write-Warning message in host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1; preserve command names, paths, codes, and argument boundaries.",
       "lifecycle": "active",
       "placeholders": {
@@ -12607,7 +12594,7 @@
       }
     },
     "host.utm_start_control_hung": {
-      "message": "UTM's control channel stopped acting on lifecycle requests: {attempts} consecutive start request(s) for '{vmName}' went unanswered, the last reporting '{lastError}'. utmctl still reached UTM.app for state queries, so the application is running but no longer carries out start, stop or delete, and retrying only adds another timeout. Restart UTM.app on this host (quit it from the desktop session, or run test/lab/Invoke-HostRefresh.ps1), then start the VM again. The VM was never launched and its disk is untouched.",
+      "message": "UTM's control channel stopped acting on lifecycle requests: {attempts} consecutive start request(s) for '{vmName}' went unanswered, the last reporting '{lastError}'. utmctl still reached UTM.app for state queries, so the application is running but no longer carries out start, stop or delete, and retrying only adds another timeout. Restart UTM.app on this host (quit it from the desktop session, or run test/lab/Invoke-HostRepair.ps1), then start the VM again. The VM was never launched and its disk is untouched.",
       "description": "errorMessage text returned by Invoke-UtmVMStartWithRetry in host/macos.utm/modules/Yuruna.Host.psm1 when two consecutive starts waited out the Apple Event timeout or lost the connection to UTM.app; preserve command names and paths.",
       "lifecycle": "active",
       "placeholders": {
@@ -13287,6 +13274,472 @@
     "host.kvm_journal_group_session_stale": {
       "message": "  'systemd-journal' membership is in /etc/group; this shell's group set is stale. Log out and back in, then start the test runner from that new session so its diagnostics can read the system journal.",
       "description": "Write-Output in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Group membership) when the account is in systemd-journal in /etc/group but not in this session's group set; the two leading spaces indent it under the setup step. Preserve the group name and the path.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_group_missing": {
+      "message": "  host controller: group '{grp}' does not exist, so yuruna-host-controller.service could not start (its SupplementaryGroups names the group). Install the libvirt packages, then re-run this script.",
+      "description": "Write-Warning in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) when getent finds no libvirt or kvm group; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "grp": {
+          "type": "detail",
+          "trust": "external",
+          "example": "kvm"
+        }
+      }
+    },
+    "host.host_controller_files_failed": {
+      "message": "  host controller: the shim or the code snapshot could not be deployed under ~/.yuruna/host-repair/host-controller ({reason}), so yuruna-host-controller.service was not registered.",
+      "description": "Write-Warning in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) when Install-HostUpdateControllerFile could not deploy the shim, the snapshot or the current file; reason is a token; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "parse-failed"
+        }
+      }
+    },
+    "host.host_controller_unit_installed": {
+      "message": "  yuruna-host-controller.service: installed",
+      "description": "Write-Output in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) after the unit file was written where there was none; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_unit_replaced": {
+      "message": "  yuruna-host-controller.service: replaced",
+      "description": "Write-Output in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) after a unit file with other text was replaced by the generated one; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_no_sudo": {
+      "message": "  yuruna-host-controller.service is not installed, enabled and running with this checkout's unit, and sudo cannot run here without a password, so it was only checked. Re-run this script from a terminal that can answer the sudo prompt.",
+      "description": "Write-Warning in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) when sudo is not available and the unit is missing, different, disabled or inactive; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_sudo_failed": {
+      "message": "  host controller: a privileged step failed (see the warning above), so yuruna-host-controller.service may not be registered. Re-run this script.",
+      "description": "Write-Warning in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) when a sudo -n tee or systemctl call for the unit failed; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_not_running": {
+      "message": "  host controller: no controller took its lock within 15 seconds. Read 'systemctl status yuruna-host-controller' and 'journalctl -u yuruna-host-controller' for the cause.",
+      "description": "Write-Warning in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) when the controller lock is not held 15 seconds after the unit was started; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_running": {
+      "message": "  host controller: running from snapshot {snapshot} (yuruna-host-controller.service)",
+      "description": "Write-Output in host/ubuntu.kvm/Enable-TestAutomation.ps1 (Host controller) when the controller holds its lock; snapshot is a 16-digit hex name; the two leading spaces indent it under the setup step. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "snapshot": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0123456789abcdef"
+        }
+      }
+    },
+    "host.host_controller_not_verified": {
+      "message": "  host controller: the deployed controller is not the one this checkout deploys ({reason}); -NoOperatorPrompt leaves its registration as it is. Run Enable-TestAutomation.ps1 without -NoOperatorPrompt to register it again.",
+      "description": "Write-Warning in host/ubuntu.kvm/Enable-TestAutomation.ps1, host/windows.hyper-v/Enable-TestAutomation.ps1 and host/macos.utm/Enable-TestAutomation.ps1 (Host controller) under -NoOperatorPrompt, when the shim, the registered unit or task, or (macOS) the current snapshot differs from what this checkout deploys; reason is a token; the two leading spaces indent it under the setup step. Preserve command names and switch names.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "definition-differs"
+        }
+      }
+    },
+    "host.host_controller_update_claimed": {
+      "message": "Host update {requestId} is in progress on this host, and stopping its controller now would leave the runner stopped with nothing to start it. Wait for it to end. When it is recovering, or no controller runs any more, end it with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}. Nothing was changed.",
+      "description": "Write-Warning in host/ubuntu.kvm/Disable-TestAutomation.ps1 and host/macos.utm/Disable-TestAutomation.ps1 before they exit 1, when the request journal holds a running or recovering host update. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "host.host_controller_update_unknown": {
+      "message": "The host update journal reads {status}, so whether a host update is in progress on this host cannot be told, and stopping its controller during one would leave the runner stopped with nothing to start it. Nothing was changed. Run this script again once the journal can be read.",
+      "description": "Write-Warning in host/ubuntu.kvm/Disable-TestAutomation.ps1, host/windows.hyper-v/Disable-TestAutomation.ps1 and host/macos.utm/Disable-TestAutomation.ps1 before they exit 1, when the request journal could not be read before anything was stopped or ended, and on Ubuntu and Windows also when it could not be read after the controller's unit or scheduled task was stopped and started again; status is the journal read status (corrupt, unknown-version or unreadable). Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "token",
+          "trust": "internal",
+          "example": "corrupt"
+        }
+      }
+    },
+    "host.host_controller_unit_removed": {
+      "message": "Stopped, disabled and removed yuruna-host-controller.service",
+      "description": "Line of the Restored list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_unit_not_removed": {
+      "message": "yuruna-host-controller.service (not removed: {detail})",
+      "description": "Line of the left-as-it-is list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1 when a systemctl or rm step for the unit failed; detail is the command and its output. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "systemctl stop yuruna-host-controller.service: sudo: a password is required"
+        }
+      }
+    },
+    "host.host_update_rule_not_removed": {
+      "message": "/etc/sudoers.d/yuruna-host-update (not removed; remove it with: sudo rm -f /etc/sudoers.d/yuruna-host-update)",
+      "description": "Line of the left-as-it-is list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1 and host/macos.utm/Disable-TestAutomation.ps1 when the temporary sudo rule a host update may have left could not be removed. Preserve the path and the command.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_update_claimed_not_restarted": {
+      "message": "yuruna-host-controller.service (stopped while host update {requestId} was in progress, and not started again: {detail}). The unit and the controller files were kept. Start it again with: sudo systemctl start yuruna-host-controller.service, or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}",
+      "description": "Line of the left-as-it-is list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1 when the controller claimed a host update while the unit was being stopped and the systemctl start that would continue it failed; detail is the command and its output. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "systemctl start yuruna-host-controller.service: sudo: a password is required"
+        }
+      }
+    },
+    "host.host_controller_update_unknown_not_restarted": {
+      "message": "yuruna-host-controller.service (stopped, and then the host update journal read {status}, so a host update claimed meanwhile cannot be ruled out; not started again: {detail}). The unit and the controller files were kept. Start it again with: sudo systemctl start yuruna-host-controller.service, then run this script again once the journal can be read.",
+      "description": "Line of the left-as-it-is list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1 when the request journal could not be read after the unit was stopped and the systemctl start that would continue a hidden host update failed; status is the journal read status (corrupt, unknown-version or unreadable); detail is the command and its output. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "token",
+          "trust": "internal",
+          "example": "corrupt"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "systemctl start yuruna-host-controller.service: sudo: a password is required"
+        }
+      }
+    },
+    "host.host_controller_files_removed": {
+      "message": "Removed the host controller files (shim, snapshots, work folders) under {path}",
+      "description": "Line of the Restored list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1 and host/macos.utm/Disable-TestAutomation.ps1. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/runner/.yuruna/host-repair/host-controller"
+        }
+      }
+    },
+    "host.host_controller_task_action": {
+      "message": "Register and start the host controller task",
+      "description": "ShouldProcess action in host/windows.hyper-v/Enable-TestAutomation.ps1 (Host controller). Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_task_files_failed": {
+      "message": "  host controller: the shim or the code snapshot could not be deployed under %ProgramData%\\yuruna\\host-controller ({reason}), so the scheduled task Yuruna Host Controller was not registered.",
+      "description": "Write-Warning in host/windows.hyper-v/Enable-TestAutomation.ps1 (Host controller) when Install-HostUpdateControllerFile could not deploy the shim, the snapshot or the current file, or the folder is not writable by Administrators alone; reason is a token; the two leading spaces indent it under the setup step. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "root-unavailable"
+        }
+      }
+    },
+    "host.host_controller_task_registered": {
+      "message": "  Yuruna Host Controller (scheduled task): registered",
+      "description": "Write-Output in host/windows.hyper-v/Enable-TestAutomation.ps1 (Host controller); the two leading spaces indent it under the setup step. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_task_replaced": {
+      "message": "  Yuruna Host Controller (scheduled task): replaced",
+      "description": "Write-Output in host/windows.hyper-v/Enable-TestAutomation.ps1 (Host controller) when the rendered definition differs from the registered one; the two leading spaces indent it under the setup step. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_task_failed": {
+      "message": "  host controller: the scheduled task Yuruna Host Controller could not be registered or started ({detail}). Re-run this script.",
+      "description": "Write-Warning in host/windows.hyper-v/Enable-TestAutomation.ps1 (Host controller) when Register-ScheduledTask, Stop-ScheduledTask or Start-ScheduledTask failed; detail is the error text; the two leading spaces indent it under the setup step. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Access is denied."
+        }
+      }
+    },
+    "host.host_controller_task_not_running": {
+      "message": "  host controller: no controller took its lock within 15 seconds. Read shim.log and controller.log under {path} for the cause.",
+      "description": "Write-Warning in host/windows.hyper-v/Enable-TestAutomation.ps1 (Host controller) when the task started but no controller holds its lock; path is the controller root; the two leading spaces indent it under the setup step. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "internal",
+          "example": "C:\\ProgramData\\yuruna\\host-controller"
+        }
+      }
+    },
+    "host.host_controller_task_running": {
+      "message": "  host controller: running from snapshot {snapshot} (scheduled task Yuruna Host Controller)",
+      "description": "Write-Output in host/windows.hyper-v/Enable-TestAutomation.ps1 (Host controller) when the controller holds its lock; snapshot is a 16-digit hex name; the two leading spaces indent it under the setup step. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "snapshot": {
+          "type": "token",
+          "trust": "internal",
+          "example": "0123456789abcdef"
+        }
+      }
+    },
+    "host.host_controller_task_removed": {
+      "message": "Stopped and removed the scheduled task Yuruna Host Controller",
+      "description": "Line of the Restored list printed by host/windows.hyper-v/Disable-TestAutomation.ps1. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_task_not_removed": {
+      "message": "Scheduled task Yuruna Host Controller (not removed: {detail})",
+      "description": "Line of the left-as-it-is list printed by host/windows.hyper-v/Disable-TestAutomation.ps1 when stopping or unregistering the task failed; detail is the cmdlet and its error. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Access is denied."
+        }
+      }
+    },
+    "host.host_controller_task_claimed_not_restarted": {
+      "message": "Scheduled task Yuruna Host Controller (stopped while host update {requestId} was in progress, and not started again: {detail}). The task and the controller files were kept. Start it again with: Start-ScheduledTask -TaskName 'Yuruna Host Controller', or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}",
+      "description": "Line of the left-as-it-is list printed by host/windows.hyper-v/Disable-TestAutomation.ps1 when the controller claimed a host update while it was being stopped and could not be started again. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "external",
+          "example": "0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Access is denied."
+        }
+      }
+    },
+    "host.host_controller_task_unknown_not_restarted": {
+      "message": "Scheduled task Yuruna Host Controller (stopped, and then the host update journal read {status}, so a host update claimed meanwhile cannot be ruled out; not started again: {detail}). The task and the controller files were kept. Start it again with: Start-ScheduledTask -TaskName 'Yuruna Host Controller', then run this script again once the journal can be read.",
+      "description": "Line of the left-as-it-is list printed by host/windows.hyper-v/Disable-TestAutomation.ps1 when the request journal could not be read after the scheduled task was stopped and the start that would continue a hidden host update failed; status is the journal read status (corrupt, unknown-version or unreadable); detail is the cmdlet and its error. Preserve the task name Yuruna Host Controller, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "token",
+          "trust": "internal",
+          "example": "corrupt"
+        },
+        "detail": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Start-ScheduledTask: Access is denied."
+        }
+      }
+    },
+    "host.host_controller_files_kept": {
+      "message": "Host controller files under {path} (a controller still holds its lock 30 seconds after the stop; left as they are)",
+      "description": "Line of the left-as-it-is list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1 and host/macos.utm/Disable-TestAutomation.ps1 when the controller lock is still held after the wait. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/runner/.yuruna/host-repair/host-controller"
+        }
+      }
+    },
+    "host.host_controller_files_not_removed": {
+      "message": "Host controller files under {path} (not removed: {message})",
+      "description": "Line of the left-as-it-is list printed by host/ubuntu.kvm/Disable-TestAutomation.ps1 and host/macos.utm/Disable-TestAutomation.ps1 when deleting the controller folder failed. Preserve the unit name yuruna-host-controller.service, command names and paths.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/home/runner/.yuruna/host-repair/host-controller"
+        },
+        "message": {
+          "type": "detail",
+          "trust": "external",
+          "example": "Access to the path is denied."
+        }
+      }
+    },
+    "host.host_update_access_entry_installed": {
+      "message": "  /etc/sudoers.d/yuruna-host-update-access: installed (it lets the host controller write and remove the temporary sudo rule of a full host update)",
+      "description": "Write-Output in host/macos.utm/Enable-TestAutomation.ps1 (Host update elevation entry) after the sudoers entry was installed where there was none; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_update_access_entry_replaced": {
+      "message": "  /etc/sudoers.d/yuruna-host-update-access: replaced (its text differed from the one this checkout installs)",
+      "description": "Write-Output in host/macos.utm/Enable-TestAutomation.ps1 (Host update elevation entry) after a sudoers entry with other text was replaced by the one this checkout renders; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_update_access_entry_unchanged": {
+      "message": "  /etc/sudoers.d/yuruna-host-update-access: unchanged",
+      "description": "Write-Output in host/macos.utm/Enable-TestAutomation.ps1 (Host update elevation entry) when the installed sudoers entry already has the text this checkout renders; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_update_access_entry_failed": {
+      "message": "  host update elevation: /etc/sudoers.d/yuruna-host-update-access could not be installed ({detail}), so this host offers only the restart scope of a host update. Re-run this script from a terminal that can answer the sudo prompt.",
+      "description": "Write-Warning in host/macos.utm/Enable-TestAutomation.ps1 (Host update elevation entry) when the sudoers entry could not be checked or installed; detail is a token (visudo-refused, install-failed, installed-check-refused, io-error); the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": {
+          "type": "token",
+          "trust": "internal",
+          "example": "install-failed"
+        }
+      }
+    },
+    "host.host_controller_files_failed_macos": {
+      "message": "  host controller: the shim or the code snapshot could not be deployed under ~/.yuruna/host-repair/host-controller ({reason}), so no runner start can start the controller.",
+      "description": "Write-Warning in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) when Install-HostUpdateControllerFile could not deploy the shim, the snapshot or the current file; reason is a token; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "reason": {
+          "type": "token",
+          "trust": "internal",
+          "example": "parse-failed"
+        }
+      }
+    },
+    "host.host_controller_deployed_macos": {
+      "message": "  host controller: shim and snapshot {snapshot} deployed. macOS registers no job: an ordinary runner start from a terminal of the desktop session starts the controller.",
+      "description": "Write-Output in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) after the shim and the snapshot were deployed or found current; snapshot is a 16-digit hex name; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "snapshot": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "0123456789abcdef"
+        }
+      }
+    },
+    "host.host_controller_session_restart_pending": {
+      "message": "  host controller: its session yuruna-controller ran a replaced shim and was ended; the next runner start from a terminal of the desktop session starts the new one.",
+      "description": "Write-Output in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) after an idle controller session that ran a replaced shim was ended, by the run that replaced the shim or by a later one; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_session_kept": {
+      "message": "  host controller: the shim changed, but its session yuruna-controller runs host update {requestId} and was left running. The new shim takes effect once that session ends; run this script again after the update ends.",
+      "description": "Write-Output in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) when the shim changed while a host update is claimed; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "host.host_controller_session_kept_unknown": {
+      "message": "  host controller: its session yuruna-controller may still run a replaced shim, but the host update journal reads {status}, so whether that session runs a host update cannot be told, and it was left running. Run this script again once the journal can be read; it ends the session then.",
+      "description": "Write-Warning in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) when a session that may run a replaced shim was kept because the request journal could not be read; status is the journal read status (corrupt, unknown-version or unreadable); the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "token",
+          "trust": "internal",
+          "example": "corrupt"
+        }
+      }
+    },
+    "host.host_controller_session_ended_claimed": {
+      "message": "  host controller: host update {requestId} was claimed while its session yuruna-controller was being ended, so no controller continues it now. Start the runner from a terminal of the desktop session to start the controller again, which continues the update, or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}",
+      "description": "Write-Warning in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) when the controller claimed a host update between the claim check and the end of its session; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "host.host_controller_session_ended_unknown": {
+      "message": "  host controller: its session yuruna-controller was ended, but the host update journal then read {status}, so a host update claimed meanwhile cannot be ruled out. Start the runner from a terminal of the desktop session to start the new controller, which continues any such update.",
+      "description": "Write-Warning in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) when the request journal could not be read again after the idle controller session was ended; status is the journal read status (corrupt, unknown-version or unreadable); the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "token",
+          "trust": "internal",
+          "example": "corrupt"
+        }
+      }
+    },
+    "host.host_controller_session_end_failed": {
+      "message": "  host controller: its session yuruna-controller could not be ended, so it keeps the shim it started with until it ends. End it with: tmux -L yuruna-controller kill-session -t yuruna-controller (or, under screen: screen -ls, then screen -S <pid>.yuruna-controller -X quit)",
+      "description": "Write-Warning in host/macos.utm/Enable-TestAutomation.ps1 (Host controller) when the shim changed and ending the idle controller session failed; the two leading spaces indent it under the setup step. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_session_ended": {
+      "message": "Ended the host controller session yuruna-controller",
+      "description": "Line of the Restored list printed by host/macos.utm/Disable-TestAutomation.ps1. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_session_not_ended": {
+      "message": "Host controller session yuruna-controller (not ended; end it with: tmux -L yuruna-controller kill-session -t yuruna-controller, or screen -ls, then screen -S <pid>.yuruna-controller -X quit)",
+      "description": "Line of the left-as-it-is list printed by host/macos.utm/Disable-TestAutomation.ps1 when ending the controller session failed. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_controller_update_claimed_session_ended": {
+      "message": "Host update {requestId} was claimed while the host controller's session was being ended, so no controller continues it now. The controller files and the sudoers entry were kept. Start the runner from a terminal of the desktop session to start the controller again, which continues the update, or end the update with: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}. Then run this script again.",
+      "description": "Write-Warning in host/macos.utm/Disable-TestAutomation.ps1 before it exits 1, when the controller claimed a host update between the first claim check and the end of its session. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "requestId": {
+          "type": "identifier",
+          "trust": "internal",
+          "example": "4242aaaa-0000-4000-8000-000000000001"
+        }
+      }
+    },
+    "host.host_controller_update_unknown_session_ended": {
+      "message": "The host update journal read {status} after the host controller's session was ended, so a host update claimed meanwhile cannot be ruled out. The controller files and the sudoers entry were kept. Start the runner from a terminal of the desktop session to start the controller again, which continues any such update, then run this script again once the journal can be read.",
+      "description": "Write-Warning in host/macos.utm/Disable-TestAutomation.ps1 before it exits 1, when the request journal could not be read again after the controller session was ended; status is the journal read status (corrupt, unknown-version or unreadable). Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active",
+      "placeholders": {
+        "status": {
+          "type": "token",
+          "trust": "internal",
+          "example": "corrupt"
+        }
+      }
+    },
+    "host.host_update_access_entry_removed": {
+      "message": "Removed /etc/sudoers.d/yuruna-host-update-access (the host update elevation entry)",
+      "description": "Line of the Restored list printed by host/macos.utm/Disable-TestAutomation.ps1. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_update_access_entry_not_removed": {
+      "message": "/etc/sudoers.d/yuruna-host-update-access (not removed; remove it with: sudo rm -f /etc/sudoers.d/yuruna-host-update-access)",
+      "description": "Line of the left-as-it-is list printed by host/macos.utm/Disable-TestAutomation.ps1 when the sudoers entry could not be removed. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
+      "lifecycle": "active"
+    },
+    "host.host_update_access_entry_kept": {
+      "message": "/etc/sudoers.d/yuruna-host-update-access and any temporary rule /etc/sudoers.d/yuruna-host-update (kept while a host controller may still run; run this script again once it has ended)",
+      "description": "Line of the left-as-it-is list printed by host/macos.utm/Disable-TestAutomation.ps1 when the controller session could not be ended or a controller still holds its lock. Preserve command names, paths, the session name yuruna-controller and the words tmux and screen.",
       "lifecycle": "active"
     },
     "host.deep_diagnostics_requires_linux": {
@@ -14075,6 +14528,23 @@
           "type": "detail",
           "trust": "external",
           "example": "/home/operator/.local/state/yuruna/caching-proxy-service.yml"
+        }
+      }
+    },
+    "host.kvm_frame_size_unreadable": {
+      "message": "Get-VMScreenshot: no frame size could be read from '{path}'; the window capture of '{vmName}' was discarded.",
+      "description": "Write-Warning from Get-VMScreenshot in host/ubuntu.kvm/modules/Yuruna.Host.psm1 when Get-KvmFrameSize found no PNG or PPM size in a window capture, so the capture was removed and no click can use it. Preserve the function name Get-VMScreenshot, the path and the VM name.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": {
+          "type": "detail",
+          "trust": "external",
+          "example": "/tmp/clickbutton_vm.png"
+        },
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test-ubuntu-server-26"
         }
       }
     }

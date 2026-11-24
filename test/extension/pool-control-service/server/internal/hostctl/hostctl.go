@@ -24,7 +24,8 @@ import (
 	"time"
 
 	"yuruna.com/test/extension/extension-sdk/controlproof"
-	"yuruna.com/test/extension/extension-sdk/hostrefresh"
+	"yuruna.com/test/extension/extension-sdk/hostrepair"
+	"yuruna.com/test/extension/extension-sdk/hostupdate"
 )
 
 // The states an operator picks between. They double as the per-host states a
@@ -193,8 +194,8 @@ func New(opts Options) *Client {
 }
 
 // Error is a host's own refusal, kept structured because the fix differs per
-// reason: an unenrolled host, a host holding a different lab token and a host
-// with a skewed clock all answer 403.
+// reason: an unenrolled host, a host holding a different internal
+// authentication key and a host with a skewed clock all answer 403.
 type Error struct {
 	Status int
 	Reason string
@@ -215,8 +216,8 @@ func (e *Error) Error() string {
 // pool operator reading a list of failed members is not left holding a bare
 // 403 per host.
 var reasonText = map[string]string{
-	"host-token-missing":   "the host holds no lab token (enroll it: pwsh test/lab/Set-LabToken.ps1)",
-	"proof-invalid":        "the host holds a different lab token (re-enroll it against this lab)",
+	"host-token-missing":   "the host holds no internal authentication key (enroll it: pwsh test/lab/Set-LabToken.ps1)",
+	"proof-invalid":        "the host holds a different internal authentication key (re-enroll it against this lab)",
 	"proof-expired":        "the host's clock is behind this service's (fix time sync on the host)",
 	"proof-missing":        "the host received no control proof",
 	"verifier-unavailable": "the host's status service could not load its proof verifier",
@@ -382,59 +383,60 @@ func (c *Client) post(ctx context.Context, endpoint, proof string) error {
 	return &Error{Status: resp.StatusCode, Reason: doc.Reason, Detail: detail}
 }
 
-// --- REGION: Per-host refresh
-// Refresh reply vocabulary, spelled as the host's listener puts it on the
+// --- REGION: Per-host repair
+// Repair reply vocabulary, spelled as the host's listener puts it on the
 // wire.
 const (
-	RefreshActionSpawned        = "spawned"
-	RefreshActionAlreadyClaimed = "already_claimed"
-	RefreshActionCompleted      = "completed"
+	RepairActionSpawned        = "spawned"
+	RepairActionAlreadyClaimed = "already_claimed"
+	RepairActionCompleted      = "completed"
 
-	RefreshReasonBusy            = "busy"
-	RefreshReasonRequestConflict = "request_conflict"
-	RefreshReasonRequestClosed   = "request_closed"
-	// RefreshReasonReplyInvalid is this client's own verdict on an answer it
+	RepairReasonBusy            = "busy"
+	RepairReasonRequestConflict = "request_conflict"
+	RepairReasonRequestClosed   = "request_closed"
+	// RepairReasonReplyInvalid is this client's own verdict on an answer it
 	// cannot use: an unexpected success or redirect, a mismatched request id,
 	// or an undecodable body.
-	RefreshReasonReplyInvalid = "host_reply_invalid"
+	RepairReasonReplyInvalid = "host_reply_invalid"
 )
 
 const (
-	refreshPath = "/control/host-refresh"
-	// maxRefreshReplyBytes caps a refresh reply read; every reply is a short
+	repairPath = "/control/host-repair"
+	// maxRepairReplyBytes caps a repair reply read; every reply is a short
 	// JSON document.
-	maxRefreshReplyBytes = 64 << 10
-	// refreshResendFloor is the least time that must remain on the caller's
+	maxRepairReplyBytes = 64 << 10
+	// repairResendFloor is the least time that must remain on the caller's
 	// context for the one same-id resend after a transport failure; less than
 	// that and the resend could only be cut off mid-flight.
-	refreshResendFloor = 3 * time.Second
+	repairResendFloor = 3 * time.Second
 )
 
-// ErrNoRefreshProof means no refresh proof was supplied, so nothing was sent.
-var ErrNoRefreshProof = errors.New("no refresh proof")
+// ErrNoRepairProof means no repair proof was supplied, so nothing was sent.
+var ErrNoRepairProof = errors.New("no repair proof")
 
-// RefreshRequest is what one refresh asks of one host. RequestID is generated
+// RepairRequest is what one repair asks of one host. RequestID is generated
 // once by the caller and reused on every retry, so a retry is always the same
 // request.
-type RefreshRequest struct {
+type RepairRequest struct {
 	RequestID, Tier, MaxRung string
 }
 
-// RefreshReply is a host's acceptance: 202 with spawned or already_claimed, or
+// RepairReply is a host's acceptance: 202 with spawned or already_claimed, or
 // 200 with a stored completed replay (Replay true, Verdict and State set).
 // StateURL is absolute and on the host's own origin, or empty.
-type RefreshReply struct {
+type RepairReply struct {
 	Status                                               int
 	RequestID, Action, StateURL, Verdict, State, Ceiling string
 	Replay                                               bool
 }
 
-// RefreshError is every answer that is not an acceptance. Reason is the
-// host's machine-readable reason (or RefreshReasonReplyInvalid); Code and
+// RepairError is every answer that is not an acceptance, for a repair and for
+// a host update alike. Reason is the host's machine-readable reason (or
+// RepairReasonReplyInvalid); Code and
 // Detail are its catalog key and text, kept apart from Reason because the
 // listener's refusals and the legacy transport gate's use the fields
 // differently. Status 0 means the host never answered.
-type RefreshError struct {
+type RepairError struct {
 	Status                                                                 int
 	Reason, Code, Detail, RequestID, ActiveRequestID, ActiveKind, StateURL string
 	State, Verdict                                                         string
@@ -442,12 +444,16 @@ type RefreshError struct {
 }
 
 // Error is the machine form; the route renders the operator text.
-func (e *RefreshError) Error() string {
-	return fmt.Sprintf("host refresh: HTTP %d reason=%s", e.Status, e.Reason)
+func (e *RepairError) Error() string {
+	return fmt.Sprintf("host repair: HTTP %d reason=%s", e.Status, e.Reason)
 }
 
-type refreshReplyDoc struct {
+// repairReplyDoc is the reply both operation routes write; Scope and
+// Supersedes appear only in a host update's.
+type repairReplyDoc struct {
 	OK              bool   `json:"ok"`
+	Scope           string `json:"scope"`
+	Supersedes      string `json:"supersedes"`
 	RequestID       string `json:"requestId"`
 	Action          string `json:"action"`
 	StateURL        string `json:"stateUrl"`
@@ -461,31 +467,31 @@ type refreshReplyDoc struct {
 	ActiveKind      string `json:"activeKind"`
 }
 
-// Refresh asks one host to admit one refresh request. It is a method of its
+// Repair asks one host to admit one repair request. It is a method of its
 // own, not an action of Apply: it carries a JSON body, both the legacy
-// transport proof and the refresh proof, and a typed reply.
+// transport proof and the repair proof, and a typed reply.
 //
 // Nothing is sent unless every field is valid and both proofs are present. A
 // transport failure is resent once -- the identical body and proofs, so the
 // host sees the same request id and answers already_claimed if the first copy
-// arrived -- when at least refreshResendFloor remains on ctx. A new request id
+// arrived -- when at least repairResendFloor remains on ctx. A new request id
 // is never generated here.
-func (c *Client) Refresh(ctx context.Context, baseURL string, req RefreshRequest, controlProof, refreshProof string) (RefreshReply, error) {
+func (c *Client) Repair(ctx context.Context, baseURL string, req RepairRequest, controlProof, repairProof string) (RepairReply, error) {
 	switch {
-	case !hostrefresh.ValidRequestID(req.RequestID):
-		return RefreshReply{}, fmt.Errorf("%w: requestId", hostrefresh.ErrInvalidClaim)
-	case !hostrefresh.ValidTier(req.Tier):
-		return RefreshReply{}, fmt.Errorf("%w: tier", hostrefresh.ErrInvalidClaim)
-	case !hostrefresh.ValidRung(req.MaxRung):
-		return RefreshReply{}, fmt.Errorf("%w: maxRung", hostrefresh.ErrInvalidClaim)
+	case !hostrepair.ValidRequestID(req.RequestID):
+		return RepairReply{}, fmt.Errorf("%w: requestId", hostrepair.ErrInvalidClaim)
+	case !hostrepair.ValidTier(req.Tier):
+		return RepairReply{}, fmt.Errorf("%w: tier", hostrepair.ErrInvalidClaim)
+	case !hostrepair.ValidRung(req.MaxRung):
+		return RepairReply{}, fmt.Errorf("%w: maxRung", hostrepair.ErrInvalidClaim)
 	case strings.TrimSpace(controlProof) == "":
-		return RefreshReply{}, ErrNoProof
-	case strings.TrimSpace(refreshProof) == "":
-		return RefreshReply{}, ErrNoRefreshProof
+		return RepairReply{}, ErrNoProof
+	case strings.TrimSpace(repairProof) == "":
+		return RepairReply{}, ErrNoRepairProof
 	}
 	base, err := hostBase(baseURL)
 	if err != nil {
-		return RefreshReply{}, err
+		return RepairReply{}, err
 	}
 	body, err := json.Marshal(struct {
 		RequestID string `json:"requestId"`
@@ -493,21 +499,21 @@ func (c *Client) Refresh(ctx context.Context, baseURL string, req RefreshRequest
 		MaxRung   string `json:"maxRung"`
 	}{req.RequestID, req.Tier, req.MaxRung})
 	if err != nil {
-		return RefreshReply{}, err
+		return RepairReply{}, err
 	}
-	resp, err := c.sendRefresh(ctx, base, body, controlProof, refreshProof)
-	if err != nil && ctx.Err() == nil && remainingAtLeast(ctx, refreshResendFloor) {
-		resp, err = c.sendRefresh(ctx, base, body, controlProof, refreshProof)
+	resp, err := c.sendOperation(ctx, base+repairPath, body, controlProof, hostrepair.ProofHeader, repairProof)
+	if err != nil && ctx.Err() == nil && remainingAtLeast(ctx, repairResendFloor) {
+		resp, err = c.sendOperation(ctx, base+repairPath, body, controlProof, hostrepair.ProofHeader, repairProof)
 	}
 	if err != nil {
-		return RefreshReply{}, &RefreshError{Status: 0, RequestID: req.RequestID, Retryable: true, Detail: err.Error()}
+		return RepairReply{}, &RepairError{Status: 0, RequestID: req.RequestID, Retryable: true, Detail: err.Error()}
 	}
 	defer resp.Body.Close()
-	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRefreshReplyBytes+1))
-	var doc refreshReplyDoc
-	parsed := readErr == nil && len(raw) <= maxRefreshReplyBytes && json.Unmarshal(raw, &doc) == nil
-	invalid := func(detail string) (RefreshReply, error) {
-		return RefreshReply{}, &RefreshError{Status: resp.StatusCode, Reason: RefreshReasonReplyInvalid, Detail: detail, RequestID: req.RequestID}
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRepairReplyBytes+1))
+	var doc repairReplyDoc
+	parsed := readErr == nil && len(raw) <= maxRepairReplyBytes && json.Unmarshal(raw, &doc) == nil
+	invalid := func(detail string) (RepairReply, error) {
+		return RepairReply{}, &RepairError{Status: resp.StatusCode, Reason: RepairReasonReplyInvalid, Detail: detail, RequestID: req.RequestID}
 	}
 	if parsed && doc.RequestID != "" && doc.RequestID != req.RequestID {
 		return invalid("the host answered for another request id")
@@ -519,20 +525,26 @@ func (c *Client) Refresh(ctx context.Context, baseURL string, req RefreshRequest
 	switch {
 	case resp.StatusCode == http.StatusAccepted:
 		if !parsed || !doc.OK || doc.RequestID != req.RequestID ||
-			(doc.Action != RefreshActionSpawned && doc.Action != RefreshActionAlreadyClaimed) {
+			(doc.Action != RepairActionSpawned && doc.Action != RepairActionAlreadyClaimed) {
 			return invalid("an acceptance without a matching request id and action")
 		}
-		return RefreshReply{Status: resp.StatusCode, RequestID: doc.RequestID, Action: doc.Action, StateURL: stateURL, Ceiling: doc.Ceiling}, nil
+		return RepairReply{Status: resp.StatusCode, RequestID: doc.RequestID, Action: doc.Action, StateURL: stateURL, Ceiling: doc.Ceiling}, nil
 	case resp.StatusCode == http.StatusOK:
-		if !parsed || !doc.OK || doc.RequestID != req.RequestID || doc.Action != RefreshActionCompleted {
+		if !parsed || !doc.OK || doc.RequestID != req.RequestID || doc.Action != RepairActionCompleted {
 			return invalid("a success that is not a completed replay of this request")
 		}
-		return RefreshReply{Status: resp.StatusCode, RequestID: doc.RequestID, Action: doc.Action, StateURL: stateURL,
+		return RepairReply{Status: resp.StatusCode, RequestID: doc.RequestID, Action: doc.Action, StateURL: stateURL,
 			Verdict: doc.Verdict, State: doc.State, Ceiling: doc.Ceiling, Replay: true}, nil
 	case resp.StatusCode/100 == 2 || resp.StatusCode/100 == 3 || resp.StatusCode < 200:
 		return invalid(fmt.Sprintf("unexpected HTTP %d", resp.StatusCode))
 	}
-	e := &RefreshError{Status: resp.StatusCode, RequestID: req.RequestID, StateURL: stateURL}
+	return RepairReply{}, operationRefusal(resp.StatusCode, req.RequestID, stateURL, parsed, doc, raw)
+}
+
+// operationRefusal is the RepairError for an answer that is not an
+// acceptance.
+func operationRefusal(status int, requestID, stateURL string, parsed bool, doc repairReplyDoc, raw []byte) *RepairError {
+	e := &RepairError{Status: status, RequestID: requestID, StateURL: stateURL}
 	if parsed {
 		e.Reason, e.Code, e.Detail = doc.Reason, doc.Code, doc.Error
 		e.ActiveRequestID, e.ActiveKind, e.State, e.Verdict = doc.ActiveRequestID, doc.ActiveKind, doc.State, doc.Verdict
@@ -542,21 +554,211 @@ func (c *Client) Refresh(ctx context.Context, baseURL string, req RefreshRequest
 	// A 409 is an answer about this request (busy with another, or already
 	// used differently): retrying it unchanged cannot succeed. A timeout or a
 	// server-side failure can.
-	e.Retryable = resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode/100 == 5
-	return RefreshReply{}, e
+	e.Retryable = status == http.StatusRequestTimeout || status/100 == 5
+	return e
 }
 
-// sendRefresh performs one POST of the refresh body.
-func (c *Client) sendRefresh(ctx context.Context, base string, body []byte, controlProof, refreshProof string) (*http.Response, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+refreshPath, bytes.NewReader(body))
+// sendOperation performs one POST of an operation body with the transport
+// proof and the operation's own proof in its own header.
+func (c *Client) sendOperation(ctx context.Context, endpoint string, body []byte, controlProof, proofHeader, proof string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Yuruna", "1")
 	req.Header.Set("X-Yuruna-Control", controlProof)
-	req.Header.Set(hostrefresh.ProofHeader, refreshProof)
+	req.Header.Set(proofHeader, proof)
 	return c.http.Do(req)
+}
+
+// --- REGION: Per-host update
+// Update reply vocabulary, spelled as the host's listener puts it on the
+// wire. A refusal reuses the repair's reasons where they mean the same.
+const (
+	UpdateActionQueued         = "queued"
+	UpdateActionAlreadyQueued  = "already_queued"
+	UpdateActionAlreadyClaimed = "already_claimed"
+	UpdateActionCompleted      = "completed"
+
+	updatePath        = "/control/host-update"
+	controlStatusPath = "/control/control-status"
+	// maxControlStatusBytes caps a control-status read; a host keeps its
+	// answer under 4096 bytes.
+	maxControlStatusBytes = 16 << 10
+)
+
+// ErrNoUpdateProof means no update proof was supplied, so nothing was sent.
+var ErrNoUpdateProof = errors.New("no update proof")
+
+// UpdateCapability is the update object of a host's control-status, read
+// from the host itself: the aggregator decodes only the fields it knows and
+// does not carry this one.
+type UpdateCapability struct {
+	Protocol     int    `json:"protocol"`
+	Availability string `json:"availability"`
+	Scopes       string `json:"scopes"`
+	Reason       string `json:"reason"`
+	Remote       string `json:"remote"`
+	State        string `json:"state"`
+	Caller       string `json:"caller"`
+	PoolControl  string `json:"poolControl"`
+}
+
+// HasScope reports whether the capability lists scope.
+func (u UpdateCapability) HasScope(scope string) bool {
+	for _, s := range strings.Split(u.Scopes, ",") {
+		if s == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// ControlStatus is what a host's /control/control-status says about itself.
+// Present is false when the host's answer carries no update object: a host
+// on code that predates host updates.
+type ControlStatus struct {
+	HostID  string
+	Update  UpdateCapability
+	Present bool
+}
+
+// ControlStatus reads a host's control-status. Reads are open on a host, so
+// this needs no proof.
+func (c *Client) ControlStatus(ctx context.Context, baseURL string) (ControlStatus, error) {
+	base, err := hostBase(baseURL)
+	if err != nil {
+		return ControlStatus{}, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+controlStatusPath, nil)
+	if err != nil {
+		return ControlStatus{}, err
+	}
+	req.Header.Set("Cache-Control", "no-store")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return ControlStatus{}, fmt.Errorf("the host did not answer: %w", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, maxControlStatusBytes+1))
+	if resp.StatusCode/100 != 2 {
+		return ControlStatus{}, &Error{Status: resp.StatusCode, Detail: firstLine(raw)}
+	}
+	if err != nil || len(raw) > maxControlStatusBytes {
+		return ControlStatus{}, fmt.Errorf("the host's control status could not be read")
+	}
+	var doc struct {
+		HostID string            `json:"hostId"`
+		Update *UpdateCapability `json:"update"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return ControlStatus{}, fmt.Errorf("the host's control status did not parse: %w", err)
+	}
+	out := ControlStatus{HostID: doc.HostID}
+	if doc.Update != nil {
+		out.Update, out.Present = *doc.Update, true
+	}
+	return out, nil
+}
+
+// UpdateRequest is what one host update asks of one host. RequestID is minted
+// once by the caller and reused on every retry. ExpectCommit is empty when the
+// request names none.
+type UpdateRequest struct {
+	RequestID, Scope string
+	DrainSeconds     int
+	ExpectCommit     string
+}
+
+// UpdateReply is a host's acceptance: 202 with queued, already_queued or
+// already_claimed, or 200 with a stored completed replay (Replay true, State
+// and Verdict set). StateURL is absolute and on the host's own origin, or
+// empty.
+type UpdateReply struct {
+	Status                                                         int
+	RequestID, Action, Scope, StateURL, Verdict, State, Supersedes string
+	Replay                                                         bool
+}
+
+// Update asks one host to admit one host update. It carries both the legacy
+// transport proof and the update proof, with the drain bound always explicit:
+// the host compares the proof with the request's effective values, and an
+// explicit value leaves no default to disagree about.
+//
+// Nothing is sent unless every field is valid and both proofs are present. A
+// transport failure is resent once with the identical body and proofs when at
+// least repairResendFloor remains on ctx.
+func (c *Client) Update(ctx context.Context, baseURL string, req UpdateRequest, controlProof, updateProof string) (UpdateReply, error) {
+	switch {
+	case !hostrepair.ValidRequestID(req.RequestID):
+		return UpdateReply{}, fmt.Errorf("%w: requestId", hostupdate.ErrInvalidClaim)
+	case !hostupdate.ValidScope(req.Scope):
+		return UpdateReply{}, fmt.Errorf("%w: scope", hostupdate.ErrInvalidClaim)
+	case !hostupdate.ValidDrainSeconds(req.DrainSeconds):
+		return UpdateReply{}, fmt.Errorf("%w: drainSeconds", hostupdate.ErrInvalidClaim)
+	case !hostupdate.ValidExpectCommit(req.ExpectCommit):
+		return UpdateReply{}, fmt.Errorf("%w: expectCommit", hostupdate.ErrInvalidClaim)
+	case strings.TrimSpace(controlProof) == "":
+		return UpdateReply{}, ErrNoProof
+	case strings.TrimSpace(updateProof) == "":
+		return UpdateReply{}, ErrNoUpdateProof
+	}
+	base, err := hostBase(baseURL)
+	if err != nil {
+		return UpdateReply{}, err
+	}
+	body, err := json.Marshal(struct {
+		RequestID    string `json:"requestId"`
+		Scope        string `json:"scope"`
+		DrainSeconds int    `json:"drainSeconds"`
+		ExpectCommit string `json:"expectCommit,omitempty"`
+	}{req.RequestID, req.Scope, req.DrainSeconds, req.ExpectCommit})
+	if err != nil {
+		return UpdateReply{}, err
+	}
+	resp, err := c.sendOperation(ctx, base+updatePath, body, controlProof, hostupdate.ProofHeader, updateProof)
+	if err != nil && ctx.Err() == nil && remainingAtLeast(ctx, repairResendFloor) {
+		resp, err = c.sendOperation(ctx, base+updatePath, body, controlProof, hostupdate.ProofHeader, updateProof)
+	}
+	if err != nil {
+		return UpdateReply{}, &RepairError{Status: 0, RequestID: req.RequestID, Retryable: true, Detail: err.Error()}
+	}
+	defer resp.Body.Close()
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, maxRepairReplyBytes+1))
+	var doc repairReplyDoc
+	parsed := readErr == nil && len(raw) <= maxRepairReplyBytes && json.Unmarshal(raw, &doc) == nil
+	invalid := func(detail string) (UpdateReply, error) {
+		return UpdateReply{}, &RepairError{Status: resp.StatusCode, Reason: RepairReasonReplyInvalid, Detail: detail, RequestID: req.RequestID}
+	}
+	if parsed && doc.RequestID != "" && doc.RequestID != req.RequestID {
+		return invalid("the host answered for another request id")
+	}
+	stateURL := ""
+	if parsed {
+		stateURL = sameOriginURL(base, doc.StateURL)
+	}
+	switch {
+	case resp.StatusCode == http.StatusAccepted:
+		if !parsed || !doc.OK || doc.RequestID != req.RequestID ||
+			(doc.Action != UpdateActionQueued && doc.Action != UpdateActionAlreadyQueued && doc.Action != UpdateActionAlreadyClaimed) {
+			return invalid("an acceptance without a matching request id and action")
+		}
+		supersedes := ""
+		if hostrepair.ValidRequestID(doc.Supersedes) {
+			supersedes = doc.Supersedes
+		}
+		return UpdateReply{Status: resp.StatusCode, RequestID: doc.RequestID, Action: doc.Action, Scope: req.Scope, StateURL: stateURL, Supersedes: supersedes}, nil
+	case resp.StatusCode == http.StatusOK:
+		if !parsed || !doc.OK || doc.RequestID != req.RequestID || doc.Action != UpdateActionCompleted {
+			return invalid("a success that is not a completed replay of this request")
+		}
+		return UpdateReply{Status: resp.StatusCode, RequestID: doc.RequestID, Action: doc.Action, Scope: req.Scope, StateURL: stateURL,
+			Verdict: doc.Verdict, State: doc.State, Replay: true}, nil
+	case resp.StatusCode/100 == 2 || resp.StatusCode/100 == 3 || resp.StatusCode < 200:
+		return invalid(fmt.Sprintf("unexpected HTTP %d", resp.StatusCode))
+	}
+	return UpdateReply{}, operationRefusal(resp.StatusCode, req.RequestID, stateURL, parsed, doc, raw)
 }
 
 // remainingAtLeast reports whether ctx allows at least d more; a context with

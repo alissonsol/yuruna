@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@
     Exit codes are the cycle's: 0 passed, 1 failed, 75 failed nothing but
     skipped a planned guest, 78 the configuration gate refused, 70 the cycle
     left no usable outcome record; 2 when it did not run (a drained or paused
-    pool, a host refresh, Ctrl+C).
+    pool, a host repair, Ctrl+C).
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -262,7 +262,7 @@ try {
     Write-Output "  Invoke-TestProject: STOP (exit $exitCode)"
     if ($exitCode -eq $ExitOk) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_4573c62ccdadf85e')
-    } elseif ($cycleResult.Outcome -cin @('drain', 'paused', 'refresh-gated', 'refresh-preflight', 'shutdown')) {
+    } elseif ($cycleResult.Outcome -cin @('drain', 'paused', 'gate-held', 'handoff-preflight', 'shutdown')) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.project_cycle_not_run' -Arguments @{ outcome = [string]$cycleResult.Outcome })
     } elseif ($exitCode -eq (Get-DegradedCycleExitCode)) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.project_cycle_degraded' -Arguments @{ dIR = "$env:YURUNA_LOG_DIR" })

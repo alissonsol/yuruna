@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -483,7 +483,7 @@ Describe 'The resident runner''s report in status.json' {
         $doc.runnerResident.commitSha | Should -BeExactly ('b' * 40)
         $resumed = Join-Path $dir 'resumed.json'
         Set-StatusRunnerResident -StatusPath $resumed -CommitSha ('b' * 40) -StartedAtUtc ([datetime]::UtcNow) -ExistingOnly -Confirm:$false | Should -BeFalse
-        Test-Path -LiteralPath $resumed | Should -BeFalse -Because 'a runner resumed by a host refresh writes no new status document'
+        Test-Path -LiteralPath $resumed | Should -BeFalse -Because 'a runner resumed by a host repair writes no new status document'
         $broken = Join-Path $dir 'broken.json'
         [IO.File]::WriteAllText($broken, '{ not json')
         Set-StatusRunnerResident -StatusPath $broken -CommitSha ('b' * 40) -StartedAtUtc ([datetime]::UtcNow) -Confirm:$false | Should -BeFalse

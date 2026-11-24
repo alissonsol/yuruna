@@ -3,6 +3,31 @@
   "domain": "remediation",
   "locale": "zh-CN",
   "messages": {
+    "remediation.web_account_action": {
+      "sourceHash": "d03899296d8650bb9c34d41f21690f48589fccdb33073abb3b0ef2537b6235b8",
+      "origin": "machine",
+      "message": "此步骤驱动了页面：last_failure.json中causeDetail.web的kind和detail指明了访问页面途中失败的环节"
+    },
+    "remediation.web_step_failed_rationale": {
+      "sourceHash": "a479522b62f82488cc63bf5cfbce59305b1f58c3a76626f54ca268180b09a22f",
+      "origin": "machine",
+      "message": "{vmName}发生web_step_failed：页面步骤因页面显示的内容而结束（kind：{kind}；查找：{target}；页面：{url}）。不会在无人值守时重试：必须先修改测试或站点。"
+    },
+    "remediation.web_step_failed_action_evidence": {
+      "sourceHash": "ff5abeb93db988c340b34e7de2a3ce162b3b36e53d754019431d0e1d097e0714",
+      "origin": "machine",
+      "message": "阅读last_failure.json中的causeDetail.web：kind说明步骤如何结束，locator说明查找的目标，candidates说明页面提供的内容，effect说明输入是否到达页面"
+    },
+    "remediation.web_step_failed_action_repair": {
+      "sourceHash": "1878cafd77a7a184360fe920af7df2bac8dc920af8fd3f8b56adc9183ccdf64d",
+      "origin": "machine",
+      "message": "更正步骤的role、name、match或nth，或先等待其所需的状态；对于expectation和navigation请检查站点；对于unsupported和page_lost请从流程中移除对话框、新窗口或崩溃"
+    },
+    "remediation.web_step_failed_action_rerun": {
+      "sourceHash": "6504a385c1739bfd11e0e43e4c0e8ab2854667e423b7c5ca1efe802d6ab3445a",
+      "origin": "machine",
+      "message": "修改后使用test/Debug-TestSequence.ps1重放；当effect为applied或uncertain时，请先恢复已知的客户机状态"
+    },
     "remediation.guest_display_stalled_rationale": {
       "sourceHash": "35b21ac2fcf4a7b00950851c02f4dc90cb7ae74956c8482c3b441365a7a8acd9",
       "message": "{vmName}发生guest_display_stalled：客户机的{driver}显示驱动程序报告了{reports}次页面翻转超时，同时控制台画面停止变化。客户机可能仍在运行；画面不变并不能证明其内核已经停止。"
@@ -692,12 +717,12 @@
       "message": "状态服务端口{port}空闲，但此进程可能无权预留 http://*:{port}/.\n  这是HTTP.sys URL预留，创建预留需要提升权限。没有进程占用\n  该端口，这是权限问题，并非端口冲突。\n  拒绝启动：status service绑定相同的通配符前缀（以便客户机\n  通过宿主机的局域网IP访问，而不只是通过localhost），因此同样会失败。\n  请任选一种方式解决：\n    - 以管理员身份运行此命令行环境；或\n    - 预留该URL一次，然后在不提升权限的情况下重新运行："
     },
     "remediation.hypervisor_unresponsive_rationale": {
-      "sourceHash": "2f998c743ab3c1cec54505c1b17107f3f2f8991135fec6e6fb459449263bb58d",
-      "message": "hypervisor_unresponsive：虚拟机管理程序的控制通道已停止执行生命周期请求，但仍能响应状态查询，因此每次虚拟机启动、停止和删除都会等到超时，周期所做的任何操作都无法恢复它。重试只会重复相同的超时；拥有该通道的应用程序必须在宿主机上重新启动，而这只能通过桌面会话或宿主机刷新完成。{detail}"
+      "sourceHash": "9e0431b76fd2099c783436dff806627a9de951ebfcbd73e4b36b4daf9c02dbde",
+      "message": "hypervisor_unresponsive：虚拟机管理程序的控制通道已停止执行生命周期请求，但仍能响应状态查询，因此每次虚拟机启动、停止和删除都会等到超时，周期所做的任何操作都无法恢复它。重试只会重复相同的超时；拥有该通道的应用程序必须在宿主机上重新启动，而这只能通过桌面会话或宿主机修复完成。{detail}"
     },
     "remediation.hypervisor_unresponsive_action_restart": {
-      "sourceHash": "97ca8bc51d0af80b1cfe79b20f6194b18a1660cef55ca9f16df928298c75be1f",
-      "message": "在宿主机上重新启动虚拟机管理程序控制应用：在macOS上从桌面会话退出UTM.app（或运行test/lab/Invoke-HostRefresh.ps1），然后确认对已停止的虚拟机执行`utmctl stop`能立即返回"
+      "sourceHash": "1ef43eae0f02a623fcaaea507e519a55d30bd3e62eb4ed3e0f7240a35703d566",
+      "message": "在宿主机上重新启动虚拟机管理程序控制应用：在macOS上从桌面会话退出UTM.app（或运行test/lab/Invoke-HostRepair.ps1），然后确认对已停止的虚拟机执行`utmctl stop`能立即返回"
     },
     "remediation.hypervisor_unresponsive_action_evidence": {
       "sourceHash": "6d57a4653306a025d082176dc079f1a4c935941c4c3c0879b4cb2803c4f8e680",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,7 +142,7 @@ Describe 'The class routing table is the one place a class is routed' {
         # A wedged kernel recovers only on a new boot, which the next attempt
         # gives; a resume in place would wait again on the same kernel.
         $enum = @(Get-FailureClassEnum)
-        Assert-Equal -Expected ($enum.Count - 3) -Actual ([array]::IndexOf($enum, 'guest_kernel_stalled')) -Because 'the kernel and display stall classes precede the catch-all unknown'
+        Assert-Equal -Expected ($enum.Count - 4) -Actual ([array]::IndexOf($enum, 'guest_kernel_stalled')) -Because 'the kernel stall, display stall and page classes precede the catch-all unknown'
         $route = Get-FailureClassRoute -FailureClass 'guest_kernel_stalled'
         Assert-True $route.UnattendedRetry 'its retry is the whole repair'
         Assert-False $route.WarmResume 'a resume in place replays a wait on the same wedged kernel'
@@ -157,6 +157,20 @@ Describe 'The class routing table is the one place a class is routed' {
         $route.WarmResume | Should -BeFalse
         $route.TransientNetwork | Should -BeFalse
         (Resolve-RoutingClass -FailureClass 'retry_exhausted' -InnerFailureClass 'guest_display_stalled').RoutingClass | Should -BeExactly 'guest_display_stalled'
+    }
+    It 'files a page failure under a class of its own with no recovery route' {
+        # A page step that did not find, click or see what it sought needs a
+        # person to read the page account; neither a retry nor a resume in
+        # place replays a step against a page the session no longer holds.
+        $enum = @(Get-FailureClassEnum)
+        Assert-Equal -Expected ($enum.Count - 2) -Actual ([array]::IndexOf($enum, 'web_step_failed')) -Because 'the page class stands just before the catch-all unknown'
+        $route = Get-FailureClassRoute -FailureClass 'web_step_failed'
+        Assert-False $route.UnattendedRetry 'a page failure is never retried unattended'
+        Assert-False $route.WarmResume 'a page failure is never resumed in place'
+        Assert-False $route.TransientNetwork 'a page failure is not a transient network failure'
+        Assert-Equal -Expected 180 -Actual $route.RetryMinutesPerDay
+        Assert-StringEqual -Expected 'web_step_failed' -Actual (Resolve-RoutingClass -FailureClass 'retry_exhausted' -InnerFailureClass 'web_step_failed').RoutingClass
+        Assert-True ((Get-FailureClassDocUrl -FailureClass 'web_step_failed').EndsWith('#failure-class-web_step_failed', [StringComparison]::Ordinal)) 'the class links its own anchor'
     }
     It 'is what the unattended-retry allow-list admits, each with its reason' {
         $allowList = Get-AutoRemediationAllowList

@@ -7,11 +7,11 @@ title: Yuruna orchestration sequence
 description: >
   An ordered list of inner sequences to run, each via an
   `action: InvokeTestSequence` step. Debug-TestSequence.ps1 detects this shape
-  (no `baseline:`, InvokeTestSequence steps) and hands it to
+  (no `resource:`, InvokeTestSequence steps) and hands it to
   Test.Orchestrator, which runs every inner sequence under ONE status.json
   cycle -- one top-level row per inner sequence, unified naming and pass/fail.
-  An inner sequence may be a guest sequence
-  (sequence.schema.yml: baseline + steps) or a host action (a `host:` block).
+  An inner sequence may be a guest sequence (sequence.schema.yml: resource
+  chain + component and workload steps) or a host action (a `host:` block).
 
   Ownership + nesting: exactly one process -- the outermost -- owns the cycle
   document. A guest step runs IN-PROCESS as a top-level row. A host-action

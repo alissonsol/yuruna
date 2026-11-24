@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42db53a4-1021-d2ea-df90-9620a20f80f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -674,7 +674,7 @@
         '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.host_ffd2efb19a40de43' = '[!‮Enable-TestAutomation.ps1 (ħóšţ/windows.hyper-v) óñļý řúñš óñ Ŵíñďóŵš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
-    'exceptions.host_refresh_auth_authority_incomplete' = @(
+    'exceptions.host_repair_auth_authority_incomplete' = @(
         '[!‮Ŵřóţé '
         @{
             'arg' = 'path'
@@ -695,8 +695,8 @@
         }
         '); řúñ -ÑéŵÁúţħóříţý -Řóţáţé ţó ŵříţé ƀóţħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_authority_missing' = @(
-        '[!‮Ñó řéƒřéšħ áúţħóříţý ƒóúñď úñďéř '
+    'exceptions.host_repair_auth_authority_missing' = @(
+        '[!‮Ñó řéƥáíř áúţħóříţý ƒóúñď úñďéř '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -704,8 +704,8 @@
         }
         '; çřéáţé óñé ŵíţħ -ÑéŵÁúţħóříţý ƒířšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_host_id_mismatch' = @(
-        '[!‮Ţħé řéƒřéšħ ķéý ŵáš íššúéď ƒóř ħóšţ '
+    'exceptions.host_repair_auth_host_id_mismatch' = @(
+        '[!‮Ţħé řéƥáíř ṽéříƒíéř ķéý ŵáš íššúéď ƒóř ħóšţ '
         @{
             'arg' = 'keyHostId'
             'type' = 'identifier'
@@ -717,9 +717,9 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '; éẋƥóřţ á ķéý ƒóř ţħíš ħóšţ íñšţéáď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '; éẋƥóřţ á ķéý ƒóř ţħíš ħóšţ íñšţéáď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_host_id_unavailable' = @(
+    'exceptions.host_repair_auth_host_id_unavailable' = @(
         '[!‮Ţħíš ħóšţ ħáš ñó ħóšţ íď ýéţ ('
         @{
             'arg' = 'path'
@@ -728,31 +728,31 @@
         }
         ' íš ɱíššíñğ); šţářţ ţħé řúññéř óñçé šó host.uuid éẋíšţš, ţħéñ řéţřý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_invalid_claim' = @(
-        '[!‮Řéƒřéšħ ƥřóóƒ ƒíéļď '
+    'exceptions.host_repair_auth_invalid_claim' = @(
+        '[!‮Řéƥáíř ƥřóóƒ ƒíéļď '
         @{
             'arg' = 'field'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' íš ñóţ ṽáļíď.‬ ~~~~~~~~~~~~~~~~~]'
+        ' íš ñóţ ṽáļíď.‬ ~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_key_malformed' = @(
+    'exceptions.host_repair_auth_key_malformed' = @(
         '[!‮'
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' íš ñóţ á řéƒřéšħ ķéý ƒíļé (éẋƥéçţéď óñé ļíñé šţářţíñğ ŵíţħ '
+        ' íš ñóţ á řéƥáíř áúţħóříţý óř ṽéříƒíéř ķéý ƒíļé (éẋƥéçţéď óñé ļíñé šţářţíñğ ŵíţħ '
         @{
             'arg' = 'prefix'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ').‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        ').‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_key_permissions_open' = @(
+    'exceptions.host_repair_auth_key_permissions_open' = @(
         '[!‮'
         @{
             'arg' = 'path'
@@ -761,8 +761,8 @@
         }
         ' íš řéáďáƀļé ƀý óţħéř úšéřš; řéšţříçţ íţ ţó íţš óŵñéř (çħɱóď 600) áñď řéţřý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_key_unusable' = @(
-        '[!‮Ţħé řéƒřéšħ ķéý ƒíļé '
+    'exceptions.host_repair_auth_key_unusable' = @(
+        '[!‮Ţħé řéƥáíř áúţħóříţý óř ṽéříƒíéř ķéý ƒíļé '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -774,9 +774,9 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ').‬ ~~~~~~~~~~~~~~~~~~~~~~]'
+        ').‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_key_write_failed' = @(
+    'exceptions.host_repair_auth_key_write_failed' = @(
         '[!‮Çóúļď ñóţ ŵříţé '
         @{
             'arg' = 'path'
@@ -791,16 +791,16 @@
         }
         ').‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_auth_private_root_unavailable' = @(
+    'exceptions.host_repair_auth_private_root_unavailable' = @(
         '[!‮Ţħé ƥříṽáţé šţáţé řóóţ çóúļď ñóţ ƀé šéçúřéď ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); ñó řéƒřéšħ ķéý ŵáš ŵříţţéñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+        '); ñó řéƥáíř šéçřéţ ŵáš ŵříţţéñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_relaunch_parameter_unsupported' = @(
+    'exceptions.host_repair_relaunch_parameter_unsupported' = @(
         '[!‮Ƥářáɱéţéř '
         @{
             'arg' = 'name'
@@ -815,8 +815,8 @@
         }
         ', ŵħíçħ çáññóţ çřóšš ţħé ļíƀṽířţ ğřóúƥ řéļáúñçħ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
-    'exceptions.host_refresh_worker_argument_invalid' = @(
-        '[!‮Ţħé ħóšţ-řéƒřéšħ ŵóřķéř ářğúɱéñţ '
+    'exceptions.host_repair_worker_argument_invalid' = @(
+        '[!‮Ţħé ħóšţ-řéƥáíř ŵóřķéř ářğúɱéñţ '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -832,6 +832,31 @@
             'trust' = 'external'
         }
         '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.host_update_auth_public_key_invalid' = '[!‮Ţħé ƥóóļ-çóñţřóļ ƥúƀļíç ķéý ɱúšţ ƀé ţħé óñé ýúƥķ1 ļíñé -ÑéŵÚƥďáţéŠíğñíñğĶéý ƥříñţéď, ħóļďíñğ áñ ŘŠÁ ķéý óƒ áţ ļéášţ 3072 ƀíţš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    'exceptions.host_update_auth_signing_key_unusable' = @(
+        '[!‮Ţħé ħóšţ úƥďáţé šíğñíñğ ķéý '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' çáññóţ ƀé úšéď ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); çřéáţé óñé ŵíţħ -ÑéŵÚƥďáţéŠíğñíñğĶéý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'exceptions.host_update_auth_url_invalid' = @(
+        '[!‮'
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íš ñóţ á ƥóóļ-çóñţřóļ áďďřéšš: ğíṽé áñ áƀšóļúţé ħţţƥ óř ħţţƥš ÚŘĻ óƒ áţ ɱóšţ 256 ƀýţéš ŵíţħ ñó úšéř ñáɱé, ʠúéřý óř ƒřáğɱéñţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     )
     'exceptions.host_utm_sudo_requires_noninteractive' = '[!‮Íñṽóķé-ÚţɱĦóšţŢóóļ: šúďó ɱúšţ ƀé çáļļéď ŵíţħ -ñ áš íţš ƒířšţ ářğúɱéñţ šó íţ çáñ ñéṽéř ŵáíţ óñ á ƥáššŵóřď ƥřóɱƥţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
     'exceptions.host_utmctl_kill_requires_stop' = @(

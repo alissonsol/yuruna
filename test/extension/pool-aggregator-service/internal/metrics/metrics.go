@@ -27,7 +27,7 @@ import (
 type Inputs struct {
 	Pool        string        // the collector's default pool label
 	Now         time.Time     // the scrape's clock
-	RefreshTTL  time.Duration // how long a refresh capability reading stays current
+	RepairTTL   time.Duration // how long a repair capability reading stays current
 	CrossWindow time.Duration // the cross-host incident window
 	// ArchiveConfigured says an archive root is set; ArchiveAvailable says it
 	// was readable just before the view was locked.
@@ -172,24 +172,24 @@ func Render(view *poolstate.View, in Inputs) string {
 		}
 		fmt.Fprintf(&b, "yuruna_pool_host_status{pool=%q,hostId=%q,hostIdDashed=%q} %d\n", pool(h), h, poolstate.DashedHostID(h), hv.StatusCode())
 	}
-	// host_refresh_available: whether each host currently advertises a
-	// refresh it could run, under the single expiry rule. A gauge of its own
+	// host_repair_available: whether each host currently advertises a
+	// repair it could run, under the single expiry rule. A gauge of its own
 	// rather than a host_info label, because every host_info label becomes a
 	// dashboard column. Its labels are bounded enums only -- never a request
 	// id, a reason string or a rung list.
-	b.WriteString("# HELP yuruna_pool_host_refresh_available Whether the host currently advertises a refresh capability (1 = available, 0 = unavailable), with its request state.\n# TYPE yuruna_pool_host_refresh_available gauge\n")
-	refreshNow := in.Now
+	b.WriteString("# HELP yuruna_pool_host_repair_available Whether the host currently advertises a repair capability (1 = available, 0 = unavailable), with its request state.\n# TYPE yuruna_pool_host_repair_available gauge\n")
+	repairNow := in.Now
 	for _, h := range ids {
 		hv := view.Hosts[h]
 		if hv == nil {
 			continue
 		}
-		availability, state := hv.RefreshLabels(refreshNow, in.RefreshTTL)
+		availability, state := hv.RepairLabels(repairNow, in.RepairTTL)
 		value := 0
-		if availability == sdkpool.RefreshAvailable {
+		if availability == sdkpool.RepairAvailable {
 			value = 1
 		}
-		fmt.Fprintf(&b, "yuruna_pool_host_refresh_available{pool=%q,hostId=%q,hostIdDashed=%q,state=%q} %d\n", pool(h), h, poolstate.DashedHostID(h), state, value)
+		fmt.Fprintf(&b, "yuruna_pool_host_repair_available{pool=%q,hostId=%q,hostIdDashed=%q,state=%q} %d\n", pool(h), h, poolstate.DashedHostID(h), state, value)
 	}
 	// host_last_seen: unix seconds of last successful probe; the table shows age
 	// as `time() - this`. Keeps climbing for an unreachable-but-not-yet-evicted
@@ -366,9 +366,6 @@ func Render(view *poolstate.View, in Inputs) string {
 		}
 	}
 
-	// Lab connection token: the dashboard's "Lab token" tile reads the CURRENT
-	// code as a label (the info-metric pattern host_extension uses -- the only
-	// channel the provisioned Prometheus/Loki datasources offer for a string).
 	// How many pushes wait for Loki: zero in a steady pool, climbing while Loki is
 	// away. durable says whether they survive a restart of this daemon.
 	if in.Outbox != nil {
@@ -378,6 +375,9 @@ func Render(view *poolstate.View, in Inputs) string {
 		}
 		fmt.Fprintf(&b, "# HELP yuruna_pool_loki_outbox_pending Pushes the collector holds until Loki accepts them; the limit is DefaultMaxItems in internal/loki/outbox.go.\n# TYPE yuruna_pool_loki_outbox_pending gauge\nyuruna_pool_loki_outbox_pending{pool=%q,durable=\"%d\"} %d\n", in.Pool, durable, in.Outbox.Pending)
 	}
+	// Lab connection token: the dashboard's "Lab token" tile reads the CURRENT
+	// code as a label (the info-metric pattern host_extension uses -- the only
+	// channel the provisioned Prometheus/Loki datasources offer for a string).
 	// Exported only while the exchange is live, so a disabled feature shows
 	// "No data" rather than a stale, unredeemable code. Label churn is one tiny
 	// series per rotation.
@@ -576,15 +576,15 @@ func CommitCells(st *hostpoll.HostStatus) (display, frameworkURL, projectURL str
 		label := ""
 		switch c.Verification {
 		case "origin-direct":
-			label = "remote.origin"
+			label = "remote"
 		case "mirror-confirmed":
-			label = "mirror.origin"
+			label = "mirror"
 		case "mirror-stale":
-			label = "mirror.stale"
+			label = "mirror stale"
 		case "mirror-fresh":
-			label = "mirror.fresh"
+			label = "mirror fresh"
 		case "not-applicable":
-			label = "not.applicable"
+			label = "not applicable"
 		}
 		if label != "" {
 			short += " [" + label + "]"

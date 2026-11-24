@@ -64,6 +64,7 @@ testing:FailurePause((testing:FailurePause)) -- subClassOf --> y:State[y:State]
 testing:FetchAndExecute((testing:FetchAndExecute)) -- subClassOf --> y:Process[y:Process]
 testing:FrameworkCanaryRing((testing:FrameworkCanaryRing)) -- subClassOf --> y:Policy[y:Policy]
 testing:GuestRunLostFailure((testing:GuestRunLostFailure)) -- subClassOf --> testing:SequenceFailure((testing:SequenceFailure))
+testing:GuestSequence((testing:GuestSequence)) -- subClassOf --> testing:TestSequence((testing:TestSequence))
 testing:Heartbeat((testing:Heartbeat)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 testing:HostAnnouncement((testing:HostAnnouncement)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 testing:HostCondition((testing:HostCondition)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
@@ -82,26 +83,33 @@ testing:OCRNearMiss((testing:OCRNearMiss)) -- subClassOf --> diagnostics:Diagnos
 testing:OCRProvider((testing:OCRProvider)) -- subClassOf --> y:SystemElement[y:SystemElement]
 testing:OCRText((testing:OCRText)) -- subClassOf --> diagnostics:DiagnosticEvidence[diagnostics:DiagnosticEvidence]
 testing:OCRTimeoutFailure((testing:OCRTimeoutFailure)) -- subClassOf --> testing:SequenceFailure((testing:SequenceFailure))
+testing:OneShotLease((testing:OneShotLease)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 testing:OpticalCharacterRecognition((testing:OpticalCharacterRecognition)) -- subClassOf --> y:Process[y:Process]
+testing:OrchestrationSequence((testing:OrchestrationSequence)) -- subClassOf --> testing:TestSequence((testing:TestSequence))
 testing:OutcomeUnrecordedFault((testing:OutcomeUnrecordedFault)) -- subClassOf --> testing:RunnerFault((testing:RunnerFault))
 testing:OuterLoop((testing:OuterLoop)) -- subClassOf --> y:Process[y:Process]
+testing:PageStep((testing:PageStep)) -- subClassOf --> testing:TestStep((testing:TestStep))
 testing:PatternMatch((testing:PatternMatch)) -- subClassOf --> y:Process[y:Process]
 testing:PatternMatchedFailure((testing:PatternMatchedFailure)) -- subClassOf --> testing:SequenceFailure((testing:SequenceFailure))
 testing:PauseRequest((testing:PauseRequest)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 testing:PausedIntent((testing:PausedIntent)) -- subClassOf --> testing:DesiredState((testing:DesiredState))
 testing:PayloadIntegrityMismatch((testing:PayloadIntegrityMismatch)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 testing:PayloadUnavailableFailure((testing:PayloadUnavailableFailure)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
+testing:PhraseLibrary((testing:PhraseLibrary)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 testing:Polling((testing:Polling)) -- subClassOf --> y:Process[y:Process]
 testing:PoolAggregator((testing:PoolAggregator)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 testing:PoolControlService((testing:PoolControlService)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 testing:PoolIntent((testing:PoolIntent)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 testing:PoolMembership((testing:PoolMembership)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 testing:PreambleStallFault((testing:PreambleStallFault)) -- subClassOf --> testing:RunnerFault((testing:RunnerFault))
-testing:ResourceTestPhase((testing:ResourceTestPhase)) -- subClassOf --> y:Process[y:Process]
+testing:ResourceTestPhase((testing:ResourceTestPhase)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 testing:RetryAttempt((testing:RetryAttempt)) -- subClassOf --> y:Process[y:Process]
 testing:RetryExhaustedFailure((testing:RetryExhaustedFailure)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 testing:RetryPolicy((testing:RetryPolicy)) -- subClassOf --> y:Policy[y:Policy]
+testing:RunnerConsole((testing:RunnerConsole)) -- subClassOf --> y:SystemElement[y:SystemElement]
 testing:RunnerFault((testing:RunnerFault)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
+testing:RunnerGate((testing:RunnerGate)) -- subClassOf --> y:State[y:State]
+testing:RunnerLostMidCycle((testing:RunnerLostMidCycle)) -- subClassOf --> y:Situation[y:Situation]
 testing:RunnerStatus((testing:RunnerStatus)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 testing:RunningIntent((testing:RunningIntent)) -- subClassOf --> testing:DesiredState((testing:DesiredState))
 testing:SCP((testing:SCP)) -- subClassOf --> y:Process[y:Process]
@@ -114,8 +122,10 @@ testing:SequenceHandler -- testing:implementsAction --> testing:SequenceAction
 testing:SequenceHandler((testing:SequenceHandler)) -- subClassOf --> r_SequenceHandler_implementsAction_SequenceAction_((Anonymous class))
 testing:SequenceHandler((testing:SequenceHandler)) -- subClassOf --> y:SystemElement[y:SystemElement]
 testing:SnapshotRestoreFailure((testing:SnapshotRestoreFailure)) -- subClassOf --> testing:SequenceFailure((testing:SequenceFailure))
-testing:Snippet((testing:Snippet)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
+testing:Snippet((testing:Snippet)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
+testing:StartSequence((testing:StartSequence)) -- subClassOf --> testing:GuestSequence((testing:GuestSequence))
 testing:StatusService((testing:StatusService)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
+testing:StepSentence((testing:StepSentence)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 testing:StreamDrain((testing:StreamDrain)) -- subClassOf --> y:Process[y:Process]
 testing:TestCycle((testing:TestCycle)) -- subClassOf --> y:Process[y:Process]
 testing:TestPlan -- testing:hasSequence --> testing:TestSequence
@@ -138,6 +148,9 @@ testing:VNCTransport((testing:VNCTransport)) -- subClassOf --> y:SystemElement[y
 testing:WaitTimeoutFailure((testing:WaitTimeoutFailure)) -- subClassOf --> testing:SequenceFailure((testing:SequenceFailure))
 testing:WarmResume((testing:WarmResume)) -- subClassOf --> y:Process[y:Process]
 testing:Watchdog((testing:Watchdog)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
+testing:WebStepFailure((testing:WebStepFailure)) -- subClassOf --> testing:SequenceFailure((testing:SequenceFailure))
+testing:WorkloadMcpServer((testing:WorkloadMcpServer)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
+testing:WorkloadSession((testing:WorkloadSession)) -- subClassOf --> y:Process[y:Process]
 testing:WorkloadTestPhase((testing:WorkloadTestPhase)) -- subClassOf --> y:Process[y:Process]
 ```
 
@@ -147,6 +160,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

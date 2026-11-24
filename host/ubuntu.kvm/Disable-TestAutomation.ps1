@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,30 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1')             
 
 if (-not (Assert-SafeToDisable)) { exit 1 }
 
+# --- REGION: Host update in progress
+# A claimed host update has stopped the runner, or is about to start it, and
+# only its controller finishes that. Stopping the controller here would leave
+# the host with no runner and nothing to start one. A queued update is no
+# reason to refuse: once the controller is stopped nothing claims it, and it
+# expires on its own. The controller can still claim it before the stop, so
+# the queue is read again once the controller is stopped. A journal that
+# cannot be read can hide a claimed update, so it refuses too.
+# A module imported inside another one is not visible here, so each module
+# this script calls is imported by name.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.SingleFlightLock.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostOperationJournal.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostUpdate.psm1') -Force -DisableNameChecking
+$journalReadable = @('ok', 'absent', 'recovered-previous')
+$queue = Get-HostUpdateQueue
+if ($queue.Status -notin $journalReadable) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_unknown' -Arguments @{ status = "$($queue.Status)" })
+    exit 1
+}
+if ($queue.Claimed) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_claimed' -Arguments @{ requestId = "$($queue.Claimed['requestId'])" })
+    exit 1
+}
+
 # --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if ($state) {
@@ -99,8 +123,89 @@ if (-not $WhatIfPreference) {
     [void](Initialize-SudoCache -Reasons @(
         'ufw status, and ufw delete for each allow rule Yuruna marked as its own',
         'systemctl disable libvirtd / virtlogd (only when the capture says they were off)',
-        'gpasswd -d (only when the capture says this user was not a member)'
+        'gpasswd -d (only when the capture says this user was not a member)',
+        'systemctl stop / disable yuruna-host-controller.service, rm its unit file, daemon-reload',
+        'rm -f /etc/sudoers.d/yuruna-host-update and systemctl stop of its expiry timer (a rule a host update left)'
     ))
+}
+
+# --- REGION: Host controller
+# See https://yuruna.link/42f909ad-002b
+# Removed with or without a capture: Enable generates the unit and deploys
+# the controller files, so nothing of the operator's is in them. The
+# controller files go only once nobody holds the controller lock; a stop
+# signals only the shim (KillMode=process), which passes it on and waits.
+$controllerUnit = 'yuruna-host-controller.service'
+$controllerUnitPath = '/etc/systemd/system/yuruna-host-controller.service'
+$controllerRoot = Get-HostUpdateControllerRoot -NoCreate
+$keepController = $false
+# No unit, or one stopped and removed: no controller can be using a sudo rule.
+$controllerGone = -not [System.IO.File]::Exists($controllerUnitPath)
+if ([System.IO.File]::Exists($controllerUnitPath) -and
+    $PSCmdlet.ShouldProcess($controllerUnit, (Format-YurunaOperatorMessage -Key 'host.operator_f61cceb0afee5ae4'))) {
+    $failed = $null
+    $r = Invoke-YurunaSudo -Argument @('systemctl', 'stop', $controllerUnit) -TolerateBlocked
+    if ($r.ExitCode -ne 0) { $failed = "systemctl stop $($controllerUnit): $($r.Output)" }
+    # Stopped, the controller claims nothing more; one claimed before the
+    # stop, or one a journal that cannot be read may hide, is continued by
+    # starting the controller again.
+    $queueNow = if (-not $failed) { Get-HostUpdateQueue } else { $null }
+    $unknownNow = $queueNow -and $queueNow.Status -notin $journalReadable
+    if ($unknownNow -or ($queueNow -and $queueNow.Claimed)) {
+        $keepController = $true
+        $start = Invoke-YurunaSudo -Argument @('systemctl', 'start', $controllerUnit) -TolerateBlocked
+        $startDetail = "systemctl start $($controllerUnit): $($start.Output)"
+        if ($unknownNow) {
+            if ($start.ExitCode -eq 0) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_unknown' -Arguments @{ status = "$($queueNow.Status)" })
+                exit 1
+            }
+            $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_update_unknown_not_restarted' -Arguments @{
+                        status = "$($queueNow.Status)"; detail = $startDetail }))
+        } else {
+            if ($start.ExitCode -eq 0) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_claimed' -Arguments @{ requestId = "$($queueNow.Claimed['requestId'])" })
+                exit 1
+            }
+            $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_update_claimed_not_restarted' -Arguments @{
+                        requestId = "$($queueNow.Claimed['requestId'])"; detail = $startDetail }))
+        }
+    } elseif (-not $failed) {
+        foreach ($step in @(@('systemctl', 'disable', $controllerUnit), @('rm', '-f', $controllerUnitPath), @('systemctl', 'daemon-reload'))) {
+            $r = Invoke-YurunaSudo -Argument $step -TolerateBlocked
+            if ($r.ExitCode -ne 0) { $failed = "$($step -join ' '): $($r.Output)"; break }
+        }
+    }
+    if ($failed) { $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_unit_not_removed' -Arguments @{ detail = "$failed" })) }
+    elseif (-not $keepController) {
+        $restored.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_unit_removed'))
+        $controllerGone = $true
+    }
+}
+# The temporary sudo rule of the full scope, should a host update have left
+# one: no update is claimed and no controller runs, so none is using it. rm -f
+# also succeeds when there is none, which a test account cannot see in
+# /etc/sudoers.d.
+if ($controllerGone -and -not $keepController -and -not $WhatIfPreference -and -not (Remove-HostUpdateSudoRule -Confirm:$false)) {
+    $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_update_rule_not_removed'))
+}
+if (-not $keepController -and $controllerRoot -and [System.IO.Directory]::Exists($controllerRoot) -and
+    $PSCmdlet.ShouldProcess($controllerRoot, (Format-YurunaOperatorMessage -Key 'host.operator_f61cceb0afee5ae4'))) {
+    $lockState = Get-HostUpdateControllerLockState
+    for ($i = 0; $i -lt 60 -and $lockState -notin @('free', 'absent'); $i++) {
+        Start-Sleep -Milliseconds 500
+        $lockState = Get-HostUpdateControllerLockState
+    }
+    if ($lockState -notin @('free', 'absent')) {
+        $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_kept' -Arguments @{ path = "$controllerRoot" }))
+    } else {
+        try {
+            [System.IO.Directory]::Delete($controllerRoot, $true)
+            $restored.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_removed' -Arguments @{ path = "$controllerRoot" }))
+        } catch {
+            $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_not_removed' -Arguments @{ path = "$controllerRoot"; message = "$($_.Exception.Message)" }))
+        }
+    }
 }
 
 # --- REGION: GNOME idle / lock / dim

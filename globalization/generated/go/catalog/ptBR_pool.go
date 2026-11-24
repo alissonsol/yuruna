@@ -9,7 +9,7 @@ package catalog
 // DataptBRpool is the compiled catalog for this locale and domain. It is a
 // string so the package carries no init cost until a caller decodes it.
 const DataptBRpool = `{
-  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "Um grupo reúne hosts sob um ID estável (GUID); cada host pertence a no máximo um grupo. O Status do Grupo mostra o que os membros estão fazendo agora — escolher um valor o aplica a todos os membros.",
+  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "Um grupo reúne hospedeiros sob um ID do grupo (um GUID estável); cada hospedeiro pertence a no máximo um grupo. O estado do grupo mostra o que os membros estão fazendo agora — escolher um valor o aplica a todos os membros.",
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "Uma verificação do ",
     {
@@ -466,7 +466,7 @@ const DataptBRpool = `{
     }
   ],
   "pool.display_name": "Mostrar o nome",
-  "pool.duration": "duração",
+  "pool.duration": "Duração",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "Cada um dos quatro números deve ser de 0 a 255.",
   "pool.empty": "(vazio)",
   "pool.enrollment_target": [
@@ -522,7 +522,7 @@ const DataptBRpool = `{
     },
     " significa que ela não pode ler o configurado. Uma linha re-chaveada é a de uma máquina identidade antiga: foi reimaged ou re-cloned, de modo que o host live responde sob o id mostrado ao lado dele enquanto qualquer membro do pool permanece no antigo — entregue-o a partir dessa linha. Hostnames aparece uma vez que este navegador é Destrancada."
   ],
-  "pool.exit_code": "código de saída",
+  "pool.exit_code": "Código de saída",
   "pool.fail": "FALHA",
   "pool.failed": "falhou",
   "pool.first_seen": "Primeiro visto",
@@ -540,11 +540,11 @@ const DataptBRpool = `{
   "pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r": "Encontrado digitalizando a rede; ele pertence a nenhum pool e não se registrou com o agregador.",
   "pool.framework": "Quadro",
   "pool.framework_project": "Framework / Projeto",
-  "pool.framework_revision": "revisão do quadro",
+  "pool.framework_revision": "Revisão do framework",
   "pool.framework_url": "URL do framework",
-  "pool.framework_version": "versão do framework",
-  "pool.free_storage": "Armazenamento Livre",
-  "pool.go": "Vai.",
+  "pool.framework_version": "Versão do framework",
+  "pool.free_storage": "Armazenamento livre",
+  "pool.go": "Go",
   "pool.guide": "Guia",
   "pool.hand_over": "Entrega",
   "pool.hand_over_failed_value1": [
@@ -559,18 +559,18 @@ const DataptBRpool = `{
   "pool.holds_this_lab_s_token_clock_agrees": "O relógio concorda.",
   "pool.home": "HOME",
   "pool.host": "+ máquina",
-  "pool.host_id": "ID da máquina",
-  "pool.host_id_7b624c8f": "ID da máquina",
+  "pool.host_id": "ID do hospedeiro",
+  "pool.host_id_7b624c8f": "ID do hospedeiro",
   "pool.host_id_to_add_to_pool_value1": [
-    "ID da máquina a adicionar ao pool ",
+    "ID do hospedeiro a adicionar ao grupo ",
     {
       "arg": "value1",
       "type": "detail",
       "trust": "external"
     }
   ],
-  "pool.host_refresh_body_invalid": [
-    "A solicitação de atualização deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung (",
+  "pool.host_repair_body_invalid": [
+    "A solicitação de reparo deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung (",
     {
       "arg": "detail",
       "type": "identifier",
@@ -578,14 +578,14 @@ const DataptBRpool = `{
     },
     ")."
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " já está processando a solicitação de atualização ",
+    " já está processando a solicitação de reparo ",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -593,7 +593,7 @@ const DataptBRpool = `{
     },
     "; acompanhe essa solicitação em vez de iniciar outra."
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "Não foi possível obter uma prova de controle para o hospedeiro ",
     {
       "arg": "hostId",
@@ -608,16 +608,16 @@ const DataptBRpool = `{
     },
     ")."
   ],
-  "pool.host_refresh_field_unsupported": [
-    "A solicitação de atualização contém o campo não suportado ",
+  "pool.host_repair_field_unsupported": [
+    "A solicitação de reparo contém o campo não suportado ",
     {
       "arg": "field",
       "type": "identifier",
       "trust": "external"
     },
-    "; as opções de atualização forçada e de parada forçada nunca são aceitas remotamente."
+    "; as opções de reparo forçado e de parada forçada nunca são aceitas remotamente."
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "O agregador do grupo conhece o hospedeiro ",
     {
       "arg": "hostId",
@@ -626,15 +626,15 @@ const DataptBRpool = `{
     },
     ", mas não tem um endereço para ele."
   ],
-  "pool.host_refresh_host_id_invalid": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais.",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais.",
+  "pool.host_repair_host_refused": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " recusou a atualização (HTTP ",
+    " recusou o reparo (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -648,14 +648,14 @@ const DataptBRpool = `{
     },
     ")."
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " não conseguiu iniciar a atualização (HTTP ",
+    " não conseguiu iniciar o reparo (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -675,7 +675,7 @@ const DataptBRpool = `{
     },
     "."
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "O agregador do grupo não conhece o hospedeiro ",
     {
       "arg": "hostId",
@@ -684,7 +684,7 @@ const DataptBRpool = `{
     },
     "."
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "O hospedeiro ",
     {
       "arg": "hostId",
@@ -699,8 +699,8 @@ const DataptBRpool = `{
     },
     "."
   ],
-  "pool.host_refresh_mint_failed": [
-    "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro ",
+  "pool.host_repair_mint_failed": [
+    "Este serviço não conseguiu assinar a solicitação de reparo para o hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
@@ -708,7 +708,7 @@ const DataptBRpool = `{
     },
     "."
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "O hospedeiro ",
     {
       "arg": "hostId",
@@ -723,7 +723,7 @@ const DataptBRpool = `{
     },
     ")."
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "A solicitação ",
     {
       "arg": "requestId",
@@ -748,9 +748,9 @@ const DataptBRpool = `{
       "type": "identifier",
       "trust": "external"
     },
-    "); gere um novo id de solicitação para atualizar novamente."
+    "); gere um novo id de solicitação para reparar novamente."
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "A solicitação ",
     {
       "arg": "requestId",
@@ -759,10 +759,10 @@ const DataptBRpool = `{
     },
     " já foi usada com outro nível ou outro teto; reenvie a política original ou gere um novo id de solicitação."
   ],
-  "pool.host_refresh_request_id_invalid": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa.",
-  "pool.host_refresh_rung_unsupported": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker.",
-  "pool.host_refresh_signing_unconfigured": [
-    "A atualização remota do hospedeiro está desativada: este serviço não possui autoridade de assinatura de atualização (",
+  "pool.host_repair_request_id_invalid": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa.",
+  "pool.host_repair_rung_unsupported": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker.",
+  "pool.host_repair_signing_unconfigured": [
+    "O reparo remoto do hospedeiro está desativado: este serviço não possui autoridade de assinatura de reparo (",
     {
       "arg": "path",
       "type": "detail",
@@ -770,15 +770,245 @@ const DataptBRpool = `{
     },
     ")."
   ],
-  "pool.host_refresh_tier_unsupported": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local.",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local.",
+  "pool.host_repair_unavailable": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " não anuncia suporte à atualização remota (",
+    " não anuncia suporte ao reparo remoto (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_action": "Atualizar hospedeiro",
+  "pool.host_update_body_invalid": [
+    "A solicitação de atualização deve ser um único objeto JSON com apenas hostId, requestId, scope, drainSeconds e expectCommit, cada um uma vez (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_busy": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " está ocupado com a solicitação ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; acompanhe essa solicitação em vez de iniciar outra."
+  ],
+  "pool.host_update_commit_invalid": "expectCommit deve ter de 7 a 40 dígitos hexadecimais minúsculos.",
+  "pool.host_update_commit_label": "Commit esperado",
+  "pool.host_update_completed": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já terminou no hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_credential_label": "Credencial do operador",
+  "pool.host_update_credential_missing": "Informe a credencial do operador.",
+  "pool.host_update_drain_invalid": "drainSeconds deve ser um número inteiro de 60 a 21600.",
+  "pool.host_update_drain_label": "Limite de drenagem",
+  "pool.host_update_drain_now_label": "Para encerrar o ciclo em execução agora",
+  "pool.host_update_drain_value": [
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s (",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " min)"
+  ],
+  "pool.host_update_field_forbidden": [
+    "A solicitação de atualização trouxe ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; nenhuma solicitação deste serviço encerra um ciclo em execução. Para encerrar um, execute Invoke-HostUpdate.ps1 -Drain now em um shell no hospedeiro."
+  ],
+  "pool.host_update_field_unsupported": [
+    "A solicitação de atualização trouxe o campo não suportado ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_heading": "Atualizar hospedeiro",
+  "pool.host_update_host_refused": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " recusou a atualização (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_host_unavailable": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não conseguiu enfileirar a atualização (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); tente novamente com o mesmo id de solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_intro": "Esta página assina uma atualização para o hospedeiro abaixo e a envia para ele. O hospedeiro espera o ciclo em execução terminar, então para o executor, atualiza seu checkout e inicia o executor de novo; ele desiste após o limite de drenagem sem mudar nada. Nenhuma solicitação desta página encerra um ciclo em execução: para encerrar um, execute o comando mostrado abaixo em um shell no hospedeiro.",
+  "pool.host_update_loading": "Lendo o hospedeiro…",
+  "pool.host_update_mint_failed": [
+    "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_not_offered": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não pode aceitar uma atualização remota agora (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_open_diagnostics": "Abrir a página Diagnósticos do hospedeiro",
+  "pool.host_update_page_title": "Atualizar hospedeiro — Yuruna Pool Control",
+  "pool.host_update_request_conflict": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já foi usada com outro escopo, limite de drenagem ou commit esperado; reenvie a solicitação original ou inicie uma nova."
+  ],
+  "pool.host_update_request_label": "ID da solicitação",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstalar dependências e configurações, depois reiniciar",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Reiniciar o executor no código atual"
+    }
+  },
+  "pool.host_update_scope_invalid": "scope deve ser restart ou full.",
+  "pool.host_update_scope_label": "Escopo",
+  "pool.host_update_sending": "Assinando e enviando a atualização…",
+  "pool.host_update_sent": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " enfileirou a atualização ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; abrindo a página Diagnósticos dele."
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "A atualização remota de hospedeiro está desativada: este serviço não possui chave de assinatura de atualização ou credencial de operador (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_submit": "Enviar a atualização",
+  "pool.host_update_unavailable": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não pode aceitar uma atualização remota agora (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -985,7 +1215,7 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
-  "pool.listen_addr": "ouvir addr",
+  "pool.listen_addr": "Endereço de escuta",
   "pool.loaded": "Carregado:",
   "pool.loading_hosts": "Carregando máquinas...",
   "pool.loading_pools": "Carregando grupos...",
@@ -1082,8 +1312,8 @@ const DataptBRpool = `{
   "pool.paused_after_cycle_and_step": "Pausa após ciclo e passo",
   "pool.persisted_health": "Saúde persistente",
   "pool.persistence_disabled": "(persistência deficiente)",
-  "pool.pid": "pid",
-  "pool.platform": "plataforma",
+  "pool.pid": "PID",
+  "pool.platform": "Plataforma",
   "pool.pool": "Grupo",
   "pool.pool_for_host_value1": [
     "Pool para a máquina ",
@@ -1094,7 +1324,7 @@ const DataptBRpool = `{
     }
   ],
   "pool.pool_id": "ID do grupo",
-  "pool.pool_id_66d3d3f3": "ID do conjunto",
+  "pool.pool_id_66d3d3f3": "ID do grupo",
   "pool.pool_membership_moved_to_value1": [
     "Os membros do grupo mudaram-se para ",
     {
@@ -1106,7 +1336,7 @@ const DataptBRpool = `{
   ],
   "pool.pool_project_denied": "O pool atribuiu a esta máquina um projecto que a sua credencial git não consegue ler. Conceda o seu acesso ao repositório, ou reatribua o pool a cada membro que possa ler. Os seus ciclos falham até então, e nenhuma repetição poderá corrigi-lo.",
   "pool.pool_project_unreachable": "O projecto que esta máquina atribuiu não respondeu. Esta é a rede, não a permissão, e o clone volta a tentar através do backoff normal.",
-  "pool.pool_status": "Estado do Grupo",
+  "pool.pool_status": "Estado do grupo",
   "pool.pool_status_change_failed_value1": [
     "Falha na alteração do estado do grupo: ",
     {
@@ -1207,7 +1437,7 @@ const DataptBRpool = `{
       "project": "Esta máquina não consegue ler o repositório do projecto com o qual está configurado. Verifique a sua credencial git e o URL no test.config.yml."
     }
   },
-  "pool.repo_dir": "repo dir",
+  "pool.repo_dir": "Pasta do repositório",
   "pool.repo_held_detail": {
     "kind": "select",
     "selector": "repo",
@@ -1527,10 +1757,10 @@ const DataptBRpool = `{
   ],
   "pool.scan_yuruna_pool_control": "Controle de grupos de Yuruna",
   "pool.service_diagnostics": "Diagnóstico de serviço",
-  "pool.service_user": "usuário de serviço",
+  "pool.service_user": "Usuário do serviço",
   "pool.show_hostnames": "Mostrar os nomes das máquinas",
-  "pool.started_at": "iniciado em",
-  "pool.state_dir": "pasta de estado",
+  "pool.started_at": "Iniciado em",
+  "pool.state_dir": "Pasta de estado",
   "pool.state_fail": "falha",
   "pool.state_idle": "ocioso",
   "pool.state_mismatch": "desfasamento",
@@ -1714,12 +1944,12 @@ const DataptBRpool = `{
   "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": "Este ID não responde mais neste endereço; o ID ao lado responde. Um host, dois IDs — a máquina foi recriada a partir de uma imagem ou clonada novamente. A associação ao grupo ainda está registrada no ID antigo, então o host ativo trabalha fora do grupo.",
   "pool.time_period": "Período",
   "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": "O Token está certo, mas o relógio está desligado. Conserte o relógio do hospedeiro.",
-  "pool.total_storage": "Armazenamento Total",
+  "pool.total_storage": "Armazenamento total",
   "pool.type": "Tipo",
   "pool.unlock": "Desbloquear",
   "pool.unlock_with_the_lab_token_to_see_hostnames": "Desbloqueie com o token do laboratório para ver os nomes das máquinas.",
   "pool.unsupported_range": "intervalo não suportado; use 1h, 24h, 7d ou 30d",
-  "pool.uptime": "tempo de execução",
+  "pool.uptime": "Tempo de atividade",
   "pool.use_this_network": "Usar esta rede",
   "pool.value1_applied_to_value2_host_s_in_pool_value3": [
     {
@@ -1823,7 +2053,7 @@ const DataptBRpool = `{
       "trust": "external"
     }
   ],
-  "pool.version": "versão",
+  "pool.version": "Versão",
   "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": "O que o daemon foi lançado com, eo ambiente seus processos pwsh filho herdar.",
   "pool.what_to_do": "O que fazer",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "Que construção está realmente em execução, e por quanto tempo — estabelece se uma correção foi implementada em tudo.",

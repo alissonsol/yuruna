@@ -869,7 +869,7 @@ func newBackfillScenario(t *testing.T, now time.Time, idA, idB, poolA, poolB str
 			// Killed a minute in: its last event is the last anyone knew of it.
 			c.outcome, c.end = "", c.start.Add(time.Minute)
 		case k == 13:
-			c.outcome, c.reason = "aborted", "host refresh"
+			c.outcome, c.reason = "aborted", "runner gate held"
 		case k%5 == 0:
 			c.outcome, c.class = "fail", "guest_boot"
 		}

@@ -18,8 +18,8 @@ const DataenUSauth = `{
     },
     " minutes and try again"
   ],
-  "auth.bearer_required": "lab auth token required",
-  "auth.changes_disabled": "no aggregator URL and no lab auth token configured; changes are disabled",
+  "auth.bearer_required": "internal authentication key required",
+  "auth.changes_disabled": "no aggregator URL and no internal authentication key configured; changes are disabled",
   "auth.detail_encoding": "request encoding failed",
   "auth.detail_http": [
     "aggregator answered HTTP ",
@@ -31,7 +31,7 @@ const DataenUSauth = `{
   ],
   "auth.detail_malformed_aggregator": "malformed aggregator URL",
   "auth.detail_no_aggregator": "no aggregator URL configured",
-  "auth.detail_unconfigured": "no lab auth token and no aggregator URL configured",
+  "auth.detail_unconfigured": "no internal authentication key and no aggregator URL configured",
   "auth.detail_unreachable": "unreachable",
   "auth.encode_refusal": "the gate could not encode its refusal",
   "auth.host_not_served": [
@@ -51,6 +51,17 @@ const DataenUSauth = `{
   ],
   "auth.login_unavailable": "no aggregator URL is configured, so the pool aggregator cannot check a lab token; actions stay locked",
   "auth.malformed_request": "malformed request body",
+  "auth.operator_credential_required": "This action requires the operator credential in the X-Yuruna-Operator-Credential header; a lab session, lab token or internal authentication key is not accepted.",
+  "auth.operator_credential_throttled": [
+    "Too many operator credential attempts from this address; wait ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutes and try again."
+  ],
+  "auth.operator_credential_unconfigured": "Remote host repair is disabled: this service has no operator credential provisioned.",
   "auth.proof_check_failed": [
     "the control proof could not be checked (",
     {
@@ -62,20 +73,9 @@ const DataenUSauth = `{
   ],
   "auth.proof_expired": "the control proof is expired or not from this pool",
   "auth.proof_shape": "not a control proof",
-  "auth.proof_unconfigured": "no lab auth token and no aggregator URL are configured, so a control proof cannot be checked; actions stay locked",
-  "auth.refresh_credential_required": "This action requires the refresh credential in the X-Yuruna-Refresh-Credential header; a lab session, lab token or internal authentication key is not accepted.",
-  "auth.refresh_throttled": [
-    "Too many refresh credential attempts from this address; wait ",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " minutes and try again."
-  ],
-  "auth.refresh_unconfigured": "Remote host refresh is disabled: this service has no refresh credential provisioned.",
-  "auth.route_disabled": "no lab auth token configured; this route is disabled",
-  "auth.session_required": "lab token session or lab auth token required",
+  "auth.proof_unconfigured": "no internal authentication key and no aggregator URL are configured, so a control proof cannot be checked; actions stay locked",
+  "auth.route_disabled": "no internal authentication key configured; this route is disabled",
+  "auth.session_required": "lab session or internal authentication key required",
   "auth.token_check_failed": [
     "the pool aggregator could not check the lab token (",
     {

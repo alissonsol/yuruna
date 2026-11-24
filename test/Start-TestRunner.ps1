@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,25 +47,25 @@
     Pause between cycles inside the inner (forwarded; default 30)
 .PARAMETER logLevel
     Error|Warning|Information|Verbose|Debug (forwarded)
-.PARAMETER RefreshResume
-    Internal: set only by a host-refresh worker restarting this
+.PARAMETER HandoffResume
+    Internal: set only by a host-operation worker restarting this
     runner. Startup keeps the operator's pauses, holds and restart
     request, never takes over or deletes a live or unknown runner
     record, never prompts, and runs one preflight cycle before the
-    first ordinary one. Requires -RefreshHandoffToken.
-.PARAMETER RefreshHandoffToken
+    first ordinary one. Requires -HandoffToken.
+.PARAMETER HandoffToken
     Internal: the handoff token (32 lowercase hex) that admits this
-    runner's preflight chain. Requires -RefreshResume. Neither
+    runner's preflight chain. Requires -HandoffResume. Neither
     internal parameter reaches the inner or the launch record.
 
 Strict binding: an unknown or misspelled parameter is a binding error, never a
 value silently absorbed into $args while the runner starts on defaults.
 
-While a host refresh holds this host's runner (the refresh gate is closed,
+While a host operation holds this host's runner (the runner gate is closed,
 recovery-pending, in a handoff, or unreadable), a normal start refuses. When
-the refresh was left unfinished by an earlier boot (its owner started before
+the repair was left unfinished by an earlier boot (its owner started before
 this boot and is gone), the first start of each boot also resumes it once with
-test/lab/Invoke-HostRefresh.ps1 -Resume.
+test/lab/Invoke-HostRepair.ps1 -Resume.
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -84,9 +84,9 @@ param(
     [int]$CycleDelaySeconds    = 30,
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel,
-    [switch]$RefreshResume,
+    [switch]$HandoffResume,
     [ValidatePattern('^[0-9a-f]{32}$')]
-    [string]$RefreshHandoffToken
+    [string]$HandoffToken
 )
 
 # A Windows console code page prints Chinese and Hebrew catalog text as
@@ -111,9 +111,9 @@ $script:ForwardEnvNames = @(
 # Invoke-TestProject, Debug-TestSequence, and Invoke-TestRunnerInnerLoop -- adding a
 # new entry point uses the same one-liner.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
-# The two refresh transport parameters travel together or not at all.
-if ([bool]$RefreshResume -ne [bool]$RefreshHandoffToken) {
-    Write-Error (Format-YurunaOperatorMessage -Key 'runner.refresh_resume_switch_pair')
+# The two handoff transport parameters travel together or not at all.
+if ([bool]$HandoffResume -ne [bool]$HandoffToken) {
+    Write-Error (Format-YurunaOperatorMessage -Key 'runner.handoff_resume_switch_pair')
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 $paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
@@ -148,10 +148,14 @@ $null = Resolve-LogLevel -CmdLineLevel $(if ($PSBoundParameters.ContainsKey('log
 # --- REGION: Private startup state
 # sg relaunches pwsh noninteractively. Repair private files while the original
 # terminal can still answer sudo, including locks left owned by a root launch.
-if (-not $RefreshResume) {
+if (-not $HandoffResume) {
     Import-Module (Join-Path $ModulesDir 'Test.PrivateStateRepair.psm1') -DisableNameChecking
     $privateState = Repair-YurunaStartupPrivateState -AllowPrompt -RepairFileAccess:(!$IsWindows) `
         -ServedRoot @($RepoRoot, $paths.StatusDir, $env:YURUNA_RUNTIME_DIR, $env:YURUNA_LOG_DIR) -Confirm:$false
+    if (-not $privateState.Resolved -and $privateState.Reason -in @('migration-pending', 'migration-conflict')) {
+        Write-Error (Format-YurunaOperatorMessage -Key 'runner.private_state_migration_blocked' -Arguments @{ reason = $privateState.Reason })
+        exit (Get-EntryPointExitCode -Outcome Failure)
+    }
     if (-not $privateState.Resolved) {
         Write-Error "Runner private state could not be prepared ($($privateState.Reason)). Start the runner from an interactive terminal to allow any required sudo authentication."
         exit (Get-EntryPointExitCode -Outcome Failure)
@@ -191,24 +195,54 @@ $null = Initialize-YurunaLogDir
 # Set at script top (not inside a function) -- same pattern as $global:__YurunaRunId.
 $global:__YurunaHostId = Get-YurunaHostId
 
-# --- REGION: Host-refresh gate at startup
-# See https://yuruna.link/42010605-0037
-$refreshToken = $null
-if ($RefreshResume) {
-    $refreshToken = Test-YurunaRunnerHandoffToken -TokenId $RefreshHandoffToken -Role outer -RuntimeDir $env:YURUNA_RUNTIME_DIR
-    if (-not $refreshToken.Valid) {
-        if ($refreshToken.Reason -in @('expired', 'boot-changed', 'runtime-mismatch', 'not-designated')) {
-            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'token-invalid' -Confirm:$false
+# --- REGION: Host controller start
+# macOS registers no job for the host controller: an ordinary start from the
+# desktop session starts its shim when no controller holds the lock, and says
+# in one line what it found. It runs before the gate read, because a start the
+# gate refuses is what brings the controller back after a logout or a reboot.
+# A resumed start never runs it: a host operation started that runner, not an
+# operator's desktop terminal. Nothing here ends the start.
+$controllerStart = $null
+if (-not $HandoffResume -and (Get-HostType) -eq 'host.macos.utm') {
+    try {
+        Import-Module (Join-Path $ModulesDir 'Test.HostOperationJournal.psm1') -DisableNameChecking -ErrorAction Stop
+        Import-Module (Join-Path $ModulesDir 'Test.HostUpdate.psm1') -DisableNameChecking -ErrorAction Stop
+        $controllerStart = Start-HostUpdateControllerSession
+    } catch {
+        $controllerStart = [pscustomobject]@{
+            Result = 'error'; LockState = $null; Multiplexer = $null
+            Line = (Format-YurunaOperatorMessage -Key 'runner.host_controller_start_error' -Arguments @{ message = "$($_.Exception.Message)" })
         }
-        $tokenRefused = Format-YurunaOperatorMessage -Key 'runner.refresh_resume_token_refused' -Arguments @{ reason = "$($refreshToken.Reason)" }
+    }
+    Write-Information $controllerStart.Line -InformationAction Continue
+    Write-OuterLog $controllerStart.Line
+}
+
+# --- REGION: Runner gate at startup
+# See https://yuruna.link/42010605-0037
+$handoffCheck = $null
+if ($HandoffResume) {
+    $handoffCheck = Test-YurunaRunnerHandoffToken -TokenId $HandoffToken -Role outer -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    if (-not $handoffCheck.Valid) {
+        if ($handoffCheck.Reason -in @('expired', 'boot-changed', 'runtime-mismatch', 'not-designated')) {
+            $null = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role outer -State failed -FailureReason 'token-invalid' -Confirm:$false
+        }
+        $tokenRefused = Format-YurunaOperatorMessage -Key 'runner.handoff_resume_token_refused' -Arguments @{ reason = "$($handoffCheck.Reason)" }
         Write-Warning $tokenRefused
         Write-OuterLog $tokenRefused
         exit (Get-EntryPointExitCode -Outcome Failure)
     }
 } else {
-    $startGate = Get-YurunaRefreshGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    $startGate = Get-YurunaRunnerGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
     if (-not $startGate.SpawnAllowed) {
-        $gateBlocks = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_blocks_start' -Arguments @{ requestId = "$($startGate.RequestId)"; state = "$($startGate.State)" }
+        $gateBlocks = Format-YurunaOperatorMessage -Key 'runner.runner_gate_blocks_start' -Arguments @{ requestId = "$($startGate.RequestId)"; state = "$($startGate.State)" }
+        # A gate the host controller closed belongs to a host update: the
+        # repair's remedy does not apply, and the line follows the controller
+        # lock, read again here; on macOS it repeats the controller step's line.
+        if ($startGate.Owner -is [System.Collections.IDictionary] -and [string]$startGate.Owner['role'] -ceq 'controller') {
+            Import-Module (Join-Path $ModulesDir 'Test.HostOperationJournal.psm1') -DisableNameChecking
+            $gateBlocks = Format-HostUpdateGateRefusal -RequestId "$($startGate.RequestId)" -ControllerStart $controllerStart
+        }
         Write-Warning $gateBlocks
         Write-OuterLog $gateBlocks
         # An orphaned gate still refuses the runner but ensures the status service.
@@ -218,31 +252,31 @@ if ($RefreshResume) {
                 $ensureDecision = Start-YurunaStatusServiceIfEnabled -Config (Read-TestConfig -Path $ConfigPath) `
                     -StartScript (Join-Path $RepoRoot 'test/service/Start-StatusService.ps1')
                 if ($ensureDecision.ShouldStart) {
-                    $ensured = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_status_ensured' -Arguments @{ requestId = "$($startGate.RequestId)"; port = "$($ensureDecision.Port)" }
+                    $ensured = Format-YurunaOperatorMessage -Key 'runner.runner_gate_status_ensured' -Arguments @{ requestId = "$($startGate.RequestId)"; port = "$($ensureDecision.Port)" }
                     Write-Information $ensured -InformationAction Continue
                     Write-OuterLog $ensured
                 }
             } catch {
-                $ensureFailed = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_status_ensure_failed' -Arguments @{ message = "$($_.Exception.Message)" }
+                $ensureFailed = Format-YurunaOperatorMessage -Key 'runner.runner_gate_status_ensure_failed' -Arguments @{ message = "$($_.Exception.Message)" }
                 Write-Warning $ensureFailed
                 Write-OuterLog $ensureFailed
             }
         }
-        # A refresh that an earlier boot left unfinished is resumed once per boot
-        # and request; this start still refuses, and the refresh's own handoff
+        # A host repair that an earlier boot left unfinished is resumed once per boot
+        # and request; this start still refuses, and the repair's own handoff
         # starts the runner. See https://yuruna.link/42f909ad-0023
         if ($startGate.Orphaned) {
-            $bootResume = Invoke-YurunaRefreshBootResume -Gate $startGate -RepoRoot $RepoRoot -Confirm:$false
+            $bootResume = Invoke-YurunaRepairBootResume -Gate $startGate -RepoRoot $RepoRoot -Confirm:$false
             $resumeLine = switch -Regex ($bootResume.Reason) {
                 '^launched$' {
-                    Format-YurunaOperatorMessage -Key 'runner.refresh_gate_boot_resume' -Arguments @{
+                    Format-YurunaOperatorMessage -Key 'runner.host_repair_boot_resume' -Arguments @{
                         requestId = "$($bootResume.RequestId)"; pid = "$($bootResume.Pid)"; stdErrPath = "$($bootResume.StdErrPath)" }
                 }
                 '^already-tried$' {
-                    Format-YurunaOperatorMessage -Key 'runner.refresh_gate_boot_resume_tried' -Arguments @{ requestId = "$($bootResume.RequestId)" }
+                    Format-YurunaOperatorMessage -Key 'runner.host_repair_boot_resume_tried' -Arguments @{ requestId = "$($bootResume.RequestId)" }
                 }
                 '^(marker-failed|no-private-root|launch-failed)' {
-                    Format-YurunaOperatorMessage -Key 'runner.refresh_gate_boot_resume_failed' -Arguments @{
+                    Format-YurunaOperatorMessage -Key 'runner.host_repair_boot_resume_failed' -Arguments @{
                         requestId = "$($bootResume.RequestId)"; reason = "$($bootResume.Reason)" }
                 }
                 default { $null }
@@ -299,8 +333,8 @@ $refuseOneShot = {
         Write-OuterLog $unconfirmed
     }
     if ($oneShot.State -eq 'Held') {
-        if ($RefreshResume) {
-            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'other-runner' -Confirm:$false
+        if ($HandoffResume) {
+            $null = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role outer -State failed -FailureReason 'other-runner' -Confirm:$false
         }
         $oneShotBlocks = Format-YurunaOperatorMessage -Key 'runner.oneshot_blocks_start' -Arguments @{ pid = "$($oneShot.Pid)"; leasePath = "$($oneShot.PidFile)" }
         Write-Warning $oneShotBlocks
@@ -319,8 +353,8 @@ $refuseStart = {
         # exit is a bounded, non-interactive stop; the outer loop must never block
         # on a prompt.
         $yamlMissing = "powershell-yaml is not installed. The cycle planner cannot parse test.runner.yml, so every cycle would fall back to the legacy guestSequence and SKIP Start-GuestOS for every guest -- refusing to start a silently-degraded loop. Fix with: Install-Module powershell-yaml -Scope CurrentUser  (or re-run test/lab/Enable-TestAutomation.ps1)"
-        if ($RefreshResume) {
-            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'yaml-missing' -Confirm:$false
+        if ($HandoffResume) {
+            $null = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role outer -State failed -FailureReason 'yaml-missing' -Confirm:$false
         }
         Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_1b2d45fc84aa493b' -Arguments @{ yamlMissing = "$yamlMissing" })
         Write-Warning $yamlMissing
@@ -334,9 +368,9 @@ $refuseStart = {
     # A resumed start has nobody at a console, so it never prompts: a missing
     # credential is a refusal the worker reports.
     if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction SilentlyContinue)) {
-        if (-not (Assert-RunnerElevation -HostType $elevationHostType -NonInteractive:$RefreshResume)) {
-            if ($RefreshResume) {
-                $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'elevation-refused' -Confirm:$false
+        if (-not (Assert-RunnerElevation -HostType $elevationHostType -NonInteractive:$HandoffResume)) {
+            if ($HandoffResume) {
+                $null = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role outer -State failed -FailureReason 'elevation-refused' -Confirm:$false
             }
             Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_71c777325565d43c' -Arguments @{ elevationHostType = "$elevationHostType" })
             & $completeLaunchRecord
@@ -355,23 +389,23 @@ $refuseStart = {
     # See https://yuruna.link/42f909ad-000a
     $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
     if (-not $gate.passed) {
-        if ($RefreshResume) {
-            $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'config-gate-failed' -Confirm:$false
+        if ($HandoffResume) {
+            $null = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role outer -State failed -FailureReason 'config-gate-failed' -Confirm:$false
         }
         Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_4bc00ee22cf67a77' -Arguments @{ exitCode = "$($gate.exitCode)" })
         & $completeLaunchRecord
         exit (Get-EntryPointExitCode -Outcome Failure)
     }
 }
-if (-not $RefreshResume) { . $refuseStart }
+if (-not $HandoffResume) { . $refuseStart }
 
 # Recover stale runtime state before starting a fresh outer runner.
 # See https://yuruna.link/42e220c4-0008
 $runStartupRecovery = {
     if (Get-Command Invoke-YurunaBootRecovery -ErrorAction SilentlyContinue) {
-        if ($RefreshResume) {
-            $null = Invoke-YurunaBootRecovery -RefreshPreservation -ReclaimedInner $refreshToken.Reclaimed.inner -Confirm:$false
-            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_resume_started' -Arguments @{ requestId = "$($refreshToken.RequestId)" })
+        if ($HandoffResume) {
+            $null = Invoke-YurunaBootRecovery -HandoffPreservation -ReclaimedInner $handoffCheck.Reclaimed.inner -Confirm:$false
+            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.handoff_resume_started' -Arguments @{ requestId = "$($handoffCheck.RequestId)" })
         } else {
             $null = Invoke-YurunaBootRecovery -Confirm:$false
         }
@@ -380,7 +414,7 @@ $runStartupRecovery = {
         $null = Initialize-RunnerState -Confirm:$false
     }
 }
-if (-not $RefreshResume) { & $runStartupRecovery }
+if (-not $HandoffResume) { & $runStartupRecovery }
 
 # See https://yuruna.link/42010605-0036
 
@@ -392,10 +426,10 @@ if (-not $RefreshResume) { & $runStartupRecovery }
 # (BSD ps truncation, StartTime tolerance, etc.) lands in one place.
 $RunnerPidFile   = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.pid'
 $RunnerStartFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.start'
-if ($RefreshResume) {
+if ($HandoffResume) {
     # No takeover in a resumed start: a runner that started meanwhile is
     # preserved, and an unknown record is never deleted. Only the exact
-    # generation proven dead or recycled (the one the refresh reclaimed) is
+    # generation proven dead or recycled (the one the host operation reclaimed) is
     # removed, so the pidfile write below can succeed.
     $priorRecord = Get-YurunaRunnerRecordState -PidFile $RunnerPidFile -StartFile $RunnerStartFile -ExpectedScriptPath @($PSCommandPath)
     $recordRefusal = $null
@@ -409,8 +443,8 @@ if ($RefreshResume) {
         default   { $recordRefusal = 'other-runner' }
     }
     if ($recordRefusal) {
-        $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason $recordRefusal -Confirm:$false
-        $recordRefused = Format-YurunaOperatorMessage -Key 'runner.refresh_resume_record_refused' -Arguments @{ pidFile = 'runner.pid'; state = "$($priorRecord.State)" }
+        $null = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role outer -State failed -FailureReason $recordRefusal -Confirm:$false
+        $recordRefused = Format-YurunaOperatorMessage -Key 'runner.handoff_resume_record_refused' -Arguments @{ pidFile = 'runner.pid'; state = "$($priorRecord.State)" }
         Write-Warning $recordRefused
         Write-OuterLog $recordRefused
         exit (Get-EntryPointExitCode -Outcome Failure)
@@ -444,8 +478,8 @@ if ($RefreshResume) {
 # plain Set-Content and one PID would silently get overwritten.
 $pidWritten = Write-RunnerPidFile -RunnerPidFile $RunnerPidFile -RunnerStartFile $RunnerStartFile -Confirm:$false
 if (-not $pidWritten) {
-    if ($RefreshResume) {
-        $null = Write-YurunaRunnerReadinessAck -TokenId $RefreshHandoffToken -Role outer -State failed -FailureReason 'pidfile-lost' -Confirm:$false
+    if ($HandoffResume) {
+        $null = Write-YurunaRunnerReadinessAck -TokenId $HandoffToken -Role outer -State failed -FailureReason 'pidfile-lost' -Confirm:$false
     }
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_e00026446a75f063' -Arguments @{ runnerPidFile = "$RunnerPidFile" })
     exit (Get-EntryPointExitCode -Outcome Failure)
@@ -458,7 +492,7 @@ $releaseRunnerRecord = {
     Remove-Item -LiteralPath $RunnerStartFile -Force -ErrorAction SilentlyContinue
 }
 & $refuseOneShot
-if ($RefreshResume) { & $runStartupRecovery }
+if ($HandoffResume) { & $runStartupRecovery }
 # After the sweep has reported the previous runner's records: how this runner
 # was started, and the SIGHUP or SIGTERM that ends it if one does.
 if (Get-Command Register-YurunaRunnerExitRecord -ErrorAction SilentlyContinue) {
@@ -467,19 +501,19 @@ if (Get-Command Register-YurunaRunnerExitRecord -ErrorAction SilentlyContinue) {
 }
 
 # --- REGION: Launch record
-# The validated launch options, recorded privately so a host refresh can
+# The validated launch options, recorded privately so a host operation can
 # restart this runner with the configuration it had -- never one derived from
 # a command line, which for an interactive pwsh carries nothing. A record that
-# cannot be written only means a later refresh cannot restart this runner and
+# cannot be written only means a later host operation cannot restart this runner and
 # leaves the restart to the operator.
 $launchRecord = & $writeLaunchRecord
 if (-not $launchRecord.Written) {
-    $launchSkipped = Format-YurunaOperatorMessage -Key 'runner.refresh_launch_record_skipped' -Arguments @{ reason = "$($launchRecord.Reason)" }
+    $launchSkipped = Format-YurunaOperatorMessage -Key 'runner.launch_record_skipped' -Arguments @{ reason = "$($launchRecord.Reason)" }
     Write-Warning $launchSkipped
     Write-OuterLog $launchSkipped
 }
 # The startup refusals below are orderly exits, not crashes: a record left
-# open would read as a runner to restart, and a refresh would relaunch it
+# open would read as a runner to restart, and a host operation would relaunch it
 # straight into the same refusal.
 $completeLaunchRecord = {
     if ($launchRecord.Written) { $null = Complete-YurunaRunnerLaunchRecord -RuntimeDir $env:YURUNA_RUNTIME_DIR -CleanExit -Confirm:$false }
@@ -496,7 +530,7 @@ $script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 $pwshExe = Get-PwshExePath
 # See https://yuruna.link/42010605-0034
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters `
-    -ExcludeParameter @('RefreshResume', 'RefreshHandoffToken')
+    -ExcludeParameter @('HandoffResume', 'HandoffToken')
 
 # --- REGION: Helpers
 # See https://yuruna.link/42010605-0033
@@ -530,9 +564,9 @@ if ($script:ForwardEnvSnapshot.Count -gt 0) {
 Write-Output "========"
 
 # --- REGION: Resumed-start refusals
-# A resumed start refuses here, where the refresh has already reclaimed what
+# A resumed start refuses here, where the host operation has already reclaimed what
 # it needed; a fresh start ran the same refusals before taking anything over.
-if ($RefreshResume) { . $refuseStart }
+if ($HandoffResume) { . $refuseStart }
 
 # --- REGION: Runner report
 # This process keeps the modules it imported until it exits, and a host pull
@@ -543,7 +577,7 @@ if ($RefreshResume) { . $refuseStart }
 # one that exists.
 try {
     Import-Module (Join-Path $ModulesDir 'Test.Status.psm1') -Global -DisableNameChecking -ErrorAction Stop
-    $null = Set-StatusRunnerResident -StatusPath (Join-Path $env:YURUNA_RUNTIME_DIR 'status.json') -ExistingOnly:$RefreshResume `
+    $null = Set-StatusRunnerResident -StatusPath (Join-Path $env:YURUNA_RUNTIME_DIR 'status.json') -ExistingOnly:$HandoffResume `
         -CommitSha ([string](Get-OuterCommitSha -RepoRoot $RepoRoot)) -StartedAtUtc (Get-Process -Id $PID).StartTime -Confirm:$false
 } catch {
     Write-Verbose "The runner's commit and start time were not published: $($_.Exception.Message)"
@@ -579,11 +613,11 @@ $supervisorState = @{
     CycleDelaySeconds         = $CycleDelaySeconds
     LogLevel                  = $logLevel
     # A resumed runner's first dispatch is the preflight chain of its handoff.
-    RefreshHandoff            = if ($RefreshResume) {
-        @{ TokenId = $RefreshHandoffToken; RequestId = [string]$refreshToken.RequestId; Generation = [string]$refreshToken.Generation; Purpose = 'new-outer' }
+    RunnerHandoff            = if ($HandoffResume) {
+        @{ TokenId = $HandoffToken; RequestId = [string]$handoffCheck.RequestId; Generation = [string]$handoffCheck.Generation; Purpose = 'new-outer' }
     } else { $null }
-    RefreshBarrierRequestId   = $null
-    RefreshGateHoldSeconds    = 15
+    HandoffBarrierRequestId   = $null
+    RunnerGateHoldSeconds    = 15
 }
 foreach ($key in $script:RunnerTunable.Keys) { $supervisorState[$key] = $script:RunnerTunable[$key] }
 Invoke-RunnerOuterSupervisor -State $supervisorState
@@ -592,7 +626,7 @@ Invoke-RunnerOuterSupervisor -State $supervisorState
 Write-Output ""
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_865d99d9b774d3ab')
 Unregister-EntryPointCancelHandler
-# An orderly end (Ctrl+C, a pool drain): a host refresh must not restart a
+# An orderly end (Ctrl+C, a pool drain): a host operation must not restart a
 # runner the operator stopped.
 $null = Complete-YurunaRunnerLaunchRecord -RuntimeDir $env:YURUNA_RUNTIME_DIR -CleanExit -Confirm:$false
 try {

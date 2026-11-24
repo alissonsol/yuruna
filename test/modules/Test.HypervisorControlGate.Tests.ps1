@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a3f6d1-8e2b-4c57-b9d4-7f1e0c5a6b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,7 +172,7 @@ Describe 'Test-RunnerHypervisorControlGate' {
         Assert-True $r.Probed
         Assert-StringEqual 'Unresponsive/timeout' $r.Reason
         Assert-Match 'stop amisad-build: timeout' $r.Message 'the verb and the VM it was sent to are named'
-        Assert-Match 'Invoke-HostRefresh' $r.Message 'the repair is named'
+        Assert-Match 'Invoke-HostRepair' $r.Message 'the repair is named'
         Assert-Equal 1 (Get-GateExchange).SnapshotCalls.Count -Because 'the snapshot is taken while the state still exists'
         Assert-StringEqual 'cycle-start-control-gate' (Get-GateExchange).SnapshotCalls[0].Trigger
         Assert-StringEqual 'amisad-build' (Get-GateExchange).SnapshotCalls[0].VMName

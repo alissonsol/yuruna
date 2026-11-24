@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,7 +141,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
 
     It 'quits and relaunches through the UTM primitives' {
         # The quit literal and the launch vector live in one place each, so
-        # the rename and the refresh restart share one reviewed sequence.
+        # the rename and the repair restart share one reviewed sequence.
         $stopBody  = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Stop-UtmApplication'
         $startBody = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Start-UtmApplication'
         Assert-True ($stopBody.Contains('''tell application "UTM" to quit''')) 'the stop primitive sends the quit request'

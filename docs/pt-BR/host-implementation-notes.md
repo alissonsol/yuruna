@@ -1463,7 +1463,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="testservicestart-statusserviceps1-module-setup"></a>
 
-## test/service/Start-StatusService.ps1: Serialização da inicialização e resultado seguro para atualização
+## test/service/Start-StatusService.ps1: Serialização da inicialização e resultado não destrutivo
 
 Aplica-se a:
 
@@ -1475,7 +1475,7 @@ bloqueio de inicialização as serializa. Ele fica na raiz de estado privada, id
 runtime, porque o diretório do runtime é servido e metadados de bloqueio ali
 seriam públicos, e para que os listeners de duas cópias de trabalho nunca esperem um pelo outro.
 A inicialização normal espera por um tempo limitado e depois prossegue sem o bloqueio (uma
-inicialização que nunca ocorre é pior que a condição de corrida); a inicialização segura para atualização
+inicialização que nunca ocorre é pior que a condição de corrida); a inicialização não destrutiva
 recusa a execução, porque sua promessa inteira é não interferir em nada.
 
 O bloqueio é um identificador aberto mantido por este processo. A inicialização normal é
@@ -1489,7 +1489,7 @@ As restrições adicionais de implementação estão nas [justificativas do cód
 
 <a id="42e5cdfd-003e"></a>
 
-<a id="testservicestart-statusserviceps1-startup-serialization-and-the-refresh-safe-outcome"></a>
+<a id="testservicestart-statusserviceps1-startup-serialization-and-the-non-destructive-outcome"></a>
 
 ## test/service/Start-StatusService.ps1: Verificar se já existe um servidor
 
@@ -1520,7 +1520,7 @@ infraestrutura aguarda a próxima inicialização (`runner.status_listener_busy`
 uma concessão travada ou ausente o substitui como antes, informando o veredito.
 No meio de um ciclo, o anunciador do endereço do hospedeiro acompanha a mesma
 concessão e, após duas passagens travadas e uma sondagem que falha, executa
-`Start-StatusService.ps1 -RefreshSafe -ReplaceWedged`, que encerra esse listener
+`Start-StatusService.ps1 -NonDestructive -ReplaceWedged`, que encerra esse listener
 e inicia um novo sem as varreduras da inicialização completa.
 
 <a id="42e5cdfd-003f"></a>
@@ -1545,7 +1545,7 @@ o operador concluir uma limpeza causada pela infraestrutura de testes e que ela 
 tem a autorização (ou pode pedi-la uma vez). Cada alvo é identificado quando é
 encerrado, e este processo, seus ancestrais e o pid 1 nunca são candidatos.
 
-A inicialização segura para atualização não assume nada: qualquer porta ocupada é relatada, e
+A inicialização não destrutiva não assume nada: qualquer porta ocupada é relatada, e
 o caso de privilégio é distinguido de um detentor real pelo mesmo motivo pelo qual o
 caminho normal os distingue.
 
@@ -1579,7 +1579,7 @@ current-action.json, control.*-pause, .status-service.ps1 nesses
 locais. Uma atualização da cópia de trabalho pode deixá-los não rastreados (não mais
 ignorados por .gitignore), enchendo `git status`. Remova-os em toda inicialização para que
 as execuções do operador terminem com um diretório de status limpo.
-A inicialização segura para atualização ignora essa varredura: ela remove o arquivo auxiliar de interrupção e
+A inicialização não destrutiva ignora essa varredura: ela remove o arquivo auxiliar de interrupção e
 o sinalizador de continuação, dos quais um executor pausado ainda precisa.
 
 As restrições adicionais de implementação estão nas [justificativas do código do hospedeiro, em inglês](https://yuruna.link/42f52e37-0017).
@@ -1968,7 +1968,7 @@ orientação de correção duradoura somente quando for possível determinar ine
 estado indeterminado (por exemplo, não poder consultar ufw sem privilégios) permanece silencioso -- a configuração
 do hospedeiro (Enable-TestAutomation) é o responsável duradouro, o que importa para um hospedeiro
 cujo executor esteja parado e, portanto, nunca repita esta inicialização por ciclo.
-A inicialização segura para atualização não edita o firewall: uma alteração de regra é configuração
+A inicialização não destrutiva não edita o firewall: uma alteração de regra é configuração
 do hospedeiro, e o listener que ela restaura era acessível antes.
 
 <a id="42e5cdfd-004a"></a>

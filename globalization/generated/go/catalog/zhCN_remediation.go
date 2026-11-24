@@ -70,10 +70,10 @@ const DatazhCNremediation = `{
     "上的运行已丢失：客户机的监管进程有响应，但无法说明该运行的去向，进程已不存在，重新连接无法恢复它。"
   ],
   "remediation.hypervisor_unresponsive_action_evidence": "阅读周期文件夹中的utm-control-snapshot.*.json和utm-log-show.*.txt：UTM的进程ID或启动时间在周期中途发生变化表明曾崩溃并重新启动，统一日志摘录则说明了此前发生的事情",
-  "remediation.hypervisor_unresponsive_action_restart": "在宿主机上重新启动虚拟机管理程序控制应用：在macOS上从桌面会话退出UTM.app（或运行test/lab/Invoke-HostRefresh.ps1），然后确认对已停止的虚拟机执行` + "`" + `utmctl stop` + "`" + `能立即返回",
+  "remediation.hypervisor_unresponsive_action_restart": "在宿主机上重新启动虚拟机管理程序控制应用：在macOS上从桌面会话退出UTM.app（或运行test/lab/Invoke-HostRepair.ps1），然后确认对已停止的虚拟机执行` + "`" + `utmctl stop` + "`" + `能立即返回",
   "remediation.hypervisor_unresponsive_action_resume": "当生命周期命令再次响应后恢复运行器；下一个周期会在构建任何内容之前探测控制通道",
   "remediation.hypervisor_unresponsive_rationale": [
-    "hypervisor_unresponsive：虚拟机管理程序的控制通道已停止执行生命周期请求，但仍能响应状态查询，因此每次虚拟机启动、停止和删除都会等到超时，周期所做的任何操作都无法恢复它。重试只会重复相同的超时；拥有该通道的应用程序必须在宿主机上重新启动，而这只能通过桌面会话或宿主机刷新完成。",
+    "hypervisor_unresponsive：虚拟机管理程序的控制通道已停止执行生命周期请求，但仍能响应状态查询，因此每次虚拟机启动、停止和删除都会等到超时，周期所做的任何操作都无法恢复它。重试只会重复相同的超时；拥有该通道的应用程序必须在宿主机上重新启动，而这只能通过桌面会话或宿主机修复完成。",
     {
       "arg": "detail",
       "type": "detail",
@@ -805,6 +805,36 @@ const DatazhCNremediation = `{
       "trust": "internal"
     },
     "始终未进入该步骤等待的停止状态：客户机忽略了关机请求，再次等待无法改变这一点。从宿主机将其关闭则可以。"
+  ],
+  "remediation.web_account_action": "此步骤驱动了页面：last_failure.json中causeDetail.web的kind和detail指明了访问页面途中失败的环节",
+  "remediation.web_step_failed_action_evidence": "阅读last_failure.json中的causeDetail.web：kind说明步骤如何结束，locator说明查找的目标，candidates说明页面提供的内容，effect说明输入是否到达页面",
+  "remediation.web_step_failed_action_repair": "更正步骤的role、name、match或nth，或先等待其所需的状态；对于expectation和navigation请检查站点；对于unsupported和page_lost请从流程中移除对话框、新窗口或崩溃",
+  "remediation.web_step_failed_action_rerun": "修改后使用test/Debug-TestSequence.ps1重放；当effect为applied或uncertain时，请先恢复已知的客户机状态",
+  "remediation.web_step_failed_rationale": [
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "发生web_step_failed：页面步骤因页面显示的内容而结束（kind：",
+    {
+      "arg": "kind",
+      "type": "token",
+      "trust": "internal"
+    },
+    "；查找：",
+    {
+      "arg": "target",
+      "type": "detail",
+      "trust": "external"
+    },
+    "；页面：",
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。不会在无人值守时重试：必须先修改测试或站点。"
   ]
 }
 `

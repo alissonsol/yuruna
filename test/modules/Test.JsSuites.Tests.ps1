@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421d8999-cae4-4164-90cd-fd5cc6a6e28f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,8 @@ $script:Expected = @(
     'test/extension/stash-service/server/internal/httpsrv/web/assets/new.test.js',
     'test/extension/ui-pages.test.js',
     'test/status/globalization-pages.test.js',
-    'test/status/host-refresh.test.js',
+    'test/status/host-repair.test.js',
+    'test/status/host-update.test.js',
     'test/status/performance.test.js',
     'test/status/refresh-safety.test.js',
     'test/status/status-badges.test.js',

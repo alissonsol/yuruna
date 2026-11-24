@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -526,6 +526,13 @@ function Invoke-OrchestrationSequence {
         owner takes it. The failure-time capture of a failed guest chain
         (host.diagnostics.txt in the guest's folder) does not depend on this
         switch.
+    .PARAMETER GitCommits
+        The cycle's gitCommits list, as the runner builds it with each entry's
+        source provenance (mirror or origin, verification, fallback reason).
+        Passed to Register-StandaloneCycle when this run owns the cycle, so the
+        status document and the cycle_start event carry it; a nested run never
+        replaces its owner's list. Omitted, the owner records the plain
+        revisions it reads from the checkouts.
     #>
     [CmdletBinding()]
     [OutputType([int])]
@@ -541,7 +548,8 @@ function Invoke-OrchestrationSequence {
         [Parameter(Mandatory)]$Config,
         [switch]$ShowSensitive,
         [scriptblock]$BeforeSeal,
-        [switch]$CaptureHostDiagnostic
+        [switch]$CaptureHostDiagnostic,
+        [object[]]$GitCommits
     )
 
     $setName = if ($Sequence.Contains('name') -and $Sequence['name']) {
@@ -646,7 +654,8 @@ function Invoke-OrchestrationSequence {
         $guestKeys = @($entries | ForEach-Object { $_.name })
         $sequences = @($entries | ForEach-Object { [ordered]@{ name = $_.name; guests = @($_.name) } })
         $registered = Register-StandaloneCycle -StatusFilePath $statusFile -HostType $HostType -Config $Config `
-            -RepoRoot $RepoRoot -TestRoot $TestRoot -GuestList $guestKeys -Sequences $sequences -StepNames @('Run')
+            -RepoRoot $RepoRoot -TestRoot $TestRoot -GuestList $guestKeys -Sequences $sequences -StepNames @('Run') `
+            -GitCommits $GitCommits
         $cycleStartUtc   = $registered.CycleStartUtc
         $frameworkCommit = $registered.FrameworkCommit
         $projectCommit   = $registered.ProjectCommit
@@ -992,6 +1001,11 @@ function Register-StandaloneCycle {
         authentication, so a repository URL is published only after the rules
         Get-ProjectGitCommitReference applies to the project: userinfo stripped,
         ssh and local clone sources walked back to their web origin.
+    .PARAMETER GitCommits
+        A gitCommits list the caller already built, recorded in place of the
+        plain {sha, repoUrl} entries read here, so the source provenance its
+        entries carry reaches the status document and the cycle_start event.
+        Omitted or empty, the entries read from the checkouts are recorded.
     .OUTPUTS
         [hashtable] CycleStartUtc, CycleNumber, LogFile, FrameworkCommit,
         ProjectCommit and GitCommits.
@@ -1006,7 +1020,8 @@ function Register-StandaloneCycle {
         [Parameter(Mandatory)][string]$TestRoot,
         [Parameter(Mandatory)][string[]]$GuestList,
         [object[]]$Sequences = @(),
-        [Parameter(Mandatory)][string[]]$StepNames
+        [Parameter(Mandatory)][string[]]$StepNames,
+        [object[]]$GitCommits
     )
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFilePath -Confirm:$false
     $repositories = if ($Config -is [System.Collections.IDictionary] -and $Config.repositories -is [System.Collections.IDictionary]) { $Config.repositories } else { $null }
@@ -1021,26 +1036,49 @@ function Register-StandaloneCycle {
     if (Get-Command Get-CurrentGitCommit -ErrorAction SilentlyContinue) {
         try { $frameworkCommit = [string](Get-CurrentGitCommit -RepoRoot $RepoRoot) } catch { $frameworkCommit = '' }
     }
-    $gitCommits = @()
-    if ($frameworkCommit) { $gitCommits += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl } }
+    # A distinct name: PowerShell variables are case-insensitive, so a local
+    # $gitCommits would overwrite the GitCommits parameter.
+    $cycleCommits = @()
+    if ($frameworkCommit) { $cycleCommits += [ordered]@{ sha = $frameworkCommit; repoUrl = $frameworkUrl } }
     $projectReference = $null
     if ($repositories -and (Get-Command Get-ProjectGitCommitReference -ErrorAction SilentlyContinue)) {
         $projectReference = Get-ProjectGitCommitReference -RepoRoot $RepoRoot -ProjectUrl $repositories.projectUrl
     }
-    if ($projectReference) { $gitCommits += $projectReference }
+    if ($projectReference) { $cycleCommits += $projectReference }
+    # A handed entry brings its source provenance; the repository URL stays the
+    # web origin resolved here whenever both name the same revision, so an ssh
+    # or .git source still publishes a page the dashboard can link.
+    if ($GitCommits -and $GitCommits.Count -gt 0) {
+        $resolved = @($cycleCommits)
+        $cycleCommits = @(for ($i = 0; $i -lt $GitCommits.Count; $i++) {
+            $handed = $GitCommits[$i]
+            if ($handed -isnot [System.Collections.IDictionary]) { $handed; continue }
+            $entry = [ordered]@{}
+            foreach ($key in $handed.Keys) { $entry[$key] = $handed[$key] }
+            # One side may hold the short form of the other's revision.
+            $ownSha = if ($i -lt $resolved.Count) { [string]$resolved[$i].sha } else { '' }
+            $handedSha = [string]$entry['sha']
+            if ($ownSha.Length -ge 7 -and $handedSha.Length -ge 7 -and $resolved[$i].repoUrl -and
+                ($ownSha.StartsWith($handedSha, [StringComparison]::OrdinalIgnoreCase) -or
+                    $handedSha.StartsWith($ownSha, [StringComparison]::OrdinalIgnoreCase))) {
+                $entry['repoUrl'] = $resolved[$i].repoUrl
+            }
+            $entry
+        })
+    }
     $statusArgs = @{
         StatusFilePath = $StatusFilePath; HostType = $HostType; Hostname = (hostname)
-        GitCommit = $frameworkCommit; RepoUrl = $frameworkUrl; GitCommits = $gitCommits
+        GitCommit = $frameworkCommit; RepoUrl = $frameworkUrl; GitCommits = $cycleCommits
         GuestList = $GuestList; StepNames = $StepNames
     }
     if ($Sequences.Count -gt 0) { $statusArgs.Sequences = $Sequences }
     $cycleStartUtc = Initialize-StatusDocument @statusArgs
     $cycleNumber = Get-CycleNumber
-    $logFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $cycleStartUtc -Hostname (hostname) -CycleNumber $cycleNumber -GitCommits $gitCommits
+    $logFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $cycleStartUtc -Hostname (hostname) -CycleNumber $cycleNumber -GitCommits $cycleCommits
     return @{
         CycleStartUtc = $cycleStartUtc; CycleNumber = $cycleNumber; LogFile = $logFile
         FrameworkCommit = $frameworkCommit; ProjectCommit = $(if ($projectReference) { [string]$projectReference.sha } else { $null })
-        GitCommits = $gitCommits
+        GitCommits = $cycleCommits
     }
 }
 

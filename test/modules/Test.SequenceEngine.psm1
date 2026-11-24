@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrMatch.psm1') -Global -Force
 # ${function:Expand-Variable} into each step's Context for the verb Handlers,
 # and that ref is $null unless the defining module is imported here.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceVariable.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot 'Test.SequenceSecret.psm1') -Global -Force
 
 # Sequence-file reading + gui/ssh search-path resolution. -Global so the
 # engine's own callers (Invoke-SequenceByName, Invoke-Sequence) and the
@@ -164,7 +165,8 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceAction.psm1') -Global -Forc
 # -Global so the per-host Test.HostIO.<Host>.psm1 modules (loaded below)
 # resolve Send-KeyHyperV / Send-KeyVNC / Send-KeyUTM / Send-KeyKvm /
 # Send-TextHyperV / Send-TextVNC / Send-TextUTM / Send-TextKvm /
-# Send-ClickHyperV / Send-ClickUtm by bare name. See docs/host-io.md.
+# Send-ClickHyperV / Send-ClickUtm / Send-ClickKvm by bare name. See
+# docs/host-io.md.
 Import-Module (Join-Path $PSScriptRoot 'Test.Transport.psm1') -Global -Force
 # Per-host I/O wiring: each module's load-time Register-HostIOProvider
 # calls populate the Test.HostIO registry that the Send-Key / Send-Text /
@@ -303,10 +305,17 @@ function Send-Click {
     coordinate to the guest VM's GUI input channel.
 .DESCRIPTION
     Routes by HostType to the matching backend (Send-ClickHyperV,
-    Send-ClickUtm). The Capture hashtable carries the UTM window
-    origin and scale produced by Get-UtmWindowScreenshot; Hyper-V
+    Send-ClickUtm, Send-ClickKvm). The Capture hashtable carries the UTM
+    window origin and scale produced by Get-UtmWindowScreenshot; Hyper-V
     ignores it and resolves the window via ClientToScreen at click
-    time. Called by the Yuruna.Host Send-Click contract.
+    time. KVM reads Width and Height from the capture, the size of the
+    guest frame X and Y are pixels of. Called by the Yuruna.Host
+    Send-Click contract.
+.PARAMETER Click
+    The kind of click: left (the default), right or double, compared
+    case-sensitively. Every provider receives it as Click in its argument
+    table; a provider that cannot send a kind refuses it as a deterministic
+    input fault (reason click-kind-unsupported) and sends nothing.
 #>
     param(
         [string]$HostType,
@@ -316,29 +325,100 @@ function Send-Click {
         # UTM branch reads OriginX / OriginY / Scale from this hashtable
         # (produced by Get-UtmWindowScreenshot). Hyper-V ignores it and
         # resolves the window via ClientToScreen at click time.
-        [hashtable]$Capture = $null
+        [hashtable]$Capture = $null,
+        # Case-sensitive so that 'LEFT' cannot pass the set and then be
+        # refused by a provider that compares with -cne.
+        [ValidateSet('left', 'right', 'double', IgnoreCase = $false)][string]$Click = 'left'
     )
-    return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Click' -Arguments @{ VMName=$VMName; X=$X; Y=$Y; Capture=$Capture })
+    return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Click' -Arguments @{ VMName=$VMName; X=$X; Y=$Y; Capture=$Capture; Click = $Click })
 }
 
-<#
-.SYNOPSIS
-    Runs OCR on an image, finds the bounding box of a button-label pattern,
-    and returns its coordinates in the image's pixel space.
-.DESCRIPTION
-    Uses Tesseract TSV mode (word-level boxes) because TSV boxes are
-    directly consumable -- Vision / WinRT don't surface per-word coords in
-    our existing shims. For multi-word labels, requires contiguous words
-    on the same line (y-diff within half a word height). Matching is
-    case-insensitive substring so low-confidence words ("lnstall") still
-    resolve.
-.OUTPUTS
-    Hashtable @{ x; y; w; h; centerX; centerY; text } or $null if not found.
-#>
-function Find-TextLocation {
+function Select-TextLocation {
+    <#
+    .SYNOPSIS
+        Picks, from one read of a frame, the match a tapOn step clicks.
+    .DESCRIPTION
+        The labels are tried in the order written. A label with no match, or
+        with fewer matches than Nth, is passed over (the latter is listed in
+        Short). With Nth the label's Nth match is found; without it contains
+        takes the first match and word needs exactly one, more being
+        ambiguous: waiting does not make a label unique.
+    .PARAMETER Nth
+        The match to take, from 1; 0 when the step has no nth.
+    .OUTPUTS
+        Hashtable @{ Status; Label; Match; Candidates; Short }, Status one of
+        found, ambiguous or not-found.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
     param(
-        [Parameter(Mandatory)] [string]$ImagePath,
-        [Parameter(Mandatory)] [string]$Label
+        [AllowEmptyCollection()][AllowNull()][object[]]$Box,
+        [AllowEmptyCollection()][string[]]$Label,
+        [ValidateSet('contains', 'word')][string]$MatchMode = 'contains',
+        [int]$Nth = 0
+    )
+    $short = [System.Collections.Generic.List[hashtable]]::new()
+    # The loop variable is not $label: variable names ignore case, so that
+    # name would assign to the [string[]] parameter itself.
+    foreach ($candidate in $Label) {
+        # Assigned directly: the matcher returns its array as one object.
+        $m = Find-OcrWordBoxMatch -Box $Box -Label $candidate -MatchMode $MatchMode
+        if ($m.Count -eq 0) { continue }
+        if ($Nth -ge 1) {
+            if ($m.Count -ge $Nth) {
+                return @{ Status = 'found'; Label = $candidate; Match = $m[$Nth - 1]; Candidates = $null; Short = $short.ToArray() }
+            }
+            $short.Add(@{ Label = $candidate; Count = $m.Count })
+            continue
+        }
+        if ($MatchMode -ceq 'contains' -or $m.Count -eq 1) {
+            return @{ Status = 'found'; Label = $candidate; Match = $m[0]; Candidates = $null; Short = $short.ToArray() }
+        }
+        return @{ Status = 'ambiguous'; Label = $candidate; Match = $null; Candidates = $m; Short = $short.ToArray() }
+    }
+    return @{ Status = 'not-found'; Label = $null; Match = $null; Candidates = $null; Short = $short.ToArray() }
+}
+
+function Find-TextLocation {
+    <#
+    .SYNOPSIS
+        Reads one frame with Tesseract and locates the first label it shows,
+        with a second read of a doubled copy after a miss.
+    .DESCRIPTION
+        Tesseract alone returns word boxes, so this reads them whatever OCR
+        providers are enabled. The frame as captured is read once for all
+        labels (Select-TextLocation). When nothing is found and the second
+        look is on, a copy doubled in both directions (New-DoubledFrame) is
+        read, its boxes are halved back into the frame's pixels
+        (ConvertTo-HalvedWordBox) and the labels are matched over those
+        alone. The copy is removed before this returns. No read and no
+        scaler run starts with under one second left on Deadline; each is
+        capped by the seconds left.
+    .PARAMETER Nth
+        The match to take, from 1; 0 when the step has no nth.
+    .PARAMETER Deadline
+        The step deadline (New-YurunaDeadline).
+    .PARAMETER NoSecondLook
+        Read the frame as captured only.
+    .OUTPUTS
+        Hashtable @{ Status; Label; Match; Candidates; Short; Look; NativeBox;
+        DoubledBox; SecondLook; Detail }. Status: found, ambiguous, not-found,
+        ocr-failed or no-time. Look: native or doubled. SecondLook:
+        not-needed, off, taken, no-scaler, scaler-failed, read-failed or
+        no-time. NativeBox is the first read's boxes ($null before it);
+        DoubledBox the halved boxes of the second read, $null unless it
+        finished. Match is @{ text; x; y; w; h; centerX; centerY; block; par;
+        line; word } in the frame's pixels.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$ImagePath,
+        [AllowEmptyCollection()][string[]]$Label,
+        [ValidateSet('contains', 'word')][string]$MatchMode = 'contains',
+        [int]$Nth = 0,
+        [Parameter(Mandatory)][psobject]$Deadline,
+        [switch]$NoSecondLook
     )
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
     # Imported only when its command is unresolvable: a forced re-import on
@@ -348,64 +428,60 @@ function Find-TextLocation {
     if (-not (Get-Command Get-TesseractWordBox -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $modulesDir "Test.Tesseract.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
     }
+    $result = @{ Status = $null; Label = $null; Match = $null; Candidates = $null; Short = @(); Look = $null
+        NativeBox = $null; DoubledBox = $null; SecondLook = $null; Detail = $null }
 
+    $seconds = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 300
+    if ($null -eq $seconds) { $result.Status = 'no-time'; return $result }
     try {
-        $boxes = @(Get-TesseractWordBox -ImagePath $ImagePath | ForEach-Object { $_ })
+        # The unrolling form accepts the one-array return of the real reader
+        # and a stand-in that emits boxes one by one.
+        $native = @(Get-TesseractWordBox -ImagePath $ImagePath -TimeoutSeconds $seconds | ForEach-Object { $_ })
     } catch {
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_afe15df7c41fff0a' -Arguments @{ value = "$_" })
-        return $null
+        $result.Status = 'ocr-failed'
+        $result.Detail = "$_"
+        return $result
     }
-    if (-not $boxes -or $boxes.Count -eq 0) { return $null }
-
-    $tokens = @(($Label.Trim() -split '\s+') | Where-Object { $_ })
-    if ($tokens.Count -eq 0) { return $null }
-
-    for ($i = 0; $i -le ($boxes.Count - $tokens.Count); $i++) {
-        $match = $true
-        for ($j = 0; $j -lt $tokens.Count; $j++) {
-            # -like is case-insensitive in PowerShell; substring match
-            # tolerates partial OCR ("Install." vs "Install").
-            if ($boxes[$i + $j].text -notlike "*$($tokens[$j])*") {
-                $match = $false
-                break
-            }
-        }
-        if (-not $match) { continue }
-
-        # Multi-word label: require words on roughly the same line so we
-        # don't stitch together a token from a header and another from a
-        # footer that happens to share vocabulary.
-        if ($tokens.Count -gt 1) {
-            $firstY = $boxes[$i].y
-            $firstH = [math]::Max(1, $boxes[$i].h)
-            $sameLine = $true
-            for ($j = 1; $j -lt $tokens.Count; $j++) {
-                $yDiff = [math]::Abs($boxes[$i + $j].y - $firstY)
-                if ($yDiff -gt ($firstH / 2)) { $sameLine = $false; break }
-            }
-            if (-not $sameLine) { continue }
-        }
-
-        $minX = [int]::MaxValue; $minY = [int]::MaxValue
-        $maxX = 0; $maxY = 0
-        for ($j = 0; $j -lt $tokens.Count; $j++) {
-            $b = $boxes[$i + $j]
-            if ($b.x -lt $minX) { $minX = $b.x }
-            if ($b.y -lt $minY) { $minY = $b.y }
-            if (($b.x + $b.w) -gt $maxX) { $maxX = $b.x + $b.w }
-            if (($b.y + $b.h) -gt $maxY) { $maxY = $b.y + $b.h }
-        }
-        return @{
-            x       = $minX
-            y       = $minY
-            w       = $maxX - $minX
-            h       = $maxY - $minY
-            centerX = [int](($minX + $maxX) / 2)
-            centerY = [int](($minY + $maxY) / 2)
-            text    = ($tokens -join ' ')
-        }
+    $result.NativeBox = $native
+    $selected = Select-TextLocation -Box $native -Label $Label -MatchMode $MatchMode -Nth $Nth
+    foreach ($key in 'Status', 'Label', 'Match', 'Candidates', 'Short') { $result[$key] = $selected[$key] }
+    if ($selected.Status -ceq 'found' -or $selected.Status -ceq 'ambiguous') {
+        $result.Look = 'native'
+        $result.SecondLook = 'not-needed'
+        return $result
     }
-    return $null
+    if ($NoSecondLook) { $result.SecondLook = 'off'; return $result }
+
+    $scale = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 20
+    if ($null -eq $scale) { $result.SecondLook = 'no-time'; return $result }
+    $frame = New-DoubledFrame -ImagePath $ImagePath -TimeoutSeconds $scale
+    if (-not $frame.Path) {
+        $result.SecondLook = [string]$frame.Reason
+        $result.Detail = [string]$frame.Detail
+        return $result
+    }
+    try {
+        $seconds = Get-YurunaDeadlineBoundedSeconds -Deadline $Deadline -Ceiling 300
+        if ($null -eq $seconds) { $result.SecondLook = 'no-time'; return $result }
+        try {
+            $doubled = @(Get-TesseractWordBox -ImagePath $frame.Path -TimeoutSeconds $seconds | ForEach-Object { $_ })
+        } catch {
+            $result.SecondLook = 'read-failed'
+            $result.Detail = "$_"
+            return $result
+        }
+        # The boxes are halved before the selection, so a match is aimed at
+        # the frame as captured and the click provider maps it only once.
+        $halved = ConvertTo-HalvedWordBox -Box $doubled
+        $selected = Select-TextLocation -Box $halved -Label $Label -MatchMode $MatchMode -Nth $Nth
+        foreach ($key in 'Status', 'Label', 'Match', 'Candidates', 'Short') { $result[$key] = $selected[$key] }
+        $result.Look = 'doubled'
+        $result.SecondLook = 'taken'
+        $result.DoubledBox = $halved
+        return $result
+    } finally {
+        Remove-Item -LiteralPath $frame.Path -Force -ErrorAction SilentlyContinue
+    }
 }
 
 <#
@@ -463,16 +539,299 @@ function Save-ScreenshotWithClickMarker {
     }
 }
 
+# The debug line that says a host has no scaler for the second look is
+# written once per module load, not once per step.
+$script:FrameScalerNoticeShown = $false
+
+function Get-PngPixelSize {
+    <#
+    .SYNOPSIS
+        The width and height a PNG file's header declares, or $null.
+    .DESCRIPTION
+        Reads the first 24 bytes only: the eight-byte signature, then the
+        IHDR chunk whose big-endian width and height sit at offsets 16 and 20.
+        A short, unreadable or non-PNG file, or a size below 1, gives $null.
+    .OUTPUTS
+        Hashtable @{ Width; Height }, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowEmptyString()][AllowNull()][string]$Path)
+    if ([string]::IsNullOrEmpty($Path)) { return $null }
+    $header = [byte[]]::new(24)
+    $read = 0
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            while ($read -lt 24) {
+                $count = $stream.Read($header, $read, 24 - $read)
+                if ($count -le 0) { break }
+                $read += $count
+            }
+        } finally {
+            $stream.Dispose()
+        }
+    } catch {
+        Write-Verbose "Get-PngPixelSize: cannot read '$Path': $($_.Exception.Message)"
+        return $null
+    }
+    if ($read -lt 24) { return $null }
+    $signature = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+    for ($i = 0; $i -lt 8; $i++) {
+        if ($header[$i] -ne $signature[$i]) { return $null }
+    }
+    $width = ([long]$header[16] -shl 24) -bor ([long]$header[17] -shl 16) -bor ([long]$header[18] -shl 8) -bor [long]$header[19]
+    $height = ([long]$header[20] -shl 24) -bor ([long]$header[21] -shl 16) -bor ([long]$header[22] -shl 8) -bor [long]$header[23]
+    if ($width -lt 1 -or $height -lt 1 -or $width -gt [int]::MaxValue -or $height -gt [int]::MaxValue) { return $null }
+    return @{ Width = [int]$width; Height = [int]$height }
+}
+
+function Resolve-FrameScaler {
+    <#
+    .SYNOPSIS
+        The image scaler this host offers for tapOn's second look.
+    .DESCRIPTION
+        Linux: ImageMagick, magick before convert. macOS: sips. Windows:
+        System.Drawing in process; convert is never tried there, because on
+        Windows it is a file system tool.
+    .PARAMETER Platform
+        linux, macos or windows; the current platform when omitted.
+    .OUTPUTS
+        Hashtable @{ Kind; Detail }: Kind is magick, convert, sips or
+        drawing, or empty with Detail saying what is missing.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([ValidateSet('linux', 'macos', 'windows')][string]$Platform = (Get-YurunaPlatformName))
+    if ($Platform -ceq 'windows') { return @{ Kind = 'drawing'; Detail = '' } }
+    if ($Platform -ceq 'macos') {
+        if (Get-Command -Name 'sips' -CommandType Application -ErrorAction SilentlyContinue) { return @{ Kind = 'sips'; Detail = '' } }
+        return @{ Kind = ''; Detail = 'no sips on PATH' }
+    }
+    foreach ($name in 'magick', 'convert') {
+        if (Get-Command -Name $name -CommandType Application -ErrorAction SilentlyContinue) { return @{ Kind = $name; Detail = '' } }
+    }
+    return @{ Kind = ''; Detail = 'no magick or convert on PATH' }
+}
+
+function New-DoubledFrame {
+    <#
+    .SYNOPSIS
+        Writes a copy of a PNG frame doubled in both directions, for tapOn's
+        second look.
+    .DESCRIPTION
+        The copy is yuruna-tapon-<32 hex>.png in the temp folder and belongs
+        to the caller, which removes it; the temp sweep removes one that a
+        killed process left. A copy that is not exactly twice the frame in
+        both directions is a failed scaler and is removed here, because
+        halving its boxes would aim at the wrong place. A frame wider or
+        taller than 4096 pixels is not scaled; that limit also bounds the
+        in-process Windows scaler, which has no time cap of its own.
+    .PARAMETER TimeoutSeconds
+        Cap on an external scaler, 1 to 20 seconds.
+    .PARAMETER Platform
+        linux, macos or windows; the current platform when omitted.
+    .OUTPUTS
+        Hashtable @{ Path; Reason; Detail }: Reason is empty with the copy's
+        Path, or no-scaler or scaler-failed with an empty Path and a Detail.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes one temporary copy of a frame that its caller removes; it changes no other state.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$ImagePath,
+        [Parameter(Mandatory)][ValidateRange(1, 20)][int]$TimeoutSeconds,
+        [ValidateSet('linux', 'macos', 'windows')][string]$Platform = (Get-YurunaPlatformName)
+    )
+    $size = Get-PngPixelSize -Path $ImagePath
+    if ($null -eq $size) { return @{ Path = ''; Reason = 'no-scaler'; Detail = 'not a PNG' } }
+    if ($size.Width -gt 4096 -or $size.Height -gt 4096) {
+        return @{ Path = ''; Reason = 'no-scaler'; Detail = "frame $($size.Width)x$($size.Height) exceeds 4096" }
+    }
+    $scaler = Resolve-FrameScaler -Platform $Platform
+    if (-not $scaler.Kind) { return @{ Path = ''; Reason = 'no-scaler'; Detail = [string]$scaler.Detail } }
+    $kind = [string]$scaler.Kind
+    $expectedWidth = 2 * $size.Width
+    $expectedHeight = 2 * $size.Height
+    $copy = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-tapon-' + [Guid]::NewGuid().ToString('N') + '.png')
+    $detail = ''
+    try {
+        if ($kind -ceq 'drawing') {
+            Add-Type -AssemblyName System.Drawing
+            $source = $null
+            $target = $null
+            try {
+                $source = [System.Drawing.Bitmap]::FromFile($ImagePath)
+                $target = [System.Drawing.Bitmap]::new($source, $source.Width * 2, $source.Height * 2)
+                $target.Save($copy, [System.Drawing.Imaging.ImageFormat]::Png)
+            } finally {
+                if ($target) { $target.Dispose() }
+                if ($source) { $source.Dispose() }
+            }
+        } else {
+            # sips takes the height before the width.
+            $arguments = if ($kind -ceq 'sips') {
+                @('-z', "$expectedHeight", "$expectedWidth", $ImagePath, '--out', $copy)
+            } else {
+                @($ImagePath, '-resize', '200%', $copy)
+            }
+            $run = Invoke-BoundedNativeCommand -FilePath $kind -ArgumentList $arguments -TimeoutSeconds $TimeoutSeconds -MaxCapturedChars 8192
+            if (-not (Test-BoundedNativeResultComplete -Result $run)) {
+                $detail = if ($run -and $run.TimedOut) { "$kind timed out after ${TimeoutSeconds}s" } else { "$kind did not finish" }
+            } elseif ($run.ExitCode -ne 0) {
+                $stderr = ([string]$run.StdErr).Trim()
+                if ($stderr.Length -gt 200) { $stderr = $stderr.Substring(0, 200) }
+                $detail = "$kind exit $($run.ExitCode): $stderr"
+            }
+        }
+        if (-not $detail) {
+            if (-not (Test-Path -LiteralPath $copy -PathType Leaf)) {
+                $detail = "$kind wrote no file"
+            } else {
+                $written = Get-PngPixelSize -Path $copy
+                $writtenWidth = if ($written) { $written.Width } else { 0 }
+                $writtenHeight = if ($written) { $written.Height } else { 0 }
+                if ($writtenWidth -ne $expectedWidth -or $writtenHeight -ne $expectedHeight) {
+                    $detail = "$kind wrote ${writtenWidth}x${writtenHeight}, expected ${expectedWidth}x${expectedHeight}"
+                }
+            }
+        }
+    } catch {
+        $detail = "${kind}: $($_.Exception.Message)"
+    }
+    if ($detail) {
+        Remove-Item -LiteralPath $copy -Force -ErrorAction SilentlyContinue
+        return @{ Path = ''; Reason = 'scaler-failed'; Detail = $detail }
+    }
+    return @{ Path = $copy; Reason = ''; Detail = '' }
+}
+
+function ConvertTo-HalvedWordBox {
+    <#
+    .SYNOPSIS
+        Maps word boxes read on a doubled copy back into the pixels of the
+        frame as captured.
+    .DESCRIPTION
+        Left and top round down, right and bottom round up, so a box never
+        shrinks. Every other key is copied unchanged. Assign the call
+        directly: it returns one array as one pipeline object.
+    .OUTPUTS
+        System.Collections.Hashtable[], one copy per box.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable[]], [object[]])]
+    param([AllowEmptyCollection()][AllowNull()][object[]]$Box)
+    $out = [System.Collections.Generic.List[hashtable]]::new()
+    foreach ($entry in $Box) {
+        if ($null -eq $entry) { continue }
+        $copy = @{}
+        if ($entry -is [System.Collections.IDictionary]) {
+            foreach ($key in $entry.Keys) { $copy[$key] = $entry[$key] }
+        } else {
+            foreach ($property in $entry.PSObject.Properties) { $copy[$property.Name] = $property.Value }
+        }
+        $x = [int]$entry.x
+        $y = [int]$entry.y
+        $newX = [int][math]::Floor($x / 2)
+        $newY = [int][math]::Floor($y / 2)
+        $copy.x = $newX
+        $copy.y = $newY
+        $copy.w = [int][math]::Ceiling(($x + [int]$entry.w) / 2) - $newX
+        $copy.h = [int][math]::Ceiling(($y + [int]$entry.h) / 2) - $newY
+        $out.Add($copy)
+    }
+    return ,$out.ToArray()
+}
+
+function Set-StepPlanFault {
+    <#
+    .SYNOPSIS
+        Records, for the running step, a failure a person must fix as a
+        deterministic input fault of Send-Click.
+    .DESCRIPTION
+        The failure record then files the step plan_invalid, and a retry
+        around it stops after one attempt, as for a send the host can never
+        make.
+    .PARAMETER Reason
+        The reason token, such as invalid-argument or ambiguous-label.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Records an observation in the failure state; it changes no system state.')]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Reason,
+        [AllowEmptyString()][string]$Detail = '',
+        [AllowEmptyString()][string]$HostType = ''
+    )
+    $script:Fail.StepHostInputFault = [ordered]@{ action = 'Send-Click'; stepInvocationId = [string]$script:Fail.LastFailedStepInvocationId
+        kind = 'deterministic'; reason = $Reason; transport = $HostType; detail = $Detail; delivered = -1; total = -1 }
+}
+
+function Save-TapOnFailureEvidence {
+    <#
+    .SYNOPSIS
+        Keeps the frame a failed tapOn read and the words read on it, through
+        the one writer of a failed wait's evidence.
+    .DESCRIPTION
+        The text holds one run of adjacent words per line (Get-OcrWordBoxLine)
+        and, when the second look finished, the words of the doubled copy
+        below a separator line. A $null result gives empty text, and a $null
+        path no frame; the labels are recorded either way.
+    .PARAMETER Result
+        The last Find-TextLocation result of the step.
+    .PARAMETER Label
+        The labels the step looked for.
+    #>
+    [CmdletBinding()]
+    param(
+        [AllowEmptyString()][AllowNull()][string]$LogDir,
+        [Parameter(Mandatory)][string]$VMName,
+        [AllowEmptyString()][AllowNull()][string]$ImagePath,
+        [AllowNull()][hashtable]$Result,
+        [AllowEmptyCollection()][string[]]$Label
+    )
+    $lines = [System.Collections.Generic.List[string]]::new()
+    if ($null -ne $Result) {
+        $segments = Get-OcrWordBoxLine -Box $Result.NativeBox
+        foreach ($segment in $segments) { $lines.Add([string]$segment.text) }
+        if ($null -ne $Result.DoubledBox) {
+            $lines.Add('--- second look (frame doubled) ---')
+            $segments = Get-OcrWordBoxLine -Box $Result.DoubledBox
+            foreach ($segment in $segments) { $lines.Add([string]$segment.text) }
+        }
+    }
+    Save-WaitFailureEvidence -State $script:Fail -LogDir $LogDir -VMName $VMName -CapturePath $ImagePath -OcrText ($lines -join "`n") -Pattern $Label
+}
+
 <#
 .SYNOPSIS
     Waits for a labeled button to appear on the VM screen and clicks it.
 .DESCRIPTION
-    Loops: capture the VM window at the host's coordinate space, OCR for
-    the label, and if found, click at the label's center. Falls back to
-    returning $false after TimeoutSeconds if the button never resolves
-    (caller can then decide to send Tab+Enter as a legacy fallback).
+    Checks first what the step cannot do without, and fails before any
+    capture on the first that is missing: its options (match, nth, click and
+    a usable label), a pointer provider for the host, and Tesseract. Then,
+    until the step deadline: captures the VM window, reads it once for all
+    labels (Find-TextLocation, with a second look at a doubled copy after a
+    miss), and clicks the center of the match plus the offsets, once.
+    Two whole-word matches without nth fail at once as ambiguous. A label
+    never found by the deadline fails with the frame and the words read
+    kept as the step's evidence and the closest words listed per label.
+.PARAMETER MatchMode
+    contains (the default) or word; validated here so that a wrong value
+    fails the step instead of throwing.
+.PARAMETER Nth
+    The match to click, a whole number from 1, or $null.
+.PARAMETER Click
+    left (the default), right or double.
+.PARAMETER Deadline
+    Test seam: the step deadline, in place of the one built from
+    TimeoutSeconds.
+.PARAMETER Sleep
+    Test seam: the sleeper Wait-YurunaDeadlineInterval calls between polls.
 .OUTPUTS
-    $true on click dispatched, $false on timeout / unsupported host.
+    $true on click dispatched, $false on a failed check, an ambiguous label,
+    a failed click or the timeout.
 #>
 function Invoke-TapOn {
     param(
@@ -482,9 +841,65 @@ function Invoke-TapOn {
         [int]$TimeoutSeconds = 120,
         [int]$PollSeconds = 3,
         [int]$OffsetX = 0,
-        [int]$OffsetY = 0
+        [int]$OffsetY = 0,
+        [string]$MatchMode = 'contains',
+        $Nth = $null,
+        [string]$Click = 'left',
+        [psobject]$Deadline,
+        [scriptblock]$Sleep
     )
     $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    # tapOn runs neither console tracker, so the record must not publish
+    # their initial values as measurements.
+    Reset-SequenceFailureSlot -Lifetime wait -State $script:Fail
+    $script:Fail.WaitForTextConsoleSignalsMeasured = $false
+    [string[]]$labels = @($Label | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    $n = 0
+
+    # A wrong option fails the step as a fault a person must fix; nothing is
+    # captured or clicked.
+    $invalid = $null
+    if ($labels.Count -eq 0) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_label_unusable' -Arguments @{ label = ''; match = "$MatchMode" })
+        $invalid = "label=''"
+    } elseif ($MatchMode -cnotin 'contains', 'word') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_argument_invalid' -Arguments @{ field = 'match'; value = "$MatchMode"; allowed = 'contains, word' })
+        $invalid = "match='$MatchMode'"
+    } elseif ($null -ne $Nth -and -not ([int]::TryParse([string]$Nth, [Globalization.NumberStyles]::None,
+            [Globalization.CultureInfo]::InvariantCulture, [ref]$n) -and $n -ge 1)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_argument_invalid' -Arguments @{ field = 'nth'; value = "$Nth"; allowed = '1..2147483647' })
+        $invalid = "nth='$Nth'"
+    } elseif ($Click -cnotin 'left', 'right', 'double') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_argument_invalid' -Arguments @{ field = 'click'; value = "$Click"; allowed = 'left, right, double' })
+        $invalid = "click='$Click'"
+    } elseif ($MatchMode -ceq 'word') {
+        # A label holds a token with a core exactly when it holds a letter or
+        # a digit.
+        foreach ($candidate in $labels) {
+            if (-not @($candidate.ToCharArray() | Where-Object { [char]::IsLetterOrDigit($_) }).Count) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_label_unusable' -Arguments @{ label = "$candidate"; match = "$MatchMode" })
+                $invalid = "label='$candidate'"
+                break
+            }
+        }
+    }
+    if ($null -ne $invalid) {
+        Set-StepPlanFault -Reason 'invalid-argument' -Detail $invalid -HostType $HostType
+        return $false
+    }
+    # With no pointer provider the dispatcher sends nothing, warns with the
+    # registry's own message and records the deterministic fault it gives an
+    # action the host never registered.
+    if (-not (Test-HostIOActionAvailable -HostType $HostType -Action 'Send-Click')) {
+        $null = Send-Click -HostType $HostType -VMName $VMName -X 0 -Y 0
+        return $false
+    }
+    if (-not (Find-Tesseract)) {
+        Write-Warning (Get-TesseractInstallGuidance)
+        Set-StepPlanFault -Reason 'locator-unavailable' -Detail 'tesseract' -HostType $HostType
+        return $false
+    }
+
     # See https://yuruna.link/4213a0b3-0121
     if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
         Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
@@ -496,70 +911,143 @@ function Invoke-TapOn {
     # as its field delimiter, and embedding one here would shift parsing on the
     # parent side. Write-ProgressTick sanitizes defensively, but keep the
     # display clean at the source too.
-    $labelDisplay = $Label -join "' / '"
-    # Wall-clock deadline. See the matching commentary in Wait-ForText for
-    # why this is NOT an iteration counter -- on a slow Hyper-V host a
-    # configured timeoutSeconds: 60 would expand to 3-5 minutes of wall-clock
-    # when each iteration pays full screenshot + OCR cost on top of the
-    # $PollSeconds sleep.
-    $startUtc    = [DateTime]::UtcNow
-    $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
-    $elapsed     = 0
+    $labelDisplay = $labels -join "' / '"
+    # One deadline bounds the step: no capture, read or scaler run starts
+    # after it, and the wait between polls never sleeps past it.
+    $deadline = if ($Deadline) {
+        New-YurunaDeadline -Parent $Deadline
+    } else {
+        New-YurunaDeadline -TotalMilliseconds ([long][math]::Max(0, $TimeoutSeconds) * 1000)
+    }
+    $budgetMs = Get-YurunaDeadlineRemainingMs -Deadline $deadline
+    $pollMs = [int][math]::Min(3600000, [math]::Max(0, $PollSeconds) * 1000)
+    $waitArguments = @{ Deadline = $deadline; Milliseconds = $pollMs }
+    if ($Sleep) { $waitArguments.Sleep = $Sleep }
+    $secondLook = $true
+    $lastResult = $null
+    $lastImage = $null
+    $warnedRead = $null
 
     try {
-        while ([DateTime]::UtcNow -lt $deadlineUtc) {
-            $elapsed = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
-            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($TimeoutSeconds,1)) * 100))
-            Write-ProgressTick -Activity "tapOn" -Status "'$labelDisplay' (${elapsed}s / ${TimeoutSeconds}s)" -PercentComplete $pct
+        while (-not (Test-YurunaDeadlineExpired -Deadline $deadline)) {
+            Write-RunnerStepHeartbeat
+            $elapsed = [int](($budgetMs - (Get-YurunaDeadlineRemainingMs -Deadline $deadline)) / 1000)
+            $total = [int]($budgetMs / 1000)
+            $pct = [math]::Min(100, [math]::Round(($elapsed / [math]::Max($total, 1)) * 100))
+            Write-ProgressTick -Activity "tapOn" -Status "'$labelDisplay' (${elapsed}s / ${total}s)" -PercentComplete $pct
 
-            Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $capturePath -Force -ErrorAction SilentlyContinue
+            $lastResult = $null
+            $lastImage = $null
             $capture = Get-VMScreenshot -VMName $VMName -Source window -OutFile $capturePath
-            if (-not $capture) {
+            $sinceCapture = [Diagnostics.Stopwatch]::StartNew()
+            # A host whose window capture returns the path alone is read the
+            # same way; Send-Click binds the capture as a hashtable.
+            if ($capture -is [string]) { $capture = @{ ImagePath = $capture } }
+            if ($capture -isnot [hashtable] -or -not $capture.ImagePath -or
+                -not (Test-Path -LiteralPath ([string]$capture.ImagePath) -PathType Leaf)) {
                 Write-Debug "      Window capture unavailable -- retrying"
-                Start-Sleep -Seconds $PollSeconds
+                if (-not (Wait-YurunaDeadlineInterval @waitArguments)) { break }
                 continue
             }
 
-            foreach ($candidate in $Label) {
-                $coord = Find-TextLocation -ImagePath $capture.ImagePath -Label $candidate
-                if ($coord) {
-                    $clickX = $coord.centerX + $OffsetX
-                    $clickY = $coord.centerY + $OffsetY
-                    Write-Debug "      Found '$candidate' at ($($coord.x),$($coord.y)) $($coord.w)x$($coord.h) -> click ($clickX, $clickY)"
-                    # logLevel=Debug: preserve a per-detection screenshot under
-                    # a UTC timestamp so the operator can correlate a stuck
-                    # installer with exactly what OCR saw and where we aimed
-                    # the click.
-                    if ($env:YURUNA_LOG_LEVEL -eq 'Debug') {
-                        $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
-                        $stampedPath = Join-Path $logDir "tapOn.$stamp.png"
-                        Save-ScreenshotWithClickMarker -SourcePath $capture.ImagePath -DestPath $stampedPath -X $clickX -Y $clickY | Out-Null
-                        Write-Debug "      logLevel=Debug: saved detection screenshot $stampedPath"
-                        Write-Debug "      logLevel=Debug: button '$candidate' box=($($coord.x),$($coord.y)) size=$($coord.w)x$($coord.h) click=($clickX, $clickY) offset=($OffsetX, $OffsetY) image=$($capture.Width)x$($capture.Height)"
-                    }
-                    $ok = Send-Click -HostType $HostType -VMName $VMName -X $clickX -Y $clickY -Capture $capture
-                    # Preserve a diagnostic capture so a failed click can be inspected;
-                    # the X marker shows where the click actually landed in image space.
-                    $debugCopy = Join-Path $logDir "clickbutton_${VMName}_last.png"
-                    Save-ScreenshotWithClickMarker -SourcePath $capture.ImagePath -DestPath $debugCopy -X $clickX -Y $clickY | Out-Null
-                    return $ok
+            $result = Find-TextLocation -ImagePath $capture.ImagePath -Label $labels -MatchMode $MatchMode -Nth $n -Deadline $deadline -NoSecondLook:(-not $secondLook)
+            $lastResult = $result
+            $lastImage = [string]$capture.ImagePath
+
+            if ($result.SecondLook -ceq 'no-scaler') {
+                $secondLook = $false
+                if (-not $script:FrameScalerNoticeShown) {
+                    $script:FrameScalerNoticeShown = $true
+                    Write-Debug "      tapOn: no second look at a doubled frame on this host: $($result.Detail)"
                 }
+            } elseif ($result.SecondLook -ceq 'scaler-failed' -or $result.SecondLook -ceq 'read-failed') {
+                $secondLook = $false
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_second_look_failed' -Arguments @{ detail = "$($result.Detail)" })
+            }
+            if ($result.Status -ceq 'ocr-failed' -and [string]$result.Detail -cne $warnedRead) {
+                $warnedRead = [string]$result.Detail
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_afe15df7c41fff0a' -Arguments @{ value = "$($result.Detail)" })
             }
 
-            Start-Sleep -Seconds $PollSeconds
+            if ($result.Status -ceq 'found') {
+                $match = $result.Match
+                $clickX = [int]$match.centerX + $OffsetX
+                $clickY = [int]$match.centerY + $OffsetY
+                Write-Debug "      tapOn: '$($result.Label)' read on the $($result.Look) frame at ($($match.x),$($match.y)) $($match.w)x$($match.h) -> $Click click at ($clickX, $clickY), $($sinceCapture.ElapsedMilliseconds) ms after the capture"
+                # logLevel=Debug: preserve a per-detection screenshot under
+                # a UTC timestamp so the operator can correlate a stuck
+                # installer with exactly what OCR saw and where we aimed
+                # the click.
+                if ($env:YURUNA_LOG_LEVEL -eq 'Debug') {
+                    $stamp = (Get-Date).ToUniversalTime().ToString("yyyyMMddTHHmmssfffZ")
+                    $stampedPath = Join-Path $logDir "tapOn.$stamp.png"
+                    Save-ScreenshotWithClickMarker -SourcePath $capture.ImagePath -DestPath $stampedPath -X $clickX -Y $clickY | Out-Null
+                    Write-Debug "      logLevel=Debug: saved detection screenshot $stampedPath"
+                    Write-Debug "      logLevel=Debug: button '$($result.Label)' box=($($match.x),$($match.y)) size=$($match.w)x$($match.h) click=($clickX, $clickY) offset=($OffsetX, $OffsetY) image=$($capture.Width)x$($capture.Height)"
+                }
+                # The capture of this pass, unchanged: each provider maps the
+                # frame's pixels to its screen once.
+                $ok = Send-Click -HostType $HostType -VMName $VMName -X $clickX -Y $clickY -Capture $capture -Click $Click
+                # Preserve a diagnostic capture so a failed click can be inspected;
+                # the X marker shows where the click actually landed in image space.
+                $debugCopy = Join-Path $logDir "clickbutton_${VMName}_last.png"
+                Save-ScreenshotWithClickMarker -SourcePath $capture.ImagePath -DestPath $debugCopy -X $clickX -Y $clickY | Out-Null
+                if (-not $ok) {
+                    # The label was found; the step failed in its input path.
+                    $script:Fail.StepFailurePhase = 'input'
+                    if ([string]$script:Fail.StepHostInputFault.reason -ceq 'click-kind-unsupported') {
+                        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_click_kind_unsupported' -Arguments @{ hostType = "$HostType"; click = "$Click" })
+                    }
+                }
+                return [bool]$ok
+            }
+            if ($result.Status -ceq 'ambiguous') {
+                $candidates = @($result.Candidates)
+                $shown = @($candidates | Select-Object -First 5 | ForEach-Object { "'$($_.text)' at ($($_.centerX),$($_.centerY))" }) -join ', '
+                if ($candidates.Count -gt 5) { $shown += " (+$($candidates.Count - 5))" }
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.tapon_label_ambiguous' -Arguments @{ label = "$($result.Label)"; count = [int]$candidates.Count; candidates = $shown })
+                Set-StepPlanFault -Reason 'ambiguous-label' -Detail "'$($result.Label)' matched $($candidates.Count)" -HostType $HostType
+                $script:Fail.StepFailurePhase = 'wait'
+                Save-TapOnFailureEvidence -LogDir $logDir -VMName $VMName -ImagePath $capture.ImagePath -Result $result -Label $labels
+                return $false
+            }
+            if ($result.Status -ceq 'no-time') { break }
+            if (-not (Wait-YurunaDeadlineInterval @waitArguments)) { break }
         }
 
-        # Timeout -- preserve the final screenshot so the operator can see
-        # what the OCR was looking at.
-        $failScreenPath = Join-Path $logDir "failure_clickbutton_${VMName}.png"
-        if (Test-Path $capturePath) {
-            Copy-Item -Path $capturePath -Destination $failScreenPath -Force -ErrorAction SilentlyContinue
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_4333edb4f597ba98' -Arguments @{ failScreenPath = "$failScreenPath" })
+        # Timeout: the last frame read and its words are the evidence, and
+        # each label gets the words read that came closest to it.
+        $script:Fail.StepFailurePhase = 'wait'
+        Save-TapOnFailureEvidence -LogDir $logDir -VMName $VMName -ImagePath $lastImage -Result $lastResult -Label $labels
+        $words = @(@($lastResult.NativeBox) + @($lastResult.DoubledBox) | Where-Object { $null -ne $_ })
+        $closest = [System.Collections.Generic.List[string]]::new()
+        foreach ($candidate in $labels) {
+            $entries = @(Get-OcrClosestWord -Box $words -Label $candidate)
+            if ($entries.Count -gt 0) {
+                $closest.Add("[tesseract] closest to '$candidate' among $($words.Count) words read: $($entries -join ', ')")
+            } elseif ($words.Count -gt 0) {
+                $closest.Add("[tesseract] none of the $($words.Count) words read came within 60% of '$candidate'")
+            } else {
+                $closest.Add("[tesseract] no words were read while looking for '$candidate'")
+            }
+        }
+        foreach ($entry in @($lastResult.Short)) {
+            if ($null -eq $entry) { continue }
+            $closest.Add("[tesseract] '$($entry.Label)' matched $($entry.Count) on the last frame; nth $n was asked")
+        }
+        if ($lastResult -and $lastResult.Status -ceq 'ocr-failed') {
+            $closest.Add("[tesseract] the last read failed: $($lastResult.Detail)")
+        }
+        $script:Fail.WaitForTextClosestOnScreen = [string[]]$closest.ToArray()
+        foreach ($closestLine in $closest) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_35445ede93646e87' -Arguments @{ closestLine = "$closestLine" })
         }
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f82bcebaee6fc7b8' -Arguments @{ labelDisplay = "$labelDisplay"; timeoutSeconds = "${TimeoutSeconds}" })
         return $false
     } finally {
-        Remove-Item $capturePath -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $capturePath -Force -ErrorAction SilentlyContinue
+        if ($lastImage -and $lastImage -ne $capturePath) { Remove-Item -LiteralPath $lastImage -Force -ErrorAction SilentlyContinue }
         Write-ProgressTick -Activity "tapOn" -Completed
     }
 }
@@ -2662,86 +3150,34 @@ function Invoke-GuestSequenceList {
     return @{ success=$true; skipped=$false; errorMessage=$null }
 }
 
-<#
-.SYNOPSIS
-    Executes an interaction sequence from a YAML file against a VM.
-.DESCRIPTION
-    Reads the steps array from the YAML file and executes each action
-    sequentially. Variables in the YAML are substituted into parameters.
-    Returns $true if all steps succeed, $false otherwise.
-#>
-function Invoke-Sequence {
+function New-SequenceVariableScope {
+    <#
+    .SYNOPSIS
+        Builds the variable table a sequence run reads.
+    .DESCRIPTION
+        Seeds vmName, hostType, guestKey and hostname, expands each string of
+        the sequence's variables (skipping a key EffectiveVariables overrides,
+        without evaluating its extension expression), then each string of
+        EffectiveVariables, and derives hostLabel and loginUser when unset.
+        Values whose names read like secrets are registered with the secret
+        filter. Invoke-Sequence calls it once per run; a workload session
+        builds the table once and passes it back as -VariableScope.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds and returns the variable table; its one side effect registers secret-named values with the in-process secret filter.')]
     param(
-        [string]$HostType,
-        [string]$GuestKey,
-        [string]$VMName,
-        [string]$SequencePath,
-        # See https://yuruna.link/4213a0b3-0134
-        [System.Collections.IDictionary]$EffectiveVariables,
-        [switch]$ShowSensitive,
-        # Optional 1-based step window over this sequence's steps (StopStep 0 =
-        # run to the end). The chain runner passes a per-entry local window so a
-        # `-StartStep` / `-StopStep` debug run needs no temp-file slicing;
-        # default (1, 0) runs the whole sequence unchanged.
-        [int]$StartStep = 1,
-        [int]$StopStep = 0
+        [Parameter(Mandatory)][AllowEmptyString()][string]$VMName,
+        [AllowEmptyString()][string]$HostType,
+        [AllowEmptyString()][string]$GuestKey,
+        [AllowNull()][System.Collections.IDictionary]$SequenceVariables,
+        [AllowNull()][System.Collections.IDictionary]$EffectiveVariables
     )
-    # $ShowSensitive is consumed inside $invokeStepBlock via dynamic scoping
-    # (see comment block at the scriptblock definition). Touched here as
-    # $null = ... so PSReviewUnusedParameter sees a body-level reference.
-    $null = $ShowSensitive
-
-    # Surfaced VM name for chain-rename propagation. A mid-sequence
-    # saveDiskSnapshot renames the live VM (test-X -> <id>); the engine tracks
-    # that internally (below) but the change is local to the step scriptblock, so
-    # chain callers (Invoke-TestSequenceChain, Start-GuestOS / Start-GuestWorkload)
-    # read Get-SequenceFinishedVMName after this returns to target the renamed VM
-    # in the next sequence. Seeded to the passed name; updated on $ctx.NewVMName.
-    $script:SequenceFinishedVMName = $VMName
-
-    # Sequences are flat and self-describing: gui vs ssh is chosen by the
-    # sequence's own `keystrokeMechanism` and encoded in its own steps (OCR vs
-    # sshExec), and the caller already resolved the exact file by name -- so
-    # there is no machine-global mode redirect here.
-
-    if (-not (Test-Path $SequencePath)) {
-        # Missing sequence file = setup error. A silent-skip return of
-        # $true would mask sequence-name typos and bad mode resolution
-        # as test successes.
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9bd500968f410241' -Arguments @{ sequencePath = "$SequencePath" })
-        return $false
-    }
-
-    # No wait in this run may inherit a console baseline from whatever drove
-    # this VM before it. Handing one forward asserts "this is what the step
-    # before me left on screen", and only a wait inside the same run can make
-    # that claim -- the guest may have been rebooted or rebuilt since.
-    Clear-CarriedConsoleBaseline
-
-    # See https://yuruna.link/4213a0b3-0135
-    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
-    # See https://yuruna.link/4213a0b3-0136
-    if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
-        Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
-    }
-    # Test.Ssh holds the proven guest address and the SSH user override an
-    # orchestration sets just before it runs a chain; a forced re-import here
-    # dropped both at every sequence start.
-    if (-not (Get-Command Get-GuestAddress -ErrorAction SilentlyContinue)) {
-        Import-Module (Join-Path $modulesDir "Test.Ssh.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
-    }
-    $logDir = Initialize-YurunaLogDir
-
-  try {
-    $sequence = Read-SequenceFile -Path $SequencePath
-
-    # Clean up stale failure artifacts from any prior run
-    Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
-
     # See https://yuruna.link/4213a0b3-0137
     $vars = @{ "vmName" = $VMName; "hostType" = $HostType; "guestKey" = $GuestKey; "hostname" = $VMName }
-    if ($sequence.variables) {
-        foreach ($_varKey in $sequence.variables.Keys) {
+    if ($SequenceVariables) {
+        foreach ($_varKey in $SequenceVariables.Keys) {
             # .Contains() (not .ContainsKey) so OrderedDictionary works
             # alongside Hashtable -- OrderedDictionary only exposes Contains.
             if ($EffectiveVariables -and $EffectiveVariables.Contains($_varKey)) {
@@ -2750,7 +3186,7 @@ function Invoke-Sequence {
                 # up in the override-merge loop below.
                 continue
             }
-            $_raw = $sequence.variables[$_varKey]
+            $_raw = $SequenceVariables[$_varKey]
             if ($_raw -is [string]) {
                 $vars[$_varKey] = Expand-Variable $_raw $vars
             } else {
@@ -2807,6 +3243,99 @@ function Invoke-Sequence {
         # placeholder string.
         if (-not $vars.ContainsKey('loginUser')) { $vars['loginUser'] = $vars['username'] }
     }
+    if (Get-Command Register-SequenceSecretVariable -ErrorAction SilentlyContinue) {
+        $null = Register-SequenceSecretVariable -Variables $vars
+    }
+    return $vars
+}
+
+<#
+.SYNOPSIS
+    Executes an interaction sequence from a YAML file against a VM.
+.DESCRIPTION
+    Reads the steps array from the YAML file and executes each action
+    sequentially. Variables in the YAML are substituted into parameters.
+    Returns $true if all steps succeed, $false otherwise.
+#>
+function Invoke-Sequence {
+    param(
+        [string]$HostType,
+        [string]$GuestKey,
+        [string]$VMName,
+        [string]$SequencePath,
+        # See https://yuruna.link/4213a0b3-0134
+        [System.Collections.IDictionary]$EffectiveVariables,
+        [switch]$ShowSensitive,
+        # Optional 1-based step window over this sequence's steps (StopStep 0 =
+        # run to the end). The chain runner passes a per-entry local window so a
+        # `-StartStep` / `-StopStep` debug run needs no temp-file slicing;
+        # default (1, 0) runs the whole sequence unchanged.
+        [int]$StartStep = 1,
+        [int]$StopStep = 0,
+        # An in-memory sequence in the engine's internal shape (an IDictionary
+        # with a non-empty steps array and a description), read in place of
+        # SequencePath.
+        [System.Collections.IDictionary]$Definition,
+        # A variable table the caller owns, used as the run's table itself, so
+        # a rename the run writes to vmName reaches the caller.
+        [hashtable]$VariableScope,
+        # The call continues a session another call began: the carried console
+        # baseline and the console viewer are left as they are.
+        [switch]$Continuation
+    )
+    # $ShowSensitive is consumed inside $invokeStepBlock via dynamic scoping
+    # (see comment block at the scriptblock definition). Touched here as
+    # $null = ... so PSReviewUnusedParameter sees a body-level reference.
+    $null = $ShowSensitive
+
+    # Surfaced VM name for chain-rename propagation. A mid-sequence
+    # saveDiskSnapshot renames the live VM (test-X -> <id>); the engine tracks
+    # that internally (below) but the change is local to the step scriptblock, so
+    # chain callers (Invoke-TestSequenceChain, Start-GuestOS / Start-GuestWorkload)
+    # read Get-SequenceFinishedVMName after this returns to target the renamed VM
+    # in the next sequence. Seeded to the passed name; updated on $ctx.NewVMName.
+    $script:SequenceFinishedVMName = $VMName
+
+    # Sequences are flat and self-describing: gui vs ssh is chosen by the
+    # sequence's own `keystrokeMechanism` and encoded in its own steps (OCR vs
+    # sshExec), and the caller already resolved the exact file by name -- so
+    # there is no machine-global mode redirect here.
+
+    if ($null -eq $Definition -and -not (Test-Path $SequencePath)) {
+        # Missing sequence file = setup error. A silent-skip return of
+        # $true would mask sequence-name typos and bad mode resolution
+        # as test successes.
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_9bd500968f410241' -Arguments @{ sequencePath = "$SequencePath" })
+        return $false
+    }
+
+    # No wait in this run may inherit a console baseline from whatever drove
+    # this VM before it. Handing one forward asserts "this is what the step
+    # before me left on screen", and only a wait inside the same run can make
+    # that claim -- the guest may have been rebooted or rebuilt since.
+    if (-not $Continuation) { Clear-CarriedConsoleBaseline }
+
+    # See https://yuruna.link/4213a0b3-0135
+    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    # See https://yuruna.link/4213a0b3-0136
+    if (-not (Get-Command Initialize-YurunaLogDir -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.YurunaDir.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
+    # Test.Ssh holds the proven guest address and the SSH user override an
+    # orchestration sets just before it runs a chain; a forced re-import here
+    # dropped both at every sequence start.
+    if (-not (Get-Command Get-GuestAddress -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.Ssh.psm1") -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
+    $logDir = Initialize-YurunaLogDir
+
+  try {
+    $sequence = if ($null -ne $Definition) { $Definition } else { Read-SequenceFile -Path $SequencePath }
+
+    # Clean up stale failure artifacts from any prior run
+    Remove-Item (Join-Path $logDir "last_failure.json") -Force -ErrorAction SilentlyContinue
+
+    $vars = if ($null -ne $VariableScope) { $VariableScope } else { New-SequenceVariableScope -VMName $VMName -HostType $HostType -GuestKey $GuestKey -SequenceVariables $sequence.variables -EffectiveVariables $EffectiveVariables }
 
     Write-Information (Format-YurunaOperatorMessage -Key 'runner.sequence_description' -Arguments @{ description = (Resolve-YurunaOperatorProjectLabel -Entry $sequence) })
     # Apply the optional step window (default = whole sequence). Slicing here
@@ -2832,7 +3361,7 @@ function Invoke-Sequence {
             $seqRevision = if ($sequence.Contains('sequenceRevision')) { [int]$sequence.sequenceRevision }   else { 0 }
             $seqBody     = $null
             try {
-                $seqBody = [System.IO.File]::ReadAllText($SequencePath)
+                if ($null -eq $Definition) { $seqBody = [System.IO.File]::ReadAllText($SequencePath) }
             } catch {
                 $readErr = $_
                 Write-Information (Format-YurunaOperatorMessage -Key 'runner.operator_7545bc97968f08e8' -Arguments @{ sequencePath = "$SequencePath"; message = "$($readErr.Exception.Message)" })
@@ -3037,7 +3566,7 @@ function Invoke-Sequence {
     # Initialize-YurunaHost is called by Debug-TestSequence.ps1 /
     # Start-TestRunner.ps1 before sequences run. Guard it like the other contract calls so a
     # missing/failed host contract degrades to "no repaint" instead of crashing the sequence.
-    if (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue) {
+    if (-not $Continuation -and (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue)) {
         try { [void](Restart-VMConsole -VMName $VMName -Confirm:$false) }
         catch { Write-Verbose "      Restart-VMConsole failed: $($_.Exception.Message)" }
     }
@@ -3362,6 +3891,7 @@ function Invoke-Sequence {
 
             $script:Fail.LastFailureLabel       = $actionLabel
             $script:Fail.LastFailureDescription = $desc
+            $script:Fail.LastFailureFromStep = [string]$step.fromStep
             $script:Fail.LastFailedAction       = $step.action
             $script:Fail.LastFailedStepNumber   = $stepNum
             $script:Fail.LastFailedStepInvocationId = $stepInvocationId
@@ -3510,6 +4040,13 @@ function Invoke-Sequence {
         }
     }
     return $false
+  } finally {
+    # A web session belongs to the sequence that opened it; a continuation call leaves
+    # it to the caller that owns the whole session.
+    if (-not $Continuation -and $sequenceInvocationId -and
+        (Get-Command Close-GuestWebSession -ErrorAction SilentlyContinue)) {
+        [void](Close-GuestWebSession -OwnerId $sequenceInvocationId -Reason 'sequence-end')
+    }
   }
 }
 
@@ -3519,7 +4056,7 @@ function Invoke-Sequence {
 # --- REGION: Sequence action metadata registrations
 # See https://yuruna.link/4213a0b3-014d
 
-Export-ModuleMember -Function Invoke-Sequence, Get-GuestLivelockVerdict, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
+Export-ModuleMember -Function Invoke-Sequence, New-SequenceVariableScope, Get-GuestLivelockVerdict, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Save-EngineOcrSidecar, Save-OcrSidecar, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-ScreenHistorySize, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, Resolve-CaptureRepairGrace, `
     Get-ConsoleFloodVerdict, Invoke-GuestSequenceList, Get-ConsoleTextSignature, `

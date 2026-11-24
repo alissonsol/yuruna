@@ -1900,7 +1900,7 @@ rest stays on `:3128` with CONNECT tunneling (no caching).
 ### Key / cert material
 
 The CA belongs to the host that builds the proxy. `Get-YurunaBumpCa` creates it once in
-that host's private state (`~/.yuruna/host-refresh/caching-proxy/bump-ca.pem` and the
+that host's private state (`~/.yuruna/host-repair/caching-proxy/bump-ca.pem` and the
 owner-only `bump-ca.key`), and every proxy build seeds it through the protected seed media;
 cloud-init installs it and deletes the seeded key copy. A rebuild therefore keeps the root
 every guest and host already trusts. When upgrading a proxy whose CA exists only in
@@ -1980,7 +1980,8 @@ The rebuilt proxy reuses the builder's CA pair and publishes its signed CA
 statement. Recovery validates that statement against the builder's **local**
 `test/status/runtime/git-mirror-public-key.json` export, then adds that public
 key to each discovered pool host through audience-bound authenticated control
-requests using the builder's existing lab token. No key is learned from HTTP.
+requests using the builder's existing internal authentication key. No key is
+learned from HTTP.
 The rebuild keeps the previous aggregator's host inventory in memory so stopped
 test cycles do not have to generate new traffic for recovery to find their hosts.
 Existing verification keys, mirror mode/URL, repository URLs, secrets, and CA
@@ -2004,7 +2005,7 @@ If a host was unavailable during recovery, repeat either command above:
 it rebuilds the proxy again and preserves already enrolled keys. An empty host
 inventory is incomplete for explicitly requested recovery; retry after the
 aggregator has discovered the hosts. Do not delete pins
-or disable verification. Hosts must share the builder's lab control token and
+or disable verification. Hosts must share the builder's internal authentication key and
 have a reachable status service for remote enrollment.
 
 A `host-config-write` refusal with `proof-invalid` can mean that a status
@@ -2012,7 +2013,7 @@ listener started before its host identity was created. Compare the public
 `/control/control-status` token tags to establish whether the hosts share a
 control key; the reply also reports the listener's current `hostId`. The listener
 reads the current `runtime/host.uuid` for each audience check, including after
-initial creation or host refresh. Restart an older listener on the affected host
+initial creation or host repair. Restart an older listener on the affected host
 with `pwsh test/service/Start-StatusService.ps1 -Restart`, then repeat enrollment
 on the proxy builder. Keep audience-bound proofs and existing CA pins intact.
 
@@ -3073,7 +3074,7 @@ endpoint precedence, and key encoding.
    The control-proof configuration editor and a hand edit are also valid
    enrollment paths. Mirror and pool responses cannot enroll trust.
 4. Relaunch an already resident runner to activate its new pause policy. Use
-   `test/lab/Invoke-HostRefresh.ps1 -Force -MaxRung reclaim` locally when an
+   `test/lab/Invoke-HostRepair.ps1 -Force -MaxRung reclaim` locally when an
    otherwise healthy runner must be replaced. HTTP control does not accept
    `-Force`. The clean-exit guard still applies; an installer-captured launch
    can be resumed explicitly with `test/lab/Start-RecordedTestRunner.ps1`.
@@ -3110,14 +3111,14 @@ request; malformed trust is a configuration failure and is left unchanged.
 
 ### Outage behavior and diagnostics
 
-`mirror.origin`, `mirror.stale`, `remote.origin`, and `not.applicable` appear
-with commit provenance in host status and the pool. `mirror.origin` means the
-host accepted the mirror's signed confirmation of the selected upstream commit;
-`remote.origin` means the host successfully checked the ref directly with GitHub,
-including when the mirror was unavailable. `not.applicable` means mirroring is
+`mirror`, `mirror stale`, `remote`, and `not applicable` appear in brackets
+after each commit in host status and the pool. `mirror` means the host
+accepted the mirror's signed confirmation of the selected upstream commit;
+`remote` means the host successfully checked the ref directly with GitHub,
+including when the mirror was unavailable. `not applicable` means mirroring is
 disabled or the repository is outside its supported scope. The labels describe
-verification; even a `remote.origin` selection can fetch matching objects from
-the mirror. Legacy freshness wording is displayed as `mirror.fresh`. The
+verification; even a `remote` selection can fetch matching objects from
+the mirror. Legacy freshness wording is displayed as `mirror fresh`. The
 [dashboard Commit column guide](pool-dashboard.md#422226cb-0006) explains each
 label, its saved protocol value, and where to find the fallback reason.
 
@@ -3167,6 +3168,12 @@ arguments, Git stderr, and tokens are not exposed in this diagnostic. Save
 the status document and the corresponding worker journal entry before
 restarting or rebuilding the proxy.
 
+The fixed failure code `git-output-wait-expired` means Git exited successfully
+but the bounded wait for its output pipes expired. The existing public outcome
+classification is unchanged; the diagnostic identifies the incomplete output
+drain without recording arguments or stderr. It does not establish why
+the pipes remained open, so retain that evidence before changing time limits.
+
 The recent-request parser recovers from same-inode copytruncate rotation when
 it observes a file shorter than its consumed offset; it discards any unfinished
 old line. Rename rotation and partial appends remain supported. Numeric parse
@@ -3179,6 +3186,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

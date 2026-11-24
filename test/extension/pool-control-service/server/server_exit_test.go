@@ -18,7 +18,7 @@ import (
 func TestHTTPBindFailureExitsUnsuccessfully(t *testing.T) {
 	if os.Getenv("YURUNA_DAEMON_TEST_CHILD") == "1" {
 		flag.CommandLine = flag.NewFlagSet("fixture-daemon", flag.ExitOnError)
-		os.Args = []string{"fixture-daemon", "--http-addr=" + os.Getenv("YURUNA_DAEMON_TEST_ADDR"), "--repo-dir", os.Getenv("YURUNA_DAEMON_TEST_DIR"), "--scan-interval=0", "--auth-token-file=", "--refresh-authority-file=", "--refresh-credential-file="}
+		os.Args = []string{"fixture-daemon", "--http-addr=" + os.Getenv("YURUNA_DAEMON_TEST_ADDR"), "--repo-dir", os.Getenv("YURUNA_DAEMON_TEST_DIR"), "--scan-interval=0", "--auth-token-file=", "--repair-authority-file=", "--operator-credential-file="}
 		main()
 		os.Exit(0)
 	}

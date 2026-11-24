@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,9 +34,9 @@
     Stop any existing server before starting a new one. Use this after
     a git pull or config change to ensure the server picks up new files.
 
-.PARAMETER RefreshSafe
+.PARAMETER NonDestructive
     Start the service only if it is positively absent, and never disturb
-    anything else. This is the start a host refresh uses to bring the listener
+    anything else. This is the start a host repair uses to bring the listener
     back: it never stops a process (only -ReplaceWedged stops an owned
     listener whose lease reads wedged), never takes a port from another owner,
     never restarts a live server whose framework commit changed, and never
@@ -50,7 +50,7 @@
     name the owning runtime directory.
 
 .PARAMETER ReplaceWedged
-    RefreshSafe only: an owned server that does not answer and whose liveness
+    NonDestructive only: an owned server that does not answer and whose liveness
     lease reads wedged (idle past its renewals, or one request past the
     ceiling) is stopped and a new one started; one whose lease reads busy,
     alive or unknown is reported as existing-unresponsive and left alone, as
@@ -59,14 +59,14 @@
     not run.
 
 .PARAMETER ResultPath
-    RefreshSafe only: where to write the outcome record
+    NonDestructive only: where to write the outcome record
     {schemaVersion, outcome, port, pid, startTimeUnixMs, sha, shaMatches,
     reason}. Callers read this file rather than parsing output. It must lie
     outside the status, runtime, log and repository directories, all of which
     the service serves.
 
 .PARAMETER DeadlineTickMs
-    RefreshSafe only: the boot-relative tick ([Environment]::TickCount64) by
+    NonDestructive only: the boot-relative tick ([Environment]::TickCount64) by
     which the start must finish. Clamped to at most two minutes from now;
     defaults to one minute. Every wait derives from it.
 #>
@@ -74,13 +74,13 @@
 [CmdletBinding(DefaultParameterSetName = 'Normal')]
 param(
     [Parameter(ParameterSetName = 'Normal')]
-    [Parameter(ParameterSetName = 'RefreshSafe', Mandatory)]
+    [Parameter(ParameterSetName = 'NonDestructive', Mandatory)]
     [int]$Port = 0,
     [Parameter(ParameterSetName = 'Normal')][switch]$Restart,
-    [Parameter(ParameterSetName = 'RefreshSafe', Mandatory)][switch]$RefreshSafe,
-    [Parameter(ParameterSetName = 'RefreshSafe')][switch]$ReplaceWedged,
-    [Parameter(ParameterSetName = 'RefreshSafe')][string]$ResultPath,
-    [Parameter(ParameterSetName = 'RefreshSafe')][ValidateRange(1, [long]::MaxValue)][long]$DeadlineTickMs
+    [Parameter(ParameterSetName = 'NonDestructive', Mandatory)][switch]$NonDestructive,
+    [Parameter(ParameterSetName = 'NonDestructive')][switch]$ReplaceWedged,
+    [Parameter(ParameterSetName = 'NonDestructive')][string]$ResultPath,
+    [Parameter(ParameterSetName = 'NonDestructive')][ValidateRange(1, [long]::MaxValue)][long]$DeadlineTickMs
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -101,7 +101,7 @@ $ModulesDir = $paths.ModulesDir
 
 # See https://yuruna.link/42e5cdfd-003d
 Initialize-YurunaEntryPointModuleSet -For StatusService -ModulesDir $ModulesDir
-# The startup lock, the refresh-safe outcome record and the ownership check.
+# The startup lock, the non-destructive outcome record and the ownership check.
 # -Global without -Force: this script is also &-invoked inside the inner
 # runner, where reloading the lock module would discard its record of locks
 # that process already holds.
@@ -110,12 +110,12 @@ Import-Module (Join-Path $ModulesDir 'Test.SingleFlightLock.psm1') -Global -Disa
 Import-Module (Join-Path $ModulesDir 'Test.StatusControlRoute.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.PrivateStateRepair.psm1') -DisableNameChecking
 
-# --- REGION: Startup serialization and the refresh-safe outcome
+# --- REGION: Startup serialization and the non-destructive outcome
 # See https://yuruna.link/42e5cdfd-003d
 $script:StatusStartupLock = $null
-$script:RefreshSafePortWaitMs = 0
-$script:RefreshSafeResultPath = $null
-$script:RefreshSafeDeadline = $null
+$script:NonDestructivePortWaitMs = 0
+$script:NonDestructiveResultPath = $null
+$script:NonDestructiveDeadline = $null
 function Exit-StatusServiceStartupLock {
     [CmdletBinding()]
     param()
@@ -124,10 +124,10 @@ function Exit-StatusServiceStartupLock {
         $script:StatusStartupLock = $null
     }
 }
-function Complete-RefreshSafeStart {
+function Complete-NonDestructiveStart {
     <#
     .SYNOPSIS
-        End a refresh-safe start: write the outcome record, report it,
+        End a non-destructive start: write the outcome record, report it,
         release the startup lock and exit with the outcome's code.
     #>
     [CmdletBinding()]
@@ -142,7 +142,7 @@ function Complete-RefreshSafeStart {
         [Nullable[bool]]$ShaMatches
     )
     $code = switch ($Outcome) { 'existing-ready' { 0 } 'started' { 0 } 'invalid-invocation' { 1 } default { 2 } }
-    if ($script:RefreshSafeResultPath) {
+    if ($script:NonDestructiveResultPath) {
         $record = [ordered]@{
             schemaVersion   = 1
             outcome         = $Outcome
@@ -153,15 +153,15 @@ function Complete-RefreshSafeStart {
             shaMatches      = $ShaMatches
             reason          = $Reason
         }
-        if (-not (Write-YurunaStateFileJson -Path $script:RefreshSafeResultPath -InputObject $record -Confirm:$false)) {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_result_unwritable' -Arguments @{ path = $script:RefreshSafeResultPath })
+        if (-not (Write-YurunaStateFileJson -Path $script:NonDestructiveResultPath -InputObject $record -Confirm:$false)) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_non_destructive_result_unwritable' -Arguments @{ path = $script:NonDestructiveResultPath })
         }
     }
     switch ($Outcome) {
-        'existing-ready' { Write-Output (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_existing_ready' -Arguments @{ processId = $ProcessId; port = $Port }) }
-        'started' { Write-Output (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_started' -Arguments @{ processId = $ProcessId; port = $Port }) }
-        'invalid-invocation' { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_refused' -Arguments @{ reason = $Reason }) }
-        default { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_partial' -Arguments @{ port = $Port; outcome = $Outcome; reason = $Reason }) }
+        'existing-ready' { Write-Output (Format-YurunaOperatorMessage -Key 'runner.status_non_destructive_existing_ready' -Arguments @{ processId = $ProcessId; port = $Port }) }
+        'started' { Write-Output (Format-YurunaOperatorMessage -Key 'runner.status_non_destructive_started' -Arguments @{ processId = $ProcessId; port = $Port }) }
+        'invalid-invocation' { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_non_destructive_refused' -Arguments @{ reason = $Reason }) }
+        default { Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_non_destructive_partial' -Arguments @{ port = $Port; outcome = $Outcome; reason = $Reason }) }
     }
     Exit-StatusServiceStartupLock
     exit $code
@@ -174,8 +174,8 @@ trap {
     break
 }
 
-if ($RefreshSafe) {
-    $script:RefreshSafeDeadline = New-YurunaDeadlineFromExpiry -MaximumMilliseconds 120000 -ExpiryTick $(
+if ($NonDestructive) {
+    $script:NonDestructiveDeadline = New-YurunaDeadlineFromExpiry -MaximumMilliseconds 120000 -ExpiryTick $(
         if ($PSBoundParameters.ContainsKey('DeadlineTickMs')) { $DeadlineTickMs } else { [Environment]::TickCount64 + 60000 })
     if ($ResultPath) {
         # Checked here against the roots known before the runtime is, so even
@@ -184,20 +184,20 @@ if ($RefreshSafe) {
         $resultFull = [System.IO.Path]::GetFullPath($ResultPath)
         if ((Test-StatusPathOutsideServedRoot -Path $resultFull -ServedRoot @($RepoRoot, $StatusDir, $env:YURUNA_RUNTIME_DIR, $env:YURUNA_LOG_DIR)) -and
             [System.IO.Directory]::Exists([System.IO.Path]::GetDirectoryName($resultFull))) {
-            $script:RefreshSafeResultPath = $resultFull
+            $script:NonDestructiveResultPath = $resultFull
         } else {
             # A result the caller would read is refused rather than written
             # into a served tree or a directory that does not exist.
-            Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'result-path-refused'
+            Complete-NonDestructiveStart -Outcome 'invalid-invocation' -Reason 'result-path-refused'
         }
     }
-    # The owning runtime is an input here, never a default: a refresh that
+    # The owning runtime is an input here, never a default: a repair that
     # starts a listener for a different runtime restores nothing.
     if ([string]::IsNullOrWhiteSpace($env:YURUNA_RUNTIME_DIR) -or -not [System.IO.Directory]::Exists($env:YURUNA_RUNTIME_DIR)) {
-        Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'runtime-unresolved'
+        Complete-NonDestructiveStart -Outcome 'invalid-invocation' -Reason 'runtime-unresolved'
     }
     if ($Port -lt 1 -or $Port -gt 65535) {
-        Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'port-invalid'
+        Complete-NonDestructiveStart -Outcome 'invalid-invocation' -Reason 'port-invalid'
     }
 }
 $null = Initialize-YurunaRuntimeDir
@@ -208,9 +208,9 @@ $LogDir     = $env:YURUNA_LOG_DIR
 $PidFile = Join-Path $RuntimeDir "server.pid"
 $ServedRootSet = @($RepoRoot, $StatusDir, $RuntimeDir, $LogDir)
 
-if ($script:RefreshSafeResultPath -and -not (Test-StatusPathOutsideServedRoot -Path $script:RefreshSafeResultPath -ServedRoot $ServedRootSet)) {
-    $script:RefreshSafeResultPath = $null
-    Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason 'result-path-refused'
+if ($script:NonDestructiveResultPath -and -not (Test-StatusPathOutsideServedRoot -Path $script:NonDestructiveResultPath -ServedRoot $ServedRootSet)) {
+    $script:NonDestructiveResultPath = $null
+    Complete-NonDestructiveStart -Outcome 'invalid-invocation' -Reason 'result-path-refused'
 }
 
 if ($Port -le 0) {
@@ -233,19 +233,19 @@ $privateStateRepair = $null
 try {
     $startLockInfo = Get-YurunaPrivateStatePath -Name ("status-service.{0}.start.lock" -f (Get-StatusRuntimeKey -RuntimeDir $RuntimeDir)) -ServedRoot $ServedRootSet
 } catch { Write-Verbose "startup lock path unresolved: $($_.Exception.Message)" }
-if (-not $RefreshSafe -and (-not $startLockInfo -or -not $startLockInfo.Resolved)) {
+if (-not $NonDestructive -and (-not $startLockInfo -or -not $startLockInfo.Resolved)) {
     $privateStateRepair = Repair-YurunaStartupPrivateState -ServedRoot $ServedRootSet -AllowPrompt -Confirm:$false
     if ($privateStateRepair.Resolved) {
         $startLockInfo = Get-YurunaPrivateStatePath -Name ("status-service.{0}.start.lock" -f (Get-StatusRuntimeKey -RuntimeDir $RuntimeDir)) -ServedRoot $ServedRootSet
     }
 }
 if ($startLockInfo -and $startLockInfo.Resolved) {
-    $startLockWaitMs = if ($RefreshSafe) {
-        [int][Math]::Min(5000, [Math]::Max(0, (Get-YurunaDeadlineRemainingMs -Deadline $script:RefreshSafeDeadline) - 1000))
+    $startLockWaitMs = if ($NonDestructive) {
+        [int][Math]::Min(5000, [Math]::Max(0, (Get-YurunaDeadlineRemainingMs -Deadline $script:NonDestructiveDeadline) - 1000))
     } else { 15000 }
     $startLock = Enter-YurunaSingleFlightLock -Path $startLockInfo.Path -WaitMilliseconds $startLockWaitMs `
         -Metadata @{ purpose = 'status-service-start'; port = $Port }
-    if (-not $RefreshSafe -and -not $startLock.Held -and $startLock.Reason -eq 'access-denied') {
+    if (-not $NonDestructive -and -not $startLock.Held -and $startLock.Reason -eq 'access-denied') {
         $privateStateRepair = Repair-YurunaStartupPrivateState -ServedRoot $ServedRootSet -AllowPrompt -RepairFileAccess -Confirm:$false
         if ($privateStateRepair.Resolved) {
             $startLock = Enter-YurunaSingleFlightLock -Path $startLockInfo.Path -WaitMilliseconds $startLockWaitMs `
@@ -254,15 +254,15 @@ if ($startLockInfo -and $startLockInfo.Resolved) {
     }
     if ($startLock.Held) {
         $script:StatusStartupLock = $startLock
-    } elseif ($RefreshSafe) {
-        Complete-RefreshSafeStart -Outcome 'admission-busy' -Reason ([string]$startLock.Reason)
+    } elseif ($NonDestructive) {
+        Complete-NonDestructiveStart -Outcome 'admission-busy' -Reason ([string]$startLock.Reason)
     } else {
         $lockFailureReason = if ($privateStateRepair -and -not $privateStateRepair.Resolved) { $privateStateRepair.Reason } else { $startLock.Reason }
         throw [IO.IOException]::new("Status service startup is already in progress or its lock cannot be acquired ($lockFailureReason) at '$($startLockInfo.Path)'; refusing a concurrent start.")
     }
-} elseif ($RefreshSafe) {
+} elseif ($NonDestructive) {
     $lockReason = if ($startLockInfo) { [string]$startLockInfo.Reason } else { 'resolve-failed' }
-    Complete-RefreshSafeStart -Outcome 'invalid-invocation' -Reason "private-state-$lockReason"
+    Complete-NonDestructiveStart -Outcome 'invalid-invocation' -Reason "private-state-$lockReason"
 } else {
     $lockFailureReason = if ($privateStateRepair -and -not $privateStateRepair.Resolved) { $privateStateRepair.Reason } elseif ($startLockInfo) { $startLockInfo.Reason } else { 'resolve-failed' }
     throw [IO.IOException]::new("Status service startup lock could not be resolved ($lockFailureReason). Start the runner from an interactive terminal to allow any required sudo authentication.")
@@ -349,15 +349,15 @@ if ($Restart -and (Test-Path $PidFile)) {
 # See https://yuruna.link/42e5cdfd-003e
 $ShaFile = Join-Path $RuntimeDir 'server.sha'
 
-# The refresh-safe start never stops a server. It classifies the pidfile's
+# The non-destructive start never stops a server. It classifies the pidfile's
 # owner and acts only on positive absence: an owned server that answers is
 # left running whatever commit it was started from, and anything it cannot
 # identify is reported rather than replaced.
-function Get-RefreshSafeFrameworkSha {
+function Get-NonDestructiveFrameworkSha {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    $seconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:RefreshSafeDeadline -Ceiling 3 -ReserveMilliseconds 2000
+    $seconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:NonDestructiveDeadline -Ceiling 3 -ReserveMilliseconds 2000
     if (-not $seconds) { return '' }
     $git = Invoke-BoundedNativeCommand -FilePath 'git' -ArgumentList @('-C', $RepoRoot, 'rev-parse', 'HEAD') -TimeoutSeconds $seconds
     if (-not (Test-BoundedNativeResultComplete -Result $git) -or [int]$git.ExitCode -ne 0) { return '' }
@@ -365,7 +365,7 @@ function Get-RefreshSafeFrameworkSha {
     if ($value -cmatch '^[0-9a-f]{40}$') { return $value }
     return ''
 }
-if ($RefreshSafe) {
+if ($NonDestructive) {
     # The process-identity classifier reads the process table once and can
     # confirm the owner by the generated script its command line names. Best
     # effort: without it the pidfile falls back to Test-PidFileIdentity (a
@@ -380,23 +380,23 @@ if ($RefreshSafe) {
     switch -CaseSensitive ($ownership.State) {
         'AliveOwned' {
             $answers = $false
-            $probeSeconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:RefreshSafeDeadline -Ceiling 3 -ReserveMilliseconds 1000
+            $probeSeconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:NonDestructiveDeadline -Ceiling 3 -ReserveMilliseconds 1000
             if ($probeSeconds) {
                 try {
                     $null = Invoke-WebRequest -Uri "http://localhost:$Port/status/" -TimeoutSec $probeSeconds -UseBasicParsing -ErrorAction Stop -Verbose:$false -Debug:$false
                     $answers = $true
-                } catch { Write-Verbose "refresh-safe probe of the owned server did not answer: $($_.Exception.Message)" }
+                } catch { Write-Verbose "non-destructive probe of the owned server did not answer: $($_.Exception.Message)" }
             }
             if (-not $answers -and $ReplaceWedged) {
                 $lease = Get-StatusServiceLeaseVerdict -Path (Join-Path $RuntimeDir 'server.lease.json') -ProcessId ([int]$ownership.Pid)
                 if ($lease.Verdict -cne 'wedged') {
-                    Complete-RefreshSafeStart -Outcome 'existing-unresponsive' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs -Reason "lease-$($lease.Verdict)"
+                    Complete-NonDestructiveStart -Outcome 'existing-unresponsive' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs -Reason "lease-$($lease.Verdict)"
                 }
                 # Ownership was proven just above by command line and start time,
                 # so the process stopped here is this runtime's listener.
                 Write-Output (Format-YurunaOperatorMessage -Key 'runner.status_listener_replaced' -Arguments @{
                     processId = "$($ownership.Pid)"; state = "$($lease.State)"; route = "$($lease.Route)"; seconds = "$($lease.AgeSeconds)" })
-                $stopWaitMs = [int][Math]::Max(0, [Math]::Min(10000, (Get-YurunaDeadlineRemainingMs -Deadline $script:RefreshSafeDeadline) - 8000))
+                $stopWaitMs = [int][Math]::Max(0, [Math]::Min(10000, (Get-YurunaDeadlineRemainingMs -Deadline $script:NonDestructiveDeadline) - 8000))
                 $exited = $false
                 try {
                     $wedged = Get-Process -Id ([int]$ownership.Pid) -ErrorAction Stop
@@ -405,28 +405,28 @@ if ($RefreshSafe) {
                 } catch [Microsoft.PowerShell.Commands.ProcessCommandException] { $exited = $true }
                 catch { Write-Verbose "wedged listener stop failed: $($_.Exception.Message)" }
                 if (-not $exited) {
-                    Complete-RefreshSafeStart -Outcome 'existing-unresponsive' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs -Reason 'stop-failed'
+                    Complete-NonDestructiveStart -Outcome 'existing-unresponsive' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs -Reason 'stop-failed'
                 }
                 Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue
-                $script:RefreshSafePortWaitMs = $stopWaitMs
+                $script:NonDestructivePortWaitMs = $stopWaitMs
                 $answers = $null
             }
             if ($answers -eq $false) {
-                Complete-RefreshSafeStart -Outcome 'existing-unresponsive' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs -Reason 'status-unanswered'
+                Complete-NonDestructiveStart -Outcome 'existing-unresponsive' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs -Reason 'status-unanswered'
             }
             if ($null -eq $answers) { break }
-            $currentSha = Get-RefreshSafeFrameworkSha
+            $currentSha = Get-NonDestructiveFrameworkSha
             $persistedSha = ''
             try { if (Test-Path -LiteralPath $ShaFile) { $persistedSha = ([System.IO.File]::ReadAllText($ShaFile)).Trim() } } catch { $persistedSha = '' }
             $shaMatches = if ($currentSha -and $persistedSha) { [string]::Equals($currentSha, $persistedSha, [StringComparison]::Ordinal) } else { $null }
-            Complete-RefreshSafeStart -Outcome 'existing-ready' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs `
+            Complete-NonDestructiveStart -Outcome 'existing-ready' -ProcessId $ownership.Pid -StartTimeUnixMs $ownership.StartTimeUnixMs `
                 -Sha $persistedSha -ShaMatches $shaMatches -Reason ([string]$ownership.Reason)
         }
-        'AliveOther' { Complete-RefreshSafeStart -Outcome 'unknown-owner' -ProcessId $ownership.Pid -Reason ([string]$ownership.Reason) }
-        'Unknown' { Complete-RefreshSafeStart -Outcome 'unknown-owner' -ProcessId $ownership.Pid -Reason ([string]$ownership.Reason) }
+        'AliveOther' { Complete-NonDestructiveStart -Outcome 'unknown-owner' -ProcessId $ownership.Pid -Reason ([string]$ownership.Reason) }
+        'Unknown' { Complete-NonDestructiveStart -Outcome 'unknown-owner' -ProcessId $ownership.Pid -Reason ([string]$ownership.Reason) }
     }
 }
-if (-not $RefreshSafe -and (Test-Path $PidFile)) {
+if (-not $NonDestructive -and (Test-Path $PidFile)) {
     $oldPid = (Get-Content $PidFile).Trim()
     $serverAlive = $false
     if ($oldPid) {
@@ -497,13 +497,13 @@ if (-not $RefreshSafe -and (Test-Path $PidFile)) {
 }
 
 # See https://yuruna.link/42e5cdfd-003f
-if ($RefreshSafe) {
+if ($NonDestructive) {
     # A wedged listener this start just stopped may hold its port a moment longer.
-    if (-not (Test-PortListenerFree -Port $Port -BudgetMs ([int]$script:RefreshSafePortWaitMs))) {
+    if (-not (Test-PortListenerFree -Port $Port -BudgetMs ([int]$script:NonDestructivePortWaitMs))) {
         if (Test-PortPrivilegeBlocked -Port $Port) {
-            Complete-RefreshSafeStart -Outcome 'port-privilege-required' -Reason 'wildcard-reservation-refused'
+            Complete-NonDestructiveStart -Outcome 'port-privilege-required' -Reason 'wildcard-reservation-refused'
         }
-        Complete-RefreshSafeStart -Outcome 'port-conflict' -Reason 'port-held'
+        Complete-NonDestructiveStart -Outcome 'port-conflict' -Reason 'port-held'
     }
     $portResolution = [pscustomobject]@{ Status = 'Free'; Message = '' }
 } else {
@@ -532,9 +532,9 @@ if ($portResolution.Status -eq 'Conflict' -or $portResolution.Status -eq 'Privil
 
 # --- REGION: Ensure repoUrl is set in status.json
 $StatusFile = Join-Path $RuntimeDir "status.json"
-# Not in the refresh-safe start: status.json belongs to the running cycle,
-# and a refresh never rewrites it.
-if (-not $RefreshSafe -and (Test-Path $StatusFile)) {
+# Not in the non-destructive start: status.json belongs to the running cycle,
+# and a repair never rewrites it.
+if (-not $NonDestructive -and (Test-Path $StatusFile)) {
     try {
         $statusDoc = Get-Content -Raw $StatusFile | ConvertFrom-Json
         $configPath = Join-Path $TestRoot "test.config.yml"
@@ -581,12 +581,12 @@ if (-not $RefreshSafe -and (Test-Path $StatusFile)) {
 # --- REGION: Clean up leftovers from older layouts
 # See https://yuruna.link/42e5cdfd-0040
 # Credential copies under names that earlier releases wrote and nothing reads.
-# They are removed even on a refresh-safe start, because each one is a secret
+# They are removed even on a non-destructive start, because each one is a secret
 # the runtime directory should not hold.
 foreach ($legacyCredential in @('yuruna-caching-proxy.yml', 'yuruna-caching-proxy.yml.backup', 'caching-proxy.txt')) {
     Remove-Item -LiteralPath (Join-Path $RuntimeDir $legacyCredential) -Force -ErrorAction SilentlyContinue
 }
-if (-not $RefreshSafe) {
+if (-not $NonDestructive) {
     Remove-Item (Join-Path $StatusDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
     Remove-Item (Join-Path $RuntimeDir 'server.heartbeat') -Force -ErrorAction SilentlyContinue
     $LegacyTrackDir = Join-Path $StatusDir 'track'
@@ -668,7 +668,7 @@ try {
 
 # --- REGION: Announce the forwarder teardown's sudo
 # See https://yuruna.link/42e5cdfd-0042
-if ($IsMacOS -and -not $RefreshSafe) {
+if ($IsMacOS -and -not $NonDestructive) {
     $forwarderStateDir = Join-Path $HOME 'yuruna/image/caching-proxy-service'
     $hasRootForwarder  = $false
     $meIsRoot          = $false
@@ -703,11 +703,11 @@ if ($IsMacOS -and -not $RefreshSafe) {
 # See https://yuruna.link/42e5cdfd-0044
 $CachingProxyServiceFile = Join-Path $RuntimeDir "caching-proxy-service.txt"
 try {
-    if ($RefreshSafe) {
+    if ($NonDestructive) {
         # The probe loads the host driver and rewrites the host-wide port map
-        # under the caching-proxy lock; a refresh-safe start changes neither
+        # under the caching-proxy lock; a non-destructive start changes neither
         # and keeps the banner the last full start wrote.
-        Write-Verbose 'Refresh-safe start: caching-proxy probe and port map left as they are.'
+        Write-Verbose 'Non-destructive start: caching-proxy probe and port map left as they are.'
     } elseif ($detectedHost) {
         # -Global: this script is &-invoked from the inner cycle runner (a module
         # context), where a -Force import without -Global pulls the host contract
@@ -908,7 +908,7 @@ foreach ($parsedScript in @($serverScriptFile, $serverRuntimeFile)) {
         foreach ($parseError in ($serverScriptParseError | Select-Object -First 5)) {
             Write-Output ("  line $($parseError.Extent.StartLineNumber), column $($parseError.Extent.StartColumnNumber): $($parseError.Message)")
         }
-        if ($RefreshSafe) { Complete-RefreshSafeStart -Outcome 'generation-failed' -Reason 'parse-error' }
+        if ($NonDestructive) { Complete-NonDestructiveStart -Outcome 'generation-failed' -Reason 'parse-error' }
         Exit-StatusServiceStartupLock
         throw ("The status-service script $parsedScript has $($serverScriptParseError.Count) syntax error(s) and would die on startup; refusing to launch it. " +
                "Each error above is a line in that file.")
@@ -945,18 +945,18 @@ try {
         Set-Content -Path $PidFile -Value $bgPid
     }
 } catch {
-    if ($RefreshSafe) { Complete-RefreshSafeStart -Outcome 'launch-failed' -Reason ([string]$_.Exception.GetType().Name) }
+    if ($NonDestructive) { Complete-NonDestructiveStart -Outcome 'launch-failed' -Reason ([string]$_.Exception.GetType().Name) }
     throw
 }
 
 # --- REGION: Verify server started
-# The refresh-safe start waits only as long as its deadline allows, keeping
+# The non-destructive start waits only as long as its deadline allows, keeping
 # time for the commit lookup and the outcome record (the caller bounds this
 # process by the same deadline and reads only that record), and never kills a
 # server that is slow to come up.
 $readyWaitSeconds = $script:StatusServiceReadyTimeoutSeconds
-if ($RefreshSafe) {
-    $readyWaitSeconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:RefreshSafeDeadline `
+if ($NonDestructive) {
+    $readyWaitSeconds = Get-YurunaDeadlineBoundedSeconds -Deadline $script:NonDestructiveDeadline `
         -Ceiling $script:StatusServiceReadyTimeoutSeconds -ReserveMilliseconds 8000
     if (-not $readyWaitSeconds) { $readyWaitSeconds = 1 }
 }
@@ -970,11 +970,11 @@ $serverReady = Wait-WithProgress -Activity "Status service: waiting for http://l
 if (-not $serverReady) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_d938ab5118c5d2c1' -Arguments @{ port = "$Port"; statusServiceReadyTimeoutSeconds = "$readyWaitSeconds" })
     Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_f8a43d6f86299328' -Arguments @{ err = "$(Join-Path $RuntimeDir 'server.err'), $(Join-Path $RuntimeDir 'server.stderr')" })
-    if ($RefreshSafe) {
+    if ($NonDestructive) {
         $launchedPid = 0
         try { $null = [int]::TryParse(([System.IO.File]::ReadAllText($PidFile)).Trim(), [ref]$launchedPid) } catch { $launchedPid = 0 }
-        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_refresh_safe_not_ready' -Arguments @{ processId = $launchedPid; seconds = $readyWaitSeconds })
-        Complete-RefreshSafeStart -Outcome 'start-timeout' -ProcessId $launchedPid -Reason 'status-unanswered'
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.status_non_destructive_not_ready' -Arguments @{ processId = $launchedPid; seconds = $readyWaitSeconds })
+        Complete-NonDestructiveStart -Outcome 'start-timeout' -ProcessId $launchedPid -Reason 'status-unanswered'
     }
 }
 
@@ -1022,7 +1022,7 @@ if ($serverReady) {
 
 # See https://yuruna.link/42e5cdfd-0045
 try {
-    $launchSha = if ($RefreshSafe) { Get-RefreshSafeFrameworkSha } else { (& git -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim() }
+    $launchSha = if ($NonDestructive) { Get-NonDestructiveFrameworkSha } else { (& git -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim() }
     if ($launchSha) {
         [System.IO.File]::WriteAllText($ShaFile, $launchSha, [System.Text.UTF8Encoding]::new($false))
     } elseif (Test-Path -LiteralPath $ShaFile) {
@@ -1031,10 +1031,10 @@ try {
 } catch { Write-Verbose "Could not persist server.sha: $($_.Exception.Message)" }
 
 # --- REGION: Display connection info
-# The refresh-safe start runs no bare native command and waits on no name
+# The non-destructive start runs no bare native command and waits on no name
 # lookup: both are unbounded, and its caller holds a deadline.
-$machineName = if ($RefreshSafe) { [Environment]::MachineName } else { (hostname).Trim() }
-$ip = if ($RefreshSafe) { $null } else {
+$machineName = if ($NonDestructive) { [Environment]::MachineName } else { (hostname).Trim() }
+$ip = if ($NonDestructive) { $null } else {
     try {
         ([System.Net.Dns]::GetHostAddresses($machineName) |
             Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
@@ -1074,7 +1074,7 @@ try {
 
 # --- REGION: LAN reachability self-heal (all host types)
 # See https://yuruna.link/42e5cdfd-0049
-if (-not $RefreshSafe) {
+if (-not $NonDestructive) {
     Import-Module (Join-Path $ModulesDir 'Test.StatusFirewall.psm1') -Force
     $fw = Set-YurunaStatusFirewallRule -Port $Port -NonInteractive
     if ($fw.Changed) {
@@ -1088,14 +1088,14 @@ if (-not $RefreshSafe) {
 }
 
 Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_1ab8b41c49078fda')
-if ($RefreshSafe) {
+if ($NonDestructive) {
     $startedPid = 0
     $startedAt = [long]0
     try { $null = [int]::TryParse(([System.IO.File]::ReadAllText($PidFile)).Trim(), [ref]$startedPid) } catch { $startedPid = 0 }
     if ($startedPid -gt 0) {
         try { $startedAt = [DateTimeOffset]::new((Get-Process -Id $startedPid -ErrorAction Stop).StartTime).ToUnixTimeMilliseconds() } catch { $startedAt = [long]0 }
     }
-    Complete-RefreshSafeStart -Outcome 'started' -ProcessId $startedPid -StartTimeUnixMs $startedAt -Sha ([string]$launchSha) -ShaMatches $true
+    Complete-NonDestructiveStart -Outcome 'started' -ProcessId $startedPid -StartTimeUnixMs $startedAt -Sha ([string]$launchSha) -ShaMatches $true
 }
 Exit-StatusServiceStartupLock
 } finally {

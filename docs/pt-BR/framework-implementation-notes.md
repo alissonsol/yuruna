@@ -321,7 +321,7 @@ execução manual não arquive sob regras diferentes das usadas pelo executor.
 
 <a id="4213a0b3-0013"></a>
 
-<a id="testmodulesinvoke-testcyclerunnerps1-host-refresh-transport"></a>
+<a id="testmodulesinvoke-testcyclerunnerps1-handoff-transport"></a>
 
 ## test/modules/Invoke-TestCycleRunner.ps1: Execute um ciclo
 
@@ -412,7 +412,7 @@ outer.log por meio de Write-InnerLog, onde fica durável e diagnosticável ao
 lado das entradas do executor externo/watchdog.
 O registro de início vem primeiro, para que um leitor nunca associe um PID
 novo a uma hora de início antiga: inner.start + inner.pid são a identidade
-exata que uma atualização do hospedeiro verifica antes de poder retomar este interno.
+exata que um reparo do hospedeiro verifica antes de poder retomar este interno.
 
 <a id="4213a0b3-0018"></a>
 
@@ -2425,15 +2425,15 @@ minuto após o prazo final é encontrada pela verificação de presença do pró
 
 <a id="4213a0b3-008a"></a>
 
-<a id="testmodulestesthostrefreshpsm1-host-refresh-the-repair-ladder-declaration-the-local-repair-worker-and"></a>
+<a id="testmodulestesthostrepairpsm1-host-repair-the-repair-ladder-declaration-the-local-repair-worker-and"></a>
 
-## test/modules/Test.HostRefresh.psm1: Atualização do hospedeiro: a declaração da sequência de reparo, o trabalhador de reparo local e
+## test/modules/Test.HostRepair.psm1: Reparo do hospedeiro: a declaração da sequência de reparo, o trabalhador de reparo local e
 
-Atualização do hospedeiro: a declaração da sequência de reparo, o trabalhador de reparo local e
+Reparo do hospedeiro: a declaração da sequência de reparo, o trabalhador de reparo local e
 tudo de que um chamador precisa em torno dele (orçamento, veredito e código de saída, projeção pública
 do progresso, resolução de contexto e identidade, fechamento dos comandos).
 
-O módulo não mantém nenhuma importação de driver. O processo filho status-server gerado o carrega
+O módulo não mantém nenhuma importação de driver. O processo filho do status service gerado o carrega
 por Import-RouteModule para anunciar a capacidade sem nunca
 chamar Initialize-YurunaHost; carregar um driver ali forçaria a importação de
 Test.CachingProxyService e executaria a verificação de cobertura de contrato desse driver
@@ -2443,7 +2443,7 @@ comando ausente resulta em uma recusa estruturada ou uma etapa ignorada, nunca e
 
 <a id="4213a0b3-008b"></a>
 
-## test/modules/Test.HostRefreshAuth.psm1: Write-HostRefreshSecretFile
+## test/modules/Test.HostRepairAuth.psm1: Write-HostRepairSecretFile
 
 Grava uma ou mais linhas secretas com acesso somente pelo proprietário desde o primeiro byte. Cada
 arquivo temporário é criado ao lado de seu destino com modo 0600 (Unix)
@@ -2457,21 +2457,21 @@ cada arquivo temporário ainda não renomeado.
 
 <a id="4213a0b3-008c"></a>
 
-<a id="testmodulestesthostrefreshintentpsm1-the-private-request-journal-for-host-refresh-who-asked-for-a-repair-with"></a>
+<a id="testmodulestesthostoperationjournalpsm1-the-private-request-journal-for-host-repair-who-asked-for-a-repair-with"></a>
 
-## test/modules/Test.HostRefreshIntent.psm1: O diário privado de solicitações de atualização do hospedeiro: quem pediu um reparo, com
+## test/modules/Test.HostOperationJournal.psm1: O diário privado de solicitações de reparo do hospedeiro: quem pediu um reparo, com
 
-O diário privado de solicitações de atualização do hospedeiro: quem pediu um reparo, com
+O diário privado de solicitações de reparo do hospedeiro: quem pediu um reparo, com
 qual política imutável, o que cada tentativa fez, o que interrompeu e ainda
 deve restaurar, e quais IDs de solicitação estão encerrados definitivamente.
 
-  * Tudo fica sob a raiz de estado privada ($HOME/.yuruna/host-refresh),
+  * Tudo fica sob a raiz de estado privada ($HOME/.yuruna/host-repair),
     fora de qualquer árvore servida pelo status service; o arquivo público de
     progresso no diretório do runtime é uma projeção e nunca
     tem autoridade.
   * Um registro com checksum e número de geração (Test.CriticalRecord) contém
     todo o diário, e cada operação de leitura, modificação e gravação ocorre sob um curto
-    bloqueio de admissão. A ordem de bloqueio é o bloqueio de duração do reparo e depois o
+    bloqueio de admissão. A ordem de bloqueio é o bloqueio de operação do hospedeiro mantido por toda a operação e depois o
     bloqueio de admissão, nunca o inverso: um trabalhador assume a solicitação com ambos, enquanto o
     listener e o executor externo adquirem apenas o bloqueio de admissão.
   * A idade nunca remove algo ativo. A atividade é determinada pela identidade do processo
@@ -2483,11 +2483,11 @@ deve restaurar, e quais IDs de solicitação estão encerrados definitivamente.
 
 <a id="4213a0b3-008d"></a>
 
-<a id="testmodulestesthostrefreshtriggerpsm1-the-automatic-host-refresh-policy-when-the-resident-runner-may-start-a"></a>
+<a id="testmodulestesthostrepairtriggerpsm1-the-automatic-host-repair-policy-when-the-resident-runner-may-start-a"></a>
 
-## test/modules/Test.HostRefreshTrigger.psm1: A política automática de atualização do hospedeiro: quando o executor residente pode iniciar um
+## test/modules/Test.HostRepairTrigger.psm1: A política automática de reparo do hospedeiro: quando o executor residente pode iniciar um
 
-A política automática de atualização do hospedeiro: quando o executor residente pode iniciar um
+A política automática de reparo do hospedeiro: quando o executor residente pode iniciar um
 reparo do hipervisor por conta própria e como comprova que o reparo foi executado.
 
 Três processos estão envolvidos, e somente arquivos passam entre eles. O executor
@@ -2510,8 +2510,8 @@ Toda plataforma é declarada não qualificada até que uma verificação canári
 reparo nela; o executor ainda lê a opção, conta as evidências e informa
 uma vez por que não age. O módulo não integra nenhum conjunto de módulos de ponto de entrada: o
 externo residente e o interno o importam com proteção em seus locais de chamada, e
-tudo que é pesado (o diário de reparo, o bloqueio, o registro crítico, os
-auxiliares de raiz privada, o leitor da verificação de atualização consultado pela admissão
+tudo que é pesado (o diário de operações do hospedeiro, o bloqueio, o registro crítico, os
+auxiliares de raiz privada, o leitor da barreira do executor consultado pela admissão
 do diário) é resolvido pelo nome sob demanda, portanto uma parte ausente produz uma
 recusa estruturada 'dependency-missing:<module>' em vez de uma exceção em
 um laço que precisa continuar executando.
@@ -2544,7 +2544,7 @@ Por que um módulo auxiliar:
   uma correção de um caso extremo de aspas em um não chegará aos outros.
 
 Start-YurunaDetachedProcess inicia um trabalhador que deve permanecer ativo após seu
-iniciador -- um trabalhador de atualização do hospedeiro, um executor reiniciado -- com -File, um
+iniciador -- um trabalhador de reparo do hospedeiro, um executor reiniciado -- com -File, um
 argumento por elemento, -NonInteractive e os três fluxos desacoplados do
 iniciador. No POSIX, os caminhos dos fluxos passam pelo ambiente, e cada
 argumento é um parâmetro posicional de um corpo fixo `set -m; nohup "$@"`, portanto
@@ -4708,10 +4708,10 @@ quando um ponto de interrupção cooperativo suspende o ciclo, e removido ao
 retomar. Se o operador reiniciar apenas Start-TestRunner.ps1
 enquanto uma interrupção estiver suspensa, o arquivo permanece e o Gate #1 da primeira etapa do
 novo ciclo entende que uma interrupção ainda está ativa --
-bloqueando o ciclo em um marcador inexistente. A inicialização do Status-server
+bloqueando o ciclo em um marcador inexistente. A inicialização do status service
 também remove esse arquivo, mas o executor pode iniciar
 sem o status service; a limpeza aqui mantém os dois caminhos de inicialização
-coerentes. Isso não ocorre em um ciclo de verificação prévia: uma atualização arquiva por conta própria o
+coerentes. Isso não ocorre em um ciclo de verificação prévia: um reparo arquiva por conta própria o
 marcador de um executor interno recuperado e deixa intacto o de um interno sobrevivente.
 
 <a id="4213a0b3-010e"></a>
@@ -5037,7 +5037,10 @@ sintetiza um clique do mouse no centro dessa caixa.
 Contrato de coordenadas: a imagem capturada e o alvo do clique compartilham o
 mesmo espaço de pixels. No Hyper-V, usamos PrintWindow na área cliente do vmconnect,
 portanto imagem (x,y) == cliente vmconnect (x,y), e ClientToScreen converte
-isso em uma sequência SetCursorPos + mouse_event.
+isso em uma sequência SetCursorPos + mouse_event. No KVM a captura é o
+framebuffer do convidado, portanto imagem (x,y) é o pixel do convidado, e
+Send-ClickKvm o converte para o eixo do monitor do QEMU a partir do tamanho
+dessa captura.
 
 <a id="4213a0b3-0121"></a>
 
@@ -5744,7 +5747,7 @@ Registrado em módulos por hospedeiro com nomes no singular:
 Cada módulo controla apenas suas chamadas de Register-HostIOProvider; os
 corpos das funções (Send-KeyHyperV / Send-KeyVNC / Send-KeyUTM /
 Send-KeyKvm / Send-TextHyperV / Send-TextVNC / Send-TextUTM /
-Send-TextKvm / Send-ClickHyperV / Send-ClickUtm) ficam em
+Send-TextKvm / Send-ClickHyperV / Send-ClickUtm / Send-ClickKvm) ficam em
 Test.Transport.psm1. A matriz de capacidades da inicialização lê
 Get-HostIOProviderMatrix, para que o operador veja quais ações estão
 integradas no hospedeiro atual antes de o ciclo começar. Ver docs/host-io.md.
@@ -5853,7 +5856,7 @@ nomeia algo que não existe.
 ## test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord
 
 repro: um comando para copiar e colar que executa novamente a sequência com falha (e sua
-cadeia de base) para reproduzir a falha de forma determinística. O comando
+cadeia de recursos) para reproduzir a falha de forma determinística. O comando
 deliberadamente OMITE -StartStep: stepNumber é local ao arquivo (baseado em 1 dentro
 deste arquivo de sequência), mas -StartStep de Debug-TestSequence é GLOBAL à cadeia;
 portanto, um -StartStep ingênuo apontaria incorretamente a uma sequência folha cuja
@@ -6275,7 +6278,7 @@ qual operação de ciclo de vida um operador solicitou por último e quem pode i
 parar um serviço agora.
 
 Quatro coisas ficam aqui, e em nenhum outro lugar, todas sob a raiz privada de estado
-($HOME/.yuruna/host-refresh, nunca dentro de uma árvore servida):
+($HOME/.yuruna/host-repair, nunca dentro de uma árvore servida):
 
   * service-census.record -- um registro com soma de verificação e número de geração
     (Test.CriticalRecord), contendo evidências por serviço e a intenção explícita
@@ -6284,7 +6287,7 @@ Quatro coisas ficam aqui, e em nenhum outro lugar, todas sob a raiz privada de e
     mantido enquanto se espera por um bloqueio mais longo, portanto não pode causar impasse em uma operação
     de serviço.
   * service-operation.<key>.lock -- um por serviço lógico (nível
-    ServiceKey). Os scripts Start e Stop, a varredura de reinicialização e o trabalhador de atualização
+    ServiceKey). Os scripts Start e Stop, a varredura de reinicialização e o trabalhador de reparo
     o adquirem, na ordem ordinal das chaves, antes de tocar em um serviço.
   * a tabela de capacidades -- quais usos das evidências do censo uma plataforma
     demonstrou suportar, como declaração pura.
@@ -6630,13 +6633,13 @@ entrada do histórico.
 ## test/modules/Test.Status.psm1: New-CycleHistoryEntry
 
 Agregação por sequência, paralela a guestSummary. A tabela Recent
-Cycles do painel renderiza um botão por sequência (as entradas
+cycles do painel renderiza um botão por sequência (as entradas
 de test.runner.yml que este ciclo executou), cada um com link para a pasta
 de resultados daquela sequência. Construída a partir de sequences[] ordenado do ciclo,
 unido ao status por convidado e à URL da pasta já coletados em $guestSummary. A
 ordem de status reproduz aggregateStatus do painel
 (fail > running > pass > skipped > pending), para que o indicador da linha de sequência
-corresponda ao cartão de sequência Latest Cycle. Uma sequência 1:1 aponta diretamente
+corresponda ao cartão de sequência Latest cycle. Uma sequência 1:1 aponta diretamente
 à pasta por VM de seu convidado; uma sequência que se expande para >1 convidado
 aponta à pasta do ciclo, para que toda subpasta de convidado continue acessível.
 
@@ -7171,24 +7174,24 @@ e nenhuma quebra de linha é emitida.
 
 <a id="4213a0b3-019b"></a>
 
-## install/macos.utm.sh: Despacho do refresh
+## install/macos.utm.sh: Despacho do reparo
 
-`--refresh` repassa a execução ao script de entrada de refresh do hospedeiro do
+`--repair` repassa a execução ao script de entrada de reparo do hospedeiro do
 próprio checkout já instalado, em vez de executar o instalador. O despacho fica
 antes de toda barreira e mutação que vem a seguir (Homebrew, a reescrita do
-checkout, a limpeza de VMs); assim, um sinal de refresh malformado ou parcial
+checkout, a limpeza de VMs); assim, um sinal de reparo malformado ou parcial
 termina na hora, em vez de cair em uma execução de instalação comum sob uma
 intenção mal interpretada.
 
-O token `--refresh` e `YURUNA_REFRESH=1` são exigidos juntos. Qualquer um sozinho é
+O token `--repair` e `YURUNA_REPAIR=1` são exigidos juntos. Qualquer um sozinho é
 recusado: uma variável de ambiente residual não deve transformar
-silenciosamente uma instalação comum em refresh, e um token sem a variável de
+silenciosamente uma instalação comum em um reparo, e um token sem a variável de
 ambiente também não deve. O token também é verificado em `$0`: um comando de uma
 linha copiado e colado que omite o espaço reservado `_` (o slot de `$0` que
-`bash -c` dá ao texto do seu script) coloca `--refresh` ali, em vez de em `"$@"`.
+`bash -c` dá ao texto do seu script) coloca `--repair` ali, em vez de em `"$@"`.
 
 A forma de conveniência e a forma de download verificado estão documentadas em
-[Refresh de um hospedeiro macOS instalado](https://yuruna.link/420f54a5-0008).
+[Reparo de um hospedeiro macOS instalado](https://yuruna.link/420f54a5-0008).
 
 <a id="4213a0b3-019c"></a>
 

@@ -282,9 +282,15 @@ footer.app a { color: var(--chrome-muted); }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
   body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); padding-bottom: calc(var(--footer-h, calc(5.75rem + env(safe-area-inset-bottom))) + .75rem); }
 }
-@media (pointer: coarse) {
+/* any-pointer, not pointer: a touch screen beside a mouse or touchpad
+   reports a fine primary pointer, so a (pointer: coarse) rule misses it at
+   desktop width, where the phone block above does not apply either. */
+@media (any-pointer: coarse) {
   .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
   .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
+  textarea#footer-ip-list { min-height: var(--touch-min); }
+}
+@media (pointer: coarse) {
   /* iOS zooms into a text control under 16px when it takes focus. That is a
      property of the device, not the width: a landscape phone is wider than
      the 600px block above. */

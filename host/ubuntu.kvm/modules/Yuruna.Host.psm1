@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1380,8 +1380,99 @@ function Send-Click {
         [Parameter(Mandatory)][int]$X,
         [Parameter(Mandatory)][int]$Y
     )
-    Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_00de7e0959068c8c' -Arguments @{ vMName = "$VMName"; x = "$X"; y = "$Y" })
-    return $false
+    # The contract carries no frame, and the pointer scales X and Y by the
+    # size of the frame they belong to, so this takes one capture and sends a
+    # left click with it.
+    $sequenceEngine = Join-Path $script:TestModulesDir 'Test.SequenceEngine.psm1'
+    if (-not (Test-Path -LiteralPath $sequenceEngine)) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0c2172f8af698467' -Arguments @{ sequenceEngine = "$sequenceEngine" })
+        return $false
+    }
+    $capture = Get-VMScreenshot -VMName $VMName -Source window
+    # Get-VMScreenshot has already removed whatever a failed capture wrote.
+    if ($capture -isnot [hashtable]) { return $false }
+    try {
+        # Import only when the dispatcher isn't already resolvable: a -Force
+        # import evicts the global Invoke-Sequence the outer loop still calls.
+        if (-not (Get-Command 'Test.SequenceEngine\Send-Click' -ErrorAction SilentlyContinue)) {
+            Import-Module $sequenceEngine -Force -DisableNameChecking -Global
+        }
+        return [bool](Test.SequenceEngine\Send-Click -HostType (Resolve-HostTag) -VMName $VMName -X $X -Y $Y -Capture $capture)
+    } finally {
+        Remove-Item -LiteralPath $capture.ImagePath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# --- REGION: Get-KvmFrameSize
+function Get-KvmFrameSize {
+    <#
+    .SYNOPSIS
+        Read the pixel size of a captured frame from its first bytes.
+    .DESCRIPTION
+        libvirt writes PNG bytes under the .ppm name when QEMU offers PNG,
+        and the no-converter fallback returns that file, so the format is
+        decided by content and never by the extension: a PNG IHDR chunk, or
+        a P3 or P6 PPM header (comments included).
+    .OUTPUTS
+        @{ Width; Height }, or $null when no size from 1 to 32768 on each
+        side can be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    $head = [byte[]]::new(512)
+    $count = 0
+    try {
+        $stream = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            while ($count -lt 512) {
+                $read = $stream.Read($head, $count, 512 - $count)
+                if ($read -eq 0) { break }
+                $count += $read
+            }
+        } finally { $stream.Dispose() }
+    } catch {
+        Write-Verbose "Get-KvmFrameSize: '$Path' could not be read: $($_.Exception.Message)"
+        return $null
+    }
+    $pngHead = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52)
+    $isPng = $count -ge 24
+    for ($index = 0; $isPng -and $index -lt $pngHead.Length; $index++) {
+        if ($head[$index] -ne $pngHead[$index]) { $isPng = $false }
+    }
+    if ($isPng) {
+        $width = ([long]$head[16] -shl 24) -bor ([long]$head[17] -shl 16) -bor ([long]$head[18] -shl 8) -bor [long]$head[19]
+        $height = ([long]$head[20] -shl 24) -bor ([long]$head[21] -shl 16) -bor ([long]$head[22] -shl 8) -bor [long]$head[23]
+    } elseif ($count -ge 2 -and $head[0] -eq 0x50 -and ($head[1] -eq 0x33 -or $head[1] -eq 0x36)) {
+        $numbers = [System.Collections.Generic.List[long]]::new()
+        $at = 2
+        while ($numbers.Count -lt 2) {
+            if ($at -ge $count) { return $null }
+            $byte = $head[$at]
+            if ($byte -eq 0x20 -or $byte -eq 0x09 -or $byte -eq 0x0D -or $byte -eq 0x0A) { $at++; continue }
+            if ($byte -eq 0x23) {
+                while ($at -lt $count -and $head[$at] -ne 0x0A) { $at++ }
+                continue
+            }
+            if ($byte -lt 0x30 -or $byte -gt 0x39) { return $null }
+            $start = $at
+            $value = 0L
+            while ($at -lt $count -and $head[$at] -ge 0x30 -and $head[$at] -le 0x39) {
+                if ($at - $start -ge 6) { return $null }
+                $value = $value * 10 + ($head[$at] - 0x30)
+                $at++
+            }
+            # A number that reaches the end of what was read may be cut short.
+            if ($at -ge $count) { return $null }
+            $numbers.Add($value)
+        }
+        $width = $numbers[0]
+        $height = $numbers[1]
+    } else {
+        return $null
+    }
+    if ($width -lt 1 -or $width -gt 32768 -or $height -lt 1 -or $height -gt 32768) { return $null }
+    return @{ Width = [int]$width; Height = [int]$height }
 }
 
 # --- REGION: Get-VMScreenshot
@@ -1389,20 +1480,24 @@ function Get-VMScreenshot {
     <#
     .SYNOPSIS
         Capture a PNG of the VM display from frame or window source.
+    .DESCRIPTION
+        Both sources capture the guest framebuffer. A frame capture returns
+        the image path. A window capture returns @{ ImagePath; Width; Height }
+        with the size read from the file's bytes, because the pointer scales
+        a click by the size of the frame its label was found in; a window
+        capture whose size cannot be read is removed and $null is returned.
     #>
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([string], [hashtable])]
     param(
         [Parameter(Mandatory)][string]$VMName,
         [ValidateSet('frame','window')][string]$Source = 'frame',
         [string]$OutFile
     )
-    # KVM only exposes the guest framebuffer (virsh screenshot); the
-    # window-vs-frame distinction maps to the same op here. Document the
-    # collapse in the debug stream so a 'window' caller can see why it
-    # got a frame.
+    # KVM only exposes the guest framebuffer (virsh screenshot), so both
+    # sources take the same capture; a window capture also carries its size.
     if ($Source -eq 'window') {
-        Write-Debug "Get-VMScreenshot on host.ubuntu.kvm: -Source 'window' falls back to framebuffer capture."
+        Write-Debug "Get-VMScreenshot on host.ubuntu.kvm: -Source 'window' is the guest framebuffer, returned with its size."
     }
     if (-not $OutFile) {
         $tmp = [System.IO.Path]::GetTempFileName()
@@ -1436,7 +1531,12 @@ function Get-VMScreenshot {
             -TimeoutSeconds $script:VirshQueryTimeoutSeconds
     } else {
         Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_6d9c4686b08fcf2a' -Arguments @{ ppm = "$ppm" })
-        return $ppm
+        if ($Source -ne 'window') { return $ppm }
+        $size = Get-KvmFrameSize -Path $ppm
+        if ($size) { return @{ ImagePath = $ppm; Width = $size.Width; Height = $size.Height } }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_frame_size_unreadable' -Arguments @{ path = "$ppm"; vmName = "$VMName" })
+        Remove-Item -LiteralPath $ppm -Force -ErrorAction SilentlyContinue
+        return $null
     }
     # A converter stopped at its cap may have written part of a PNG; a partial
     # frame must never reach OCR as a whole one.
@@ -1444,7 +1544,16 @@ function Get-VMScreenshot {
         Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
     }
     Remove-Item -LiteralPath $ppm -ErrorAction SilentlyContinue
-    if (Test-Path -LiteralPath $OutFile) { return $OutFile }
+    if (Test-Path -LiteralPath $OutFile) {
+        if ($Source -ne 'window') { return $OutFile }
+        # A plain hashtable, never an ordered dictionary: Send-Click binds
+        # -Capture as [hashtable].
+        $size = Get-KvmFrameSize -Path $OutFile
+        if ($size) { return @{ ImagePath = $OutFile; Width = $size.Width; Height = $size.Height } }
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.kvm_frame_size_unreadable' -Arguments @{ path = "$OutFile"; vmName = "$VMName" })
+        Remove-Item -LiteralPath $OutFile -Force -ErrorAction SilentlyContinue
+        return $null
+    }
     return $null
 }
 

@@ -177,18 +177,18 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 		})
 	}
 
-	// Per-host refresh, advertised only when this service holds both refresh
+	// Per-host repair, advertised only when this service holds both repair
 	// secrets: an agent is never shown a tool that could only refuse. The tool
-	// gate is the refresh credential gate, run on the INCOMING request after
+	// gate is the operator credential gate, run on the INCOMING request after
 	// the server's write gate, so an agent needs exactly what a curl needs --
-	// the ordinary write credential AND the refresh credential header.
-	if s.refreshEnabled() {
+	// the ordinary write credential AND the operator credential header.
+	if s.repairEnabled() {
 		reg.MustAdd(mcp.Tool{
-			Name: "pool_control_refresh_host",
+			Name: "pool_control_repair_host",
 			Description: "Ask ONE host to repair its hypervisor and test runner (the restart tier: reclaim a stalled runner, " +
 				"start a stopped hypervisor service, restart a hung one where that host supports it). Generate requestId once " +
 				"(a lowercase UUID) and reuse it on every retry, so a retry is never a second repair. Returns the host's " +
-				"acceptance and a stateUrl to poll; a busy host names the request it is currently handling. Requires the refresh " +
+				"acceptance and a stateUrl to poll; a busy host names the request it is currently handling. Requires the repair " +
 				"credential header in addition to the ordinary write credential.",
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"hostId":{"type":"string","description":"host id as listed by pool_control_hosts"},` +
@@ -199,14 +199,43 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 			ReadOnly:    false,
 			Destructive: true,
 			Idempotent:  true,
-			Gate:        s.refreshGate,
-			Handler: mcp.FromRouteWithBody(s.handleHostRefresh, http.MethodPost, "/api/host/refresh", func(a json.RawMessage) (string, []byte, error) {
+			Gate:        s.operatorGate,
+			Handler: mcp.FromRouteWithBody(s.handleHostRepair, http.MethodPost, "/api/host/repair", func(a json.RawMessage) (string, []byte, error) {
 				in, err := strictStringArgs(a, []string{"hostId", "requestId", "tier"}, []string{"maxRung"})
 				if err != nil {
 					return "", nil, err
 				}
 				b, err := json.Marshal(in)
 				return "", b, err
+			}),
+		})
+	}
+
+	// Per-host update, advertised only while this service holds the signing
+	// key and the operator credential, and gated like the repair tool. It has
+	// no drain input: no request this service sends ends a running cycle.
+	if s.updateEnabled() {
+		reg.MustAdd(mcp.Tool{
+			Name: "pool_control_update_host",
+			Description: "Ask ONE host to update itself: when its running cycle ends, stop the runner, bring its checkout " +
+				"current and start the runner again (scope restart), or also re-run its installer and test automation " +
+				"settings first (scope full). The update waits for the running cycle and gives up after drainSeconds; it " +
+				"never ends a cycle. Generate requestId once (a lowercase UUID) and reuse it on every retry. Returns the " +
+				"host's acceptance, a stateUrl to poll and the host's diagnosticsUrl. Requires the operator credential header in " +
+				"addition to the ordinary write credential.",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
+				`"hostId":{"type":"string","description":"host id as listed by pool_control_hosts"},` +
+				`"requestId":{"type":"string","description":"lowercase 8-4-4-4-12 UUID the caller generates once and reuses on retry"},` +
+				`"scope":{"type":"string","enum":["restart","full"],"description":"restart (the default) or full; the host must list the scope"},` +
+				`"drainSeconds":{"type":"integer","minimum":60,"maximum":21600,"description":"how long to wait for the running cycle before giving up with nothing changed; default 7200"},` +
+				`"expectCommit":{"type":"string","pattern":"^[0-9a-f]{7,40}$","description":"optional commit the checkout must reach; a check, never an instruction"}},` +
+				`"required":["hostId","requestId"],"additionalProperties":false}`),
+			ReadOnly:    false,
+			Destructive: true,
+			Idempotent:  true,
+			Gate:        s.operatorGate,
+			Handler: mcp.FromRouteWithBody(s.handleHostUpdate, http.MethodPost, "/api/host/update", func(a json.RawMessage) (string, []byte, error) {
+				return "", a, nil
 			}),
 		})
 	}
@@ -235,7 +264,7 @@ func strictStringArgs(args json.RawMessage, required, optional []string) (map[st
 		if refusal != nil {
 			shown := refusal.Field
 			if !fieldNameRE.MatchString(shown) {
-				shown = refreshFieldNamePlaceholder
+				shown = repairFieldNamePlaceholder
 			}
 			switch refusal.Detail {
 			case "unsupported_field":

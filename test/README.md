@@ -13,7 +13,7 @@ notification, and either preserves the VM or cleans it up depending on
 
 With `stopOnFailure: true`, the runner writes
 `runtime/diagnostic-preserve.json` before failure capture and pauses before
-automatic recovery, refresh, or another dispatch can replace the VM. The VM
+automatic recovery, repair, or another dispatch can replace the VM. The VM
 and marker survive runner shutdown. Remove the marker from the configured
 runtime directory, or explicitly set `testCycle.stopOnFailure: false`, to
 release the hold. Invalid markers or unreadable configuration keep the hold.
@@ -184,6 +184,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

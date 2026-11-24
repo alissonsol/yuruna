@@ -31,6 +31,13 @@ Run `ubuntu.server.24.update.sh` first.
 | `postgresql` | [PostgreSQL](../../docs/guest-image-setup.md#postgresql) from PGDG |
 | `k8s` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, PowerShell, Helm, OpenTofu, mkcert |
 
+The [browser](../../docs/guest-image-setup.md#browser) for page steps has no entrypoint
+here; run the shared script by its path:
+
+```
+E_SHA=<sha256> /usr/local/lib/yuruna/fetch-and-execute.sh guest/shared/ubuntu.browser.sh
+```
+
 Cloud CLIs and Graphviz are optional and are not installed by the Ubuntu
 `k8s` workload. Keep them in a separate opt-in installation when needed.
 
@@ -40,6 +47,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../../README.md)

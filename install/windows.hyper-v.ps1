@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,7 +35,14 @@ param(
     # On-disk transcript for this run. Generated once at first launch and
     # forwarded verbatim through every relaunch so all stages append to one
     # file. Operators do not normally pass this.
-    [string]$LogPath
+    [string]$LogPath,
+    # The host update's install phase: see the Unattended mode region.
+    [switch]$Unattended,
+    # With -Unattended, only upgrade PowerShell 7 and exit; the host
+    # controller's shim runs this under Windows PowerShell.
+    [switch]$UpgradePowerShell,
+    [ValidatePattern('^$|^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')][string]$RequestId = '',
+    [ValidateRange(0, 9999)][int]$Attempt = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -58,7 +65,8 @@ $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
 # --- REGION: https://yuruna.link/429fb30b-0008
 $script:YurunaBranchExplicit = $PSBoundParameters.ContainsKey('YurunaBranch')
 
-function Write-Step { param([string]$m) Write-Output "==> $m" }
+# The step a failure ends on stays the one the record names.
+function Write-Step { param([string]$m) if ($m -and -not $script:InstallError) { $script:InstallStep = $m }; Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
 function Write-Die  { param([string]$m) Write-Error $m }
 
@@ -75,6 +83,42 @@ try {
     if ($YurunaDir.Length -gt 3) { $YurunaDir = $YurunaDir.TrimEnd('\') }
 } catch {
     Write-Warn "Could not resolve -YurunaDir '$YurunaDir' to a full path: $($_.Exception.Message)"
+}
+
+# --- REGION: Unattended mode
+# -Unattended is the host update's install phase on a host that already runs the
+# framework: no prompt, no git command, nothing stopped, no status folder or
+# recovery capsule touched, no baseline reset, no window, editor, -NoExit shell
+# or hold, and no deferred PowerShell upgrade (the result records pwshUpgrade and
+# the host controller runs it). The step that runs it reads the marker below
+# before it starts this file, because an older copy fails on the parameter.
+$script:YurunaUnattendedProtocolVersion = 1
+$script:InstallStep = ''
+$script:InstallReason = ''
+# A failure whose cause the result record names with a token of its own.
+function Stop-InstallRefused {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Records a reason token and ends the run; it changes nothing on the host.')]
+    param([Parameter(Mandatory)][string]$Reason, [Parameter(Mandatory)][string]$Message)
+    $script:InstallReason = $Reason
+    Write-Die $Message
+}
+
+# --- REGION: PowerShell upgrade for the host controller
+# PowerShell 7 cannot replace itself: winget's MSI closes every process holding
+# its files. The host controller's shim, a Windows PowerShell process, runs this
+# mode between two controller runs; it writes its own result file, so this mode
+# writes no install record. winget exit -1978335189 is "no applicable upgrade".
+if ($UpgradePowerShell) {
+    if (-not $Unattended -or $PSVersionTable.PSEdition -eq 'Core') {
+        Write-Warn '-UpgradePowerShell runs with -Unattended under Windows PowerShell only.'
+        exit 2
+    }
+    Write-Step 'Upgrading PowerShell 7 via winget'
+    & winget upgrade --id 'Microsoft.PowerShell' --exact --silent --source winget --accept-package-agreements --accept-source-agreements --disable-interactivity
+    $upgradeExit = $LASTEXITCODE
+    if ($upgradeExit -eq -1978335189) { $upgradeExit = 0 }
+    exit $upgradeExit
 }
 
 # --- REGION: Deferred issues
@@ -140,16 +184,19 @@ function Stop-InstallLog {
 # --- REGION: Machine-readable outcome
 # One JSON record of how the elevated run ended, at a fixed path and beside the
 # log, so a caller reads the outcome instead of parsing the closing text: outcome
-# succeeded | succeeded-with-issues | restart-required | failed, the exit code,
-# every deferred issue, the installed VERSION and the log path. Best-effort.
+# succeeded | succeeded-with-issues | restart-required (succeeded, a restart of
+# Windows pending) | failed, the exit code, every deferred issue, the installed
+# VERSION and the log path. restartRequired carries the restart on its own, so a
+# run that failed and also needs a restart is failed. Best-effort.
 function Write-InstallResult {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Best-effort outcome record of this run; it must be written even under a failed install.')]
     param([string]$Outcome = '')
+    if ($UpgradePowerShell) { return }
     try {
         if (-not $Outcome) {
-            $Outcome = if ($script:RestartNeeded) { 'restart-required' }
-                elseif (-not $script:InstallSucceeded) { 'failed' }
+            $Outcome = if (-not $script:InstallSucceeded) { 'failed' }
+                elseif ($script:RestartNeeded) { 'restart-required' }
                 elseif ($script:YurunaIssue.Count -gt 0) { 'succeeded-with-issues' }
                 else { 'succeeded' }
         }
@@ -165,6 +212,19 @@ function Write-InstallResult {
             issues      = @($script:YurunaIssue | ForEach-Object { [string]$_ })
             log         = [string]$LogPath
             finishedUtc = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ', [System.Globalization.CultureInfo]::InvariantCulture)
+            requestId   = $(if ($RequestId) { $RequestId } else { $null })
+            attempt     = $(if ($Attempt -gt 0) { $Attempt } else { $null })
+            unattended  = [bool]$Unattended
+            reason      = $null
+            pwshUpgrade = $null
+            restartRequired = [bool]$script:RestartNeeded
+            step        = [string]$script:InstallStep
+        }
+        if ($Unattended -and $Outcome -eq 'failed') {
+            $record.reason = $(if ($script:InstallReason) { $script:InstallReason } else { 'installer_failed' })
+        }
+        if ($Unattended -and $script:PwshUpgrade) {
+            $record.pwshUpgrade = [ordered]@{ from = [string]$script:PwshUpgrade.From; to = [string]$script:PwshUpgrade.To; pending = $true }
         }
         $json = ConvertTo-Json -InputObject $record -Depth 3 -Compress
         $dir = Join-Path $env:LOCALAPPDATA 'yuruna'
@@ -329,6 +389,12 @@ function Test-SystemRequirement {
         foreach ($a in $advice) { Write-Warn "Recommended: $a" }
         return
     }
+    # A host in service already runs below whatever it misses: recorded, not asked.
+    if ($Unattended) {
+        foreach ($i in $issues) { Add-InstallIssue "Below the tested baseline: $i" }
+        foreach ($a in $advice) { Write-Warn "Recommended: $a" }
+        return
+    }
     Write-Warning ''
     Write-Warning '========'
     Write-Warning '  System does not meet Yuruna TESTED requirements:'
@@ -479,6 +545,7 @@ $principal = New-Object Security.Principal.WindowsPrincipal(
     [Security.Principal.WindowsIdentity]::GetCurrent())
 $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
+if (-not $Unattended) {
 @'
 
   +---------------------------------------------------------------+
@@ -492,6 +559,79 @@ $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administ
   +---------------------------------------------------------------+
 
 '@ | Write-Output
+}
+
+# --- REGION: Process identity
+# Defined ahead of the unattended preflight, which asks whether a runner is alive.
+# A recycled PID can belong to another pwsh -- the shell that launched this
+# installer is one -- so a PID-file entry must also run a Yuruna script or have
+# started within two seconds of its .start record.
+# See https://yuruna.link/429fb30b-000b
+function Test-YurunaPidFileOwner {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][int]$ProcessId,
+        [AllowEmptyString()][string]$CommandLine,
+        [Parameter(Mandatory)][string[]]$Pattern,
+        [string]$StartFile
+    )
+    if ($CommandLine) {
+        foreach ($pat in $Pattern) { if ($CommandLine -like "*$pat*") { return $true } }
+    }
+    if (-not $StartFile -or -not (Test-Path -LiteralPath $StartFile)) { return $false }
+    try {
+        $recorded = [datetime]::Parse((Get-Content -LiteralPath $StartFile -Raw -ErrorAction Stop).Trim(),
+            [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
+        $live = (Get-Process -Id $ProcessId -ErrorAction Stop).StartTime.ToUniversalTime()
+        return ([Math]::Abs(($live - $recorded).TotalSeconds) -le 2)
+    } catch {
+        return $false
+    }
+}
+
+# A runner of this checkout is alive: a pid file names a live owner, or a
+# PowerShell process runs one of its scripts.
+function Test-YurunaRunnerAlive {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$YurunaDir)
+    $patterns = @('Start-TestRunner.ps1', 'Invoke-TestRunnerInnerLoop.ps1', 'Debug-TestSequence.ps1')
+    $commandLines = @{}
+    foreach ($p in @(Get-CimInstance Win32_Process -Filter "Name='pwsh.exe' OR Name='powershell.exe'" -ErrorAction SilentlyContinue)) {
+        if ($p.CommandLine -and [int]$p.ProcessId -ne $PID) { $commandLines[[int]$p.ProcessId] = [string]$p.CommandLine }
+    }
+    foreach ($commandLine in $commandLines.Values) {
+        foreach ($pat in $patterns) { if ($commandLine -like "*$pat*") { return $true } }
+    }
+    $runtimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR } else { Join-Path $YurunaDir 'test\status\runtime' }
+    foreach ($pidName in 'runner.pid', 'inner.pid') {
+        $pidFile = Join-Path $runtimeDir $pidName
+        if (-not (Test-Path -LiteralPath $pidFile)) { continue }
+        $n = 0
+        try { if (-not [int]::TryParse((Get-Content -LiteralPath $pidFile -Raw -ErrorAction Stop).Trim(), [ref]$n)) { continue } } catch { continue }
+        if (-not (Get-Process -Id $n -ErrorAction SilentlyContinue)) { continue }
+        $startFile = Join-Path $runtimeDir ($pidName -replace '\.pid$', '.start')
+        if (Test-YurunaPidFileOwner -ProcessId $n -CommandLine ([string]$commandLines[$n]) -Pattern $patterns -StartFile $startFile) { return $true }
+    }
+    return $false
+}
+
+# --- REGION: Preflight: an unattended run needs a provisioned host
+# A first install asks things of a person; an unattended run refuses it. Every
+# refusal here comes before the first change. It follows the elevation probe
+# above: the caller is already elevated and the host already provisioned, so
+# there is no UAC relaunch, no PowerShell bootstrap and no first install. A live
+# runner is a refusal too: the host controller stops what must stop, with its
+# identity check, and the installer stops nothing.
+if ($Unattended) {
+    if (-not $isAdmin) { Stop-InstallRefused -Reason 'not_elevated' -Message 'An unattended run starts elevated; it never asks for consent.' }
+    if ($PSVersionTable.PSVersion.Major -lt 7 -or -not (Test-Path -LiteralPath (Join-Path $YurunaDir '.git')) -or
+        -not (Test-Path -LiteralPath (Join-Path $YurunaDir 'test\Start-TestRunner.ps1'))) {
+        Stop-InstallRefused -Reason 'not_provisioned' -Message "No framework checkout at $YurunaDir run under PowerShell 7; an unattended run only updates a host that already runs the framework."
+    }
+    if (Test-YurunaRunnerAlive -YurunaDir $YurunaDir) { Stop-InstallRefused -Reason 'runner_present' -Message 'A Yuruna runner is still running; an unattended run stops nothing.' }
+}
 
 # --- REGION: New-ElevatedInstallerCommand
 # The elevated stage must not run a file in a folder this account can write: a
@@ -789,7 +929,15 @@ function Invoke-YurunaInstallerState {
     if ($Action -eq 'Capture') {
         if ([IO.File]::Exists($snapshot)) { throw "Installer snapshot already exists: $snapshot" }
         $launch = $null
-        if (-not $PrivateRoot) { $PrivateRoot = Join-Path $HOME '.yuruna/host-refresh' }
+        if (-not $PrivateRoot) {
+            $PrivateRoot = Join-Path $HOME '.yuruna/host-repair'
+            # Code that predates the host-repair root keeps its launch records
+            # under host-refresh until a later resolver moves that root, and the
+            # runner being upgraded may be that code, so the earlier root is read
+            # when it is the only one.
+            $earlierRoot = Join-Path $HOME '.yuruna/host-refresh'
+            if (-not [IO.Directory]::Exists($PrivateRoot) -and [IO.Directory]::Exists($earlierRoot)) { $PrivateRoot = $earlierRoot }
+        }
         if (([IO.DirectoryInfo]::new($PrivateRoot)).LinkTarget) { throw 'Installer launch state root is linked.' }
         if (-not $runtimeExplicit -and [IO.Directory]::Exists($PrivateRoot)) {
             $recordMatches = @()
@@ -945,33 +1093,6 @@ function Get-StatusServicePort {
 }
 
 # --- REGION: https://yuruna.link/429fb30b-000a
-# A recycled PID can belong to another pwsh -- the shell that launched this
-# installer is one -- so a PID-file entry must also run a Yuruna script or have
-# started within two seconds of its .start record.
-# See https://yuruna.link/429fb30b-000b
-function Test-YurunaPidFileOwner {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory)][int]$ProcessId,
-        [AllowEmptyString()][string]$CommandLine,
-        [Parameter(Mandatory)][string[]]$Pattern,
-        [string]$StartFile
-    )
-    if ($CommandLine) {
-        foreach ($pat in $Pattern) { if ($CommandLine -like "*$pat*") { return $true } }
-    }
-    if (-not $StartFile -or -not (Test-Path -LiteralPath $StartFile)) { return $false }
-    try {
-        $recorded = [datetime]::Parse((Get-Content -LiteralPath $StartFile -Raw -ErrorAction Stop).Trim(),
-            [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime()
-        $live = (Get-Process -Id $ProcessId -ErrorAction Stop).StartTime.ToUniversalTime()
-        return ([Math]::Abs(($live - $recorded).TotalSeconds) -le 2)
-    } catch {
-        return $false
-    }
-}
-
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
 # taskkill /T /F is deliberate: a soft Ctrl+C only requests "exit after the
 # current cycle", which can pin the checkout for a full VM cycle. VMs untouched.
@@ -1309,7 +1430,14 @@ if (Test-CachingProxyServiceRunning) {
     Write-Step 'yuruna-caching-proxy-service VM is running -- preserving cached content (no Stop-VM / Remove-VM in this installer)'
 }
 
+# Unattended, nothing is stopped and no recovery state is captured: the host
+# controller stopped what had to stop, with its identity check, and holds the
+# launch record; the listener keeps serving and the checkout does not move. A
+# live runner was refused by the preflight.
 $script:InstallerSnapshotPath = Join-Path $HOME ('.yuruna/installer-state/' + [guid]::NewGuid().ToString('N') + '/state.json')
+if ($Unattended) {
+    Write-Step 'Leaving the status service running (unattended)'
+} else {
 $capturedInstallerState = Invoke-YurunaInstallerState -Action Capture -RepoRoot $YurunaDir -SnapshotPath $script:InstallerSnapshotPath
 if ($capturedInstallerState) { Write-Step "Private installer recovery state: $script:InstallerSnapshotPath" }
 
@@ -1318,6 +1446,7 @@ Stop-YurunaProcess -YurunaDir $YurunaDir
 
 Write-Step 'Checking the Yuruna checkout is not locked by a shell / editor / Explorer'
 Assert-YurunaCheckoutMovable -Dir $YurunaDir
+}
 
 # --- REGION: winget availability
 # See https://yuruna.link/429fb30b-001c
@@ -1575,7 +1704,9 @@ if ($PSVersionTable.PSEdition -eq 'Core') {
     $pwshListed = $null
     try { $pwshListed = Get-WingetPackageVersion -Id 'Microsoft.PowerShell' } catch { $pwshListed = $null }
     $script:PwshUpgrade = Get-PwshUpgradePlan -Edition $PSVersionTable.PSEdition -Listed $pwshListed
-    if ($script:PwshUpgrade) {
+    if ($script:PwshUpgrade -and $Unattended) {
+        Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)); winget offers $($script:PwshUpgrade.To) -- recorded for the host controller, which upgrades it after this run"
+    } elseif ($script:PwshUpgrade) {
         Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)); winget offers $($script:PwshUpgrade.To) -- the upgrade runs in a separate Windows PowerShell process once this installer exits (upgrading now would terminate it)"
     } elseif ($pwshListed) {
         Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)), the newest winget offers"
@@ -1801,47 +1932,37 @@ reached here only because preflight was skipped or the edition was unrecognized.
 }
 
 # --- REGION: Preserve test/status runtime state
-$YurunaStatusBackup = $null
-$TestStatusSubdirs  = @('runtime', 'perf', 'log', 'extension', 'captures', 'ssh')
-function Backup-YurunaStatus {
-    $src = Join-Path $YurunaDir 'test/status'
-    if (-not (Test-Path $src)) { return }
-    $hasRuntime = $false
+# See https://yuruna.link/429fb30b-0012
+# The test/status subfolders hold this host's runtime state: cycle history, logs,
+# perf, the vault, captures and SSH keys. git ignores them, so an update in place
+# leaves them where they are; only a re-clone starts without them, and
+# Move-YurunaStatusFromCheckout moves them in from the checkout moved aside.
+$TestStatusSubdirs = @('runtime', 'perf', 'log', 'extension', 'captures', 'ssh')
+function Move-YurunaStatusFromCheckout {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$From,
+        [Parameter(Mandatory)][string]$To
+    )
+    $src = Join-Path $From 'test/status'
+    if (-not (Test-Path -LiteralPath $src -PathType Container)) { return }
+    Write-Step "Moving test/status runtime state from $From"
+    $dst = Join-Path $To 'test/status'
     foreach ($sub in $TestStatusSubdirs) {
-        $subPath = Join-Path $src $sub
-        if (-not (Test-Path $subPath)) { continue }
-        $extras = Get-ChildItem -LiteralPath $subPath -Force -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -ne '.gitkeep' }
-        if ($extras) { $hasRuntime = $true; break }
-    }
-    if (-not $hasRuntime) { return }
-    # Each backup has a unique name and lives only until a successful restore.
-    $script:YurunaStatusBackup = Join-Path $env:TEMP ("yuruna-status-backup-{0}" -f [guid]::NewGuid().ToString('N'))
-    New-Item -ItemType Directory -Path $script:YurunaStatusBackup -Force | Out-Null
-    Write-Step "Preserving test/status runtime state (cycle history, logs, perf, vault, captures, ssh keys)"
-    Write-Step "  source : $src"
-    Write-Step "  backup : $($script:YurunaStatusBackup)"
-    foreach ($sub in $TestStatusSubdirs) {
-        $subPath = Join-Path $src $sub
-        if (Test-Path $subPath) {
-            Copy-Item -LiteralPath $subPath -Destination $script:YurunaStatusBackup -Recurse -Force -ErrorAction Stop
+        $bsub = Join-Path $src $sub
+        if (-not (Test-Path -LiteralPath $bsub -PathType Container)) { continue }
+        $dsub = Join-Path $dst $sub
+        if (Test-Path -LiteralPath $dsub) {
+            Add-InstallIssue "Did not move test\status\$sub from ${From}: the fresh clone already has $dsub. The state is still at $bsub."
+            continue
+        }
+        try {
+            if (-not (Test-Path -LiteralPath $dst)) { New-Item -ItemType Directory -Path $dst -Force -ErrorAction Stop | Out-Null }
+            $null = Move-YurunaDirectory -From $bsub -To $dsub
+        } catch {
+            Add-InstallIssue "Could not move test\status\$sub from $From into the fresh clone ($($_.Exception.Message)); it is still at $bsub."
         }
     }
-}
-function Restore-YurunaStatus {
-    if (-not $script:YurunaStatusBackup -or -not (Test-Path $script:YurunaStatusBackup)) { return }
-    $dst = Join-Path $YurunaDir 'test/status'
-    Write-Step 'Restoring preserved test/status runtime state'
-    foreach ($sub in $TestStatusSubdirs) {
-        $bsub = Join-Path $script:YurunaStatusBackup $sub
-        if (Test-Path $bsub) {
-            $dsub = Join-Path $dst $sub
-            if (-not (Test-Path $dsub)) { New-Item -ItemType Directory -Path $dsub -Force | Out-Null }
-            Copy-Item -Path (Join-Path $bsub '*') -Destination $dsub -Recurse -Force -ErrorAction Stop
-        }
-    }
-    Remove-Item -LiteralPath $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue
-    $script:YurunaStatusBackup = $null
 }
 
 # --- REGION: Tolerate a v / no-v tag mismatch
@@ -1892,6 +2013,12 @@ function Resolve-YurunaDevBranch {
 }
 
 # --- REGION: Clone / update the repo
+# Unattended, the host update's source phase owns the checkout: no git command
+# runs from here through the pin, which keeps a pin, a ring hold and
+# -NoGitPull intact.
+if ($Unattended) {
+    Write-Step "Using the checkout at $YurunaDir as it is (unattended: no fetch, pull, clone or renormalize)"
+} else {
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 $gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
 if (-not $gitExe) { Write-Die 'git not found after install -- open a new terminal and re-run.' }
@@ -1899,11 +2026,6 @@ if (-not $gitExe) { Write-Die 'git not found after install -- open a new termina
 $parent = Split-Path -Parent $YurunaDir
 if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
 
-try { Backup-YurunaStatus } catch {
-    if ($script:YurunaStatusBackup) { Remove-Item -LiteralPath $script:YurunaStatusBackup -Recurse -Force -ErrorAction SilentlyContinue }
-    $script:YurunaStatusBackup = $null
-    throw
-}
 
 if (Test-Path (Join-Path $YurunaDir '.git')) {
     Write-Step "Updating existing Yuruna checkout at $YurunaDir"
@@ -2024,6 +2146,8 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
                     Write-Die "Re-cloning from $recloneRemote ('$YurunaBranch') failed (exit $cloneExit) and the previous checkout could not be put back. It is at $YurunaBackupDir, with its test/status runtime state inside."
                 }
                 $script:YurunaBackupCreated = $null
+            } else {
+                Move-YurunaStatusFromCheckout -From $YurunaBackupDir -To $YurunaDir
             }
         }
     }
@@ -2078,10 +2202,10 @@ if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Pat
         Write-Warn "No VERSION file at $versionFile -- cannot resolve a release to pin; leaving the host on 'main'."
     }
 }
-Restore-YurunaStatus
 if (Test-Path -LiteralPath $script:InstallerSnapshotPath) {
     $null = Invoke-YurunaInstallerState -Action Restore -RepoRoot $YurunaDir -SnapshotPath $script:InstallerSnapshotPath
     Write-Step "Recorded runner options retained. After setup, explicitly start with: pwsh '$YurunaDir/test/lab/Start-RecordedTestRunner.ps1' -SnapshotPath '$script:InstallerSnapshotPath'"
+}
 }
 
 # --- REGION: Seed test.config.yml from template
@@ -2094,8 +2218,13 @@ if (-not (Test-Path $cfg) -and (Test-Path $tpl)) {
 }
 
 # --- REGION: Baseline reset: remove test-* VMs
+# Unattended, skipped: a cycle that ended has removed its VMs, a VM kept for
+# diagnosis must stay, and the VMs of a cycle the update ended are the next
+# cycle's to remove.
 $removeTestVMs = Join-Path $YurunaDir 'test\Remove-TestVMFiles.ps1'
-if ($script:RestartNeeded) {
+if ($Unattended) {
+    Write-Step 'Leaving test-* VMs to the next cycle (unattended)'
+} elseif ($script:RestartNeeded) {
     Write-Warn 'Skipping test\Remove-TestVMFiles.ps1 until after the pending Hyper-V restart.'
 } elseif (Test-Path $removeTestVMs) {
     $pwshCmd3 = Get-Command pwsh -ErrorAction SilentlyContinue
@@ -2179,11 +2308,6 @@ $script:InstallSucceeded = $true
 } catch {
     $script:InstallError = $_
 } finally {
-    if ($script:YurunaStatusBackup) {
-        try { Restore-YurunaStatus } catch {
-            Write-Warning ("Runtime state restore failed; preserved backup remains at '{0}': {1}" -f $script:YurunaStatusBackup, $_.Exception.Message)
-        }
-    }
     # --- REGION: Done summary
     # See https://yuruna.link/429fb30b-001f
     # The shell installers print their Backup notice on its own; here each outcome
@@ -2250,6 +2374,9 @@ $script:InstallSucceeded = $true
             Write-Warning ("  Remove-Item -Recurse -Force '" + $script:YurunaBackupCreated + "'")
             Write-Warning '========'
         }
+    }
+    elseif ($Unattended) {
+        Write-Step 'Unattended: no handoff window, editor or shell is opened'
     }
     else {
         # --- REGION: Handoff window
@@ -2601,7 +2728,7 @@ if ($script:YurunaIssue.Count -gt 0) {
 
 # --- REGION: Start the PowerShell upgrade after this run
 # See https://yuruna.link/429fb30b-001b
-if ($script:PwshUpgrade) {
+if ($script:PwshUpgrade -and -not $Unattended) {
     $upgradeLog = [IO.Path]::ChangeExtension($LogPath, $null).TrimEnd('.') + '.pwsh-upgrade.log'
     Write-Output ''
     try {
@@ -2635,7 +2762,7 @@ if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -match '^yuruna-window
 # See https://yuruna.link/429fb30b-0020
 # Failure and reboot outcomes have no handoff window; hold after the complete summary.
 # The 60-second delay is bounded and never asks for input.
-if ($script:RestartNeeded -or -not $script:InstallSucceeded) {
+if (-not $Unattended -and ($script:RestartNeeded -or -not $script:InstallSucceeded)) {
     Write-Output ''
     Write-Output '========'
     if ($script:RestartNeeded) {

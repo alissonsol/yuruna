@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a70b09-faec-4f05-9d24-b07e35b3f8f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,7 @@ Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.ps
     guarantees, per-writer unique temp naming, boot-recovery contract)
     live at https://yuruna.link/42d38664-001d.
 #>
+
 
 function Write-YurunaStateFile {
     <#

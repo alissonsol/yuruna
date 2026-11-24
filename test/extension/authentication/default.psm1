@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -319,6 +319,78 @@ function Reset-UsersConfigCache {
     param()
     if (-not $PSCmdlet.ShouldProcess('users.yml cache', 'Reset')) { return }
     $script:UsersConfig = $null
+}
+
+# --- REGION: Unreadable state files
+# Why these bytes cannot serve as a state file, or '' when they can. Every
+# reader of these files wants a mapping at the root, so anything else -- an
+# empty file included -- is the same failure to them.
+function Get-AuthStateFileProblem {
+    param([AllowNull()][byte[]]$Bytes)
+    $text = if ($Bytes) { [Text.UTF8Encoding]::new($false).GetString($Bytes).TrimStart([char]0xFEFF) } else { '' }
+    if (-not $text.Trim()) { return 'empty' }
+    try { $doc = ConvertFrom-Yaml -Yaml $text -Ordered -ErrorAction Stop } catch { return 'unparseable' }
+    if ($doc -isnot [System.Collections.IDictionary]) { return 'not-a-mapping' }
+    return ''
+}
+
+function Repair-AuthenticationStateFile {
+<#
+.SYNOPSIS
+    Moves aside a vault.yml or users.yml that cannot be read as a mapping and
+    starts that file over.
+.DESCRIPTION
+    An empty or unparseable state file holds nothing any reader can use: the
+    vault and the user mapping read it as no data, and the config gate refuses
+    every cycle over it. An interrupted copy of test/status leaves exactly this
+    (zero-byte files under their usual names), and nothing but an operator
+    would otherwise clear it.
+
+    Each such file is renamed to <name>.unreadable-<UTC stamp> in the same
+    folder, so its bytes stay recoverable, and then:
+      users.yml  is recreated from users.yml.template, the local-only mapping
+                 a fresh host starts with;
+      vault.yml  stays absent, so the vault starts empty and every password it
+                 held has to be set again with Set-Password.
+    A readable file is never touched. The vault mutex is held throughout, and a
+    file counts as damaged only when two reads a moment apart return the same
+    bytes: the users.yml writers rewrite that file in place without the mutex,
+    and a read inside such a rewrite is not damage.
+.OUTPUTS
+    [pscustomobject[]] one per repaired file: Name, Path, Problem (empty,
+    unparseable or not-a-mapping), BackupPath, Recreated.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([pscustomobject[]], [object[]])]
+    param()
+    $cmdlet = $PSCmdlet
+    $stamp = [DateTime]::UtcNow.ToString('yyyyMMddTHHmmssZ', [Globalization.CultureInfo]::InvariantCulture)
+    return @(Invoke-WithVaultLock -Action {
+        foreach ($path in @($script:VaultPath, $script:UsersPath)) {
+            if (-not [IO.File]::Exists($path)) { continue }
+            $bytes = [IO.File]::ReadAllBytes($path)
+            $problem = Get-AuthStateFileProblem -Bytes $bytes
+            if (-not $problem) { continue }
+            Start-Sleep -Milliseconds 500
+            if (-not [IO.File]::Exists($path)) { continue }
+            if ([Convert]::ToBase64String([IO.File]::ReadAllBytes($path)) -cne [Convert]::ToBase64String($bytes)) { continue }
+            $backup = "$path.unreadable-$stamp"
+            for ($n = 2; [IO.File]::Exists($backup); $n++) { $backup = "$path.unreadable-$stamp-$n" }
+            if (-not $cmdlet.ShouldProcess($path, "Move the $problem file to $backup")) { continue }
+            [IO.File]::Move($path, $backup)
+            $name = [IO.Path]::GetFileName($path)
+            $recreated = $false
+            if ($path -eq $script:UsersPath) {
+                $script:UsersConfig = $null
+                if ([IO.File]::Exists($script:UsersTemplate)) {
+                    Copy-Item -LiteralPath $script:UsersTemplate -Destination $script:UsersPath
+                    $recreated = $true
+                }
+            }
+            Write-VaultEvent -EventName 'init' -Outcome 'ok' -Detail "$name was $problem; moved to $([IO.Path]::GetFileName($backup))"
+            [pscustomobject]@{ Name = $name; Path = $path; Problem = $problem; BackupPath = $backup; Recreated = $recreated }
+        }
+    })
 }
 
 # Internal: resolve a logical user to its mapping entry. Returns a normalized
@@ -868,6 +940,7 @@ Export-ModuleMember -Function `
     Test-VaultEntry, `
     Read-UsersConfig, `
     Reset-UsersConfigCache, `
+    Repair-AuthenticationStateFile, `
     Set-Password, `
     Set-UserVaultKey, `
     Remove-VaultEntry, `

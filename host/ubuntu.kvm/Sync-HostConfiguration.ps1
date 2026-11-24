@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42040d67-5b20-4d5c-a82c-4a95c2371f44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -153,7 +153,7 @@ if ($networkName) {
     }
     # Get-HostIpv4Prefix is module-private, so it has to be invoked inside the
     # driver's own scope. Called bare from here it raises CommandNotFound, the
-    # catch swallows it, and the report claims the refresh rung is unavailable on
+    # catch swallows it, and the report claims the repair rung is unavailable on
     # every host -- the one line of this whole section that would always lie.
     $prefix = $null
     try {

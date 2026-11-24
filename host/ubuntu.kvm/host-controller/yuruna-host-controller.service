@@ -1,0 +1,20 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# GUID: 42202682-e189-40f4-b410-a70b09c02449
+# Installed by host/ubuntu.kvm/Enable-TestAutomation.ps1; removed by Disable-TestAutomation.ps1.
+[Unit]
+Description=Yuruna host controller
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@ACCOUNT@
+SupplementaryGroups=libvirt kvm
+ExecStart=/bin/sh @SHIM@
+Restart=always
+RestartSec=5
+KillMode=process
+OOMPolicy=continue
+
+[Install]
+WantedBy=multi-user.target

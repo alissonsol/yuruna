@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b82f42-c6d9-a81f-8dcf-0c02e575e3eb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,8 +28,8 @@
         }
         ' דקות ונסו שוב'
     )
-    'auth.bearer_required' = 'נדרש אסימון אימות למעבדה'
-    'auth.changes_disabled' = 'לא הוגדרו כתובת URL של המרכז או אסימון אימות למעבדה; ביצוע שינויים מושבת'
+    'auth.bearer_required' = 'נדרש מפתח אימות פנימי'
+    'auth.changes_disabled' = 'לא הוגדרו כתובת URL של המרכז או מפתח אימות פנימי; ביצוע שינויים מושבת'
     'auth.detail_encoding' = 'קידוד הבקשה נכשל'
     'auth.detail_http' = @(
         'המרכז השיב בקוד HTTP '
@@ -41,7 +41,7 @@
     )
     'auth.detail_malformed_aggregator' = 'כתובת URL של המרכז אינה תקינה'
     'auth.detail_no_aggregator' = 'לא הוגדרה כתובת URL של המרכז'
-    'auth.detail_unconfigured' = 'לא הוגדרו אסימון אימות למעבדה או כתובת URL של המרכז'
+    'auth.detail_unconfigured' = 'לא הוגדרו מפתח אימות פנימי או כתובת URL של המרכז'
     'auth.detail_unreachable' = 'לא ניתן להגיע ליעד'
     'auth.encode_refusal' = 'השער לא הצליח לקודד את הודעת הסירוב שלו'
     'auth.host_not_served' = @(
@@ -61,6 +61,17 @@
     )
     'auth.login_unavailable' = 'לא הוגדרה כתובת URL של המרכז, ולכן מרכז המאגר אינו יכול לבדוק אסימון מעבדה; הפעולות נשארות נעולות'
     'auth.malformed_request' = 'גוף הבקשה אינו תקין'
+    'auth.operator_credential_required' = 'פעולה זו דורשת את אישור המפעיל בכותרת ⁦X-Yuruna-Operator-Credential⁩; הפעלת מעבדה, אסימון מעבדה או מפתח אימות פנימי אינם מתקבלים.'
+    'auth.operator_credential_throttled' = @(
+        'יותר מדי ניסיונות של אישור מפעיל מכתובת זו; המתינו '
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' דקות ונסו שוב.'
+    )
+    'auth.operator_credential_unconfigured' = 'תיקון מארח מרחוק מושבת: לא הוקצה לשירות זה אישור מפעיל.'
     'auth.proof_check_failed' = @(
         'לא ניתן היה לבדוק את הוכחת השליטה ('
         @{
@@ -72,20 +83,9 @@
     )
     'auth.proof_expired' = 'תוקף הוכחת השליטה פג או שמקורה אינו במאגר זה'
     'auth.proof_shape' = 'זו אינה הוכחת שליטה'
-    'auth.proof_unconfigured' = 'לא הוגדרו אסימון אימות למעבדה או כתובת URL של המרכז, ולכן לא ניתן לבדוק הוכחת שליטה; הפעולות נשארות נעולות'
-    'auth.refresh_credential_required' = 'פעולה זו דורשת refresh credential בכותרת X-⁦Yuruna-Refresh⁩-Credential; הפעלת מעבדה, אסימון מעבדה או מפתח אימות פנימי אינם מתקבלים.'
-    'auth.refresh_throttled' = @(
-        'יותר מדי ניסיונות refresh credential מכתובת זו; המתינו '
-        @{
-            'arg' = 'minutes'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        ' דקות ונסו שוב.'
-    )
-    'auth.refresh_unconfigured' = 'רענון מארח מרחוק מושבת: לא הוקצה לשירות זה refresh credential.'
-    'auth.route_disabled' = 'לא הוגדר אסימון אימות למעבדה; נתיב זה מושבת'
-    'auth.session_required' = 'נדרשת הפעלה באמצעות אסימון מעבדה או אסימון אימות למעבדה'
+    'auth.proof_unconfigured' = 'לא הוגדרו מפתח אימות פנימי או כתובת URL של המרכז, ולכן לא ניתן לבדוק הוכחת שליטה; הפעולות נשארות נעולות'
+    'auth.route_disabled' = 'לא הוגדר מפתח אימות פנימי; נתיב זה מושבת'
+    'auth.session_required' = 'נדרשת הפעלת מעבדה או מפתח אימות פנימי'
     'auth.token_check_failed' = @(
         'מרכז המאגר לא הצליח לבדוק את אסימון המעבדה ('
         @{

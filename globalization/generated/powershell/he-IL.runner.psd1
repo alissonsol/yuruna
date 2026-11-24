@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a07001-0b1b-e8af-74b4-0c25e481f7c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,8 +40,50 @@
         }
         "`n  לפתרון (אחת מהאפשרויות): העניקו ל־GH_TOKEN של מארח זה גישה למאגר הקוד,`n                או הגדירו לפרויקט של המאגר כתובת URL של מאגר קוד שכל החברים יכולים לקרוא."
     )
+    'runner.auth_state_users_restarted' = @(
+        'לא ניתן היה לקרוא את users.yml כמיפוי ('
+        @{
+            'arg' = 'problem'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'usersPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. הבתים שלו הועברו אל '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ו-users.yml חדש הועתק מהתבנית; יש להזין מחדש את המיפויים הארגוניים ואת מפתחות הכספת מתוך העותק שהועבר.'
+    )
+    'runner.auth_state_vault_restarted' = @(
+        'לא ניתן היה לקרוא את vault.yml כמיפוי ('
+        @{
+            'arg' = 'problem'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'vaultPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. הבתים שלו הועברו אל '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' והכספת מתחילה ריקה; יש להגדיר מחדש כל סיסמה שהייתה בה באמצעות Set-Password (ראו docs/test-config.md).'
+    )
     'runner.boot_recovery_preserved_controls' = @(
-        'השחזור באתחול (שימור בעת רענון) שמר על '
+        'השחזור באתחול (שימור בעת העברת שליטה) שמר על '
         @{
             'arg' = 'count'
             'type' = 'integer'
@@ -69,6 +111,28 @@
     'runner.capability_gate_host_command_missing' = '  הרצפים מריצים פקודות מארח שאינן קיימות במארח זה:'
     'runner.capability_gate_host_command_remedy' = '  התקינו במארח זה את הפקודות החסרות, או הסירו את השלבים שמריצים אותן מקובצי YAML של רצפי המחזור.'
     'runner.capability_gate_host_command_step' = @(
+        '        '
+        @{
+            'arg' = 'sequence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', שלב '
+        @{
+            'arg' = 'step'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'action'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'runner.capability_gate_ocr_engine_missing' = '  הרצפים מאתרים טקסט באמצעות מנועי OCR שאינם קיימים במארח זה:'
+    'runner.capability_gate_ocr_engine_remedy' = '  התקינו במארח זה את המנוע החסר, או הסירו את השלבים שזקוקים לו מקובצי YAML של רצפי המחזור.'
+    'runner.capability_gate_ocr_engine_step' = @(
         '        '
         @{
             'arg' = 'sequence'
@@ -119,6 +183,44 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.config_naming_change' = @(
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'old'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'new'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'current'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' (הקובץ הקודם נשמר בשם '
+        @{
+            'arg' = 'backupPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ')'
     )
     'runner.config_port_firewall_unconfirmed' = @(
         'שירות התצורה לא הצליח לאשר שתעבורת TCP נכנסת ביציאה :'
@@ -744,6 +846,170 @@
             'trust' = 'external'
         }
     )
+    'runner.handoff_barrier_held' = @(
+        'הפעולה חודשה לאחר פעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': חסומה על ידי '
+        @{
+            'arg' = 'controls'
+            'type' = 'text'
+            'trust' = 'internal'
+        }
+        '. שחררו אותם מדף המצב; עד אז לא תיווצר או תשונה מכונה וירטואלית.'
+    )
+    'runner.handoff_barrier_released' = @(
+        'הבקרות החוסמות שוחררו לאחר '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' s; המחזור שחודש ממשיך.'
+    )
+    'runner.handoff_complete' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] המוכנות לפעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' אומתה; מתבצעת יציאה משער המריץ.'
+    )
+    'runner.handoff_complete_action' = @(
+        'השלימו העברת שליטה במריץ ('
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
+    'runner.handoff_issue_action' = @(
+        'הנפיקו אסימון להעברת שליטה במריץ ('
+        @{
+            'arg' = 'purpose'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
+    )
+    'runner.handoff_preflight_cycle' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] בדיקה מקדימה להעברת שליטה בלבד: ללא git pull, שינוי מכונה וירטואלית או ניקוי בקרות במחזור זה.'
+    )
+    'runner.handoff_preflight_failed' = @(
+        'הבדיקה המקדימה להעברת שליטה נכשלה ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); דבר לא השתנה והמריץ נשאר חסום.'
+    )
+    'runner.handoff_preflight_ready' = @(
+        'הבדיקה המקדימה להעברת שליטה מוכנה עבור הבקשה '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; בהמתנה לפעולת המארח שתשחרר את המריץ.'
+    )
+    'runner.handoff_preflight_released' = @(
+        'הבדיקה המקדימה להעברת שליטה הסתיימה ('
+        @{
+            'arg' = 'outcome'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); מתבצעת יציאה כדי שהמריץ יוכל להמשיך.'
+    )
+    'runner.handoff_preflight_result' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] מחזור הבדיקה המקדימה להעברת שליטה הסתיים בקוד יציאה '
+        @{
+            'arg' = 'exitCode'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.handoff_resume_action' = 'הפעילו מחדש את המריץ לאחר פעולת מארח'
+    'runner.handoff_resume_record_refused' = @(
+        '⁦Start-TestRunner⁩: הרשומה '
+        @{
+            'arg' = 'pidFile'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' במצב '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; חידוש לאחר העברת שליטה לעולם אינו משתלט על רשומת מריץ פעיל או לא ידוע ואינו מוחק אותה.'
+    )
+    'runner.handoff_resume_started' = @(
+        '⁦Start-TestRunner⁩: הפעולה מתחדשת לאחר פעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; השהיות, חסימות ובקשות להפעלה מחדש של המפעיל נשמרות.'
+    )
+    'runner.handoff_resume_switch_pair' = '⁦Start-TestRunner⁩: יש לספק את ⁦-HandoffResume⁩ ואת ⁦-HandoffToken⁩ יחד; ההפעלה לא תתבצע.'
+    'runner.handoff_resume_token_refused' = @(
+        '⁦Start-TestRunner⁩: העברת השליטה במריץ נדחתה ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ההפעלה לא תתבצע.'
+    )
+    'runner.handoff_unverified' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] לא ניתן היה לאמת מוכנות לפעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); המריץ נשאר חסום.'
+    )
     'runner.host_action_exit_detail' = @(
         'פעולת המארח '''
         @{
@@ -813,6 +1079,73 @@
         }
         ' לא השיב, ולכן ההגדרה אינה ידועה ואין ודאות שהיא בטוחה.'
     )
+    'runner.host_controller_session_action' = 'סיום ההפעלה yuruna-controller של בקר המארח'
+    'runner.host_controller_start_error' = @(
+        'בקר המארח: שלב ההפעלה נכשל ('
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); לא הופעל בקר.'
+    )
+    'runner.host_controller_start_lock_unreadable' = 'בקר המארח: לא ניתן לקרוא את הנעילה שלו, ולכן לא מסתכנים בבקר שני; לא הופעל בקר.'
+    'runner.host_controller_start_no_multiplexer' = 'בקר המארח: לא נמצאו tmux או screen, ולכן לא הופעל בקר; המריץ מופעל בלעדיו.'
+    'runner.host_controller_start_not_deployed' = 'בקר המארח: לא נפרס במארח זה; הריצו את Enable-TestAutomation כדי לפרוס אותו. לא הופעל בקר.'
+    'runner.host_controller_start_not_desktop_session' = 'בקר המארח: לא הופעל, כי הפעלת המריץ הזו אינה בהפעלת שולחן העבודה (כניסת SSH או הפעלה ברקע). הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל אותו.'
+    'runner.host_controller_start_not_held' = @(
+        'בקר המארח: הפעלת ה-'
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' yuruna-controller נוצרה, אבל אף בקר לא תפס את הנעילה תוך 10 שניות. כדי לקרוא אותה: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_controller_start_running' = 'בקר המארח: פועל.'
+    'runner.host_controller_start_session_exists' = @(
+        'בקר המארח: הפעלת ה-'
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' שלו, yuruna-controller, כבר קיימת; ה-shim שלה מפעיל את הבקר. כדי לקרוא אותה: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_controller_start_session_unknown' = 'בקר המארח: לא ניתן היה לדעת אם ההפעלה yuruna-controller קיימת, ולכן לא הופעלה אחת.'
+    'runner.host_controller_start_start_failed' = @(
+        'בקר המארח: לא ניתן היה ליצור את הפעלת ה-'
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' yuruna-controller; לא הופעל בקר.'
+    )
+    'runner.host_controller_start_started' = @(
+        'בקר המארח: הופעל בהפעלת ה-'
+        @{
+            'arg' = 'multiplexer'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' שלו, yuruna-controller. כדי לקרוא אותה: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
     'runner.host_diagnostic_timeout' = 'הזמן הקצוב לאבחון המארח תם לאחר 120s; עיינו בדגימת המארח הקודמת.'
     'runner.host_diagnostic_worker_failed' = @(
         'אבחון המארח '
@@ -877,81 +1210,83 @@
         }
         ' שניות ונעצרה; המחזור עדיין נדחה.'
     )
-    'runner.host_refresh_action_dispose_obligations' = @(
-        'השלב הבא: לאחר בדיקה ידנית של כל פריט, תעדו אותו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-DisposeObligation⁩ '
+    'runner.host_operation_should_process_admission' = 'תעדו אישור לפעולת מארח'
+    'runner.host_operation_should_process_listener' = 'הפעילו את מאזין המצב במצב לא הרסני'
+    'runner.host_repair_action_dispose_obligations' = @(
+        'השלב הבא: לאחר בדיקה ידנית של כל פריט, תעדו אותו באמצעות: pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-DisposeObligation⁩ '
         @{
             'arg' = 'obligations'
             'type' = 'detail'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_action_elevate' = @(
+    'runner.host_repair_action_elevate' = @(
         'השלב הבא: העניקו לחשבון זה את ההרשאה הנדרשת לדרגה '
         @{
             'arg' = 'rung'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' (הפקודה המדויקת מוצגת לעיל כאשר יש פקודה מתאימה), ואז הריצו שוב את הרענון.'
+        ' (הפקודה המדויקת מוצגת לעיל כאשר יש פקודה מתאימה), ואז הריצו שוב את התיקון.'
     )
-    'runner.host_refresh_action_grant_automation' = 'השלב הבא: אפשרו ליישום שמפעיל מעטפת זו גישת אוטומציה אל UTM, ואז הריצו שוב את הרענון.'
-    'runner.host_refresh_action_gui_session' = 'השלב הבא: הריצו את הרענון מתוך הפעלת שולחן העבודה המחוברת; הפעלה זו מאפשרת צפייה בלבד.'
-    'runner.host_refresh_action_install_client' = @(
+    'runner.host_repair_action_grant_automation' = 'השלב הבא: אפשרו ליישום שמפעיל מעטפת זו גישת אוטומציה אל UTM, ואז הריצו שוב את התיקון.'
+    'runner.host_repair_action_gui_session' = 'השלב הבא: הריצו את התיקון מתוך הפעלת שולחן העבודה המחוברת; הפעלה זו מאפשרת צפייה בלבד.'
+    'runner.host_repair_action_install_client' = @(
         'השלב הבא: שחזרו את לקוח שורת הפקודה של מנהל המכונות הווירטואליות ('
         @{
             'arg' = 'client'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); הרענון אינו מתקין אותו מחדש.'
+        '); התיקון אינו מתקין אותו מחדש.'
     )
-    'runner.host_refresh_action_resume_request' = 'השלב הבא: המשיכו את הבקשה שטרם הושלמה באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩'
-    'runner.host_refresh_action_start_runner' = 'השלב הבא: הפעילו ידנית את מנגנון ההרצה: pwsh test⁦/Start-TestRunner.ps1⁩'
-    'runner.host_refresh_auth_action_create_authority' = 'צרו את סמכות החתימה לרענון ואת אמצעי ההזדהות של המפעילים'
-    'runner.host_refresh_auth_action_export_host_key' = @(
-        'כתבו את מפתח אימות הרענון עבור המארח '
+    'runner.host_repair_action_resume_request' = 'השלב הבא: המשיכו את הבקשה שטרם הושלמה באמצעות: pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩'
+    'runner.host_repair_action_start_runner' = 'השלב הבא: הפעילו ידנית את מנגנון ההרצה: pwsh test⁦/Start-TestRunner.ps1⁩'
+    'runner.host_repair_auth_action_create_authority' = 'צרו את סמכות החתימה לתיקון ואת אישור המפעיל'
+    'runner.host_repair_auth_action_export_host_key' = @(
+        'כתבו את מפתח אימות התיקון עבור המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auth_action_install_host_key' = @(
-        'התקינו את מפתח אימות הרענון עבור המארח '
+    'runner.host_repair_auth_action_install_host_key' = @(
+        'התקינו את מפתח אימות התיקון עבור המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auth_action_remove_host_key' = 'הסירו את מפתח אימות הרענון'
-    'runner.host_refresh_auto_action_admit' = @(
-        'קבלו בקשה לרענון אוטומטי של המארח עבור דור המחזור '
+    'runner.host_repair_auth_action_remove_host_key' = 'הסירו את מפתח אימות התיקון'
+    'runner.host_repair_auto_action_admit' = @(
+        'קבלו בקשה לתיקון אוטומטי של המארח עבור דור המחזור '
         @{
             'arg' = 'generation'
             'type' = 'token'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_consume_evidence' = 'צרכו את קובץ הממצאים לרענון המארח'
-    'runner.host_refresh_auto_action_decide' = @(
-        'החליטו אם להריץ רענון אוטומטי של המארח לאחר המחזור החיצוני '
+    'runner.host_repair_auto_action_consume_evidence' = 'צרכו את קובץ הממצאים לתיקון המארח'
+    'runner.host_repair_auto_action_decide' = @(
+        'החליטו אם להריץ תיקון אוטומטי של המארח לאחר המחזור החיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_record_outcome' = @(
-        'תעדו את תוצאת הרענון האוטומטי של המארח '
+    'runner.host_repair_auto_action_record_outcome' = @(
+        'תעדו את תוצאת התיקון האוטומטי של המארח '
         @{
             'arg' = 'verdict'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_reserve' = @(
-        'שריינו את ניסיון הרענון האוטומטי של המארח ליום '
+    'runner.host_repair_auto_action_reserve' = @(
+        'שריינו את ניסיון התיקון האוטומטי של המארח ליום '
         @{
             'arg' = 'utcDay'
             'type' = 'text'
@@ -959,24 +1294,24 @@
         }
         ' לפי UTC'
     )
-    'runner.host_refresh_auto_action_run_worker' = @(
-        'הריצו את תהליך העבודה לרענון המארח עבור הבקשה '
+    'runner.host_repair_auto_action_run_worker' = @(
+        'הריצו את תהליך העבודה לתיקון המארח עבור הבקשה '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_update_streak' = @(
-        'הגדירו את מספר הממצאים לרענון המארח לערך '
+    'runner.host_repair_auto_action_update_streak' = @(
+        'הגדירו את מספר הממצאים לתיקון המארח לערך '
         @{
             'arg' = 'streak'
             'type' = 'integer'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_action_withdraw' = @(
-        'בטלו את בקשת הרענון האוטומטי של המארח '
+    'runner.host_repair_auto_action_withdraw' = @(
+        'בטלו את בקשת התיקון האוטומטי של המארח '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -984,22 +1319,22 @@
         }
         ' הממתינה בתור'
     )
-    'runner.host_refresh_auto_action_write_evidence' = @(
-        'תעדו ממצאים לרענון המארח עבור דור המחזור '
+    'runner.host_repair_auto_action_write_evidence' = @(
+        'תעדו ממצאים לתיקון המארח עבור דור המחזור '
         @{
             'arg' = 'generation'
             'type' = 'token'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_auto_dependency_missing' = @(
+    'runner.host_repair_auto_dependency_missing' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] הרענון האוטומטי של המארח אינו זמין: לא ניתן היה לטעון את '
+        '] התיקון האוטומטי של המארח אינו זמין: לא ניתן היה לטעון את '
         @{
             'arg' = 'command'
             'type' = 'identifier'
@@ -1013,14 +1348,14 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_error' = @(
+    'runner.host_repair_auto_error' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] ההחלטה על רענון אוטומטי של המארח נכשלה ('
+        '] ההחלטה על תיקון אוטומטי של המארח נכשלה ('
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -1028,14 +1363,14 @@
         }
         '); מנגנון ההרצה ממשיך בלעדיו.'
     )
-    'runner.host_refresh_auto_evidence_counted' = @(
+    'runner.host_repair_auto_evidence_counted' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] ממצאים לרענון המארח: בשלב '
+        '] ממצאים לתיקון המארח: בשלב '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1055,14 +1390,14 @@
         }
         ' מחזורים).'
     )
-    'runner.host_refresh_auto_evidence_reset' = @(
+    'runner.host_repair_auto_evidence_reset' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] ממצאי רענון המארח נוקו: מנהל המכונות הווירטואליות הגיב במהלך '
+        '] ממצאי תיקון המארח נוקו: מנהל המכונות הווירטואליות הגיב במהלך '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1070,14 +1405,14 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_finished' = @(
+    'runner.host_repair_auto_finished' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1091,23 +1426,23 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_knob_invalid' = @(
-        'הערך של ⁦testCycle.autoRefreshAfterStalls⁩ הוא '''
+    'runner.host_repair_auto_knob_invalid' = @(
+        'הערך של ⁦testCycle.autoRepairAfterStalls⁩ הוא '''
         @{
             'arg' = 'value'
             'type' = 'text'
             'trust' = 'external'
         }
-        ''', שאינו מספר שלם אי־שלילי; רענון המארח האוטומטי נשאר מושבת.'
+        ''', שאינו מספר שלם אי־שלילי; תיקון המארח האוטומטי נשאר מושבת.'
     )
-    'runner.host_refresh_auto_operator_action' = @(
+    'runner.host_repair_auto_operator_action' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1125,25 +1460,34 @@
             'type' = 'text'
             'trust' = 'internal'
         }
-        ' לפי UTC. בדקו את המארח; כל עוד בקשה זו פתוחה, השלימו אותה באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩, אחרת הריצו test⁦/lab/Invoke-HostRefresh.ps1.⁩'
+        ' לפי UTC. בדקו את המארח; כל עוד בקשה זו פתוחה, השלימו אותה באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩, אחרת הריצו test⁦/lab/Invoke-HostRepair.ps1.⁩'
     )
-    'runner.host_refresh_auto_pause_skipped' = @(
+    'runner.host_repair_auto_pause_skipped' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי תיקן את המארח; המחזור הבא מתחיל ללא ההשהיה בעקבות כשל.'
+        '] תיקון המארח האוטומטי תיקן את המארח; המחזור הבא מתחיל ללא ההשהיה בעקבות כשל.'
     )
-    'runner.host_refresh_auto_queued_revoked' = @(
+    'runner.host_repair_auto_pool_key_retired' = @(
+        'תצורת המאגר מגדירה את המפתח שהוצא משימוש ⁦config.testCycle.autoRefreshAfterStalls⁩ ('
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '); הוא אינו נקרא עוד. הגדירו במקומו את ⁦config.testCycle.autoRepairAfterStalls⁩ במאגר הקוד של המאגר.'
+    )
+    'runner.host_repair_auto_queued_revoked' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1151,14 +1495,14 @@
         }
         ' שהמתין בתור בוטל כי המאגר בתהליך צריכה עד תום.'
     )
-    'runner.host_refresh_auto_refused' = @(
+    'runner.host_repair_auto_refused' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי לא התחיל: '
+        '] תיקון המארח האוטומטי לא התחיל: '
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1166,44 +1510,44 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_resume_caller_changed' = @(
+    'runner.host_repair_auto_resume_caller_changed' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' התחיל עבור תהליך מריץ קודם, ולכן המריץ הנוכחי אינו ממשיך אותו. השלימו אותו באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩, או שחררו את מה שהוא מחזיק באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-DisposeObligation⁩.'
+        ' התחיל עבור תהליך מריץ קודם, ולכן המריץ הנוכחי אינו ממשיך אותו. השלימו אותו באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩, או שחררו את מה שהוא מחזיק באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-DisposeObligation⁩.'
     )
-    'runner.host_refresh_auto_resume_disabled' = @(
+    'runner.host_repair_auto_resume_disabled' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
             'trust' = 'internal'
         }
-        ' אינו ממשיך כל עוד autoRefreshAfterStalls הוא 0. בקשה שלא נלקחה לטיפול פוקעת מעצמה; השלימו בקשה שהתחילה באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
+        ' אינו ממשיך כל עוד autoRepairAfterStalls הוא 0. בקשה שלא נלקחה לטיפול פוקעת מעצמה; השלימו בקשה שהתחילה באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.'
     )
-    'runner.host_refresh_auto_resuming' = @(
+    'runner.host_repair_auto_resuming' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1223,14 +1567,14 @@
         }
         ': שחזור שירותים בלבד, ללא פירוק נוסף.'
     )
-    'runner.host_refresh_auto_starting' = @(
+    'runner.host_repair_auto_starting' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1250,30 +1594,30 @@
         }
         '); מנהל המכונות הווירטואליות עשוי להיות מופעל מחדש, והשירותים שפעולתם משתבשת עקב כך משוחזרים לאחר מכן.'
     )
-    'runner.host_refresh_auto_threshold_raised' = 'הערך של ''⁦testCycle.autoRefreshAfterStalls⁩'' הוא 1; המריץ דורש שזמן ההמתנה יפוג בשני מחזורים לפחות ומתייחס לערך כאל 2.'
-    'runner.host_refresh_auto_unavailable' = @(
+    'runner.host_repair_auto_threshold_raised' = 'הערך של ''⁦testCycle.autoRepairAfterStalls⁩'' הוא 1; המריץ דורש שזמן ההמתנה יפוג בשני מחזורים לפחות ומתייחס לערך כאל 2.'
+    'runner.host_repair_auto_unavailable' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי מוגדר אך אינו זמין במארח זה ('
+        '] תיקון המארח האוטומטי מוגדר אך אינו זמין במארח זה ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); המריץ מתעד את הממצאים ואינו פועל לפיהם. הריצו test⁦/lab/Invoke-HostRefresh.ps1⁩ מקומית אם מנהל המכונות הווירטואליות זקוק לתיקון.'
+        '); המריץ מתעד את הממצאים ואינו פועל לפיהם. הריצו test⁦/lab/Invoke-HostRepair.ps1⁩ מקומית אם מנהל המכונות הווירטואליות זקוק לתיקון.'
     )
-    'runner.host_refresh_auto_unavailable_on_host' = @(
-        'הערך של ''⁦testCycle.autoRefreshAfterStalls⁩'' הוא '
+    'runner.host_repair_auto_unavailable_on_host' = @(
+        'הערך של ''⁦testCycle.autoRepairAfterStalls⁩'' הוא '
         @{
             'arg' = 'value'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ', אך רענון המארח האוטומטי אינו זמין במארח זה ('
+        ', אך תיקון המארח האוטומטי אינו זמין במארח זה ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1281,23 +1625,23 @@
         }
         '); המריץ מתעד את הממצאים ואינו פועל לפיהם.'
     )
-    'runner.host_refresh_auto_value_not_integer' = @(
-        'הערך של ''⁦testCycle.autoRefreshAfterStalls⁩'' הוא '''
+    'runner.host_repair_auto_value_not_integer' = @(
+        'הערך של ''⁦testCycle.autoRepairAfterStalls⁩'' הוא '''
         @{
             'arg' = 'value'
             'type' = 'text'
             'trust' = 'external'
         }
-        ''' -- אינו מספר שלם; המריץ מתייחס אליו כאל 0 (רענון המארח האוטומטי מושבת).'
+        ''' -- אינו מספר שלם; המריץ מתייחס אליו כאל 0 (תיקון המארח האוטומטי מושבת).'
     )
-    'runner.host_refresh_auto_verdict_mismatch' = @(
+    'runner.host_repair_auto_verdict_mismatch' = @(
         '[מחזור חיצוני '
         @{
             'arg' = 'cycle'
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '] רענון המארח האוטומטי '
+        '] תיקון המארח האוטומטי '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1311,8 +1655,8 @@
         }
         '); הוא נחשב לניסיון שנכשל.'
     )
-    'runner.host_refresh_auto_waiting_on_worker' = @(
-        'התבקש כיבוי; ממתינים לסיום תהליך העבודה לרענון המארח עבור הבקשה האוטומטית '
+    'runner.host_repair_auto_waiting_on_worker' = @(
+        'התבקש כיבוי; ממתינים לסיום תהליך העבודה לתיקון המארח עבור הבקשה האוטומטית '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1326,8 +1670,8 @@
         }
         ' שניות).'
     )
-    'runner.host_refresh_auto_worker_launch_failed' = @(
-        'לא ניתן היה להפעיל את תהליך העבודה לרענון המארח עבור הבקשה האוטומטית '
+    'runner.host_repair_auto_worker_launch_failed' = @(
+        'לא ניתן היה להפעיל את תהליך העבודה לתיקון המארח עבור הבקשה האוטומטית '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1341,8 +1685,8 @@
         }
         '.'
     )
-    'runner.host_refresh_auto_worker_timeout' = @(
-        'תהליך העבודה לרענון המארח עבור הבקשה האוטומטית '
+    'runner.host_repair_auto_worker_timeout' = @(
+        'תהליך העבודה לתיקון המארח עבור הבקשה האוטומטית '
         @{
             'arg' = 'requestId'
             'type' = 'token'
@@ -1354,10 +1698,57 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' שניות ונעצר; הבקשה נשארת פתוחה. המריץ עשוי להמשיך אותה, או השלימו אותה באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
+        ' שניות ונעצר; הבקשה נשארת פתוחה. המריץ עשוי להמשיך אותה, או השלימו אותה באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.'
     )
-    'runner.host_refresh_command_missing' = @(
-        '⁦Invoke-HostRefresh⁩: הפקודה הנדרשת '
+    'runner.host_repair_boot_resume' = @(
+        '⁦Start-TestRunner⁩: תיקון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נותר לא גמור מאתחול קודם; מחדשים אותו פעם אחת באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩ (pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '). ההפעלה הזו עדיין נדחית; התיקון יפעיל את המריץ בסיומו, והשגיאות שלו נכתבות אל '
+        @{
+            'arg' = 'stdErrPath'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.host_repair_boot_resume_failed' = @(
+        '⁦Start-TestRunner⁩: תיקון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נותר לא גמור מאתחול קודם, וחידושו נכשל ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); חדשו אותו באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.'
+    )
+    'runner.host_repair_boot_resume_tried' = @(
+        '⁦Start-TestRunner⁩: תיקון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', שנותר לא גמור מאתחול קודם, כבר חודש פעם אחת באתחול הזה; חדשו אותו שוב באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.'
+    )
+    'runner.host_repair_capability_unverified_macos' = 'השבת השליטה במריץ והפעלתו מחדש עדיין לא אומתו ב־macOS: טבלת התהליכים של ps וההפעלה המנותקת נבדקו רק באמצעות נתוני בדיקה מוכנים.'
+    'runner.host_repair_capability_unverified_windows' = 'השבת השליטה במריץ והפעלתו מחדש עדיין לא אומתו ב־Windows: טבלת התהליכים של CIM, סיום תהליך יחיד והמעבר לתהליך אב אחר נבדקו רק באמצעות נתוני בדיקה מוכנים.'
+    'runner.host_repair_command_missing' = @(
+        '⁦Invoke-HostRepair⁩: הפקודה הנדרשת '
         @{
             'arg' = 'command'
             'type' = 'identifier'
@@ -1369,10 +1760,10 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ') אינה זמינה לאחר טעינת קבוצת מודולי הרענון; הביצוע מסורב.'
+        ') אינה זמינה לאחר טעינת קבוצת מודולי התיקון; הביצוע מסורב.'
     )
-    'runner.host_refresh_config_ambiguous' = @(
-        '⁦Invoke-HostRefresh⁩: קיימות '
+    'runner.host_repair_config_ambiguous' = @(
+        '⁦Invoke-HostRepair⁩: קיימות '
         @{
             'arg' = 'count'
             'type' = 'integer'
@@ -1386,8 +1777,8 @@
         }
         ' המציינות קובצי מקור שונים; העבירו ⁦-ConfigPath⁩ כדי לבחור אחד.'
     )
-    'runner.host_refresh_config_conflict' = @(
-        '⁦Invoke-HostRefresh⁩: הערך ⁦-ConfigPath⁩ '
+    'runner.host_repair_config_conflict' = @(
+        '⁦Invoke-HostRepair⁩: הערך ⁦-ConfigPath⁩ '
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -1401,8 +1792,8 @@
         }
         '; הביצוע מסורב כדי למנוע הפעלה מחדש של המריץ עם קובץ אחר.'
     )
-    'runner.host_refresh_config_missing' = @(
-        '⁦Invoke-HostRefresh⁩: התצורה המתועדת עבור סביבת ריצה זו ('
+    'runner.host_repair_config_missing' = @(
+        '⁦Invoke-HostRepair⁩: התצורה המתועדת עבור סביבת ריצה זו ('
         @{
             'arg' = 'configPath'
             'type' = 'detail'
@@ -1410,8 +1801,8 @@
         }
         ') אינה קיימת; העבירו ⁦-ConfigPath⁩.'
     )
-    'runner.host_refresh_convergence_skipped' = @(
-        '⁦Invoke-HostRefresh⁩: הבדיקה הסופית מדווחת על '
+    'runner.host_repair_convergence_skipped' = @(
+        '⁦Invoke-HostRepair⁩: הבדיקה הסופית מדווחת על '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1425,8 +1816,8 @@
         }
         '); השירותים והמריץ לא הוחזרו לפעולה.'
     )
-    'runner.host_refresh_credential_authority_created' = @(
-        '⁦Set-HostRefreshCredential⁩: נוצרו סמכות חתימה לרענון (תג '
+    'runner.host_repair_credential_authority_created' = @(
+        '⁦Set-HostRepairCredential⁩: נוצרו סמכות חתימה לתיקון (תג '
         @{
             'arg' = 'authorityTag'
             'type' = 'token'
@@ -1444,10 +1835,10 @@
             'type' = 'detail'
             'trust' = 'internal'
         }
-        '. העתיקו את ⁦authority.key⁩ ואת ⁦operator.credential⁩ אל ⁦/etc/yuruna/host-refresh/⁩ של שירות pool-control עם הרשאות לבעלים בלבד; לעולם אל תעתיקו אותם למארח במאגר.'
+        '. העתיקו את ⁦authority.key⁩ ואת ⁦operator.credential⁩ אל ⁦/etc/yuruna/host-repair/⁩ של שירות pool-control עם הרשאות לבעלים בלבד; לעולם אל תעתיקו אותם למארח במאגר.'
     )
-    'runner.host_refresh_credential_authority_exists' = @(
-        '⁦Set-HostRefreshCredential⁩: סמכות רענון כבר קיימת תחת '
+    'runner.host_repair_credential_authority_exists' = @(
+        '⁦Set-HostRepairCredential⁩: סמכות תיקון כבר קיימת תחת '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -1455,8 +1846,8 @@
         }
         '; העבירו ⁦-Rotate⁩ כדי להחליפה, ובכך לפסול כל מפתח מארח מותקן.'
     )
-    'runner.host_refresh_credential_host_key_exported' = @(
-        '⁦Set-HostRefreshCredential⁩: מפתח הרענון עבור המארח '
+    'runner.host_repair_credential_host_key_exported' = @(
+        '⁦Set-HostRepairCredential⁩: מפתח אימות התיקון עבור המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
@@ -1476,24 +1867,24 @@
         }
         '. העבירו אותו למארח זה בערוץ פרטי, הריצו שם את הסקריפט הזה עם ⁦-InstallHostKey⁩ ⁦-KeyPath⁩, ואז מחקו את הקובץ.'
     )
-    'runner.host_refresh_credential_host_key_installed' = @(
-        '⁦Set-HostRefreshCredential⁩: הותקן מפתח הרענון עבור מארח זה '
+    'runner.host_repair_credential_host_key_installed' = @(
+        '⁦Set-HostRepairCredential⁩: הותקן מפתח אימות התיקון של מארח זה ('
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' (תג '
+        ', תג '
         @{
             'arg' = 'keyTag'
             'type' = 'token'
             'trust' = 'internal'
         }
-        '); כעת ניתן לאמת כאן בקשות רענון מרוחקות שנחתמו בידי הסמכות התואמת.'
+        '); כעת ניתן לאמת כאן בקשות תיקון מרוחקות שנחתמו בידי הסמכות התואמת.'
     )
-    'runner.host_refresh_credential_host_key_removed' = '⁦Set-HostRefreshCredential⁩: מפתח הרענון הוסר; מארח זה מסרב כעת לכל בקשת רענון שאינה מגיעה דרך ממשק הלולאה המקומית.'
-    'runner.host_refresh_credential_output_exists' = @(
-        '⁦Set-HostRefreshCredential⁩: הנתיב '
+    'runner.host_repair_credential_host_key_removed' = '⁦Set-HostRepairCredential⁩: מפתח אימות התיקון של מארח זה הוסר; מארח זה מסרב כעת לכל בקשת תיקון שאינה מגיעה דרך ממשק הלולאה המקומית.'
+    'runner.host_repair_credential_output_exists' = @(
+        '⁦Set-HostRepairCredential⁩: הנתיב '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -1501,14 +1892,14 @@
         }
         ' כבר קיים; בחרו ⁦-OutputPath⁩ אחר או מחקו אותו תחילה.'
     )
-    'runner.host_refresh_credential_status' = @(
-        '⁦Set-HostRefreshCredential⁩: מארח '
+    'runner.host_repair_credential_status' = @(
+        '⁦Set-HostRepairCredential⁩: מארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': מפתח רענון מרוחק '
+        ': מפתח אימות תיקון '
         @{
             'arg' = 'state'
             'type' = 'identifier'
@@ -1528,8 +1919,8 @@
         }
         '.'
     )
-    'runner.host_refresh_deadline_exhausted' = @(
-        '⁦Invoke-HostRefresh⁩: הזמן שהוקצה אזל במהלך '
+    'runner.host_repair_deadline_exhausted' = @(
+        '⁦Invoke-HostRepair⁩: הזמן שהוקצה אזל במהלך '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -1537,21 +1928,21 @@
         }
         '; עבודה שלא הושלמה מתועדת כממתינה לטיפול.'
     )
-    'runner.host_refresh_disruption_warning' = '⁦Invoke-HostRefresh⁩: הפעלה מחדש של יישום מנהל המכונות הווירטואליות עלולה להשעות אורחים פועלים; עצירה כפויה, המותרת רק עם ⁦-AllowHardStop⁩, עלולה לכבות אותם באופן לא תקין.'
-    'runner.host_refresh_evidence_write_failed' = @(
-        'לא ניתן היה לתעד ממצאי רענון מארח עבור מחזור זה ('
+    'runner.host_repair_disruption_warning' = '⁦Invoke-HostRepair⁩: הפעלה מחדש של יישום מנהל המכונות הווירטואליות עלולה להשעות אורחים פועלים; עצירה כפויה, המותרת רק עם ⁦-AllowHardStop⁩, עלולה לכבות אותם באופן לא תקין.'
+    'runner.host_repair_evidence_write_failed' = @(
+        'לא ניתן היה לתעד ממצאי תיקון מארח עבור מחזור זה ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); רענון המארח האוטומטי לא יספור אותו.'
+        '); תיקון המארח האוטומטי לא יספור אותו.'
     )
-    'runner.host_refresh_hung_hypervisor_manual_hyperv' = 'ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את שירות הניהול של Hyper-V ממסוף מוגבה (Restart-Service vmms) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.'
-    'runner.host_refresh_hung_hypervisor_manual_kvm' = 'ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את תהליכי libvirt (sudo systemctl restart libvirtd) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.'
-    'runner.host_refresh_hung_hypervisor_manual_utm' = 'ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. סגרו ופתחו מחדש את UTM מהפעלת שולחן העבודה המחוברת או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.'
-    'runner.host_refresh_identity_refused' = @(
-        '⁦Invoke-HostRefresh⁩: ההרצה בזהות '
+    'runner.host_repair_hung_hypervisor_manual_hyperv' = 'ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את שירות הניהול של Hyper-V ממסוף מוגבה (Restart-Service vmms) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.'
+    'runner.host_repair_hung_hypervisor_manual_kvm' = 'ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. הפעילו מחדש את תהליכי libvirt (sudo systemctl restart libvirtd) או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.'
+    'runner.host_repair_hung_hypervisor_manual_utm' = 'ערוץ הבקרה של מנהל המכונות הווירטואליות תקוע, ואף דרגה זמינה אינה מתקנת זאת במארח זה. סגרו ופתחו מחדש את UTM מהפעלת שולחן העבודה המחוברת או אתחלו את המארח ידנית, ואז המשיכו באמצעות: pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩. המשך ללא התיקון הזה רק חוזר על הבדיקה ומנצל אחד מהניסיונות המוגבלים.'
+    'runner.host_repair_identity_refused' = @(
+        '⁦Invoke-HostRepair⁩: ההרצה בזהות '
         @{
             'arg' = 'identity'
             'type' = 'identifier'
@@ -1571,8 +1962,8 @@
         }
         '.'
     )
-    'runner.host_refresh_launcher_wait_timeout' = @(
-        '⁦Invoke-HostRefresh⁩: תהליך ההפעלה '
+    'runner.host_repair_launcher_wait_timeout' = @(
+        '⁦Invoke-HostRepair⁩: תהליך ההפעלה '
         @{
             'arg' = 'launcherPid'
             'type' = 'integer'
@@ -1592,25 +1983,25 @@
         }
         ' נשארת בתור לניסיון חוזר.'
     )
-    'runner.host_refresh_lock_busy' = @(
-        '⁦Invoke-HostRefresh⁩: תיקון אחר מחזיק בנעילה למשך חיי התהליך ('
+    'runner.host_repair_lock_busy' = @(
+        '⁦Invoke-HostRepair⁩: פעולת מארח אחרת מחזיקה בנעילה למשך חיי התהליך ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); הרצה במקביל אליו מסורבת.'
+        '); הרצה במקביל אליה מסורבת.'
     )
-    'runner.host_refresh_manual_command' = @(
-        '⁦Invoke-HostRefresh⁩: הריצו זאת ידנית, או אפשרו זאת ללא בקשת סיסמה: sudo '
+    'runner.host_repair_manual_command' = @(
+        '⁦Invoke-HostRepair⁩: הריצו זאת ידנית, או אפשרו זאת ללא בקשת סיסמה: sudo '
         @{
             'arg' = 'command'
             'type' = 'detail'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_obligation_disposed' = @(
-        '⁦Invoke-HostRefresh⁩: הפריט '
+    'runner.host_repair_obligation_disposed' = @(
+        '⁦Invoke-HostRepair⁩: הפריט '
         @{
             'arg' = 'obligation'
             'type' = 'identifier'
@@ -1630,8 +2021,8 @@
         }
         '.'
     )
-    'runner.host_refresh_obligation_unknown' = @(
-        '⁦Invoke-HostRefresh⁩: הפריט '
+    'runner.host_repair_obligation_unknown' = @(
+        '⁦Invoke-HostRepair⁩: הפריט '
         @{
             'arg' = 'obligation'
             'type' = 'identifier'
@@ -1645,8 +2036,8 @@
         }
         '.'
     )
-    'runner.host_refresh_oneshot_active' = @(
-        '⁦Invoke-HostRefresh⁩: הרצה חד-פעמית (⁦PID⁩ '
+    'runner.host_repair_oneshot_active' = @(
+        '⁦Invoke-HostRepair⁩: הרצה חד-פעמית (⁦PID⁩ '
         @{
             'arg' = 'pid'
             'type' = 'identifier'
@@ -1660,8 +2051,8 @@
         }
         ') משתמשת בסביבת הריצה הזו; אף שלב תיקון לא רץ כל עוד היא מחזיקה בחכירה.'
     )
-    'runner.host_refresh_oneshot_unconfirmed' = @(
-        '⁦Invoke-HostRefresh⁩: חכירת ההרצה החד-פעמית '
+    'runner.host_repair_oneshot_unconfirmed' = @(
+        '⁦Invoke-HostRepair⁩: חכירת ההרצה החד-פעמית '
         @{
             'arg' = 'leasePath'
             'type' = 'detail'
@@ -1681,7 +2072,7 @@
         }
         '); מתקן בכל זאת.'
     )
-    'runner.host_refresh_operator_instruction' = @(
+    'runner.host_repair_operator_instruction' = @(
         '  פתרון: '
         @{
             'arg' = 'instruction'
@@ -1689,7 +2080,21 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_preview_group_relaunch' = @(
+    'runner.host_repair_other_kind' = @(
+        'Invoke-HostRepair: הבקשה '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' היא עדכון מארח ולא תיקון; הבקר שלה ממשיך אותה. כדי לסיים אותה במארח זה, הפעל: pwsh test/lab/Invoke-HostUpdate.ps1 -Release '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_repair_preview_group_relaunch' = @(
         '  הרצה בפועל תופעל תחילה מחדש תחת הקבוצה libvirt ('
         @{
             'arg' = 'reason'
@@ -1698,8 +2103,8 @@
         }
         ').'
     )
-    'runner.host_refresh_preview_notice' = '  תצוגה מקדימה בלבד: דבר לא ננעל, נכתב, קיבל אות או הופעל.'
-    'runner.host_refresh_preview_would_consider' = @(
+    'runner.host_repair_preview_notice' = '  תצוגה מקדימה בלבד: דבר לא ננעל, נכתב, קיבל אות או הופעל.'
+    'runner.host_repair_preview_would_consider' = @(
         '  שלבי תיקון שיישקלו בהרצה בפועל, לפי הסדר: '
         @{
             'arg' = 'rungs'
@@ -1707,8 +2112,8 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_private_root_unavailable' = @(
-        '⁦Invoke-HostRefresh⁩: לא ניתן היה לאבטח את ספריית השורש הפרטית של המצב תחת $HOME⁦/.yuruna/host-refresh⁩ ('
+    'runner.host_repair_private_root_unavailable' = @(
+        '⁦Invoke-HostRepair⁩: לא ניתן היה לאבטח את ספריית השורש הפרטית של המצב תחת $HOME⁦/.yuruna/host-repair⁩ ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1716,9 +2121,9 @@
         }
         '); הביצוע מסורב ללא ספריית שורש פרטית הנגישה לבעלים בלבד.'
     )
-    'runner.host_refresh_progress_degraded' = '⁦Invoke-HostRefresh⁩: לא ניתן היה לפרסם את ההתקדמות; התיקון נמשך והיומן הפרטי נשאר המקור הקובע.'
-    'runner.host_refresh_protocol_mismatch' = @(
-        '⁦Invoke-HostRefresh⁩: הקובץ '
+    'runner.host_repair_progress_degraded' = '⁦Invoke-HostRepair⁩: לא ניתן היה לפרסם את ההתקדמות; התיקון נמשך והיומן הפרטי נשאר המקור הקובע.'
+    'runner.host_repair_protocol_mismatch' = @(
+        '⁦Invoke-HostRepair⁩: הקובץ '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -1738,8 +2143,8 @@
         }
         '''.'
     )
-    'runner.host_refresh_refused' = @(
-        '⁦Invoke-HostRefresh⁩: הביצוע סורב לפני כל שינוי ('
+    'runner.host_repair_refused' = @(
+        '⁦Invoke-HostRepair⁩: הביצוע סורב לפני כל שינוי ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1747,8 +2152,8 @@
         }
         ').'
     )
-    'runner.host_refresh_request_refused' = @(
-        '⁦Invoke-HostRefresh⁩: הבקשה '
+    'runner.host_repair_request_refused' = @(
+        '⁦Invoke-HostRepair⁩: הבקשה '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1774,9 +2179,9 @@
         }
         '.'
     )
-    'runner.host_refresh_resume_none' = '⁦Invoke-HostRefresh⁩: אין בקשה שטרם נפתרה שניתן להמשיך.'
-    'runner.host_refresh_resume_started' = @(
-        '⁦Invoke-HostRefresh⁩: הבקשה '
+    'runner.host_repair_resume_none' = '⁦Invoke-HostRepair⁩: אין בקשה שטרם נפתרה שניתן להמשיך.'
+    'runner.host_repair_resume_started' = @(
+        '⁦Invoke-HostRepair⁩: הבקשה '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
@@ -1796,8 +2201,8 @@
         }
         ').'
     )
-    'runner.host_refresh_rung_finished' = @(
-        '⁦Invoke-HostRefresh⁩: שלב התיקון '
+    'runner.host_repair_rung_finished' = @(
+        '⁦Invoke-HostRepair⁩: שלב התיקון '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -1823,22 +2228,22 @@
         }
         ').'
     )
-    'runner.host_refresh_rung_reason_broker_recipe_missing' = 'נדרש נוהל מאומת לתווית, לתחום ולבעלים, המותאם לגרסת מערכת ההפעלה וכולל בדיקות להשפעות נלוות'
-    'runner.host_refresh_rung_reason_daemon_layout_unqualified' = 'נדרשות בדיקות שעוברות בהצלחה במארח נתמך עבור מבנה שירותי הרקע ושימור האורחים'
-    'runner.host_refresh_rung_reason_gui_launch_unqualified' = 'הפעלת UTM דורשת בדיקה שאינו פועל תחת אותו משתמש ודרך הפעלה בממשק גרפי, שטרם אומתו במארח macOS אמיתי'
-    'runner.host_refresh_rung_reason_lock_unqualified' = 'טרם הוכח בפלטפורמה זו שנעילת התיקון מונעת הרצה מקבילה'
-    'runner.host_refresh_rung_reason_modular_daemon_recipe_missing' = 'נדרש נוהל מאומת עבור שירותי הרקע המודולריים של libvirt'
-    'runner.host_refresh_rung_reason_no_reboot_supervision' = 'אין מנגנון מאומת לפיקוח על המריץ ועל status-service לאורך אתחול מחדש של המארח'
-    'runner.host_refresh_rung_reason_not_implemented' = 'בעותק העבודה הזה אין רכיב ביצוע עבור שלב תיקון זה'
-    'runner.host_refresh_rung_reason_package_recovery_unqualified' = 'נדרשים מנגנון אתחול חתום ועצמאי ונוהל בדוק לשחזור חבילות'
-    'runner.host_refresh_rung_reason_provider_recipe_missing' = 'נדרש נוהל נפרד לשחזור הספק שנבדק במארח נתמך'
-    'runner.host_refresh_rung_reason_runner_restart_unqualified' = 'השבת השליטה במריץ והפעלה מחדש עם אימות טרם אומתו במארח אמיתי של פלטפורמה זו'
-    'runner.host_refresh_rung_reason_settings_recipe_unsafe' = 'נוהל ההגדרות עדיין מגיע לתיבות דו־שיח לקבלת הסכמה, להתקנות חבילות או לקריאות מערכת ללא מגבלת זמן, שאסור לבצע בתיקון ללא השגחה'
-    'runner.host_refresh_rung_reason_unsupported_on_platform' = 'אינו מוצע בפלטפורמה זו'
-    'runner.host_refresh_rung_reason_utm_restart_unqualified' = 'הפעלה מחדש של UTM דורשת דרך בדוקה להפעלה ולעבודה בהפעלה של המשתמש, ממצאים מתועדים לשחזור אורחים, מניעת הרצה מקבילה של המריץ ומדיניות יציאה מסודרת, שאומתו במארח macOS אמיתי'
-    'runner.host_refresh_rung_reason_vmms_start_unqualified' = 'הפעלת שירות vmms שנעצר ממומשת אך טרם אומתה במארח Windows Hyper-V אמיתי'
-    'runner.host_refresh_rung_started' = @(
-        '⁦Invoke-HostRefresh⁩: שלב התיקון '
+    'runner.host_repair_rung_reason_broker_recipe_missing' = 'נדרש נוהל מאומת לתווית, לתחום ולבעלים, המותאם לגרסת מערכת ההפעלה וכולל בדיקות להשפעות נלוות'
+    'runner.host_repair_rung_reason_daemon_layout_unqualified' = 'נדרשות בדיקות שעוברות בהצלחה במארח נתמך עבור מבנה שירותי הרקע ושימור האורחים'
+    'runner.host_repair_rung_reason_gui_launch_unqualified' = 'הפעלת UTM דורשת בדיקה שאינו פועל תחת אותו משתמש ודרך הפעלה בממשק גרפי, שטרם אומתו במארח macOS אמיתי'
+    'runner.host_repair_rung_reason_lock_unqualified' = 'טרם הוכח בפלטפורמה זו שנעילת התיקון מונעת הרצה מקבילה'
+    'runner.host_repair_rung_reason_modular_daemon_recipe_missing' = 'נדרש נוהל מאומת עבור שירותי הרקע המודולריים של libvirt'
+    'runner.host_repair_rung_reason_no_reboot_supervision' = 'אין מנגנון מאומת לפיקוח על המריץ ועל status-service לאורך אתחול מחדש של המארח'
+    'runner.host_repair_rung_reason_not_implemented' = 'בעותק העבודה הזה אין רכיב ביצוע עבור שלב תיקון זה'
+    'runner.host_repair_rung_reason_package_recovery_unqualified' = 'נדרשים מנגנון אתחול חתום ועצמאי ונוהל בדוק לשחזור חבילות'
+    'runner.host_repair_rung_reason_provider_recipe_missing' = 'נדרש נוהל נפרד לשחזור הספק שנבדק במארח נתמך'
+    'runner.host_repair_rung_reason_runner_restart_unqualified' = 'השבת השליטה במריץ והפעלה מחדש עם אימות טרם אומתו במארח אמיתי של פלטפורמה זו'
+    'runner.host_repair_rung_reason_settings_recipe_unsafe' = 'נוהל ההגדרות עדיין מגיע לתיבות דו־שיח לקבלת הסכמה, להתקנות חבילות או לקריאות מערכת ללא מגבלת זמן, שאסור לבצע בתיקון ללא השגחה'
+    'runner.host_repair_rung_reason_unsupported_on_platform' = 'אינו מוצע בפלטפורמה זו'
+    'runner.host_repair_rung_reason_utm_restart_unqualified' = 'הפעלה מחדש של UTM דורשת דרך בדוקה להפעלה ולעבודה בהפעלה של המשתמש, ממצאים מתועדים לשחזור אורחים, מניעת הרצה מקבילה של המריץ ומדיניות יציאה מסודרת, שאומתו במארח macOS אמיתי'
+    'runner.host_repair_rung_reason_vmms_start_unqualified' = 'הפעלת שירות vmms שנעצר ממומשת אך טרם אומתה במארח Windows Hyper-V אמיתי'
+    'runner.host_repair_rung_started' = @(
+        '⁦Invoke-HostRepair⁩: שלב התיקון '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -1852,8 +2257,8 @@
         }
         ' s מהזמן שהוקצה לתיקון.'
     )
-    'runner.host_refresh_runner_not_ready' = @(
-        '⁦Invoke-HostRefresh⁩: המריץ שהופעל מחדש לא אישר מוכנות ('
+    'runner.host_repair_runner_not_ready' = @(
+        '⁦Invoke-HostRepair⁩: המריץ שהופעל מחדש לא אישר מוכנות ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1861,8 +2266,8 @@
         }
         ').'
     )
-    'runner.host_refresh_runtime_missing' = @(
-        '⁦Invoke-HostRefresh⁩: ספריית סביבת הריצה '
+    'runner.host_repair_runtime_missing' = @(
+        '⁦Invoke-HostRepair⁩: ספריית סביבת הריצה '
         @{
             'arg' = 'runtimeDir'
             'type' = 'detail'
@@ -1870,8 +2275,8 @@
         }
         ' אינה קיימת; הגדירו את YURUNA_RUNTIME_DIR לספריית סביבת הריצה של המריץ.'
     )
-    'runner.host_refresh_runtime_owner_mismatch' = @(
-        '⁦Invoke-HostRefresh⁩: מצב הרענון של חשבון זה רשום לסביבת הריצה '
+    'runner.host_repair_runtime_owner_mismatch' = @(
+        '⁦Invoke-HostRepair⁩: מצב התיקון של חשבון זה רשום לסביבת הריצה '
         @{
             'arg' = 'registeredRuntimeDir'
             'type' = 'detail'
@@ -1885,8 +2290,8 @@
         }
         '; נתמכת סביבת ריצה בעלים אחת לכל חשבון.'
     )
-    'runner.host_refresh_service_unverified' = @(
-        '⁦Invoke-HostRefresh⁩: תקינות השירות '
+    'runner.host_repair_service_unverified' = @(
+        '⁦Invoke-HostRepair⁩: תקינות השירות '
         @{
             'arg' = 'key'
             'type' = 'identifier'
@@ -1900,8 +2305,8 @@
         }
         ').'
     )
-    'runner.host_refresh_session_passive' = @(
-        '⁦Invoke-HostRefresh⁩: סוג ההפעלה הוא '
+    'runner.host_repair_session_passive' = @(
+        '⁦Invoke-HostRepair⁩: סוג ההפעלה הוא '
         @{
             'arg' = 'sessionKind'
             'type' = 'identifier'
@@ -1909,18 +2314,16 @@
         }
         '; המערכת מדלגת על שלבים הדורשים הפעלה של שולחן העבודה.'
     )
-    'runner.host_refresh_should_process_admission' = 'תעדו אישור לרענון המארח'
-    'runner.host_refresh_should_process_listener' = 'הפעילו את מאזין המצב במצב בטוח לרענון'
-    'runner.host_refresh_should_process_publish' = 'פרסמו את התקדמות רענון המארח'
-    'runner.host_refresh_should_process_run' = @(
-        'הריצו את בקשת רענון המארח '
+    'runner.host_repair_should_process_publish' = 'פרסמו את התקדמות תיקון המארח'
+    'runner.host_repair_should_process_run' = @(
+        'הריצו את בקשת תיקון המארח '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_active_request' = @(
+    'runner.host_repair_summary_active_request' = @(
         '  בקשה שטרם נפתרה: '
         @{
             'arg' = 'requestId'
@@ -1941,7 +2344,7 @@
         }
         ')'
     )
-    'runner.host_refresh_summary_context' = @(
+    'runner.host_repair_summary_context' = @(
         '  סביבת ריצה:          '
         @{
             'arg' = 'runtimeDir'
@@ -1962,8 +2365,8 @@
         }
         ')'
     )
-    'runner.host_refresh_summary_header' = @(
-        'רענון מארח ('
+    'runner.host_repair_summary_header' = @(
+        'תיקון מארח ('
         @{
             'arg' = 'mode'
             'type' = 'identifier'
@@ -1976,7 +2379,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_ladder' = @(
+    'runner.host_repair_summary_ladder' = @(
         '  סולם תיקון, גבול עליון '
         @{
             'arg' = 'ceiling'
@@ -1985,7 +2388,7 @@
         }
         ':'
     )
-    'runner.host_refresh_summary_obligation' = @(
+    'runner.host_repair_summary_obligation' = @(
         '  ממתין לטיפול:      '
         @{
             'arg' = 'obligation'
@@ -1993,7 +2396,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_probe' = @(
+    'runner.host_repair_summary_probe' = @(
         '  בדיקת מנהל המכונות הווירטואליות: '
         @{
             'arg' = 'state'
@@ -2014,7 +2417,7 @@
         }
         ' ms)'
     )
-    'runner.host_refresh_summary_rung_above_ceiling' = @(
+    'runner.host_repair_summary_rung_above_ceiling' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2029,7 +2432,7 @@
         }
         ': מעל הגבול העליון המבוקש'
     )
-    'runner.host_refresh_summary_rung_available' = @(
+    'runner.host_repair_summary_rung_available' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2044,7 +2447,7 @@
         }
         ': זמין'
     )
-    'runner.host_refresh_summary_rung_result' = @(
+    'runner.host_repair_summary_rung_result' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2071,7 +2474,7 @@
         }
         ')'
     )
-    'runner.host_refresh_summary_rung_unavailable' = @(
+    'runner.host_repair_summary_rung_unavailable' = @(
         '    ['
         @{
             'arg' = 'order'
@@ -2091,7 +2494,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_runner' = @(
+    'runner.host_repair_summary_runner' = @(
         '  מריץ:           '
         @{
             'arg' = 'status'
@@ -2099,7 +2502,7 @@
             'trust' = 'internal'
         }
     )
-    'runner.host_refresh_summary_verdict' = @(
+    'runner.host_repair_summary_verdict' = @(
         '  תוצאה:          '
         @{
             'arg' = 'verdict'
@@ -2126,8 +2529,22 @@
         }
         ')'
     )
-    'runner.host_refresh_unexpected_error' = @(
-        '⁦Invoke-HostRefresh⁩: שגיאה בלתי צפויה במהלך '
+    'runner.host_repair_trigger_call_failed' = @(
+        'הקריאה האוטומטית לתיקון המארח ב־'
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נכשלה ודולגה: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.host_repair_unexpected_error' = @(
+        '⁦Invoke-HostRepair⁩: שגיאה בלתי צפויה במהלך '
         @{
             'arg' = 'phase'
             'type' = 'identifier'
@@ -2140,7 +2557,372 @@
             'trust' = 'external'
         }
     )
-    'runner.host_refresh_verified_noop' = '⁦Invoke-HostRefresh⁩: מנהל המכונות הווירטואליות הגיב והמריץ תקין; דבר לא השתנה.'
+    'runner.host_repair_verified_noop' = '⁦Invoke-HostRepair⁩: מנהל המכונות הווירטואליות הגיב והמריץ תקין; דבר לא השתנה.'
+    'runner.host_update_access_entry_action' = 'התקנה או הסרה של רשומת ה-sudoers שמאפשרת לבקר המארח לכתוב את כלל ה-sudo הזמני שלו'
+    'runner.host_update_auth_action_create_signing_key' = 'יצירת מפתח החתימה לעדכון מארח'
+    'runner.host_update_auth_action_install_record' = @(
+        'התקנת רשומת pool-control עבור '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_auth_action_remove_record' = 'הסרת רשומת pool-control'
+    'runner.host_update_busy' = @(
+        'Invoke-HostUpdate: דבר לא נוסף לתור; פעולת '
+        @{
+            'arg' = 'activeKind'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' תופסת את המארח ('
+        @{
+            'arg' = 'activeRequestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). המתן לסיומה, או סיים את המחזור הרץ במסוף של המריץ.'
+    )
+    'runner.host_update_console_window' = 'חלון מסוף משלו בשולחן העבודה של חשבון הבדיקה, ליד המכונה או דרך חיבור לשולחן עבודה מרוחק להפעלה זו'
+    'runner.host_update_controller_absent' = @(
+        'Invoke-HostUpdate: אין בקר מארח פועל במארח זה (נעילה '
+        @{
+            'arg' = 'lockState'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); דבר לא נוסף לתור.'
+    )
+    'runner.host_update_credential_record_installed' = @(
+        '⁦Set-HostRepairCredential⁩: הותקנה רשומת pool-control של מארח זה (pool-control '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', תג מפתח '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); כעת ניתן לאמת כאן עדכוני מארח שנחתמו במפתח זה, ודף האבחון של מארח זה שולח לשם לחיצה מרחוק.'
+    )
+    'runner.host_update_credential_record_removed' = '⁦Set-HostRepairCredential⁩: רשומת pool-control של מארח זה הוסרה; כעת מארח זה דוחה כל עדכון מארח ממכונה אחרת.'
+    'runner.host_update_credential_record_value_replaced' = @(
+        '⁦Set-HostRepairCredential⁩: רשומת pool-control '
+        @{
+            'arg' = 'key'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'previous'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' -> '
+        @{
+            'arg' = 'current'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. שורה זו שומרת את הערך הקודם; התקינו אותו שוב באמצעות ⁦-InstallPoolControlRecord⁩ אם השינוי לא היה מכוון.'
+    )
+    'runner.host_update_credential_signing_key_created' = @(
+        '⁦Set-HostRepairCredential⁩: נוצר מפתח חתימה לעדכון מארח (תג '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ') בנתיב '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. העתיקו אותו אל ⁦/etc/yuruna/host-repair/update-signing.key⁩ של שירות pool-control עם הרשאות לבעלים בלבד; לעולם אל תעתיקו אותו למארח במאגר. בכל מארח במאגר הריצו: ⁦pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl <pool-control URL> -PublicKey '
+        @{
+            'arg' = 'publicKey'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '⁩'
+    )
+    'runner.host_update_credential_signing_key_exists' = @(
+        '⁦Set-HostRepairCredential⁩: כבר קיים מפתח חתימה לעדכון מארח בנתיב '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '; העבירו ⁦-Rotate⁩ כדי להחליף אותו, ולאחר מכן יש להתקין מחדש את רשומת pool-control בכל מארח.'
+    )
+    'runner.host_update_credential_status' = @(
+        '⁦Set-HostRepairCredential⁩: רשומת pool-control '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; pool-control '
+        @{
+            'arg' = 'poolControl'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ', תג מפתח '
+        @{
+            'arg' = 'keyTag'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '); מפתח חתימה לעדכון '
+        @{
+            'arg' = 'signingKeyState'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.host_update_elevated_work_action' = 'סיום התהליכים של שלב ההתקנה או ההפעלה של עדכון מארח, כולל אלה שרצים כ-root'
+    'runner.host_update_elevation_action' = 'שינוי כלל ה-sudo הזמני, יחידה זמנית או עותק של תוכנית ההתקנה של עדכון מארח'
+    'runner.host_update_gate_controller_absent' = @(
+        'Start-TestRunner: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מחזיק את המריץ של מארח זה ואין בקר מארח פועל; שירות המערכת שלו מפעיל בקר תוך שניות כדי להמשיך את העדכון. כדי לסיים את העדכון במקום זאת, הפעל: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_absent_macos' = @(
+        'Start-TestRunner: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מחזיק את המריץ של מארח זה ואין בקר מארח פועל. '
+        @{
+            'arg' = 'result'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל את הבקר, שממשיך את העדכון; או סיימו את העדכון עם: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_restarting_macos' = @(
+        'Start-TestRunner: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מחזיק את המריץ של מארח זה, ובקר המארח שהפעלה זו מצאה נמצא בין שתי ריצות: ה-shim בהפעלה שלו מפעיל אותו שוב בקרוב, והוא ממשיך את העדכון ומפעיל את המריץ בעצמו. כדי לסיים את העדכון במקום זאת, הריצו: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_running' = @(
+        'Start-TestRunner: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מחזיק את המריץ של מארח זה; בקר המארח ממשיך אותו ומפעיל את המריץ בעצמו. המסוף שלו: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_gate_controller_unknown_macos' = @(
+        'Start-TestRunner: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מחזיק את המריץ של מארח זה. שלב בקר המארח של הפעלה זו מצא בקר פועל או הפעיל בקר, אך לא ניתן לקרוא כעת את נעילת הבקר, ולכן לא ידוע אם בקר ממשיך את העדכון. אם אף בקר אינו ממשיך, הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל את הבקר; או סיימו את העדכון עם: '
+        @{
+            'arg' = 'release'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_queued' = @(
+        'Invoke-HostUpdate: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נמצא בתור (היקף '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', ריקון '
+        @{
+            'arg' = 'drain'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). התקדמות: '
+        @{
+            'arg' = 'stateFile'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '. המסוף של המריץ, לאחר שיתחיל: '
+        @{
+            'arg' = 'attach'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+    )
+    'runner.host_update_refused' = @(
+        'Invoke-HostUpdate: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' לא נוסף לתור ('
+        @{
+            'arg' = 'decision'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'runner.host_update_release_controller_running' = @(
+        'Invoke-HostUpdate: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מתבצע תחת בקר המארח (pid '
+        @{
+            'arg' = 'pid'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ניתן לשחרר אותו רק בזמן התאוששות או כשאין בקר פועל. המתן לפסק הדין שלו.'
+    )
+    'runner.host_update_release_marked' = @(
+        'Invoke-HostUpdate: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' סומן לשחרור; בקר המארח ישחרר אותו לאחר הניסיון הנוכחי שלו.'
+    )
+    'runner.host_update_release_refused' = @(
+        'Invoke-HostUpdate: לא ניתן לשחרר את עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'runner.host_update_released' = @(
+        'Invoke-HostUpdate: עדכון המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' הסתיים כ-'
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; עדיין להסדיר: '
+        @{
+            'arg' = 'debt'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '. הפעלה רגילה של המריץ עובדת שוב.'
+    )
+    'runner.host_update_scope_unavailable' = @(
+        'Invoke-HostUpdate: בקר המארח מריץ '
+        @{
+            'arg' = 'scopes'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', לא '
+        @{
+            'arg' = 'scope'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '; דבר לא נוסף לתור.'
+    )
+    'runner.host_update_takeover' = @(
+        'Invoke-HostUpdate: הוא משתלט על עדכון המארח '
+        @{
+            'arg' = 'supersededId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', שהיה בהתאוששות.'
+    )
+    'runner.host_update_unexpected_error' = @(
+        'Invoke-HostUpdate: שגיאה לא צפויה במהלך '
+        @{
+            'arg' = 'phase'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
     'runner.hypervisor_control_unresponsive' = @(
         'ערוץ הבקרה של ההיפרווייזר במארח זה עונה לשאילתות מצב אך אינו מבצע עוד בקשות מחזור חיים (בדיקה '
         @{
@@ -2160,7 +2942,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). המחזור נעצר לפני שהוא בונה דבר, משום שכל הפעלה ועצירה של מכונה וירטואלית הייתה ממתינה עד תום פסק הזמן שלה. הפעילו מחדש את יישום ההיפרווייזר במארח זה (ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז חדשו את פעולת המריץ.'
+        '). המחזור נעצר לפני שהוא בונה דבר, משום שכל הפעלה ועצירה של מכונה וירטואלית הייתה ממתינה עד תום פסק הזמן שלה. הפעילו מחדש את יישום ההיפרווייזר במארח זה (ב-macOS צאו מ-⁦UTM.app⁩ מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRepair.ps1⁩), ואז חדשו את פעולת המריץ.'
     )
     'runner.inner_attempt_exited' = @(
         'ניסיון ההרצה הסתיים עם הקוד '
@@ -2201,7 +2983,66 @@
         }
         ''' אין מפתח מערכת הפעלה תחת ''resource:''; אי אפשר להריץ אותו כרצף אורח.'
     )
+    'runner.kvm_pointer_button_held' = @(
+        'מצביע KVM ב-'''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': הכפתור '
+        @{
+            'arg' = 'button'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' נלחץ ולא ניתן היה לאשר את שחרורו; ייתכן שהוא עדיין לחוץ באורח.'
+    )
+    'runner.kvm_pointer_event' = @(
+        'מצביע KVM ב-'''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('
+        @{
+            'arg' = 'stage'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.kvm_pointer_no_device' = @(
+        'מצביע KVM ב-'''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': לאורח אין התקן הצבעה מוחלט (QEMU: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). דבר לא נשלח; הוסיפו טאבלט USB לדומיין.'
+    )
     'runner.launch_record_complete_action' = 'סמנו ברשומת הפעלת המריץ שההרצה הסתיימה'
+    'runner.launch_record_skipped' = @(
+        '⁦Start-TestRunner⁩: רשומת הפעלת המריץ לא נכתבה ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); תיקון מארח או עדכון מארח אינם יכולים להפעיל מחדש מריץ זה, ומבקשים מהמפעיל להפעילו.'
+    )
     'runner.launch_record_write_action' = 'כתבו את רשומת הפעלת המריץ'
     'runner.m1ff7f8f2d1' = @(
         @{
@@ -2435,6 +3276,59 @@
             'trust' = 'external'
         }
     )
+    'runner.mcp_workload_action' = 'הריצו פועל רשום אחד, עבור מה שאף משפט אינו מכסה. הריצו עם operationId ושדות ההרצה action, fields ו־intent. בדקו מצב עם operationId בלבד; בטלו עם operationId ו־cancel true. קריאה נענית בתוך תקציב התגובה, ופעולה ארוכה יותר ממשיכה לרוץ. אותו id עם אותו קלט לעולם אינו רץ פעמיים. לקוח שנוטש בקשה אינו מבטל את הפעולה. ביטול נכנס לתוקף לפני הפעולה הבסיסית הבאה ואינו קוטע פעולה שכבר רצה.'
+    'runner.mcp_workload_cancel_with_run_fields' = 'ביטול מקבל רק operationId; הסירו את שדות ההרצה.'
+    'runner.mcp_workload_failure' = 'קראו את הכשל האחרון של הסשן כתצוגה מסוננת: הסוג, הצעד, המשפט, פרטי הסיבה ונתיבי הראיות שמותר להציג.'
+    'runner.mcp_workload_instructions' = @(
+        "1. הסתכלו לפני שאתם פועלים. קראו ל־workload_snapshot עבור המשטח לפני שאתם בוחרים צעד, ובחרו מתוך מה שהוא מציג. הפניה כמו s14 או p7 תקפה רק עד תמונת המצב או הצעד הבאים באותו משטח.`n2. אמרו זאת כמשפט. מצאו את המשפט בעזרת workload_phrases או workload_suggest_step והריצו אותו עם workload_step. השתמשו ב־workload_action רק עבור מה שאף משפט אינו מכסה.`n3. תנו לכל צעד את הסיבה שלו. intent היא שורה אחת באנגלית פשוטה עבור מי שיקרא את הבדיקה מאוחר יותר; היא הופכת לתיאור הצעד. היא אינה מכילה סיסמה, אסימון או ערך סודי אחר, ואף לא הפניה למשתנה.`n4. לעולם אל תקלידו סוד. היכן שנדרשת סיסמה, כתבו את ההפניה, לדוגמה "
+        @{
+            'arg' = 'reference'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ". ערך מילולי במיקום סודי נדחה.`n5. צעד אחד בכל פעם, ואף פעם לא פעמיים. בחרו operationId חדש לכל צעד חדש. כאשר קריאה עונה workload_still_waiting, קראו שוב לאותו כלי עם id זה בלבד. אל תשלחו צעד שוב רק משום שהתשובה שלו איטית או אבדה.`n6. עצרו ושאלו את האדם כאשר תוצאה אומרת שההשפעה אינה ודאית, כאשר שני רכיבים תואמים ושום דבר בדף אינו מבדיל ביניהם, כאשר צעד ימחק נתונים או יכבה את האורח, כאשר המסך מציג פרטי הזדהות, או כאשר המוצר כבר אינו מציג את מה שהבדיקה מצפה לו.`n7. סיימו לפי הסדר: workload_journal, workload_save_sequence, workload_run_sequence, workload_session_end."
+    )
+    'runner.mcp_workload_invalid_arguments' = @(
+        'הארגומנטים של '
+        @{
+            'arg' = 'name'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אינם תקינים: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.mcp_workload_invalid_request' = 'הבקשה אינה בקשת JSON-RPC תקינה.'
+    'runner.mcp_workload_journal' = 'קראו את היומן: הצעדים שהצליחו עד כה כ־YAML, סיכום של כל פעולה, ושינויי המצב שה־YAML אינו נושא.'
+    'runner.mcp_workload_phrases' = 'הציגו את המשפטים שבתוקף, כל אחד עם ה־id, המשטחים, המשבצות והרמה שלו. רשות: search, שמסנן את הרשימה. עונה גם לפני שקיים סשן, מתוך הספרייה של המסגרת.'
+    'runner.mcp_workload_request_too_large' = @(
+        'הבקשה ארוכה מ־'
+        @{
+            'arg' = 'limit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' תווים.'
+    )
+    'runner.mcp_workload_run_form_incomplete' = @(
+        'קריאה שמריצה פעולה צריכה גם: '
+        @{
+            'arg' = 'fields'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'runner.mcp_workload_run_sequence' = 'הריצו מחדש את הצעדים של הרצף שצוין על ה־VM המצורפת באמצעות ⁦Debug-TestSequence.ps1⁩ בתהליך צאצא. הריצו עם operationId ושדה ההרצה sequence, ובאופן אופציונלי timeoutSeconds (60 עד 43200). בדקו מצב עם operationId בלבד; בטלו עם operationId ו־cancel true. קריאה נענית בתוך תקציב התגובה, ופעולה ארוכה יותר ממשיכה לרוץ. אותו id עם אותו קלט לעולם אינו רץ פעמיים. לקוח שנוטש בקשה אינו מבטל את הפעולה. לפני הצעד הראשון, ההרצה החוזרת עוצרת כל VM פועלת אחרת במארח מלבד ה־VM של השירות, כפי שעושה כל הרצה של ⁦Debug-TestSequence.ps1⁩; התוצאה של workload_session_start מפרטת אותן ב־otherRunningVms.'
+    'runner.mcp_workload_save_sequence' = 'שמרו את היומן כקובץ רצף חדש. הקובץ נכתב לתיקייה test⁦/sequences⁩ של המסגרת, וקובץ קיים לעולם אינו מוחלף. חובה: name, description ו־resource, רשימת הרצפים שאחריהם הוא רץ. רשות: componentSteps, כמה צעדים מההתחלה הופכים לצעדי רכיב.'
+    'runner.mcp_workload_session_end' = 'סיימו את הסשן: עוצר פעולה פועלת, סוגר את מחזור הבעלים, משחרר את החכירה של סביבת הריצה ומסיים את ה־worker. ה־VM נשארת פועלת. ללא סשן התשובה היא ended false.'
+    'runner.mcp_workload_session_start' = 'צרפו סשן של עומס עבודה ל־VM פועלת. חובה: guestKey ו־vmName. רשות: sequence, רצף אורח ששרשרת המשאבים שלו מספקת את המשתנים וספריות הביטויים שלו בתוקף, ו־variables, עד 64 ערכים שמונחים מעליהם. התחלה שחורגת מתקציב התגובה ממשיכה לרוץ ועונה workload_session_starting; קראו שוב עם אותו קלט כדי לקבל את התוצאה. התוצאה מפרטת את שאר ה־VM הפועלות ב־otherRunningVms.'
+    'runner.mcp_workload_snapshot' = 'קראו את מה שמשטח מציג כעת. חובה: surface (screen או page). רשות: find, שמסנן את התצוגה המוחזרת, ו־image, שמחזיר גם את מסגרת המסך. כל רשומה נושאת הפניה כמו s14, שתקפה רק עד תמונת המצב או הצעד הבאים באותו משטח.'
+    'runner.mcp_workload_step' = 'הריצו משפט אחד כצעד. הריצו עם operationId ושדות ההרצה step ו־intent, ובאופן אופציונלי on ו־timeoutSeconds (1 עד 7200). בדקו מצב עם operationId בלבד; בטלו עם operationId ו־cancel true. קריאה נענית בתוך תקציב התגובה, ופעולה ארוכה יותר ממשיכה לרוץ. אותו id עם אותו קלט לעולם אינו רץ פעמיים. לקוח שנוטש בקשה אינו מבטל את הפעולה. ביטול נכנס לתוקף לפני הפעולה הבסיסית הבאה ואינו קוטע פעולה שכבר רצה.'
+    'runner.mcp_workload_suggest_step' = 'הציעו צעד עבור רשומה אחת בתמונת המצב הנוכחית. חובה: ref, הפניה כמו s14. מחזיר את המשפטים שמכוונים בדיוק לרשומה זו, או פעולה בסיסית tapOn עם nth כאשר אף משפט אינו מייחד אותה.'
     'runner.mcp_yuruna_dependency_version' = 'דווחו על גרסאות התלויות שקובעו ועל מה שמותקן. מפיק JSON באופן מובנה.'
     'runner.mcp_yuruna_invoke_clear' = 'נקו את המצב שנוצר. פעולה הרסנית: לא ניתן לשחזר את מה שהוסר באמצעות קריאה חוזרת.'
     'runner.mcp_yuruna_set_component' = 'החילו את הגדרות הרכיבים. כותב תצורה; במקרה של כשל מסתיים בקוד יציאה שאינו אפס עם תמליל.'
@@ -2539,25 +3433,25 @@
             'trust' = 'external'
         }
     )
-    'runner.no_other_runner_refresh_active' = @(
+    'runner.no_other_runner_gate_held' = @(
         @{
             'arg' = 'callerName'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ': רענון המארח '
+        ': פעולת המארח '
         @{
             'arg' = 'requestId'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' מחזיק במריץ של מארח זה (שער '
+        ' מחזיקה במריץ של מארח זה (שער '
         @{
             'arg' = 'state'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); ההפעלה נדחתה. המתינו לסיומו, או המשיכו אותו באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
+        '); ההפעלה נדחתה. המתינו לסיומה, או, בתיקון מארח, המשיכו אותו באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.'
     )
     'runner.ocr_known_answer_degraded' = @(
         'ספק זיהוי תווים (OCR) לא מצליח לקרוא מסגרת ידועה ('
@@ -4472,7 +5366,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' אינה במארח -- שרשרת הבסיס המלאה מופעלת (מסלול ללא מצב שמור; שם המכונה הווירטואלית ישתנה ל־'''
+        ''' אינה במארח -- שרשרת המשאבים המלאה מופעלת (מסלול ללא מצב שמור; שם המכונה הווירטואלית ישתנה ל־'''
         @{
             'arg' = 'requiredSnapshotId'
             'type' = 'detail'
@@ -4707,7 +5601,7 @@
     'runner.operator_1a355714114b86a7' = '⁦UTM.app⁩ חסר -- התקינו אותו: brew install --cask utm (או ⁦https://mac.getutm.app⁩)'
     'runner.operator_1a3ffa06ec11b7a6' = 'virsh לא נמצא ב־PATH -- חבילות libvirt⁦/QEMU⁩ אינן מותקנות. הריצו install⁦/ubuntu.kvm.sh⁩, או: sudo apt-get install -y libvirt-clients libvirt-daemon-system virtinst qemu-system-x86'
     'runner.operator_1a5944a737ed4e90' = @(
-        '  רענון המארח '
+        '  תיקון המארח '
         @{
             'arg' = 'report'
             'type' = 'detail'
@@ -5802,7 +6696,7 @@
     'runner.operator_2911629c58691e3f' = '  אפשרות זו, מחזור ייעצר באמצע הריצה בבקשת סיסמה שאיש אינו'
     'runner.operator_29160309e2dd574e' = '⁦/dev/kvm⁩ קיים.'
     'runner.operator_29205489a1013ab0' = '⁦host.windows.hyper-v⁩ דורש הרשאות מוגברות. הפעילו מחדש את ⁦Start-TestRunner.ps1⁩ כמנהלי מערכת.'
-    'runner.operator_292bf0f1ef450037' = '⁦Invoke-HostRefresh⁩: מנהל המכונות הווירטואליות מגיב; תהליך ההרצה אינו פעיל או אינו קיים. שלב 1 (השבת שליטה) אינו ממומש בחלק זה -- הפעילו אותו ידנית: pwsh test⁦/Start-TestRunner.ps1⁩'
+    'runner.operator_292bf0f1ef450037' = '⁦Invoke-HostRepair⁩: מנהל המכונות הווירטואליות מגיב; תהליך ההרצה אינו פעיל או אינו קיים. שלב 1 (השבת שליטה) אינו ממומש בחלק זה -- הפעילו אותו ידנית: pwsh test⁦/Start-TestRunner.ps1⁩'
     'runner.operator_29607e704f43acdc' = @(
         '⁦users.yml⁩['
         @{
@@ -6410,7 +7304,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_2fb31966478fca46' = '⁦Invoke-HostRefresh⁩: לא ניתן לאתר או לאבטח (resolve⁦/secure⁩) את תיקיית השורש הפרטית למצב host-refresh ($HOME⁦/.yuruna/host-refresh⁩). הפעולה לא תימשך ללא תיקיית שורש פרטית שנשמרת לאורך זמן ונגישה לבעלים בלבד.'
+    'runner.operator_2fb31966478fca46' = '⁦Invoke-HostRepair⁩: לא ניתן לאתר או לאבטח (resolve⁦/secure⁩) את תיקיית השורש הפרטית למצב host-repair ($HOME⁦/.yuruna/host-repair⁩). הפעולה לא תימשך ללא תיקיית שורש פרטית שנשמרת לאורך זמן ונגישה לבעלים בלבד.'
     'runner.operator_2fce8fc42e5b8f1f' = 'ההפעלה מתבצעת ב-macOS אך UTM לא נמצא ב-⁦/Applications/UTM.app.⁩'
     'runner.operator_300e4e9499987ed4' = @(
         '⁦Wait-YurunaAggregatorReady⁩: השירות pool-aggregator לא היה מוכן בתוך '
@@ -7319,7 +8213,7 @@
         ' ליומן המחזור.'
     )
     'runner.operator_3d35ece66aa84b79' = @(
-        'מפתח אורח (מתצורת הבסיס): '
+        'מפתח אורח (משרשרת המשאבים): '
         @{
             'arg' = 'guestKey'
             'type' = 'detail'
@@ -8132,7 +9026,7 @@
     'runner.operator_46e3cbe0614b1d51' = 'הגדרת poolStorage: אסור ש-networkPath⁦/networkUser⁩ יכילו גרש יחיד (הוא ישבש את נתוני האתחול של האורח). דבר לא נכתב.'
     'runner.operator_46f30de3d812ddd8' = 'הגדרות המערכת > פרטיות ואבטחה > אוטומציה'
     'runner.operator_47371277eaeea492' = @(
-        'לא ניתן להתחיל בהפעלה מחדש של שרת המצב: '
+        'לא ניתן להתחיל בהפעלה מחדש של שירות המצב: '
         @{
             'arg' = 'message'
             'type' = 'detail'
@@ -10880,7 +11774,7 @@
         }
         ' בדקו את הקישור ואת מסלול החידוש, ולא את זהות DHCP.'
     )
-    'runner.operator_677303e3823afe8d' = '''⁦testCycle.autoRefreshAfterStalls⁩'' לא הוגדר -- ברירת המחדל היא 0 (רענון אוטומטי של המארח מושבת).'
+    'runner.operator_677303e3823afe8d' = '''⁦testCycle.autoRepairAfterStalls⁩'' לא הוגדר -- ברירת המחדל היא 0 (תיקון אוטומטי של המארח מושבת).'
     'runner.operator_67a649b2f9792d49' = @(
         'התקנת '
         @{
@@ -11416,13 +12310,13 @@
     'runner.operator_6e9385fec86f1e3d' = 'שירות מתווך עם מטמון: תהליך ההפעלה של caching-proxy-service מחזיק בנעילה -- מיפוי היציאות נשאר באחריותו.'
     'runner.operator_6ec6add9e9a298c1' = '    סיבה נפוצה: מכונת המטמון הווירטואלית פועלת אך squid מופעל מחדש -- מטמון שנבנה מחדש עושה זאת פעם אחת בזמן שתהליך ההקמה מחיל את תצורת ssl-bump שלו.'
     'runner.operator_6eca51811f4cfdd3' = @(
-        '⁦Invoke-HostRefresh⁩: תיקון אחר כבר מחזיק בנעילה למשך חיי התהליך ('
+        '⁦Invoke-HostRepair⁩: פעולת מארח אחרת כבר מחזיקה בנעילה למשך חיי התהליך ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
             'trust' = 'external'
         }
-        '). ההרצה במקביל אליו נדחית.'
+        '). ההרצה במקביל אליה נדחית.'
     )
     'runner.operator_6f45c80f05654384' = @(
         'תצורת הייחוס מ-'
@@ -12599,13 +13493,13 @@
         '. רשומות NAS הוסרו; החברויות לא שונו.'
     )
     'runner.operator_7d74f75db443e9e2' = @(
-        'ההפעלה מחדש של שרת המצב עדיין פועלת לאחר '
+        'ההפעלה מחדש של שירות המצב עדיין פועלת לאחר '
         @{
             'arg' = 'bounceTimeoutSeconds'
             'type' = 'detail'
             'trust' = 'external'
         }
-        's; היא נותרה ללא שינוי (סיום כפוי שלה ישבית גם את השרת). תמליל: '
+        's; היא נותרה ללא שינוי (סיום כפוי שלה ישבית גם את השירות). תמליל: '
         @{
             'arg' = 'logPath'
             'type' = 'detail'
@@ -12807,7 +13701,7 @@
         ''''
     )
     'runner.operator_7f5c0d3fa4f8cdf8' = @(
-        'ההפעלה מחדש של שרת המצב הסתיימה בקוד '
+        'ההפעלה מחדש של שירות המצב הסתיימה בקוד '
         @{
             'arg' = 'exitCode'
             'type' = 'detail'
@@ -13519,7 +14413,7 @@
         ')'
     )
     'runner.operator_88f502760b28fd59' = @(
-        '⁦Invoke-HostRefresh⁩: בדיקת מנהל המכונות הווירטואליות במצב '
+        '⁦Invoke-HostRepair⁩: בדיקת מנהל המכונות הווירטואליות במצב '
         @{
             'arg' = 'state'
             'type' = 'detail'
@@ -15980,7 +16874,7 @@
         ''' ייווצר מחדש עם ''dhcp-identifier: mac'', ואז: sudo netplan apply'
     )
     'runner.operator_a6cceb1dcf23a282' = @(
-        '⁦Invoke-HostRefresh⁩: הבקשה נדחתה ('
+        '⁦Invoke-HostRepair⁩: הבקשה נדחתה ('
         @{
             'arg' = 'reason'
             'type' = 'detail'
@@ -16475,7 +17369,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_ae404c37892f11d1' = 'כתבו יומן בקשות לרענון המארח'
+    'runner.operator_ae404c37892f11d1' = 'כתבו את יומן הבקשות של פעולות המארח'
     'runner.operator_ae4e8052943a33cd' = @(
         'הובטח קיומו של כלל חומת האש של Windows בשם '''
         @{
@@ -20315,7 +21209,7 @@
             'trust' = 'external'
         }
     )
-    'runner.operator_dfd19c97aaa9ff6e' = '⁦Invoke-HostRefresh⁩: מנהל המכונות הווירטואליות מגיב וקיים מנגנון הרצה -- אומת שאין צורך בפעולה.'
+    'runner.operator_dfd19c97aaa9ff6e' = '⁦Invoke-HostRepair⁩: מנהל המכונות הווירטואליות מגיב וקיים מנגנון הרצה -- אומת שאין צורך בפעולה.'
     'runner.operator_dfd80a749d4fee8f' = '  הוסיפו את ⁦Get-Image.ps1⁩ + ⁦New-VM.ps1⁩ בנתיב הזה כדי לאפשר את האורח הזה, או'
     'runner.operator_e00026446a75f063' = @(
         'מופע מקביל של ⁦Start-TestRunner⁩ הקדים את המופע הזה ביצירת קובץ מזהה התהליך. בדקו את '
@@ -22476,7 +23370,7 @@
             'type' = 'detail'
             'trust' = 'external'
         }
-        ''' -- מדלג על שרשרת מצב הבסיס (מסלול חם).'
+        ''' -- מדלג על שרשרת המשאבים (מסלול חם).'
     )
     'runner.operator_f8a43d6f86299328' = @(
         'בדקו את יומן השגיאות של השרת: '
@@ -23042,7 +23936,7 @@
     )
     'runner.operator_fff495323f51f508' = '⁦Windows.Media.Ocr⁩ מותקן בכל מחשב Windows, אך:'
     'runner.operator_fffaa1debcc46863' = @(
-        'הערך של ''⁦testCycle.autoRefreshAfterStalls⁩'' הוא '
+        'הערך של ''⁦testCycle.autoRepairAfterStalls⁩'' הוא '
         @{
             'arg' = 'arasVal'
             'type' = 'detail'
@@ -23128,6 +24022,29 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'runner.phrase_library_invalid' = @(
+        '_phrases.yml: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.phrase_library_valid' = @(
+        '_phrases.yml: '
+        @{
+            'arg' = 'count'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ביטויים ב-'
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
     )
     'runner.pool_configuration_library_removed' = '⁦test-sets.yml⁩ הוסר ממאגר התצורה; אין מי שקורא אותו.'
     'runner.pool_configuration_schema_already_current' = @(
@@ -23285,6 +24202,15 @@
         '. יש לעיין באבחון הרשת עבור כל הניסיונות.'
     )
     'runner.prior_runner_cleanup_action' = "  פעולה:  עצירתו והרצת`n           ⁦Remove-TestVMFiles.ps1⁩ לפני ההפעלה"
+    'runner.private_state_migration_blocked' = @(
+        'Start-TestRunner: לא ניתן היה להעביר את שורש המצב הפרטי ממיקומו הקודם host-refresh ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); ההפעלה בוטלה. עצרו את המריץ, מאזין הסטטוס ובקר המארח הישנים, ואז הפעילו שוב את המריץ. ראו ⁦https://yuruna.link/42f909ad-0022⁩'
+    )
     'runner.process_start_record_write_action' = 'כתבו רשומה של זמן תחילת התהליך'
     'runner.project_checkout_replace_action' = @(
         'החלפה בעותק עבודה חדש של '
@@ -23311,7 +24237,7 @@
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '): מאגר מרוקן או מושהה, רענון של המארח או ⁦Ctrl+C⁩ עצרו אותו לפני הכרעה.'
+        '): מאגר מרוקן או מושהה, פעולת מארח או ⁦Ctrl+C⁩ עצרו אותו לפני הכרעה.'
     )
     'runner.project_previous_cleanup_failed' = @(
         'לא ניתן למחוק את עותק הפרויקט הקודם ב-'
@@ -23394,8 +24320,8 @@
         }
         '⁩), ולכן אין אמון ב-CA הזה.'
     )
-    'runner.readiness_ack_remove_action' = 'הסירו אישור מוכנות לרענון שאינו תקף עוד'
-    'runner.readiness_ack_write_action' = 'כתבו את אישור המוכנות לרענון'
+    'runner.readiness_ack_remove_action' = 'הסירו אישור מוכנות להעברת שליטה שאינו תקף עוד'
+    'runner.readiness_ack_write_action' = 'כתבו את אישור המוכנות להעברת שליטה'
     'runner.recovery_applied' = @(
         '[מחזור חיצוני '
         @{
@@ -23486,419 +24412,6 @@
         }
         '). תוצאת המחזור אינה מושפעת.'
     )
-    'runner.refresh_barrier_held' = @(
-        'הפעולה חודשה לאחר רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ': חסומה על ידי '
-        @{
-            'arg' = 'controls'
-            'type' = 'text'
-            'trust' = 'internal'
-        }
-        '. שחררו אותם מדף המצב; עד אז לא תיווצר או תשונה מכונה וירטואלית.'
-    )
-    'runner.refresh_barrier_released' = @(
-        'הבקרות החוסמות שוחררו לאחר '
-        @{
-            'arg' = 'seconds'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        ' s; המחזור שחודש ממשיך.'
-    )
-    'runner.refresh_capability_unverified_macos' = 'השבת השליטה במריץ והפעלתו מחדש עדיין לא אומתו ב־macOS: טבלת התהליכים של ps וההפעלה המנותקת נבדקו רק באמצעות נתוני בדיקה מוכנים.'
-    'runner.refresh_capability_unverified_windows' = 'השבת השליטה במריץ והפעלתו מחדש עדיין לא אומתו ב־Windows: טבלת התהליכים של CIM, סיום תהליך יחיד והמעבר לתהליך אב אחר נבדקו רק באמצעות נתוני בדיקה מוכנים.'
-    'runner.refresh_cycle_held' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] המריץ הפנימי נעצר ב־'
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' מפני שרענון מארח חוסם מארח זה; דבר לא השתנה.'
-    )
-    'runner.refresh_gate_blocks_start' = @(
-        '⁦Start-TestRunner⁩: רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' חוסם את המריץ של מארח זה (שער '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); מריץ נוסף לא יופעל. המתינו לסיום הרענון, או חדשו אותו באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
-    )
-    'runner.refresh_gate_boot_resume' = @(
-        '⁦Start-TestRunner⁩: רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' נותר לא גמור מאתחול קודם; מחדשים אותו פעם אחת באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩ (pid '
-        @{
-            'arg' = 'pid'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '). ההפעלה הזו עדיין נדחית; הרענון יפעיל את המריץ בסיומו, והשגיאות שלו נכתבות אל '
-        @{
-            'arg' = 'stdErrPath'
-            'type' = 'detail'
-            'trust' = 'internal'
-        }
-        '.'
-    )
-    'runner.refresh_gate_boot_resume_failed' = @(
-        '⁦Start-TestRunner⁩: רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' נותר לא גמור מאתחול קודם, וחידושו נכשל ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); חדשו אותו באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
-    )
-    'runner.refresh_gate_boot_resume_tried' = @(
-        '⁦Start-TestRunner⁩: רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ', שנותר לא גמור מאתחול קודם, כבר חודש פעם אחת באתחול הזה; חדשו אותו שוב באמצעות test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.'
-    )
-    'runner.refresh_gate_hold' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' חוסם את המריץ (שער '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); לא יתחיל מחזור עד לשחרורו.'
-    )
-    'runner.refresh_gate_orphaned' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' השאיר את המריץ חסום (שער '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') ותהליך העבודה שלו אינו פועל עוד. הריצו test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩ כדי להשלים את ההתאוששות.'
-    )
-    'runner.refresh_gate_released' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] שער רענון המארח שחרר את המריץ; המחזורים מתחדשים.'
-    )
-    'runner.refresh_gate_status_ensure_failed' = @(
-        'Start-TestRunner: לא ניתן היה להפעיל את status-service בזמן שהשער חוסם: '
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
-    'runner.refresh_gate_status_ensured' = @(
-        'Start-TestRunner: לרענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' אין תהליך עבודה פעיל; status-service הופעל ביציאה '
-        @{
-            'arg' = 'port'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        ' כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה. הפעלת המריץ נשארת מסורבת עד שהבקשה תיפתר.'
-    )
-    'runner.refresh_gate_unreadable' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] לא ניתן היה לקרוא את רשומת שער רענון המארח ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); המריץ נשאר חסום עד ש־test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩ יפתור זאת.'
-    )
-    'runner.refresh_gate_write_action' = @(
-        'כתבו את שער המריץ לרענון המארח ('
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ')'
-    )
-    'runner.refresh_handoff_complete' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] המוכנות לרענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' אומתה; מתבצעת יציאה משער הרענון.'
-    )
-    'runner.refresh_handoff_complete_action' = @(
-        'השלימו העברת שליטה במריץ לרענון המארח ('
-        @{
-            'arg' = 'verdict'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ')'
-    )
-    'runner.refresh_handoff_issue_action' = @(
-        'הנפיקו אסימון להעברת שליטה במריץ לרענון המארח ('
-        @{
-            'arg' = 'purpose'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ')'
-    )
-    'runner.refresh_handoff_unverified' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] לא ניתן היה לאמת מוכנות לרענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); המריץ נשאר חסום.'
-    )
-    'runner.refresh_launch_record_skipped' = @(
-        '⁦Start-TestRunner⁩: רשומת הפעלת המריץ לא נכתבה ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); רענון מארח אינו יכול להפעיל מחדש מריץ זה, ומבקש מהמפעיל להפעילו.'
-    )
-    'runner.refresh_preflight_cycle' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] בדיקה מקדימה לרענון בלבד: ללא git pull, שינוי מכונה וירטואלית או ניקוי בקרות במחזור זה.'
-    )
-    'runner.refresh_preflight_failed' = @(
-        'הבדיקה המקדימה לרענון נכשלה ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); דבר לא השתנה והמריץ נשאר חסום.'
-    )
-    'runner.refresh_preflight_ready' = @(
-        'הבדיקה המקדימה לרענון מוכנה עבור הבקשה '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; בהמתנה לתהליך העבודה של הרענון שישחרר את המריץ.'
-    )
-    'runner.refresh_preflight_released' = @(
-        'הבדיקה המקדימה לרענון הסתיימה ('
-        @{
-            'arg' = 'outcome'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); מתבצעת יציאה כדי שהמריץ יוכל להמשיך.'
-    )
-    'runner.refresh_preflight_result' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] מחזור הבדיקה המקדימה לרענון הסתיים בקוד יציאה '
-        @{
-            'arg' = 'exitCode'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '.'
-    )
-    'runner.refresh_resume_action' = 'הפעילו מחדש את המריץ לאחר רענון מארח'
-    'runner.refresh_resume_record_refused' = @(
-        '⁦Start-TestRunner⁩: הרשומה '
-        @{
-            'arg' = 'pidFile'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' במצב '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; חידוש לאחר רענון לעולם אינו משתלט על רשומת מריץ פעיל או לא ידוע ואינו מוחק אותה.'
-    )
-    'runner.refresh_resume_started' = @(
-        '⁦Start-TestRunner⁩: הפעולה מתחדשת לאחר רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '; השהיות, חסימות ובקשות להפעלה מחדש של המפעיל נשמרות.'
-    )
-    'runner.refresh_resume_switch_pair' = '⁦Start-TestRunner⁩: יש לספק את ⁦-RefreshResume⁩ ואת ⁦-RefreshHandoffToken⁩ יחד; ההפעלה לא תתבצע.'
-    'runner.refresh_resume_token_refused' = @(
-        '⁦Start-TestRunner⁩: העברת השליטה ברענון נדחתה ('
-        @{
-            'arg' = 'reason'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '); ההפעלה לא תתבצע.'
-    )
-    'runner.refresh_site_gated' = @(
-        'המחזור הסתיים לפני '
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ': רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' חוסם מארח זה (שער '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        '). דבר לא השתנה; המריץ ממתין לרענון.'
-    )
-    'runner.refresh_status_ensure_orphaned' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] רענון המארח '
-        @{
-            'arg' = 'requestId'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' חוסם את המריץ (שער '
-        @{
-            'arg' = 'state'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ') ותהליך העבודה שלו אינו פועל עוד; מבטיחים מחדש את status-service כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה.'
-    )
-    'runner.refresh_status_ensure_skipped' = @(
-        '[מחזור חיצוני '
-        @{
-            'arg' = 'cycle'
-            'type' = 'integer'
-            'trust' = 'internal'
-        }
-        '] הבטחת הפעילות מחדש של status-service דולגה: רענון מארח חוסם מארח זה.'
-    )
-    'runner.refresh_trigger_call_failed' = @(
-        'הקריאה האוטומטית לרענון המארח ב־'
-        @{
-            'arg' = 'site'
-            'type' = 'identifier'
-            'trust' = 'internal'
-        }
-        ' נכשלה ודולגה: '
-        @{
-            'arg' = 'message'
-            'type' = 'detail'
-            'trust' = 'external'
-        }
-    )
     'runner.resident_watchdog_kill_preamble' = @(
         '[מחזור חיצוני '
         @{
@@ -23958,6 +24471,185 @@
             'trust' = 'internal'
         }
         ' יחד עם עץ התהליכים שלו.'
+    )
+    'runner.runner_gate_blocks_start' = @(
+        '⁦Start-TestRunner⁩: פעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' חוסמת את המריץ של מארח זה (שער '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); מריץ נוסף לא יופעל. המתינו לסיומה, או, בתיקון מארח, חדשו אותו באמצעות test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.'
+    )
+    'runner.runner_gate_cycle_held' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] המריץ הפנימי נעצר ב־'
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מפני שפעולת מארח חוסמת מארח זה; דבר לא השתנה.'
+    )
+    'runner.runner_gate_hold' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] פעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' חוסמת את המריץ (שער '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); לא יתחיל מחזור עד לשחרורו.'
+    )
+    'runner.runner_gate_orphaned' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] פעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' השאירה את המריץ חסום (שער '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') ותהליך העבודה שלה אינו פועל עוד. בתיקון מארח, הריצו test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩ כדי להשלים את ההתאוששות.'
+    )
+    'runner.runner_gate_released' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] שער המריץ שחרר את המריץ; המחזורים מתחדשים.'
+    )
+    'runner.runner_gate_site_held' = @(
+        'המחזור הסתיים לפני '
+        @{
+            'arg' = 'site'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': פעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' חוסמת מארח זה (שער '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '). דבר לא השתנה; המריץ ממתין לסיומה.'
+    )
+    'runner.runner_gate_status_ensure_failed' = @(
+        'Start-TestRunner: לא ניתן היה להפעיל את status-service בזמן שהשער חוסם: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.runner_gate_status_ensure_orphaned' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] פעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' חוסמת את המריץ (שער '
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ') ותהליך העבודה שלה אינו פועל עוד; מבטיחים מחדש את status-service כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה.'
+    )
+    'runner.runner_gate_status_ensure_skipped' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] הבטחת הפעילות מחדש של status-service דולגה: פעולת מארח חוסמת מארח זה.'
+    )
+    'runner.runner_gate_status_ensured' = @(
+        'Start-TestRunner: לפעולת המארח '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' אין תהליך עבודה פעיל; status-service הופעל ביציאה '
+        @{
+            'arg' = 'port'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' כדי שלוח המחוונים שלו יוכל להציג ולחדש את הבקשה שטרם נפתרה. הפעלת המריץ נשארת מסורבת עד שהבקשה תיפתר.'
+    )
+    'runner.runner_gate_unreadable' = @(
+        '[מחזור חיצוני '
+        @{
+            'arg' = 'cycle'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '] לא ניתן היה לקרוא את רשומת שער המריץ ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); המריץ נשאר חסום עד ש־test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩ יפתור זאת.'
+    )
+    'runner.runner_gate_write_action' = @(
+        'כתבו את שער המריץ ('
+        @{
+            'arg' = 'state'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ')'
     )
     'runner.runner_process_signal_action' = @(
         'שלחו אות לתהליך מריץ מאומת ('
@@ -24635,6 +25327,145 @@
         }
         ').'
     )
+    'runner.ssh_host_key_pin_unconfirmed_reset' = @(
+        'מפתח המארח של SSH שהוצמד עבור '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' נרשם במהלך ההמתנה הזו ואף התחברות לא אומתה מולו, והאורח בכתובת '
+        @{
+            'arg' = 'address'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' מציג כעת מפתח אחר, כפי שקורה באורח חדש כששרת SSH של תוכנית ההתקנה מפנה את מקומו לשרת של המערכת המותקנת. ההצמדה נשכחת וההמתנה נמשכת (איפוס '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' מתוך '
+        @{
+            'arg' = 'limit'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '; קובץ ההצמדה: '
+        @{
+            'arg' = 'pin'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'runner.ssh_password_rotated' = @(
+        'sshWaitReady החליף דרך SSH את הסיסמה שפג תוקפה של '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.ssh_password_rotation_failed' = @(
+        'sshWaitReady לא הצליח להחליף דרך SSH את הסיסמה שפג תוקפה של '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), ולכן השלב נכשל. פלט האורח: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.ssh_password_set' = @(
+        'sshWaitReady הגדיר דרך SSH את הסיסמה של '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', כי תוקף הכניסה לא פג.'
+    )
+    'runner.ssh_password_set_failed' = @(
+        'sshWaitReady לא הצליח להגדיר דרך SSH את הסיסמה של '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '), ולכן השלב נכשל ואף שלב מאוחר יותר לא שומר את הסיסמה החדשה. פלט האורח: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.ssh_password_still_expired' = @(
+        'האורח עדיין מדווח על סיסמה שפג תוקפה עבור '
+        @{
+            'arg' = 'user'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' לאחר ש-sshWaitReady החליף אותה, ולכן השלב נכשל.'
+    )
+    'runner.ssh_wait_rotation_fields_incomplete' = @(
+        'sshWaitReady מחליף סיסמה שפג תוקפה רק כאשר currentPassword ו-newPassword ניתנים יחד, והשלב הזה מציין רק את '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ', ולכן השלב נכשל.'
+    )
     'runner.start_cycle_worker_cleanup_failed' = @(
         'הפעלת מחזור '
         @{
@@ -24936,7 +25767,7 @@
         }
         ''') ומפעיל שירות חדש.'
     )
-    'runner.status_refresh_safe_existing_ready' = @(
+    'runner.status_non_destructive_existing_ready' = @(
         'Status service עם מזהה תהליך '
         @{
             'arg' = 'processId'
@@ -24949,9 +25780,9 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        '; ההפעלה הבטוחה לרענון השאירה אותו פועל.'
+        '; ההפעלה הלא הרסנית השאירה אותו פועל.'
     )
-    'runner.status_refresh_safe_not_ready' = @(
+    'runner.status_non_destructive_not_ready' = @(
         'status service הופעל עם מזהה תהליך '
         @{
             'arg' = 'processId'
@@ -24966,8 +25797,8 @@
         }
         ' שניות; הוא הושאר פועל.'
     )
-    'runner.status_refresh_safe_partial' = @(
-        'ההפעלה הבטוחה לרענון של status service ביציאה '
+    'runner.status_non_destructive_partial' = @(
+        'ההפעלה הלא הרסנית של status service ביציאה '
         @{
             'arg' = 'port'
             'type' = 'integer'
@@ -24987,8 +25818,8 @@
         }
         ').'
     )
-    'runner.status_refresh_safe_refused' = @(
-        '⁦Start-StatusService.ps1⁩ ⁦-RefreshSafe⁩ סירב לפעול: '
+    'runner.status_non_destructive_refused' = @(
+        '⁦Start-StatusService.ps1⁩ ⁦-NonDestructive⁩ סירב לפעול: '
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -24996,8 +25827,8 @@
         }
         '.'
     )
-    'runner.status_refresh_safe_result_unwritable' = @(
-        'ההפעלה הבטוחה לרענון לא הצליחה לכתוב את רשומת התוצאה שלה אל '
+    'runner.status_non_destructive_result_unwritable' = @(
+        'ההפעלה הלא הרסנית לא הצליחה לכתוב את רשומת התוצאה שלה אל '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -25005,7 +25836,7 @@
         }
         '.'
     )
-    'runner.status_refresh_safe_started' = @(
+    'runner.status_non_destructive_started' = @(
         'Status service הופעל עם מזהה תהליך '
         @{
             'arg' = 'processId'
@@ -25018,7 +25849,7 @@
             'type' = 'integer'
             'trust' = 'internal'
         }
-        ' (הפעלה בטוחה לרענון).'
+        ' (הפעלה לא הרסנית).'
     )
     'runner.status_restart_changed_head' = @(
         'מתבצעת הפעלה מחדש של status service (מזהה תהליך '
@@ -25061,6 +25892,21 @@
     )
     'runner.status_worker_directory_prepare_action' = 'הכינו את הספרייה הפרטית של תהליך העבודה'
     'runner.status_worker_state_write_action' = 'פרסמו את רשומת המצב של תהליך העבודה'
+    'runner.step_form_invalid' = @(
+        'הצעד ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' חייב לכלול בדיוק אחד מבין ''step'', ''action'' ו-''snippet''; יש בו: '
+        @{
+            'arg' = 'found'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
     'runner.step_handler_threw' = @(
         'שלב '
         @{
@@ -25102,6 +25948,411 @@
             'trust' = 'external'
         }
         '. ה-⁦watchdog⁩ שופט את המחזור לפי קובץ זה ועוצר אותו כתקוע כשהקובץ מתיישן; בדקו את השטח הפנוי ואת נעילות הקבצים שם.'
+    )
+    'runner.step_phrase_duplicate_id' = @(
+        'הביטוי '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' מוגדר ב-'
+        @{
+            'arg' = 'first'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ושוב ב-'
+        @{
+            'arg' = 'second'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. מזהה ביטוי מוגדר פעם אחת; ספרייה מוסיפה ביטויים ולעולם אינה מגדירה ביטוי מחדש.'
+    )
+    'runner.step_phrase_file_unreadable' = @(
+        'לא ניתן לקרוא את '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. לא ניתן לפענח צעדי משפט בלעדיו.'
+    )
+    'runner.step_phrase_library_invalid' = @(
+        'ספריית הביטויים '
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אינה תקינה ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') ב-'''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''': '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'runner.step_phrase_malformed' = @(
+        'לא ניתן לקרוא את המשפט ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') בתו '
+        @{
+            'arg' = 'position'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. סגרו כל מירכה וכל ביטוי משתנה, והכפילו מירכה כדי לכתוב אותה בתוך ערך שבמירכאות.'
+    )
+    'runner.step_phrase_no_library' = @(
+        'לא ניתן לפענח את המשפט ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': לא נמצאה ספריית ביטויים. ספריית המסגרת היא test/sequences/_phrases.yml.'
+    )
+    'runner.step_phrase_no_match' = @(
+        'אף ביטוי אינו תואם את המשפט ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', שנקרא כך: '
+        @{
+            'arg' = 'shape'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. המשפטים הקרובים ביותר: '
+        @{
+            'arg' = 'nearest'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ערך שמכיל רווחים חייב להיות במירכאות.'
+    )
+    'runner.step_phrase_overlap' = @(
+        'הביטויים '''
+        @{
+            'arg' = 'firstPhrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('''
+        @{
+            'arg' = 'firstSentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''', '
+        @{
+            'arg' = 'firstFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') ו-'''
+        @{
+            'arg' = 'secondPhrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ('''
+        @{
+            'arg' = 'secondSentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''', '
+        @{
+            'arg' = 'secondFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ') יכולים להתאים לאותו משפט. למשפט יש משמעות אחת; שנו או הסירו אחד מהם.'
+    )
+    'runner.step_phrase_slot_empty' = @(
+        'הערך עבור <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> של '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ריק. תנו לו ערך.'
+    )
+    'runner.step_phrase_slot_not_integer' = @(
+        'הערך עבור <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> של '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' חייב להיות מספר שלם מ-0 עד 999999999, שנכתב ללא מירכאות וללא אפס מוביל. ביטוי משתנה אינו מתקבל שם.'
+    )
+    'runner.step_phrase_slot_not_key' = @(
+        'הערך עבור <'
+        @{
+            'arg' = 'slot'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '> של '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' חייב להיות אחד משמות המקשים האלה, שנכתב ללא מירכאות: '
+        @{
+            'arg' = 'keyNames'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. ביטוי משתנה אינו מתקבל שם.'
+    )
+    'runner.step_phrase_surface_missing' = @(
+        'למשפט '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אין צעדים עבור המשטח '''
+        @{
+            'arg' = 'surface'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. הוא מוגדר עבור: '
+        @{
+            'arg' = 'surfaces'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'runner.step_phrase_template_invalid' = @(
+        'צעד '
+        @{
+            'arg' = 'index'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' של הביטוי '''
+        @{
+            'arg' = 'phrase'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' עבור המשטח '''
+        @{
+            'arg' = 'surface'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ב-'
+        @{
+            'arg' = 'file'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אינו צעד '''
+        @{
+            'arg' = 'action'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' תקין. השדות שלו מוגדרים ב-test/schemas/sequence.schema.yml; הפעולה דורשת: '
+        @{
+            'arg' = 'required'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'runner.step_phrase_timeout_unused' = @(
+        'timeoutSeconds מוגדר במשפט '''
+        @{
+            'arg' = 'sentence'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ', ואף אחד מהצעדים שלו אינו מקבל זמן קצוב. הסירו אותו.'
+    )
+    'runner.step_sentence_invalid' = @(
+        'צעד המשפט ב-'
+        @{
+            'arg' = 'location'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אינו תקין ('
+        @{
+            'arg' = 'reason'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. צעד משפט מקבל את ''step'' כטקסט, ובאופן אופציונלי את ''on'' (screen או page), את ''timeoutSeconds'' (מספר שלם של 1 ומעלה), את ''description'' ויחד איתו את ''descriptionLocalized''.'
+    )
+    'runner.tapon_argument_invalid' = @(
+        'לא ניתן להריץ את tapOn: '
+        @{
+            'arg' = 'field'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        ' הוא '''
+        @{
+            'arg' = 'value'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. השתמשו באחד מאלה: '
+        @{
+            'arg' = 'allowed'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.tapon_click_kind_unsupported' = @(
+        'tapOn: המארח '''
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' אינו יכול לשלוח לחיצת '
+        @{
+            'arg' = 'click'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.tapon_label_ambiguous' = @(
+        'tapOn: '''
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' מופיע על המסך '
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' פעמים: '
+        @{
+            'arg' = 'candidates'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. הוסיפו nth לצעד כדי לבחור אחד מהם.'
+    )
+    'runner.tapon_label_unusable' = @(
+        'לא ניתן להריץ את tapOn: בתווית '''
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' אין אות או ספרה לחפש עם match: '
+        @{
+            'arg' = 'match'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.tapon_second_look_failed' = @(
+        'tapOn: הקריאה השנייה של עותק מוכפל של המסגרת נכשלה ('
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). צעד זה קורא רק את המסגרת כפי שנלכדה.'
     )
     'runner.telemetry_event_dropped' = @(
         'לא ניתן לרשום אירוע מחזור ('''
@@ -25175,6 +26426,13 @@
             'trust' = 'external'
         }
     )
+    'runner.verb_web_click' = 'לחצו על רכיב הדף שנמצא לפי תפקיד ושם, או סמנו תיבת סימון.'
+    'runner.verb_web_close' = 'סגרו את דף הדפדפן של האורח ואת החיבור שלו.'
+    'runner.verb_web_expect' = 'המתינו עד שרכיב או טקסט יופיע בדף, או ייעלם ממנו.'
+    'runner.verb_web_fill' = 'החליפו את התוכן של שדה טקסט בדף.'
+    'runner.verb_web_open' = 'פתחו כתובת בדף הדפדפן של האורח והמתינו לטעינתו.'
+    'runner.verb_web_press' = 'לחצו על מקש בדף.'
+    'runner.verb_web_select' = 'בחרו אפשרות של רשימה נפתחת מקורית לפי התווית שלה.'
     'runner.vm_admission_occupied' = @(
         'מסרב להתחיל מחזור: מכונות וירטואליות אלה פועלות במארח ולא נעצרו: '
         @{
@@ -25397,4 +26655,897 @@
         }
         ' s, כאשר 0 פירושו ללא הגבלה).'
     )
+    'runner.web_session_close_incomplete' = @(
+        'סשן הדפדפן ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' לא נסגר כראוי ('
+        @{
+            'arg' = 'reason'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.web_session_open_failed' = @(
+        'אין סשן דפדפן ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'code'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '. '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.web_session_opened' = @(
+        'סשן דפדפן '
+        @{
+            'arg' = 'generation'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ב-'
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'browser'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ביציאה '
+        @{
+            'arg' = 'remotePort'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' של האורח, נגיש דרך 127.0.0.1:'
+        @{
+            'arg' = 'localPort'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_argument_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הארגומנט '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' חייב להתאים ל־'
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_busy' = @(
+        'הפעולה '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' עדיין רצה. בדקו את מצבה או בטלו אותה לפני שתתחילו אחרת.'
+    )
+    'runner.workload_call_timeout' = @(
+        'ה־worker של הסשן לא ענה בתוך '
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות.'
+    )
+    'runner.workload_candidate_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הרצף שנוצר נכשל בבדיקת '
+        @{
+            'arg' = 'check'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' דבר לא נכתב.'
+    )
+    'runner.workload_capture_failed' = 'לא ניתן היה ללכוד את מסגרת המסך.'
+    'runner.workload_config_unreadable' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': לא ניתן היה לקרוא את התצורה '
+        @{
+            'arg' = 'configPath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'runner.workload_elevation_required' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' מפעיל VM רק מתהליך עם הרשאות מוגבהות. הפעילו את לקוח ה־MCP עם הרשאות מוגבהות.'
+    )
+    'runner.workload_field_invalid' = @(
+        'השדה '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' של הפועל '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינו תואם לסכמת הרצף: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_field_missing' = @(
+        'הפועל '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' דורש את השדה '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'runner.workload_field_reserved' = @(
+        'השדה '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' נקבע על ידי הסשן ולא ניתן לספק אותו.'
+    )
+    'runner.workload_field_undeclared' = @(
+        'השדה '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינו מוצהר עבור הפועל '''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' בסכמת הרצף; המטפל עשוי להתעלם ממנו.'
+    )
+    'runner.workload_folder_outside' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' מפוענח מחוץ לעותק המסגרת ('
+        @{
+            'arg' = 'resolved'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). דבר לא נכתב.'
+    )
+    'runner.workload_guest_unknown' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': לאורח '''
+        @{
+            'arg' = 'guestKey'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אין תיקייה עבור '
+        @{
+            'arg' = 'hostType'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'folder'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'runner.workload_host_driver_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': מנהל ההתקן של המארח לא נטען: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_host_not_ready' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': המארח אינו מוכן להפעיל אורח (תנאי '
+        @{
+            'arg' = 'condition'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '): '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_host_unsupported' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': לפלטפורמה זו אין מנהל התקן של מארח.'
+    )
+    'runner.workload_intent_invalid' = 'ה־intent חייב להיות שורה אחת של 1 עד 200 תווים ואסור שיכיל אסימון משתנה.'
+    'runner.workload_internal_error' = @(
+        'ה־worker של הסשן לא הצליח להשלים את הבקשה: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_journal_empty' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': היומן אינו מכיל צעד מוצלח לשמירה.'
+    )
+    'runner.workload_journal_write_failed' = @(
+        'לא ניתן היה לכתוב את קובץ היומן; הרשומה נשמרת בזיכרון: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_lease_incomplete' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': החכירה '
+        @{
+            'arg' = 'leasePath'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' נכתבה ללא רשומת ההתחלה שלה ושוחררה. קראו שוב.'
+    )
+    'runner.workload_libvirt_group_missing' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': התהליך הזה אינו נושא את הקבוצה libvirt. הפעילו את לקוח ה־MCP מסשן שבו ''id -nG'' מציג את libvirt, או עטפו את פקודת השרת ב־''sg libvirt -c''.'
+    )
+    'runner.workload_mask_failed' = 'הממשק הקדמי לא אישר את הערכים שיש להסתיר.'
+    'runner.workload_mask_unconfirmed' = 'הממשק הקדמי לא אישר את הערכים שיש להסתיר; יומני ה־worker שלו עשויים להציג אותם.'
+    'runner.workload_name_exists' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': קובץ רצף עבור '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' כבר קיים: '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '. דבר לא נכתב.'
+    )
+    'runner.workload_name_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': השם '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' חייב להתאים ל־'
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ', להתחיל ב־'''
+        @{
+            'arg' = 'prefix'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ''' ולא להסתיים ב־.yml, ב־.yaml או בסיומת מארח (.⁦ubuntu.kvm⁩, .⁦windows.hyper-v⁩, .⁦macos.utm⁩).'
+    )
+    'runner.workload_no_page' = 'אין דף פתוח בסשן הזה. הריצו קודם את המשפט ''open page <url>''.'
+    'runner.workload_no_session' = 'אין סשן של עומס עבודה מצורף. התחילו אחד עם workload_session_start.'
+    'runner.workload_not_dispatched' = @(
+        'הפעולה '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' הסתיימה לפני שנשלחה ל־worker; דבר לא רץ.'
+    )
+    'runner.workload_operation_canceled' = @(
+        'הפעולה בוטלה לאחר '
+        @{
+            'arg' = 'completed'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' מתוך '
+        @{
+            'arg' = 'total'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' פעולות בסיסיות.'
+    )
+    'runner.workload_operation_conflict' = @(
+        'מזהה הפעולה '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' כבר שימש כלי אחר או קלט אחר. בחרו operationId חדש לצעד חדש.'
+    )
+    'runner.workload_operation_unknown' = @(
+        'לאף פעולה בסשן זה אין את המזהה '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'runner.workload_ownership_lost' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הסשן הזה כבר אינו הבעלים של סביבת הריצה ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). סיימו את הסשן.'
+    )
+    'runner.workload_plan_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': לא ניתן היה לתכנן את השרשרת של '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_publish_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': לא ניתן היה לפרסם את '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' דבר לא נכתב.'
+    )
+    'runner.workload_queue_full' = 'שש עשרה קריאות כבר ממתינות ל־worker. קראו שוב לאחר שאחת מהן נענתה.'
+    'runner.workload_replay_spawn_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': תהליך ההרצה החוזרת לא התחיל: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_resource_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': resource חייב להכיל 1 עד 16 שמות רצפים התואמים ל־'
+        @{
+            'arg' = 'pattern'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_runtime_owned' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הרצה אחרת היא הבעלים של סביבת הריצה הזו: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_secret_filter_failed' = 'התשובה עוכבה: לאחר סינון הסודות היא עדיין הכילה סוד או שלא ניתן היה עוד לקרוא אותה.'
+    'runner.workload_secret_found' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הרצף שנוצר היה מכיל סוד שנפתר. השתמשו בהפניה למשתנה בצעד. דבר לא נכתב.'
+    )
+    'runner.workload_secret_literal' = 'הבקשה מכילה ערך שהסשן הזה מחזיק כסוד. הפנו אליו דרך המשתנה שלו.'
+    'runner.workload_secret_reference_required' = @(
+        'השדה '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' נושא סוד וחייב להפנות אליו דרך משתנה או ביטוי הרחבה.'
+    )
+    'runner.workload_secret_too_short' = @(
+        'המשתנה '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' מחזיק סוד קצר מ־'
+        @{
+            'arg' = 'minimum'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' תווים, שהסשן אינו יכול להסוות.'
+    )
+    'runner.workload_secret_variable_unknown' = @(
+        'השדה '''
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' מפנה למשתנה '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''', שהסשן הזה אינו מגדיר.'
+    )
+    'runner.workload_sequence_not_found' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הרצף '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' לא נמצא. נבדקו: '
+        @{
+            'arg' = 'list'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_sequence_not_guest' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': '''
+        @{
+            'arg' = 'sequence'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינו רצף אורח עם שרשרת משאבים עבור '
+        @{
+            'arg' = 'osKey'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_session_active' = @(
+        'סשן עם קלט אחר מצורף ל־VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '''. סיימו אותו קודם עם workload_session_end.'
+    )
+    'runner.workload_session_detached' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': לסשן אין VM פועלת ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '). סיימו את הסשן, העלו את ה־VM עם test⁦/Debug-TestSequence.ps1⁩ וצרפו שוב.'
+    )
+    'runner.workload_session_starting' = 'הסשן עדיין מתחיל. קראו שוב ל־workload_session_start עם אותו קלט כדי לקבל את התוצאה.'
+    'runner.workload_split_invalid' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': componentSteps '
+        @{
+            'arg' = 'value'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ' חייב להיות בין 0 ל־'
+        @{
+            'arg' = 'count'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        '.'
+    )
+    'runner.workload_stale_reference' = @(
+        'ההפניה '''
+        @{
+            'arg' = 'reference'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינה בתמונת המצב הנוכחית. צלמו תמונת מצב חדשה ובחרו מתוכה.'
+    )
+    'runner.workload_start_failed' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': הסשן לא התחיל: '
+        @{
+            'arg' = 'message'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_step_failed' = @(
+        'הפעולה הבסיסית '
+        @{
+            'arg' = 'index'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' מתוך '
+        @{
+            'arg' = 'total'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ') נכשלה: '
+        @{
+            'arg' = 'label'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_step_too_large' = @(
+        'הצעד גדול מ־'
+        @{
+            'arg' = 'maximum'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' תווים.'
+    )
+    'runner.workload_step_unresolved' = @(
+        'המשפט לא נפתר: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_still_waiting' = @(
+        'הפעולה '''
+        @{
+            'arg' = 'operationId'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ''' עדיין רצה. קראו שוב לאותו כלי עם operationId זה בלבד כדי לקבל את התוצאה.'
+    )
+    'runner.workload_surface_unsupported' = @(
+        'ה־worker הזה אינו מציע את המשטח '''
+        @{
+            'arg' = 'surface'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '''. הוא מציע: '
+        @{
+            'arg' = 'surfaces'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+    )
+    'runner.workload_variable_reserved' = @(
+        'המשתנה '''
+        @{
+            'arg' = 'name'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' נקבע על ידי הסשן ולא ניתן לספק אותו.'
+    )
+    'runner.workload_variables_failed' = @(
+        'לא ניתן היה לפתור את משתני הסשן: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_verb_alias' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' הוא כתיב אחר של '''
+        @{
+            'arg' = 'canonical'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. השתמשו ב־'''
+        @{
+            'arg' = 'canonical'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''.'
+    )
+    'runner.workload_verb_denied_composite' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' עוטף צעדים אחרים. הוסיפו אותו לרצף השמור ידנית.'
+    )
+    'runner.workload_verb_denied_operator_hold' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' ממתין למפעיל ואינו יכול לרוץ בסשן של עומס עבודה.'
+    )
+    'runner.workload_verb_denied_unclassified' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינו מצהיר על סוג הרצה חוזרת ואינו יכול לרוץ בסשן של עומס עבודה.'
+    )
+    'runner.workload_verb_denied_vm_state' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' משנה את מצב ההפעלה או את השם של ה־VM. במקום זאת, הריצו רצף עם workload_run_sequence.'
+    )
+    'runner.workload_verb_unregistered' = @(
+        ''''
+        @{
+            'arg' = 'action'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינו פועל רשום.'
+    )
+    'runner.workload_vm_absent' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ה־VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינה קיימת במארח זה. בנו והפעילו אותה עם test⁦/Debug-TestSequence.ps1⁩ ואז צרפו.'
+    )
+    'runner.workload_vm_stopped' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ה־VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ''' אינה פועלת. הפעילו אותה עם test⁦/Debug-TestSequence.ps1⁩ ואז צרפו.'
+    )
+    'runner.workload_vm_unknown' = @(
+        @{
+            'arg' = 'tool'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ': ההיפרווייזר לא דיווח על המצב של ה־VM '''
+        @{
+            'arg' = 'vmName'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '''. דבר לא שונה.'
+    )
+    'runner.workload_worker_lost' = 'ה־worker של הסשן הסתיים בזמן שהחזיק בסשן, ולכן הסשן הסתיים. התחילו סשן חדש.'
+    'runner.workload_worker_start_failed' = @(
+        'ה־worker של הסשן לא התחיל או לא הצטרף: '
+        @{
+            'arg' = 'detail'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'runner.workload_yaml_mismatch' = 'לא ניתן לכתוב את הצעד כ־YAML שנקרא בחזרה ללא שינוי, ולכן הוא לא הורץ.'
 }

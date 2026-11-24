@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d0d3f5-5045-4fb5-9bb9-b7a3a91c01d6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -355,7 +355,7 @@ function Test-GitMirrorQualificationEvidence {
         if ($row.result -cne 'pass' -or $row.phase -ne $required[$key].phase -or @($row.artifacts).Count -lt 1) {
             throw "Qualification row is incomplete or failed: $key"
         }
-        if ($row.id -ceq 'GM-UTM-AQUA' -and ($row.sessionKind -cne 'Aqua' -or $row.refreshVerdict -cne 'restarted')) {
+        if ($row.id -ceq 'GM-UTM-AQUA' -and ($row.sessionKind -cne 'Aqua' -or $row.repairVerdict -cne 'restarted')) {
             throw 'UTM activation requires a measured Aqua restart.'
         }
         if ($row.id -ceq 'GM-OUTAGE-6MIN-NO-CONTENT' -and [double]$row.durationSeconds -lt 360) {

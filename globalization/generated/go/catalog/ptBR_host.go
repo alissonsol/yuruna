@@ -565,6 +565,7 @@ const DataptBRhost = `{
   ],
   "host.enable_automation_no_prompt_confirm_conflict": "Enable-TestAutomation: -NoOperatorPrompt não pode ser combinado com -Confirm, que pede confirmação antes de cada alteração; nada foi capturado nem alterado.",
   "host.enable_automation_no_prompt_mode": "Enable-TestAutomation: executando com -NoOperatorPrompt -- sem diálogos de consentimento, sem reinício do Dock ou do protetor de tela, sem instalação de módulos, sem solicitação de senha do sudo e sem questionário de networkStorage. As configurações que exigem um operador são informadas como ainda não atendidas.",
+  "host.enable_automation_no_prompt_mode_host": "Enable-TestAutomation: executando com -NoOperatorPrompt -- sem oferta de pacotes, sem instalação de módulos, sem pedido de senha do sudo, sem o questionário de networkStorage e sem alteração no registro do controlador do hospedeiro. As configurações que precisam de um operador são informadas como ainda não atendidas.",
   "host.enable_automation_no_prompt_unsupported": "Enable-TestAutomation: -NoOperatorPrompt requer Set-MacHostConditionSet -NoGuiDisruption, que esta cópia do repositório não fornece; nada foi capturado nem alterado. Em vez disso, execute-o sem -NoOperatorPrompt a partir de uma sessão assistida.",
   "host.forwarder_identity_unverified": [
     "Stop-CachingProxyServiceForwarder: não foi possível ler o processo com PID ",
@@ -575,6 +576,335 @@ const DataptBRhost = `{
     },
     " dentro do tempo limite; o arquivo de PID foi mantido e nada foi sinalizado."
   ],
+  "host.host_controller_deployed_macos": [
+    "  controlador do hospedeiro: shim e snapshot ",
+    {
+      "arg": "snapshot",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " implantados. O macOS não registra nenhum job: um início comum do executor em um terminal da sessão da área de trabalho inicia o controlador."
+  ],
+  "host.host_controller_files_failed": [
+    "  controlador do hospedeiro: o shim ou o snapshot de código não pôde ser implantado em ~/.yuruna/host-repair/host-controller (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), então yuruna-host-controller.service não foi registrado."
+  ],
+  "host.host_controller_files_failed_macos": [
+    "  controlador do hospedeiro: o shim ou o snapshot de código não pôde ser implantado em ~/.yuruna/host-repair/host-controller (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), então nenhum início do executor pode iniciar o controlador."
+  ],
+  "host.host_controller_files_kept": [
+    "Arquivos do controlador do hospedeiro em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (um controlador ainda mantém sua trava 30 segundos após a parada; deixados como estão)"
+  ],
+  "host.host_controller_files_not_removed": [
+    "Arquivos do controlador do hospedeiro em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " (não removidos: ",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
+  "host.host_controller_files_removed": [
+    "Arquivos do controlador do hospedeiro (shim, snapshots, pastas de trabalho) removidos em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "host.host_controller_group_missing": [
+    "  controlador do hospedeiro: o grupo '",
+    {
+      "arg": "grp",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' não existe, então yuruna-host-controller.service não pôde iniciar (o SupplementaryGroups dele nomeia o grupo). Instale os pacotes do libvirt e execute este script novamente."
+  ],
+  "host.host_controller_no_sudo": "  yuruna-host-controller.service não está instalado, habilitado e em execução com a unidade deste checkout, e o sudo não pode ser executado aqui sem senha, então ele foi apenas verificado. Execute este script novamente a partir de um terminal que possa responder ao prompt do sudo.",
+  "host.host_controller_not_running": "  controlador do hospedeiro: nenhum controlador obteve sua trava em 15 segundos. Leia 'systemctl status yuruna-host-controller' e 'journalctl -u yuruna-host-controller' para saber a causa.",
+  "host.host_controller_not_verified": [
+    "  controlador do hospedeiro: o controlador implantado não é o que este checkout implanta (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "); -NoOperatorPrompt deixa o registro como está. Execute Enable-TestAutomation.ps1 sem -NoOperatorPrompt para registrá-lo de novo."
+  ],
+  "host.host_controller_running": [
+    "  controlador do hospedeiro: em execução a partir do snapshot ",
+    {
+      "arg": "snapshot",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " (yuruna-host-controller.service)"
+  ],
+  "host.host_controller_session_end_failed": "  controlador do hospedeiro: a sessão yuruna-controller dele não pôde ser encerrada, então ela mantém o shim com que começou até terminar. Encerre-a com: tmux -L yuruna-controller kill-session -t yuruna-controller (ou, com screen: screen -ls e depois screen -S <pid>.yuruna-controller -X quit)",
+  "host.host_controller_session_ended": "Encerrada a sessão do controlador do hospedeiro yuruna-controller",
+  "host.host_controller_session_ended_claimed": [
+    "  controlador do hospedeiro: a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " foi assumida enquanto a sessão yuruna-controller dele era encerrada, então nenhum controlador a continua agora. Inicie o executor em um terminal da sessão da área de trabalho para iniciar o controlador novamente, que continua a atualização, ou encerre a atualização com: pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "host.host_controller_session_ended_unknown": [
+    "  controlador do hospedeiro: a sessão yuruna-controller dele foi encerrada, mas o diário de atualizações do hospedeiro passou a estar ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", então não é possível descartar uma atualização do hospedeiro assumida nesse meio-tempo. Inicie o executor em um terminal da sessão da área de trabalho para iniciar o novo controlador, que continua qualquer atualização assim."
+  ],
+  "host.host_controller_session_kept": [
+    "  controlador do hospedeiro: o shim mudou, mas a sessão yuruna-controller dele executa a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " e foi deixada em execução. O novo shim passa a valer quando essa sessão terminar; execute este script novamente depois que a atualização terminar."
+  ],
+  "host.host_controller_session_kept_unknown": [
+    "  controlador do hospedeiro: a sessão yuruna-controller dele ainda pode executar um shim substituído, mas o diário de atualizações do hospedeiro está ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", então não é possível saber se essa sessão executa uma atualização do hospedeiro, e ela foi deixada em execução. Execute este script novamente quando o diário puder ser lido; ele encerra a sessão então."
+  ],
+  "host.host_controller_session_not_ended": "Sessão do controlador do hospedeiro yuruna-controller (não encerrada; encerre-a com: tmux -L yuruna-controller kill-session -t yuruna-controller, ou screen -ls e depois screen -S <pid>.yuruna-controller -X quit)",
+  "host.host_controller_session_restart_pending": "  controlador do hospedeiro: a sessão yuruna-controller dele executava um shim substituído e foi encerrada; o próximo início do executor em um terminal da sessão da área de trabalho inicia o novo.",
+  "host.host_controller_sudo_failed": "  controlador do hospedeiro: uma etapa privilegiada falhou (veja o aviso acima), então yuruna-host-controller.service pode não estar registrado. Execute este script novamente.",
+  "host.host_controller_task_action": "Registrar e iniciar a tarefa do controlador do hospedeiro",
+  "host.host_controller_task_claimed_not_restarted": [
+    "Tarefa agendada Yuruna Host Controller (parada enquanto a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " estava em andamento e não iniciada novamente: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). A tarefa e os arquivos do controlador foram mantidos. Inicie-a novamente com: Start-ScheduledTask -TaskName 'Yuruna Host Controller', ou encerre a atualização com: pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "host.host_controller_task_failed": [
+    "  controlador do hospedeiro: a tarefa agendada Yuruna Host Controller não pôde ser registrada ou iniciada (",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Execute este script novamente."
+  ],
+  "host.host_controller_task_files_failed": [
+    "  controlador do hospedeiro: o shim ou o snapshot do código não pôde ser implantado em %ProgramData%\\yuruna\\host-controller (",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), portanto a tarefa agendada Yuruna Host Controller não foi registrada."
+  ],
+  "host.host_controller_task_not_removed": [
+    "Tarefa agendada Yuruna Host Controller (não removida: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
+  "host.host_controller_task_not_running": [
+    "  controlador do hospedeiro: nenhum controlador obteve sua trava em 15 segundos. Leia shim.log e controller.log em ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " para saber a causa."
+  ],
+  "host.host_controller_task_registered": "  Yuruna Host Controller (tarefa agendada): registrada",
+  "host.host_controller_task_removed": "Tarefa agendada Yuruna Host Controller parada e removida",
+  "host.host_controller_task_replaced": "  Yuruna Host Controller (tarefa agendada): substituída",
+  "host.host_controller_task_running": [
+    "  controlador do hospedeiro: em execução a partir do snapshot ",
+    {
+      "arg": "snapshot",
+      "type": "token",
+      "trust": "internal"
+    },
+    " (tarefa agendada Yuruna Host Controller)"
+  ],
+  "host.host_controller_task_unknown_not_restarted": [
+    "Tarefa agendada Yuruna Host Controller (parada, e então o diário de atualizações do hospedeiro estava ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", então não é possível descartar uma atualização do hospedeiro assumida nesse meio-tempo; não iniciada novamente: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). A tarefa e os arquivos do controlador foram mantidos. Inicie-a novamente com: Start-ScheduledTask -TaskName 'Yuruna Host Controller' e depois execute este script novamente quando o diário puder ser lido."
+  ],
+  "host.host_controller_unit_installed": "  yuruna-host-controller.service: instalado",
+  "host.host_controller_unit_not_removed": [
+    "yuruna-host-controller.service (não removido: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    ")"
+  ],
+  "host.host_controller_unit_removed": "yuruna-host-controller.service parado, desabilitado e removido",
+  "host.host_controller_unit_replaced": "  yuruna-host-controller.service: substituído",
+  "host.host_controller_update_claimed": [
+    "A atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " está em andamento neste hospedeiro, e parar o controlador dela agora deixaria o executor parado sem nada para iniciá-lo. Aguarde o término. Quando ela estiver em recuperação, ou nenhum controlador estiver mais em execução, encerre-a com: pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ". Nada foi alterado."
+  ],
+  "host.host_controller_update_claimed_not_restarted": [
+    "yuruna-host-controller.service (parado enquanto a atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " estava em andamento, e não iniciado novamente: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). A unidade e os arquivos do controlador foram mantidos. Inicie-o novamente com: sudo systemctl start yuruna-host-controller.service, ou encerre a atualização com: pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "host.host_controller_update_claimed_session_ended": [
+    "A atualização do hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " foi assumida enquanto a sessão do controlador do hospedeiro era encerrada, então nenhum controlador a continua agora. Os arquivos do controlador e a entrada do sudoers foram mantidos. Inicie o executor em um terminal da sessão da área de trabalho para iniciar o controlador novamente, que continua a atualização, ou encerre a atualização com: pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ". Depois execute este script novamente."
+  ],
+  "host.host_controller_update_unknown": [
+    "O diário de atualizações do hospedeiro está ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", então não é possível saber se há uma atualização do hospedeiro em andamento neste hospedeiro, e parar o controlador durante uma deixaria o executor parado sem nada para iniciá-lo. Nada foi alterado. Execute este script novamente quando o diário puder ser lido."
+  ],
+  "host.host_controller_update_unknown_not_restarted": [
+    "yuruna-host-controller.service (parado, e então o diário de atualizações do hospedeiro estava ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    ", então não é possível descartar uma atualização do hospedeiro assumida nesse meio-tempo; não iniciado novamente: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). A unidade e os arquivos do controlador foram mantidos. Inicie-o novamente com: sudo systemctl start yuruna-host-controller.service e depois execute este script novamente quando o diário puder ser lido."
+  ],
+  "host.host_controller_update_unknown_session_ended": [
+    "O diário de atualizações do hospedeiro estava ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    " depois que a sessão do controlador do hospedeiro foi encerrada, então não é possível descartar uma atualização do hospedeiro assumida nesse meio-tempo. Os arquivos do controlador e a entrada do sudoers foram mantidos. Inicie o executor em um terminal da sessão da área de trabalho para iniciar o controlador novamente, que continua qualquer atualização assim, e depois execute este script novamente quando o diário puder ser lido."
+  ],
+  "host.host_update_access_entry_failed": [
+    "  elevação da atualização do hospedeiro: /etc/sudoers.d/yuruna-host-update-access não pôde ser instalado (",
+    {
+      "arg": "detail",
+      "type": "token",
+      "trust": "internal"
+    },
+    "), então este hospedeiro oferece somente o escopo restart de uma atualização do hospedeiro. Execute este script novamente em um terminal que possa responder ao prompt do sudo."
+  ],
+  "host.host_update_access_entry_installed": "  /etc/sudoers.d/yuruna-host-update-access: instalado (permite que o controlador do hospedeiro grave e remova a regra temporária do sudo de uma atualização completa do hospedeiro)",
+  "host.host_update_access_entry_kept": "/etc/sudoers.d/yuruna-host-update-access e qualquer regra temporária /etc/sudoers.d/yuruna-host-update (mantidos enquanto um controlador do hospedeiro ainda pode estar em execução; execute este script novamente quando ele tiver terminado)",
+  "host.host_update_access_entry_not_removed": "/etc/sudoers.d/yuruna-host-update-access (não removido; remova-o com: sudo rm -f /etc/sudoers.d/yuruna-host-update-access)",
+  "host.host_update_access_entry_removed": "Removido /etc/sudoers.d/yuruna-host-update-access (a entrada de elevação da atualização do hospedeiro)",
+  "host.host_update_access_entry_replaced": "  /etc/sudoers.d/yuruna-host-update-access: substituído (o texto dele era diferente do que este checkout instala)",
+  "host.host_update_access_entry_unchanged": "  /etc/sudoers.d/yuruna-host-update-access: inalterado",
+  "host.host_update_rule_not_removed": "/etc/sudoers.d/yuruna-host-update (não removido; remova com: sudo rm -f /etc/sudoers.d/yuruna-host-update)",
   "host.hyperv_bounded_call_no_answer": [
     "A chamada ao Hyper-V terminou sem retornar resposta (código de saída do processo filho: ",
     {
@@ -838,6 +1168,21 @@ const DataptBRhost = `{
     },
     "'; instale uma regra do sudoers para /bin/kill ou pare o domínio manualmente."
   ],
+  "host.kvm_frame_size_unreadable": [
+    "Get-VMScreenshot: não foi possível ler o tamanho do quadro em '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "'; a captura da janela de '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' foi descartada."
+  ],
   "host.kvm_journal_group_missing": "o grupo 'systemd-journal' não existe, então os diagnósticos do executor de testes não podem ler o diário do sistema nem o log do kernel da inicialização anterior. O systemd o cria a partir de sysusers.d; 'sudo systemd-sysusers' o restaura; depois, execute este script novamente.",
   "host.kvm_journal_group_session_stale": "  A associação a 'systemd-journal' está em /etc/group; o conjunto de grupos deste shell está desatualizado. Saia da sessão e entre novamente; depois, inicie o executor de testes a partir dessa nova sessão para que os diagnósticos dele possam ler o diário do sistema.",
   "host.kvm_rename_destination_dir_exists": [
@@ -918,27 +1263,6 @@ const DataptBRhost = `{
       "trust": "external"
     },
     "."
-  ],
-  "host.operator_00de7e0959068c8c": [
-    "Send-Click on host.ubuntu.kvm: não implementado (Hyper-V apenas hoje). Use cargas de trabalho em modo SSH no KVM. (vm='",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "' ignorado x=",
-    {
-      "arg": "x",
-      "type": "detail",
-      "trust": "external"
-    },
-    " y=",
-    {
-      "arg": "y",
-      "type": "detail",
-      "trust": "external"
-    },
-    ")"
   ],
   "host.operator_00df328f839cec6c": "Reconectar vmconnect",
   "host.operator_00e0e35404f36e5b": [
@@ -2325,7 +2649,7 @@ const DataptBRhost = `{
     }
   ],
   "host.operator_266b54d6b96583f4": "Removendo a ponte semi-construída para que o netplan fallback (ou uma repetição) começa limpo.",
-  "host.operator_2679edd915af22f8": "Nada será alterado: cada botão macOS Active toques é uma configuração pré-existente, então sem registro de seu valor anterior não há nada seguro para restaurar.",
+  "host.operator_2679edd915af22f8": "Nenhuma configuração será restaurada: cada ajuste do macOS que o Enable altera é uma configuração preexistente, então sem registro do valor anterior não há nada seguro para restaurar. O controlador do hospedeiro, os arquivos dele e as entradas do sudoers dele ainda são removidos.",
   "host.operator_26843e669bc191ba": [
     "Não é possível resolver o adaptador para o InterfaceIndex ",
     {
@@ -4322,7 +4646,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "); construindo com um token EMPTY: o proxy não contará provas de controle, push-ingest fica desativado, e o painel não mostra nenhum token do laboratório até que um seja fornecido e o proxy reconstruído."
+    "); construindo com uma chave EMPTY: o proxy não contará provas de controle, push-ingest fica desativado, e o painel não mostra nenhum token do laboratório até que uma seja fornecida e o proxy reconstruído."
   ],
   "host.operator_641d4bde8dc788c6": "6. Clique no botão '64-bit Download'",
   "host.operator_6424990f88c7f7bc": [
@@ -9890,7 +10214,7 @@ const DataptBRhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "'. O utmctl ainda alcançou o UTM.app para consultas de estado, portanto o aplicativo está em execução, mas não executa mais start, stop ou delete, e tentar de novo só acrescenta outro tempo limite. Reinicie o UTM.app nesta máquina (encerre-o na sessão da área de trabalho ou execute test/lab/Invoke-HostRefresh.ps1) e inicie a VM novamente. A VM nunca foi iniciada e o disco dela está intacto."
+    "'. O utmctl ainda alcançou o UTM.app para consultas de estado, portanto o aplicativo está em execução, mas não executa mais start, stop ou delete, e tentar de novo só acrescenta outro tempo limite. Reinicie o UTM.app nesta máquina (encerre-o na sessão da área de trabalho ou execute test/lab/Invoke-HostRepair.ps1) e inicie a VM novamente. A VM nunca foi iniciada e o disco dela está intacto."
   ],
   "host.utm_start_dropped": [
     "A VM '",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 423c8376-a989-4f09-aa00-2e5a728ffa76
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -230,7 +230,7 @@ Describe 'Assert-NoOtherRunner returns exactly one boolean' {
     }
     BeforeEach {
         $script:NoOtherDir = New-YurunaTestTempDir -Prefix 'yrn-noother'
-        Mock -ModuleName Test.Prelude Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $true; State = 'open'; RequestId = $null } }
+        Mock -ModuleName Test.Prelude Get-YurunaRunnerGateState { [pscustomobject]@{ SpawnAllowed = $true; State = 'open'; RequestId = $null } }
     }
     AfterEach { Remove-YurunaTestTempDir $script:NoOtherDir }
 
@@ -254,8 +254,8 @@ Describe 'Assert-NoOtherRunner returns exactly one boolean' {
             if (-not $runner.HasExited) { $runner.Kill() }
         }
     }
-    It 'is a single $false while a host refresh holds the runner, even with no runner record' {
-        Mock -ModuleName Test.Prelude Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $false; State = 'closed'; RequestId = 'r' } }
+    It 'is a single $false while a host operation holds the runner, even with no runner record' {
+        Mock -ModuleName Test.Prelude Get-YurunaRunnerGateState { [pscustomobject]@{ SpawnAllowed = $false; State = 'closed'; RequestId = 'r' } }
         $out = @(Assert-NoOtherRunner -RuntimeDir $script:NoOtherDir -CallerName 'unit' 6>$null)
         Assert-Equal -Expected 1 -Actual $out.Count
         Assert-True ($out[0] -is [bool] -and -not $out[0]) 'a single $false'
@@ -291,7 +291,7 @@ Describe 'Initialize-YurunaOneShotEntryPoint' {
         $script:OneShotDir = New-YurunaTestTempDir -Prefix 'yrn-oneshot'
         $env:YURUNA_RUNTIME_DIR = Join-Path $script:OneShotDir 'runtime'
         $env:YURUNA_LOG_DIR = Join-Path $script:OneShotDir 'log'
-        Mock -ModuleName Test.Prelude Get-YurunaRefreshGateState { [pscustomobject]@{ SpawnAllowed = $true; State = 'open'; RequestId = $null } }
+        Mock -ModuleName Test.Prelude Get-YurunaRunnerGateState { [pscustomobject]@{ SpawnAllowed = $true; State = 'open'; RequestId = $null } }
     }
     AfterEach {
         $null = Exit-YurunaOneShotLease -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
@@ -371,22 +371,22 @@ Describe 'Initialize-YurunaOneShotEntryPoint' {
     It 'Start-TestRunner reads the lease before it reclaims anything, and again once runner.pid is written' {
         $text = Get-Content -Raw -LiteralPath (Join-Path $script:EntryPointDir 'Start-TestRunner.ps1')
         $refusalsAt = $text.IndexOf('$refuseStart = {')
-        $freshCallAt = $text.IndexOf('if (-not $RefreshResume) { . $refuseStart }')
+        $freshCallAt = $text.IndexOf('if (-not $HandoffResume) { . $refuseStart }')
         $pidAt = $text.IndexOf('$pidWritten = Write-RunnerPidFile')
         Assert-True ($refusalsAt -gt 0 -and $pidAt -gt 0) 'fixture sanity: the startup refusals and the pidfile write are where this test looks'
         $inRefusals = $text.IndexOf('& $refuseOneShot', $refusalsAt)
         Assert-True ($inRefusals -gt $refusalsAt -and $inRefusals -lt $freshCallAt) 'the startup refusals, which run before boot recovery and the takeover, read the lease'
         $afterPid = $text.IndexOf('& $refuseOneShot', $pidAt)
-        $resumeRecoveryAt = $text.IndexOf('if ($RefreshResume) { & $runStartupRecovery }')
+        $resumeRecoveryAt = $text.IndexOf('if ($HandoffResume) { & $runStartupRecovery }')
         Assert-True ($pidAt -gt 0 -and $afterPid -gt $pidAt -and $afterPid -lt $resumeRecoveryAt) 'the lease is read again after runner.pid is published'
     }
 }
 
-Describe 'Initialize-YurunaEntryPointModuleSet -- the Refresh set' {
+Describe 'Initialize-YurunaEntryPointModuleSet -- the Repair set' {
     BeforeAll {
         $fn = Get-YurunaTestFunctionAst -Path (Join-Path $here 'Test.Prelude.psm1') -Name 'Initialize-YurunaEntryPointModuleSet'
         $table = @($fn.Body.FindAll({ param($n) $n -is [System.Management.Automation.Language.HashtableAst] }, $true) |
-            Where-Object { @($_.KeyValuePairs | ForEach-Object { $_.Item1.Extent.Text }) -contains 'Refresh' })[0]
+            Where-Object { @($_.KeyValuePairs | ForEach-Object { $_.Item1.Extent.Text }) -contains 'Repair' })[0]
         $script:Sets = @{}
         foreach ($pair in $table.KeyValuePairs) {
             $script:Sets[$pair.Item1.Extent.Text] = @($pair.Item2.FindAll({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] }, $true) |
@@ -394,16 +394,29 @@ Describe 'Initialize-YurunaEntryPointModuleSet -- the Refresh set' {
         }
         $script:ForParam = @($fn.Body.ParamBlock.Parameters | Where-Object { $_.Name.VariablePath.UserPath -eq 'For' })[0]
     }
-    It 'lists the host-refresh closure in dependency order' {
+    It 'lists the host-repair closure in dependency order' {
         $expected = @('Test.HostContract.psm1', 'Test.YurunaDir.psm1', 'Test.Config.psm1', 'Test.StateFile.psm1', 'Test.OuterLog.psm1',
             'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1',
-            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostRefreshIntent.psm1', 'Test.HostRefresh.psm1')
-        Assert-Equal -Expected ($expected -join ',') -Actual ($script:Sets['Refresh'] -join ',')
+            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostOperationJournal.psm1', 'Test.HostRepair.psm1')
+        Assert-Equal -Expected ($expected -join ',') -Actual ($script:Sets['Repair'] -join ',')
         foreach ($excluded in @('Test.RunnerOuterLoop.psm1', 'Test.Log.psm1', 'Test.EventSchema.psm1', 'Test.SequenceFailureState.psm1')) {
-            Assert-False ($script:Sets['Refresh'] -contains $excluded) "$excluded stays out of the Refresh set"
+            Assert-False ($script:Sets['Repair'] -contains $excluded) "$excluded stays out of the Repair set"
         }
         $validate = @($script:ForParam.Attributes | Where-Object { $_.TypeName.Name -eq 'ValidateSet' })[0]
-        Assert-True (@($validate.PositionalArguments | ForEach-Object { $_.Value }) -contains 'Refresh') '-For accepts Refresh'
+        Assert-True (@($validate.PositionalArguments | ForEach-Object { $_.Value }) -contains 'Repair') '-For accepts Repair'
+    }
+    It 'lists the host controller closure with no host driver and no outer loop, and the host-update set as Repair plus three' {
+        $expected = @('Test.YurunaDir.psm1', 'Test.StateFile.psm1', 'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.InnerSpawn.psm1',
+            'Test.SingleInstance.psm1', 'Test.DiagnosticPreservation.psm1', 'Test.HostOperationJournal.psm1', 'Test.HostUpdate.psm1')
+        Assert-Equal -Expected ($expected -join ',') -Actual ($script:Sets['HostUpdateController'] -join ',')
+        foreach ($excluded in @('Test.HostContract.psm1', 'Test.RunnerOuterLoop.psm1')) {
+            Assert-False ($script:Sets['HostUpdateController'] -contains $excluded) "$excluded stays out of the controller's set: its snapshot holds no host driver"
+        }
+        $repairPlus = @($script:Sets['Repair']) + @('Test.RunnerElevation.psm1', 'Test.DiagnosticPreservation.psm1', 'Test.HostUpdate.psm1')
+        Assert-Equal -Expected ($repairPlus -join ',') -Actual ($script:Sets['HostUpdate'] -join ',')
+        $validate = @($script:ForParam.Attributes | Where-Object { $_.TypeName.Name -eq 'ValidateSet' })[0]
+        $values = @($validate.PositionalArguments | ForEach-Object { $_.Value })
+        Assert-True ($values -contains 'HostUpdateController' -and $values -contains 'HostUpdate') '-For accepts both host-update sets'
     }
     It 'loads the outer.log writer before the outer loop in the Outer set' {
         $outer = [string[]]$script:Sets['Outer']
@@ -422,12 +435,12 @@ Describe 'Initialize-YurunaEntryPointModuleSet -- the Refresh set' {
         Assert-True ($contract -ge 0 -and $contract -lt $ledger -and $ledger -lt $actions -and $actions -lt $loop) `
             "the Outer set must list the contract, the ledger, the repairs and then the loop (found $contract, $ledger, $actions, $loop)"
     }
-    It 'gives every entry point that records a result the recovery contract, and keeps it out of the Refresh set' {
+    It 'gives every entry point that records a result the recovery contract, and keeps it out of the Repair set' {
         foreach ($kind in @('Outer', 'Inner', 'Project', 'Sequence')) {
             Assert-True ([string[]]$script:Sets[$kind] -contains 'Test.RecoveryContract.psm1') "the $kind set carries Test.RecoveryContract"
         }
         foreach ($module in @('Test.RecoveryContract.psm1', 'Test.RecoveryLedger.psm1', 'Test.RecoveryActions.psm1')) {
-            Assert-False ([string[]]$script:Sets['Refresh'] -contains $module) "$module stays out of the Refresh set"
+            Assert-False ([string[]]$script:Sets['Repair'] -contains $module) "$module stays out of the Repair set"
         }
     }
 }

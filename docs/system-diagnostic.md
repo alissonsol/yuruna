@@ -629,7 +629,7 @@ disk and 8 MiB runtime caps, a 256 MiB free-space reserve, and 30-second sync.
 They do not forward kernel output onto the OCR console. With
 `testCycle.stopOnFailure: true`, the runner writes a durable
 `runtime/diagnostic-preserve.json` before failure capture, and pauses before
-recovery, refresh, or another VM dispatch. Runner shutdown preserves the hold.
+recovery, repair, or another VM dispatch. Runner shutdown preserves the hold.
 Remove this marker from the configured runtime directory or explicitly set
 `stopOnFailure: false` to release it. Once guest access returns, inspect the
 prior kernel boot with `sudo journalctl -k -b -1`; the newest unsynced journal
@@ -641,6 +641,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

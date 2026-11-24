@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421942f3-d52f-4211-83d4-3fe55a882f99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -209,9 +209,11 @@ function Invoke-PlatformShell {
         HOME            = $Root
         PRETTY_NAME     = $PrettyName
         DEBIAN_CODENAME = 'trixie'
-        PATH            = "$(Join-Path $Root 'bin'):/usr/bin:/bin"
     }
-    return Invoke-YurunaTestShell -Body (@($script:Prelude, $script:Lifted, $Body) -join "`n") -Environment $environment
+    # Resolve through the shell after startup: a Windows drive colon splits
+    # PATH, and Git Bash startup can otherwise put host tools before the stubs.
+    $pathSetup = 'fixture_bin=$(cd "$FAKE_ROOT/bin" && pwd -P) || exit 1; PATH="$fixture_bin:/usr/bin:/bin"; export PATH'
+    return Invoke-YurunaTestShell -Body (@($pathSetup, $script:Prelude, $script:Lifted, $Body) -join "`n") -Environment $environment
 }
 
 function Get-SandboxCall {
@@ -245,6 +247,23 @@ Describe 'is_amd_ryzen_ai_platform' {
 }
 
 Describe 'tool_version' {
+    It 'resolves every controlled tool to its fixture before host executables' {
+        $root = New-PlatformSandbox -Version $script:Below
+        try {
+            $r = Invoke-PlatformShell -Root $root -Body @'
+for tool in git python3 curl qemu-img; do
+  resolved=$(command -v "$tool")
+  [[ "$resolved" -ef "$FAKE_ROOT/bin/$tool" ]] || { printf 'wrong executable: %s=%s\n' "$tool" "$resolved"; exit 1; }
+  printf 'fixture:%s\n' "$tool"
+done
+'@
+            Assert-Equal 0 $r.ExitCode $r.Output
+            foreach ($tool in $script:Below.Keys) {
+                Assert-Match ("(?m)^fixture:{0}$" -f [regex]::Escape($tool)) $r.Output 'the controlled executable must come from the sandbox'
+            }
+        } finally { Remove-YurunaTestTempDir $root }
+    }
+
     It 'reads the version out of each banner, not the library or package number beside it' {
         # curl prints its libcurl version and qemu-img its Debian package version
         # on the same line; the first dotted number is the tool's own.

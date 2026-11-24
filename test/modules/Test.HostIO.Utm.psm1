@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 426707af-05ab-4e6d-8121-412be356d73b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,5 +58,13 @@ Register-HostIOProvider -HostType 'host.macos.utm' -Action 'Send-Text' -Implemen
 # --- REGION: Register Send-Click
 Register-HostIOProvider -HostType 'host.macos.utm' -Action 'Send-Click' -Implementation {
     param([hashtable]$a)
+    # This backend presses and releases the left button only. Another kind is
+    # refused before anything is sent, as a fault no retry can repair; the
+    # engine names it to the operator, since this module renders no message.
+    $kind = if ($a.Click) { [string]$a.Click } else { 'left' }
+    if ($kind -cne 'left') {
+        Set-HostInputFault -Kind deterministic -Reason 'click-kind-unsupported' -Transport 'UTM' -Detail $kind
+        return $false
+    }
     return (Send-ClickUtm -X $a.X -Y $a.Y -Capture $a.Capture)
 }

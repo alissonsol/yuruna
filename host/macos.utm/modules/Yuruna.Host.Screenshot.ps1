@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 420b2519-f223-4eaf-b727-e70a356793f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -593,10 +593,6 @@ function Get-VncScreenshot {
     }
 }
 
-<#
-.SYNOPSIS
-    Capture the UTM VM's display (VNC then screencapture fallbacks).
-#>
 function Get-UtmWindowGeometry {
     <#
     .SYNOPSIS

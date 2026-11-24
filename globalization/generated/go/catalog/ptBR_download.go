@@ -457,7 +457,7 @@ const DataptBRdownload = `{
   "download.pages": "Páginas",
   "download.pause": "Pausa",
   "download.pool": "Grupo",
-  "download.pool_bytes": "bytes de grupo",
+  "download.pool_bytes": "Bytes do grupo",
   "download.previous_value1": [
     {
       "arg": "value1",

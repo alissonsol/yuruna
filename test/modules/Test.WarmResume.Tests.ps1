@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42bc2da1-ebdb-48ed-9d8a-68099d34d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,7 @@ Describe 'Warm-resume class eligibility' {
     It 'rejects hard/deterministic classes and blanks' {
         # guest_kernel_stalled: a resume in place would wait again on the same
         # wedged kernel; only the next attempt's new boot recovers it.
-        foreach ($c in 'script_error','provisioning_failure','pattern_matched_failure','ocr_timeout','plan_invalid','guest_kernel_stalled','') {
+        foreach ($c in 'script_error','provisioning_failure','pattern_matched_failure','ocr_timeout','plan_invalid','guest_kernel_stalled','web_step_failed','') {
             Assert-Equal -Expected $false -Actual (Test-WarmResumeEligibleClass -FailureClass $c) -Because "must not resume: '$c'"
         }
     }
@@ -460,7 +460,7 @@ Describe 'Replay safety is declared by every registered action' {
         # Pinned on purpose: widening this set widens what a resume will replay
         # onto a failed attempt's residue, so it takes a deliberate edit here.
         $observing = @(Get-SequenceActionName | Where-Object { (Get-SequenceActionReplaySafety -Name $_) -eq 'observe' } | Sort-Object)
-        $expected = @('break', 'saveGuestClockSnapshot', 'saveSystemDiagnostic', 'sshWaitReady', 'takeScreenshot', 'waitForSeconds', 'waitForText', 'waitForTextWithNudge')
+        $expected = @('break', 'saveGuestClockSnapshot', 'saveSystemDiagnostic', 'sshWaitReady', 'takeScreenshot', 'waitForSeconds', 'waitForText', 'waitForTextWithNudge', 'webExpect')
         Assert-Equal -Expected ($expected -join ',') -Actual ($observing -join ',')
     }
 
@@ -469,6 +469,8 @@ Describe 'Replay safety is declared by every registered action' {
         @{ Verb = 'passwdPrompt' }, @{ Verb = 'tapOn' }, @{ Verb = 'callExtension' }, @{ Verb = 'fetchAndExecute' }
         @{ Verb = 'sshExec' }, @{ Verb = 'sshFetchAndExecute' }, @{ Verb = 'saveDiskSnapshot' }, @{ Verb = 'startVm' }
         @{ Verb = 'networkRelease' }, @{ Verb = 'loadDiskSnapshot' }, @{ Verb = 'recoverFromSnapshot' }, @{ Verb = 'stopVm' }
+        @{ Verb = 'webOpen' }, @{ Verb = 'webClick' }, @{ Verb = 'webFill' }, @{ Verb = 'webSelect' }
+        @{ Verb = 'webPress' }, @{ Verb = 'webClose' }
     ) {
         param($Verb)
         Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction @($Verb) -ResumeFromStep 1) -Because $Verb
@@ -652,6 +654,14 @@ Describe 'New-WarmResumeDeclinedEvent' {
         $v = @(Test-CycleEventSchema -Record ([hashtable]$ev))
         Assert-Equal -Expected 0 -Actual $v.Count -Because "schema violations: $($v -join '; ')"
     }
+    It 'builds a schema-valid event for the page reason without a replay class' {
+        $ev = New-WarmResumeDeclinedEvent -GuestKey 'guest.ubuntu.server.24' -VmName 'vm-01' -SequenceName 'workload.guest.ubuntu.server.24.x' `
+            -ResumeFromStep 5 -FailureClass 'network_timeout' -Reason 'page-session-ended' -ReplayClass '' -HostType 'host.ubuntu.kvm'
+        Assert-Equal -Expected 'page-session-ended' -Actual $ev.reason
+        Assert-True (-not $ev.Contains('replayClass')) 'a page decline names no replay class'
+        $v = @(Test-CycleEventSchema -Record ([hashtable]$ev))
+        Assert-Equal -Expected 0 -Actual $v.Count -Because "schema violations: $($v -join '; ')"
+    }
     It 'drops blank context fields so the typed-string schema check passes' {
         $ev = New-WarmResumeDeclinedEvent -GuestKey 'g' -VmName '' -SequenceName 's' -ResumeFromStep 1 -FailureClass '' `
             -Reason 'safety-check-unavailable' -ReplayClass '' -HostType ''
@@ -712,6 +722,71 @@ workload:
     pattern: "hello"
     description: "Observe"
 '@ | Set-Content -LiteralPath $script:rpNoBoundary -Encoding utf8
+        # Page fixtures: a page ends with the sequence call that opened it, so a
+        # replay finds one only when it opens its own before a step needs it.
+        $script:rpPagePlain = Join-Path $script:rpDir 'workload.guest.ubuntu.server.24.page-plain.yml'
+        @'
+sequenceGuid: 42c8b2d4-6e3f-4071-8b92-4d5e6f7a8b94
+description: "Replay plan fixture: page steps after a console step."
+keystrokeMechanism: ssh
+resource:
+  ubuntu.server.24: []
+workload:
+  - action: sshWaitReady
+  - action: webOpen
+    url: "http://localhost:8080/"
+  - action: webClick
+    role: button
+    name: "Go"
+  - action: sshWaitReady
+  - action: webExpect
+    text: "Done"
+'@ | Set-Content -LiteralPath $script:rpPagePlain -Encoding utf8
+        $script:rpPageBoundary = Join-Path $script:rpDir 'workload.guest.ubuntu.server.24.page-boundary.yml'
+        @'
+sequenceGuid: 42c8b2d4-6e3f-4071-8b92-4d5e6f7a8b95
+description: "Replay plan fixture: a restore point before a page open."
+keystrokeMechanism: ssh
+resource:
+  ubuntu.server.24: []
+component:
+  - action: loadDiskSnapshot
+    id: "probe"
+workload:
+  - action: sshWaitReady
+  - action: webOpen
+    url: "http://localhost:8080/"
+  - action: webExpect
+    text: "Done"
+'@ | Set-Content -LiteralPath $script:rpPageBoundary -Encoding utf8
+        $script:rpPageWrapped = Join-Path $script:rpDir 'workload.guest.ubuntu.server.24.page-wrapped.yml'
+        @'
+sequenceGuid: 42c8b2d4-6e3f-4071-8b92-4d5e6f7a8b96
+description: "Replay plan fixture: page steps inside retry wrappers."
+keystrokeMechanism: ssh
+resource:
+  ubuntu.server.24: []
+workload:
+  - action: webOpen
+    url: "http://localhost:8080/"
+  - action: retry
+    steps:
+      - action: waitForSeconds
+        seconds: 1
+      - action: webExpect
+        text: "Done"
+  - action: retry
+    steps:
+      - action: webOpen
+        url: "http://localhost:8080/"
+      - action: webExpect
+        text: "Done"
+'@ | Set-Content -LiteralPath $script:rpPageWrapped -Encoding utf8
+        function Build-RPPageCheckpoint {
+            param([int]$Step, [switch]$NoneProven)
+            if ($NoneProven) { return [pscustomobject]@{ ResumeFromStep = $Step; FailureClass = 'network_timeout'; StepEffect = 'none-proven'; StepEffectSource = 'web-not-dispatched' } }
+            return [pscustomobject]@{ ResumeFromStep = $Step; FailureClass = 'network_timeout'; StepEffect = 'unknown'; StepEffectSource = '' }
+        }
         $global:__rpPlan = @{ Path = $script:rpWithBoundary; SnapshotPresent = $true; SeenName = ''; SnapshotProbeThrows = $false }
         # Only the name matters here; the other named arguments land in $args.
         function global:Resolve-SequencePath {
@@ -810,5 +885,64 @@ workload:
         $global:__rpPlan.Path = $script:rpNoBoundary
         $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.noboundary') -Checkpoint (Build-RPCheckpoint 1) -VMName 'vm-1'
         Assert-Equal -Expected 'safety-check-unavailable' -Actual $plan.DeclineReason
+    }
+    It 'does not replay an observing page step in place' {
+        $global:__rpPlan.Path = $script:rpPagePlain
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-plain') -Checkpoint (Build-RPPageCheckpoint 5) -VMName 'vm-1'
+        Assert-Equal -Expected 'page-session-ended' -Actual $plan.DeclineReason
+        Assert-Equal -Expected '' -Actual $plan.ReplayClass
+        Assert-Equal -Expected 5 -Actual $plan.ResumeFromStep
+    }
+    It 'does not replay a console step in place when a page step that needs the page follows' {
+        $global:__rpPlan.Path = $script:rpPagePlain
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-plain') -Checkpoint (Build-RPPageCheckpoint 4) -VMName 'vm-1'
+        Assert-Equal -Expected 'page-session-ended' -Actual $plan.DeclineReason
+    }
+    It 'replays a console step in place when the next page step opens its own page' {
+        $global:__rpPlan.Path = $script:rpPagePlain
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-plain') -Checkpoint (Build-RPPageCheckpoint 1) -VMName 'vm-1'
+        Assert-Equal -Expected '' -Actual $plan.DeclineReason
+    }
+    It 'keeps the restore-point reason for a page input step' {
+        $global:__rpPlan.Path = $script:rpPagePlain
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-plain') -Checkpoint (Build-RPPageCheckpoint 3) -VMName 'vm-1'
+        Assert-Equal -Expected 'no-restore-point' -Actual $plan.DeclineReason
+    }
+    It 'does not replay a proven-idle page input step in place' {
+        $global:__rpPlan.Path = $script:rpPagePlain
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-plain') -Checkpoint (Build-RPPageCheckpoint 3 -NoneProven) -VMName 'vm-1'
+        Assert-Equal -Expected 'page-session-ended' -Actual $plan.DeclineReason
+        Assert-Equal -Expected '' -Actual $plan.StepEffectSource
+    }
+    It 'replays a proven-idle webOpen in place' {
+        $global:__rpPlan.Path = $script:rpPagePlain
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-plain') -Checkpoint (Build-RPPageCheckpoint 2 -NoneProven) -VMName 'vm-1'
+        Assert-Equal -Expected '' -Actual $plan.DeclineReason
+        Assert-Equal -Expected 'web-not-dispatched' -Actual $plan.StepEffectSource
+    }
+    It 'rewinds to a restore point that precedes the webOpen' {
+        $global:__rpPlan.Path = $script:rpPageBoundary
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-boundary') -Checkpoint (Build-RPPageCheckpoint 4) -VMName 'vm-1'
+        Assert-Equal -Expected '' -Actual $plan.DeclineReason
+        Assert-Equal -Expected $true -Actual $plan.Rewound
+        Assert-Equal -Expected 1 -Actual $plan.ResumeFromStep
+    }
+    It 'reads into a wrapper for the page it needs' {
+        $global:__rpPlan.Path = $script:rpPageWrapped
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-wrapped') -Checkpoint (Build-RPPageCheckpoint 2) -VMName 'vm-1'
+        Assert-Equal -Expected 'page-session-ended' -Actual $plan.DeclineReason -Because 'the wrapper reaches webExpect before any webOpen'
+        $plan = Resolve-WarmResumeReplayPlan -Decision (Build-RPDecision 'workload.guest.ubuntu.server.24.page-wrapped') -Checkpoint (Build-RPPageCheckpoint 3) -VMName 'vm-1'
+        Assert-Equal -Expected 'no-restore-point' -Actual $plan.DeclineReason -Because 'the wrapper opens its own page first'
+    }
+}
+
+Describe 'Get-WarmResumeFirstPageVerb' {
+    It 'finds the first page verb through wrappers and ignores webClose' {
+        $first = @(@{ action = 'sshExec' }, @{ action = 'retry'; steps = @(@{ action = 'webOpen' }, @{ action = 'webClick' }) })
+        Assert-Equal -Expected 'webOpen' -Actual (Get-WarmResumeFirstPageVerb -Step $first)
+        $second = @(@{ action = 'webClose' }, @{ action = 'retry'; steps = @(@{ action = 'waitForSeconds' }, @{ action = 'webExpect' }) })
+        Assert-Equal -Expected 'webExpect' -Actual (Get-WarmResumeFirstPageVerb -Step $second)
+        $none = @(@{ action = 'sshExec' }, @{ action = 'webClose' })
+        Assert-Equal -Expected '' -Actual (Get-WarmResumeFirstPageVerb -Step $none)
     }
 }

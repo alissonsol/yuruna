@@ -48,6 +48,50 @@
     }
     pre#diagnostics-output.loading { color: var(--fg-faint); font-style: italic; }
     pre#diagnostics-output.error   { color: var(--fail-fg); background: var(--fail-soft-bg); border-color: var(--fail-soft-border); }
+
+    /* Host update and host repair, below the report: each has its own live
+       region, so its progress never overwrites the diagnostic report, and the
+       reverse. The repair stays hidden until the host advertises one it can
+       run; the update shows on every host. The sections are the bottom of the
+       page, so the side safe areas are kept clear as for <main> above, and
+       their container clears the bottom one whichever section is last shown. */
+    .host-operation {
+      padding: .5rem 1.5rem;
+      padding-left: max(1.5rem, env(safe-area-inset-left));
+      padding-right: max(1.5rem, env(safe-area-inset-right));
+      border-top: 1px solid var(--border);
+      background: var(--bg-elevated);
+      font-size: .75rem;
+    }
+    #host-operations { padding-bottom: env(safe-area-inset-bottom); background: var(--bg-elevated); }
+    /* The scope select takes the touch floor the buttons beside it get from
+       yuruna.common.css, which sizes only buttons. */
+    @media (any-pointer: coarse) {
+      #host-update-scope { min-height: var(--touch-min); }
+    }
+    .host-operation-title { font-size: .8125rem; margin: 0 0 .25rem; }
+    .host-operation-note  { color: var(--fg-muted); margin: 0 0 .5rem; max-width: 72ch; line-height: 1.4; }
+    .host-operation-actions > * + * { margin-inline-start: .5rem; }
+    .host-operation-status { min-height: 1.25rem; margin-top: .5rem; color: var(--fg-muted); }
+    .host-operation-status.error { color: var(--fail-fg); }
+    .host-operation-status.ok    { color: var(--pass-fg); }
+    .host-operation-btn {
+      border-radius: .375rem;
+      font-weight: 600;
+      font-family: inherit; cursor: pointer;
+      border: 1px solid transparent;
+    }
+    .host-operation-btn.secondary {
+      background: var(--meta-btn-bg); color: var(--meta-btn-fg);
+      border-color: var(--meta-btn-border);
+    }
+    .host-operation-btn.secondary:hover { background: var(--meta-btn-hover-bg); }
+    .host-operation-btn.destructive {
+      background: var(--destructive-bg); color: var(--fg-header);
+      border-color: var(--destructive-border);
+    }
+    .host-operation-btn.destructive:hover:not([disabled]) { background: var(--destructive-hover-bg); }
+    .host-operation-btn.destructive[disabled] { background: var(--destructive-disabled-bg); cursor: default; }
   </style>
 </head>
 <body>
@@ -83,6 +127,28 @@
   <h1 class="sr-only" data-i18n="status.host_diagnostics">Host diagnostics</h1>
   <pre id="diagnostics-output" role="status" class="loading">Running Get-SystemDiagnostic on host…</pre>
 </main>
+
+<div id="host-operations">
+  <section id="host-update" class="host-operation" hidden aria-labelledby="host-update-title">
+    <h2 id="host-update-title" class="host-operation-title"></h2>
+    <p id="host-update-note" class="host-operation-note"></p>
+    <div class="host-operation-actions">
+      <select id="host-update-scope" aria-labelledby="host-update-title"></select>
+      <button type="button" class="host-operation-btn destructive" id="host-update-start"></button>
+    </div>
+    <div id="host-update-status" class="host-operation-status" role="status" aria-live="polite" aria-atomic="true"></div>
+  </section>
+
+  <section id="host-repair" class="host-operation" hidden aria-labelledby="host-repair-title">
+    <h2 id="host-repair-title" class="host-operation-title"></h2>
+    <p id="host-repair-note" class="host-operation-note"></p>
+    <div class="host-operation-actions">
+      <button type="button" class="host-operation-btn destructive" id="host-repair-start"></button>
+      <button type="button" class="host-operation-btn secondary" id="host-repair-retry" hidden></button>
+    </div>
+    <div id="host-repair-status" class="host-operation-status" role="status" aria-live="polite" aria-atomic="true"></div>
+  </section>
+</div>
 
 <script src="yuruna.common.js"></script>
 

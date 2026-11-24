@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42046a95-dbf3-4dd6-b06d-4ee539c58a98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,7 @@ Write-Information "Host type: $HostType" -InformationAction Continue
 # --- REGION: Record the stop intent
 # See https://yuruna.link/42e220c4-0008
 # The stop is on record, and this service's operation lock held, before the
-# first change: the reboot sweep and a host refresh then honor the request
+# first change: the reboot sweep and a host repair then honor the request
 # instead of restarting the guest, and a concurrent Start cannot rebuild it
 # mid-teardown. A request that cannot be recorded changes nothing.
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking

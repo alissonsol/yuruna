@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e0b38b-31d7-437e-bc6b-f7a324adb32c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,8 +132,8 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.Status.psm1')             
 Import-Module (Join-Path $repoRoot 'test/modules/Test.SingleFlightLock.psm1')   -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CriticalRecord.psm1')     -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
 Import-Module (Join-Path $repoRoot 'test/modules/Test.InnerSpawn.psm1')         -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
-Import-Module (Join-Path $repoRoot 'test/modules/Test.HostRefreshIntent.psm1')  -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
-Import-Module (Join-Path $repoRoot 'test/modules/Test.HostRefresh.psm1')        -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path $repoRoot 'test/modules/Test.HostOperationJournal.psm1')  -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path $repoRoot 'test/modules/Test.HostRepair.psm1')        -Force -DisableNameChecking -Verbose:$false -ErrorAction SilentlyContinue
 # Stop on failure: the control route guard table lives there, and a listener
 # without it would leave every state-changing route unguarded.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.StatusControlRoute.psm1') -Force -DisableNameChecking -Verbose:$false -ErrorAction Stop
@@ -141,8 +141,8 @@ Import-Module (Join-Path $repoRoot 'test/modules/Test.StatusControlRoute.psm1') 
 # See https://yuruna.link/42185271-000d
 # File and archive routes share these shapes, including derived secret files.
 $secretNameShapes = @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp',
-    'host-refresh/*', '*/host-refresh/*', '*host-refresh.journal*', '*host-refresh.request*',
-    '*host-refresh.lock', '*host-refresh.admission.lock', '*.record', '*.record.prev',
+    'host-repair/*', '*/host-repair/*', '*host-operation.journal*',
+    '*host-operation.lock', '*host-operation.admission.lock', '*.record', '*.record.prev',
     '*.handshake.json', '*.hop.json', '*.ack.json', '*.key', '*.credential', '*.cred', '*.pfx', '*.p12',
     '*-key', '*_key', '*_rsa', '*_ecdsa', '*_ed25519', '*_dsa', '*.ppk',
     'host-config-ca', 'host-config-ca/*', '*/host-config-ca', '*/host-config-ca/*')
@@ -215,14 +215,15 @@ $serverLogFile  = Join-Path $runtimeDir 'server.err'
 # Detached worker entry points and the scripts they run resolve from
 # $workerRoot (a parameter). A test can point it at stand-ins; the server
 # itself always serves $repoRoot.
-$hostRefreshEntry        = Join-Path $workerRoot 'test/lab/Invoke-HostRefresh.ps1'
+$hostRepairEntry        = Join-Path $workerRoot 'test/lab/Invoke-HostRepair.ps1'
 $hostDiagnosticWorker    = Join-Path $workerRoot 'test/modules/Invoke-HostDiagnosticWorker.ps1'
 $startCycleWorker        = Join-Path $workerRoot 'test/modules/Invoke-StartCycleWorker.ps1'
 $diagScriptPath          = Join-Path $workerRoot 'automation/Get-SystemDiagnostic.ps1'
 $startCycleCleanupScript = Join-Path $workerRoot 'test/Remove-TestVMFiles.ps1'
 $startCycleRunnerScript  = Join-Path $workerRoot 'test/Start-TestRunner.ps1'
-$hostRefreshStateUrl     = '/runtime/host-refresh.state.json'
+$hostRepairStateUrl     = '/runtime/host-repair.state.json'
 $startCycleStateUrl      = '/runtime/start-cycle.state.json'
+$hostUpdateStateUrl      = '/runtime/host-update.state.json'
 # What the private state root must never be inside of: everything this
 # server hands out.
 $servedRootSet = @($repoRoot, $statusDir, $runtimeDir, $logDir)
@@ -516,7 +517,7 @@ function Send-JsonError {
     if (-not $Request -or $Request.HttpMethod -ne 'HEAD') { $Response.OutputStream.Write($b, 0, $b.Length) }
     $Response.OutputStream.Close()
 }
-# Every reply the refresh, start-cycle and diagnostic routes build: the
+# Every reply the repair, start-cycle and diagnostic routes build: the
 # caller's identity fields, plus the catalog key and the sentence localized
 # for this request when there is one. Close turns keep-alive off, which is
 # what ends a connection whose body was never read (or never finished).
@@ -569,13 +570,13 @@ function Import-RouteModule {
 # See https://yuruna.link/42e5cdfd-0045
 $script:StatusRouteReady = @{}
 function Test-StatusRouteReady {
-    param([Parameter(Mandatory)][ValidateSet('host-refresh', 'start-cycle', 'host-diagnostic')][string]$Route)
+    param([Parameter(Mandatory)][ValidateSet('host-repair', 'start-cycle', 'host-diagnostic', 'host-update')][string]$Route)
     $checkedAt = [DateTime]::UtcNow
     $cachedReady = $script:StatusRouteReady[$Route]
     if ($cachedReady -and $checkedAt -lt $cachedReady.ValidUntil) { return $cachedReady }
     $routeReady = (Import-RouteModule -ModuleRelativePath 'automation/Yuruna.Common.psm1' -RequiredCommand 'New-YurunaDeadline')
     if ($routeReady) {
-        $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.StatusControlRoute.psm1' -RequiredCommand 'New-StatusBoundedBodyRead', 'Update-StatusBoundedBodyRead', 'Get-StatusBoundedBodyReadWait', 'Close-StatusBoundedBodyRead', 'Test-HostRefreshContentType', 'ConvertFrom-HostRefreshRequestBody', 'Get-HostRefreshControlSummary', 'Get-HostRefreshAdmissionReply', 'Get-StartCycleAdmissionReply', 'Test-StatusWorkerArgument', 'Get-StatusWorkerDirectory', 'Get-HostDiagnosticRouteState', 'New-StatusOperationId', 'Test-StatusRouteCommandSet', 'Save-StatusLaunchOutcome', 'Get-StatusWorkerTranscriptStem'
+        $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.StatusControlRoute.psm1' -RequiredCommand 'New-StatusBoundedBodyRead', 'Update-StatusBoundedBodyRead', 'Get-StatusBoundedBodyReadWait', 'Close-StatusBoundedBodyRead', 'Test-HostControlContentType', 'ConvertFrom-HostRepairRequestBody', 'Get-HostRepairControlSummary', 'Get-HostRepairAdmissionReply', 'Get-StartCycleAdmissionReply', 'Test-StatusWorkerArgument', 'Get-StatusWorkerDirectory', 'Get-HostDiagnosticRouteState', 'New-StatusOperationId', 'Test-StatusRouteCommandSet', 'Save-StatusLaunchOutcome', 'Get-StatusWorkerTranscriptStem', 'ConvertFrom-HostUpdateRequestBody', 'Test-HostUpdateLoopbackCaller', 'Get-HostUpdateControlSummary', 'Get-HostUpdateAdmissionReply'
     }
     if ($routeReady) {
         $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.InnerSpawn.psm1' -RequiredCommand 'Start-YurunaDetachedProcess'
@@ -586,27 +587,27 @@ function Test-StatusRouteReady {
     $routeWorker = ''
     $routeVector = @()
     switch ($Route) {
-        'host-refresh' {
+        'host-repair' {
             if ($routeReady) {
-                $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefresh.psm1' -RequiredCommand 'Get-VirtualizationRepairRung', 'Get-HostRefreshCapability', 'New-HostRefreshBudget', 'New-HostRefreshWorkerArgumentList', 'Publish-HostRefreshQueuedState'
+                $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRepair.psm1' -RequiredCommand 'Get-VirtualizationRepairRung', 'Get-HostRepairCapability', 'New-HostRepairBudget', 'New-HostRepairWorkerArgumentList', 'Publish-HostRepairQueuedState'
             }
             if ($routeReady) {
-                $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshIntent.psm1' -RequiredCommand 'Request-HostRefreshAdmission', 'Set-HostRefreshLaunchOutcome', 'Get-HostRefreshPrivateWorkDir'
+                $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostOperationJournal.psm1' -RequiredCommand 'Request-HostRepairAdmission', 'Set-HostRepairLaunchOutcome', 'Get-HostRepairPrivateWorkDir'
             }
-            $routeRequirement['Request-HostRefreshAdmission'] = @('RequestId', 'Channel', 'Tier', 'MaxRung', 'RuntimeDir', 'HostType', 'AdmissionWaitMilliseconds')
-            $routeRequirement['Set-HostRefreshLaunchOutcome'] = @('RequestId', 'Outcome', 'Launch')
-            $routeRequirement['New-HostRefreshWorkerArgumentList'] = @('RepoRoot', 'RequestId', 'Budget')
-            $routeRequirement['Publish-HostRefreshQueuedState'] = @('RuntimeDir', 'RequestId', 'Channel')
-            $routeRequirement['Get-HostRefreshCapability'] = @('HostType', 'RepoRoot')
+            $routeRequirement['Request-HostRepairAdmission'] = @('RequestId', 'Channel', 'Tier', 'MaxRung', 'RuntimeDir', 'HostType', 'AdmissionWaitMilliseconds')
+            $routeRequirement['Set-HostRepairLaunchOutcome'] = @('RequestId', 'Outcome', 'Launch')
+            $routeRequirement['New-HostRepairWorkerArgumentList'] = @('RepoRoot', 'RequestId', 'Budget')
+            $routeRequirement['Publish-HostRepairQueuedState'] = @('RuntimeDir', 'RequestId', 'Channel')
+            $routeRequirement['Get-HostRepairCapability'] = @('HostType', 'RepoRoot')
             $routeRequirement['Get-VirtualizationRepairRung'] = @('HostType')
-            $routeWorker = $hostRefreshEntry
+            $routeWorker = $hostRepairEntry
         }
         'start-cycle' {
             if ($routeReady) {
-                $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshIntent.psm1' -RequiredCommand 'Request-HostRefreshStartCycleReservation', 'Set-HostRefreshStartCycleLaunch'
+                $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostOperationJournal.psm1' -RequiredCommand 'Request-StartCycleReservation', 'Set-StartCycleLaunch'
             }
-            $routeRequirement['Request-HostRefreshStartCycleReservation'] = @('OperationId', 'RuntimeDir', 'AdmissionWaitMilliseconds')
-            $routeRequirement['Set-HostRefreshStartCycleLaunch'] = @('OperationId', 'Generation', 'Outcome', 'Launch')
+            $routeRequirement['Request-StartCycleReservation'] = @('OperationId', 'RuntimeDir', 'AdmissionWaitMilliseconds')
+            $routeRequirement['Set-StartCycleLaunch'] = @('OperationId', 'Generation', 'Outcome', 'Launch')
             $routeWorker = $startCycleWorker
             $routeVector = @('-OperationId', '00000000-0000-0000-0000-000000000000', '-Generation', 'probe', '-RuntimeDir', $runtimeDir,
                 '-CleanupScriptPath', $startCycleCleanupScript, '-RunnerScriptPath', $startCycleRunnerScript, '-WorkingDirectory', $repoRoot)
@@ -616,6 +617,16 @@ function Test-StatusRouteReady {
             $routeVector = @('-RunId', '00000000-0000-0000-0000-000000000000', '-DiagnosticScriptPath', $diagScriptPath,
                 '-WorkDirectory', $runtimeDir, '-WorkingDirectory', $repoRoot)
         }
+        # No worker: the host controller claims the queued row itself, so
+        # this route launches nothing and has no vector to check.
+        'host-update' {
+            if ($routeReady) {
+                $routeReady = Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostOperationJournal.psm1' -RequiredCommand 'Request-HostUpdateAdmission', 'Get-HostUpdateControllerLockState', 'Get-HostUpdateCapability'
+            }
+            $routeRequirement['Request-HostUpdateAdmission'] = @('RequestId', 'Channel', 'Scope', 'Drain', 'DrainSeconds', 'ExpectCommit', 'RuntimeDir', 'HostType', 'AdmissionWaitMilliseconds')
+            $routeRequirement['Get-HostUpdateCapability'] = @('RepoRoot', 'RuntimeDir')
+            $routeRequirement['Get-HostUpdateControllerLockState'] = @()
+        }
     }
     if ($routeReady) {
         $commandSet = Test-StatusRouteCommandSet -Requirement $routeRequirement
@@ -624,15 +635,15 @@ function Test-StatusRouteReady {
             Write-ServerErr "route $Route cannot run: missing $($commandSet.Missing -join ', ')"
         }
     }
-    if ($routeReady -and $Route -eq 'host-refresh') {
+    if ($routeReady -and $Route -eq 'host-repair') {
         try {
-            $routeVector = @(New-HostRefreshWorkerArgumentList -RepoRoot $workerRoot -RequestId '00000000-0000-0000-0000-000000000000' -Budget (New-HostRefreshBudget))
+            $routeVector = @(New-HostRepairWorkerArgumentList -RepoRoot $workerRoot -RequestId '00000000-0000-0000-0000-000000000000' -Budget (New-HostRepairBudget))
         } catch {
             $routeReady = $false
-            Write-ServerErr "route host-refresh cannot build its worker vector: $($_.Exception.Message)"
+            Write-ServerErr "route host-repair cannot build its worker vector: $($_.Exception.Message)"
         }
     }
-    if ($routeReady) {
+    if ($routeReady -and $routeWorker) {
         $vectorCheck = Test-StatusWorkerArgument -ScriptPath $routeWorker -ArgumentList $routeVector
         if (-not $vectorCheck.Valid) {
             $routeReady = $false
@@ -648,42 +659,86 @@ function Test-StatusRouteReady {
     return $readyRecord
 }
 
-# The refresh summary /control/control-status carries. The capability is read
-# per request (two small file reads, no native call); the remote-refresh
+# The repair summary /control/control-status carries. The capability is read
+# per request (two small file reads, no native call); the remote-repair
 # provisioning state is cached for 30 seconds. Never throws into the route:
 # any failure reads as unavailable, because this field decides whether a
 # disruptive button is shown.
-$script:HostRefreshRemoteCache = $null
-function Get-HostRefreshSummaryCached {
+$script:HostRepairRemoteCache = $null
+function Get-HostRepairSummaryCached {
     $summaryFallback = [ordered]@{ protocol = 1; availability = 'unavailable'; ceiling = ''; reason = 'capability_unavailable'; remote = 'unqualified'; state = 'unknown' }
     try {
         $summaryAt = [DateTime]::UtcNow
-        if (-not $script:HostRefreshRemoteCache -or $summaryAt -ge $script:HostRefreshRemoteCache.ValidUntil) {
+        if (-not $script:HostRepairRemoteCache -or $summaryAt -ge $script:HostRepairRemoteCache.ValidUntil) {
             $remoteState = 'unqualified'
-            if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshAuth.psm1' -RequiredCommand 'Get-YurunaHostRefreshRemoteState') {
-                try { $remoteState = [string](Get-YurunaHostRefreshRemoteState -HostId (Get-ArchiveHostId)).Remote } catch { $remoteState = 'unqualified' }
+            if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRepairAuth.psm1' -RequiredCommand 'Get-YurunaHostRepairRemoteState') {
+                try { $remoteState = [string](Get-YurunaHostRepairRemoteState -HostId (Get-ArchiveHostId)).Remote } catch { $remoteState = 'unqualified' }
             }
-            $script:HostRefreshRemoteCache = [pscustomobject]@{ Remote = $remoteState; ValidUntil = $summaryAt.AddSeconds(30) }
+            $script:HostRepairRemoteCache = [pscustomobject]@{ Remote = $remoteState; ValidUntil = $summaryAt.AddSeconds(30) }
         }
-        $summaryFallback.remote = [string]$script:HostRefreshRemoteCache.Remote
-        $refreshReady = Test-StatusRouteReady -Route 'host-refresh'
-        if (-not (Get-Command -Name 'Get-HostRefreshControlSummary' -ErrorAction SilentlyContinue)) {
+        $summaryFallback.remote = [string]$script:HostRepairRemoteCache.Remote
+        $repairReady = Test-StatusRouteReady -Route 'host-repair'
+        if (-not (Get-Command -Name 'Get-HostRepairControlSummary' -ErrorAction SilentlyContinue)) {
             $summaryFallback.reason = 'listener_dependency_missing'
             return $summaryFallback
         }
-        $listenerReady = [bool]$refreshReady.Ready
-        $listenerReason = [string]$refreshReady.Reason
+        $listenerReady = [bool]$repairReady.Ready
+        $listenerReason = [string]$repairReady.Reason
         if ([string]::IsNullOrWhiteSpace($serverHostType)) { $listenerReady = $false; $listenerReason = 'unsupported_host' }
-        $refreshCapability = $null
-        if ($serverHostType -and (Get-Command -Name 'Get-HostRefreshCapability' -ErrorAction SilentlyContinue)) {
-            try { $refreshCapability = Get-HostRefreshCapability -HostType $serverHostType -RepoRoot $repoRoot } catch {
-                Write-ServerErr "refresh capability failed: $($_.Exception.Message)"
-                $refreshCapability = $null
+        $repairCapability = $null
+        if ($serverHostType -and (Get-Command -Name 'Get-HostRepairCapability' -ErrorAction SilentlyContinue)) {
+            try { $repairCapability = Get-HostRepairCapability -HostType $serverHostType -RepoRoot $repoRoot } catch {
+                Write-ServerErr "repair capability failed: $($_.Exception.Message)"
+                $repairCapability = $null
             }
         }
-        return (Get-HostRefreshControlSummary -Capability $refreshCapability -ListenerReady $listenerReady -ListenerReason $listenerReason -Remote ([string]$script:HostRefreshRemoteCache.Remote))
+        return (Get-HostRepairControlSummary -Capability $repairCapability -ListenerReady $listenerReady -ListenerReason $listenerReason -Remote ([string]$script:HostRepairRemoteCache.Remote))
     } catch {
-        Write-ServerErr "refresh summary failed: $($_.Exception.Message)"
+        Write-ServerErr "repair summary failed: $($_.Exception.Message)"
+        return $summaryFallback
+    }
+}
+
+# The host-update summary /control/control-status carries, cached for 5
+# seconds: each refresh of the cache costs a lock probe, a journal read and a
+# small state file read.
+# The pool-control record's state is cached for 30 seconds, as the repair's
+# remote state is. Never throws into the route; any failure reads as
+# unavailable.
+$script:HostUpdateSummaryCache = $null
+$script:HostUpdateRemoteCache = $null
+function Get-HostUpdateSummaryCached {
+    $summaryFallback = [ordered]@{ protocol = -1; availability = 'unavailable'; scopes = ''; reason = 'journal_unreadable'; remote = 'missing'; state = 'unknown' }
+    try {
+        $summaryAt = [DateTime]::UtcNow
+        if ($script:HostUpdateSummaryCache -and $summaryAt -lt $script:HostUpdateSummaryCache.ValidUntil) { return $script:HostUpdateSummaryCache.Summary }
+        if (-not $script:HostUpdateRemoteCache -or $summaryAt -ge $script:HostUpdateRemoteCache.ValidUntil) {
+            $remoteState = @{ Remote = 'invalid'; PoolControl = '' }
+            if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRepairAuth.psm1' -RequiredCommand 'Get-YurunaHostUpdateRemoteState') {
+                try { $remoteState = Get-YurunaHostUpdateRemoteState } catch { $remoteState = @{ Remote = 'invalid'; PoolControl = '' } }
+            }
+            $script:HostUpdateRemoteCache = [pscustomobject]@{ Remote = [string]$remoteState.Remote; PoolControl = [string]$remoteState.PoolControl; ValidUntil = $summaryAt.AddSeconds(30) }
+        }
+        $summaryFallback.remote = [string]$script:HostUpdateRemoteCache.Remote
+        $updateReady = Test-StatusRouteReady -Route 'host-update'
+        if (-not (Get-Command -Name 'Get-HostUpdateControlSummary' -ErrorAction SilentlyContinue)) {
+            $summaryFallback.reason = 'listener_dependency_missing'
+            return $summaryFallback
+        }
+        $summaryArguments = @{ ListenerReady = [bool]$updateReady.Ready; ListenerReason = [string]$updateReady.Reason
+            Remote = [string]$script:HostUpdateRemoteCache.Remote; PoolControl = [string]$script:HostUpdateRemoteCache.PoolControl }
+        if ($updateReady.Ready) {
+            $capability = Get-HostUpdateCapability -RepoRoot $repoRoot -RuntimeDir $runtimeDir
+            $summaryArguments += @{
+                LockState = [string]$capability.LockState; JournalStatus = [string]$capability.JournalStatus; ControllerState = $capability.ControllerState
+                Protocol = [int]$capability.Protocol; UpdateState = [string]$capability.UpdateState
+            }
+        }
+        $summary = Get-HostUpdateControlSummary @summaryArguments
+        $script:HostUpdateSummaryCache = [pscustomobject]@{ Summary = $summary; ValidUntil = $summaryAt.AddSeconds(5) }
+        return $summary
+    } catch {
+        Write-ServerErr "host-update summary failed: $($_.Exception.Message)"
         return $summaryFallback
     }
 }
@@ -731,9 +786,10 @@ function Start-StatusWorker {
 
 # See https://yuruna.link/42e5cdfd-0045
 function Add-PendingRequestBody {
-    param([Parameter(Mandatory)]$RequestContext, [bool]$Loopback, [string]$ProofWire, $Upload, $Completion)
+    param([Parameter(Mandatory)]$RequestContext, [bool]$Loopback, [string]$ProofWire, $Upload, $Completion,
+        [ValidateSet('host-repair', 'host-update')][string]$Route = 'host-repair', [bool]$UpdateLoopback)
     # Anonymous callers share half of the slots, so a burst of them cannot keep
-    # a refresh or an upload from being read.
+    # a repair or an upload from being read.
     $anonymousPending = @($pendingBodies | Where-Object { $_.Tag.Completion -and $_.Tag.Completion.Anonymous }).Count
     if ($pendingBodies.Count -ge 4 -or ($Completion -and $Completion.Anonymous -and $anonymousPending -ge 2)) {
         Send-JsonReply -Response $RequestContext.Response -Request $RequestContext.Request -StatusCode 503 -Close -RetryAfter '2' `
@@ -749,7 +805,8 @@ function Add-PendingRequestBody {
     $maxBytes = if ($Upload) { [int]$Upload.MaximumBytes } elseif ($Completion) { [int]$Completion.MaximumBytes } else { 4096 }
     $timeoutMs = if ($Upload) { $script:UploadBodyTimeoutMilliseconds } elseif ($Completion) { 10000 } else { 2000 }
     $bodyRead = New-StatusBoundedBodyRead -Stream $RequestContext.Request.InputStream -MaxBytes $maxBytes -TimeoutMs $timeoutMs `
-        -Tag ([pscustomobject]@{ RequestContext = $RequestContext; Loopback = $Loopback; ProofWire = $ProofWire; Upload = $Upload; Completion = $Completion })
+        -Tag ([pscustomobject]@{ RequestContext = $RequestContext; Loopback = $Loopback; ProofWire = $ProofWire; Upload = $Upload; Completion = $Completion
+            Route = $Route; UpdateLoopback = $UpdateLoopback })
     $pendingBodies.Add($bodyRead)
     Step-PendingRequestBody
 }
@@ -1050,8 +1107,10 @@ function Step-PendingRequestBody {
                             'test-config'      { Invoke-LockedTestConfigWrite -RequestContext $pendingContext -BodyBytes $bodyRead.Bytes }
                             'perf-checkpoints' { Invoke-PerfCheckpointWrite -RequestContext $pendingContext -BodyBytes $bodyRead.Bytes }
                         }
+                    } elseif ([string]$bodyRead.Tag.Route -ceq 'host-update') {
+                        Invoke-HostUpdateRequest -RequestContext $pendingContext -BodyBytes $bodyRead.Bytes -Loopback ([bool]$bodyRead.Tag.UpdateLoopback) -ProofWire ([string]$bodyRead.Tag.ProofWire)
                     } else {
-                        Invoke-HostRefreshRequest -RequestContext $pendingContext -BodyBytes $bodyRead.Bytes -Loopback ([bool]$bodyRead.Tag.Loopback) -ProofWire ([string]$bodyRead.Tag.ProofWire)
+                        Invoke-HostOperationRequest -RequestContext $pendingContext -BodyBytes $bodyRead.Bytes -Loopback ([bool]$bodyRead.Tag.Loopback) -ProofWire ([string]$bodyRead.Tag.ProofWire)
                     }
                 }
                 'too_large' {
@@ -1084,112 +1143,196 @@ function Step-PendingRequestBody {
     }
 }
 
-# The second half of POST /control/host-refresh, once the whole body is in:
+# The second half of POST /control/host-repair, once the whole body is in:
 # validate it against the closed schema, apply loopback defaults, authorize a
-# non-loopback caller's refresh proof, take the short admission lock, and on
+# non-loopback caller's repair proof, take the short admission lock, and on
 # a spawn decision launch the detached worker and publish the queued state.
 # Every outcome is a documented reply; nothing here waits for the repair.
-function Invoke-HostRefreshRequest {
+function Invoke-HostOperationRequest {
     param([Parameter(Mandatory)]$RequestContext, [byte[]]$BodyBytes, [bool]$Loopback, [string]$ProofWire)
-    $refreshRequest = $RequestContext.Request
-    $refreshResponse = $RequestContext.Response
+    $repairRequest = $RequestContext.Request
+    $repairResponse = $RequestContext.Response
     try {
         $allowedRung = @(Get-VirtualizationRepairRung -HostType $serverHostType |
                 Where-Object { [int]$_.Order -le 4 } | ForEach-Object { [string]$_.Name })
-        $refreshBody = ConvertFrom-HostRefreshRequestBody -Bytes $(if ($BodyBytes) { $BodyBytes } else { [byte[]]@() }) -AllowedRungName $allowedRung -Remote:(-not $Loopback)
-        if (-not $refreshBody.Valid) {
-            $invalidReply = [ordered]@{ ok = $false; reason = [string]$refreshBody.Reason }
-            if ($refreshBody.Field) { $invalidReply['field'] = [string]$refreshBody.Field }
-            Send-JsonReply -Response $refreshResponse -Request $refreshRequest -StatusCode 400 -Body $invalidReply `
-                -MessageKey 'status.api_request_body_invalid' -MessageArguments @{ reason = [string]$refreshBody.Reason; field = $(if ($refreshBody.Field) { [string]$refreshBody.Field } else { '-' }) }
+        $repairBody = ConvertFrom-HostRepairRequestBody -Bytes $(if ($BodyBytes) { $BodyBytes } else { [byte[]]@() }) -AllowedRungName $allowedRung -Remote:(-not $Loopback)
+        if (-not $repairBody.Valid) {
+            $invalidReply = [ordered]@{ ok = $false; reason = [string]$repairBody.Reason }
+            if ($repairBody.Field) { $invalidReply['field'] = [string]$repairBody.Field }
+            Send-JsonReply -Response $repairResponse -Request $repairRequest -StatusCode 400 -Body $invalidReply `
+                -MessageKey 'status.api_request_body_invalid' -MessageArguments @{ reason = [string]$repairBody.Reason; field = $(if ($repairBody.Field) { [string]$repairBody.Field } else { '-' }) }
             return
         }
-        $refreshSummary = Get-HostRefreshSummaryCached
-        $refreshCeiling = if ($refreshBody.MaxRung) { [string]$refreshBody.MaxRung } else { [string]$refreshSummary.ceiling }
-        if ($refreshSummary.availability -ne 'available' -or -not $refreshCeiling) {
-            Send-JsonReply -Response $refreshResponse -Request $refreshRequest -StatusCode 503 -Body ([ordered]@{ ok = $false; reason = 'refresh_unavailable' }) `
-                -MessageKey 'status.api_host_refresh_unavailable' -MessageArguments @{ reason = $(if ($refreshSummary.reason) { [string]$refreshSummary.reason } else { 'no_qualified_rung' }) }
+        $repairSummary = Get-HostRepairSummaryCached
+        $repairCeiling = if ($repairBody.MaxRung) { [string]$repairBody.MaxRung } else { [string]$repairSummary.ceiling }
+        if ($repairSummary.availability -ne 'available' -or -not $repairCeiling) {
+            Send-JsonReply -Response $repairResponse -Request $repairRequest -StatusCode 503 -Body ([ordered]@{ ok = $false; reason = 'repair_unavailable' }) `
+                -MessageKey 'status.api_host_repair_unavailable' -MessageArguments @{ reason = $(if ($repairSummary.reason) { [string]$repairSummary.reason } else { 'no_qualified_rung' }) }
             return
         }
-        $refreshRequestId = if ($refreshBody.RequestIdSupplied) { [string]$refreshBody.RequestId } else { New-StatusOperationId }
-        $refreshChannel = 'listener'
+        $repairRequestId = if ($repairBody.RequestIdSupplied) { [string]$repairBody.RequestId } else { New-StatusOperationId }
+        $repairChannel = 'listener'
         if (-not $Loopback) {
-            # The refresh proof is its own layer: the generic guard above has
+            # The repair proof is its own layer: the generic guard above has
             # already checked the transport header and the legacy control
             # proof, and neither authorizes a repair. The proof is read from
             # its own header, never from X-Yuruna-Control.
-            if (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRefreshAuth.psm1' -RequiredCommand 'Test-YurunaHostRefreshAuthorization')) {
-                Send-JsonReply -Response $refreshResponse -Request $refreshRequest -StatusCode 403 -Body ([ordered]@{ ok = $false; reason = 'refresh_verifier_unavailable' }) `
-                    -MessageKey 'status.api_host_refresh_authorization_refused' -MessageArguments @{ reason = 'refresh_verifier_unavailable' }
+            if (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRepairAuth.psm1' -RequiredCommand 'Test-YurunaHostRepairAuthorization')) {
+                Send-JsonReply -Response $repairResponse -Request $repairRequest -StatusCode 403 -Body ([ordered]@{ ok = $false; reason = 'repair_verifier_unavailable' }) `
+                    -MessageKey 'status.api_host_repair_authorization_refused' -MessageArguments @{ reason = 'repair_verifier_unavailable' }
                 return
             }
-            $refreshAuthorization = Test-YurunaHostRefreshAuthorization -ProofWire $ProofWire -HostId (Get-ArchiveHostId) -RequestId $refreshRequestId -Tier 'restart' -MaxRung $refreshCeiling
-            if (-not $refreshAuthorization.Authorized) {
-                $refusalStatus = [int]$refreshAuthorization.HttpStatus
+            $repairAuthorization = Test-YurunaHostRepairAuthorization -ProofWire $ProofWire -HostId (Get-ArchiveHostId) -RequestId $repairRequestId -Tier 'restart' -MaxRung $repairCeiling
+            if (-not $repairAuthorization.Authorized) {
+                $refusalStatus = [int]$repairAuthorization.HttpStatus
                 if ($refusalStatus -lt 400) { $refusalStatus = 403 }
-                Send-JsonReply -Response $refreshResponse -Request $refreshRequest -StatusCode $refusalStatus -Body ([ordered]@{ ok = $false; reason = [string]$refreshAuthorization.Reason }) `
-                    -MessageKey 'status.api_host_refresh_authorization_refused' -MessageArguments @{ reason = [string]$refreshAuthorization.Reason }
+                Send-JsonReply -Response $repairResponse -Request $repairRequest -StatusCode $refusalStatus -Body ([ordered]@{ ok = $false; reason = [string]$repairAuthorization.Reason }) `
+                    -MessageKey 'status.api_host_repair_authorization_refused' -MessageArguments @{ reason = [string]$repairAuthorization.Reason }
                 return
             }
-            $refreshChannel = 'remote'
+            $repairChannel = 'remote'
         }
-        $refreshAdmission = Request-HostRefreshAdmission -RequestId $refreshRequestId -Channel $refreshChannel -Tier 'restart' -MaxRung $refreshCeiling `
+        $repairAdmission = Request-HostRepairAdmission -RequestId $repairRequestId -Channel $repairChannel -Tier 'restart' -MaxRung $repairCeiling `
             -RuntimeDir $runtimeDir -HostType $serverHostType -AdmissionWaitMilliseconds 1000 -Confirm:$false
-        $refreshLaunch = $null
-        if ([string]$refreshAdmission.Decision -ceq 'spawn') {
+        $repairLaunch = $null
+        if ([string]$repairAdmission.Decision -ceq 'spawn') {
             # See https://yuruna.link/42e5cdfd-0045
-            $refreshLaunch = [pscustomobject]@{ Launched = $false; Reason = 'launcher_failed' }
-            $refreshPrivateUnavailable = $false
+            $repairLaunch = [pscustomobject]@{ Launched = $false; Reason = 'launcher_failed' }
+            $repairPrivateUnavailable = $false
             try {
-                $workDirectory = Get-HostRefreshPrivateWorkDir
+                $workDirectory = Get-HostRepairPrivateWorkDir
                 if ($workDirectory -and $workDirectory -isnot [string] -and $workDirectory.PSObject.Properties['Path']) {
                     $workDirectory = if ($workDirectory.PSObject.Properties['Resolved'] -and -not $workDirectory.Resolved) { $null } else { [string]$workDirectory.Path }
                 }
                 if ([string]::IsNullOrWhiteSpace([string]$workDirectory)) {
-                    $refreshPrivateUnavailable = $true
-                    $refreshLaunch = [pscustomobject]@{ Launched = $false; Reason = 'private_state_unavailable' }
+                    $repairPrivateUnavailable = $true
+                    $repairLaunch = [pscustomobject]@{ Launched = $false; Reason = 'private_state_unavailable' }
                 } else {
-                    $refreshStdIn = Join-Path ([string]$workDirectory) 'stdin.empty'
-                    if (-not [System.IO.File]::Exists($refreshStdIn)) { [System.IO.File]::WriteAllBytes($refreshStdIn, [byte[]]@()) }
-                    $refreshVector = @(New-HostRefreshWorkerArgumentList -RepoRoot $workerRoot -RequestId $refreshRequestId -Budget (New-HostRefreshBudget))
-                    $refreshAttempt = 0
-                    $null = [int]::TryParse([string]$refreshAdmission.Attempt, [ref]$refreshAttempt)
-                    if ($refreshAttempt -lt 1) { $refreshAttempt = 1 }
+                    $repairStdIn = Join-Path ([string]$workDirectory) 'stdin.empty'
+                    if (-not [System.IO.File]::Exists($repairStdIn)) { [System.IO.File]::WriteAllBytes($repairStdIn, [byte[]]@()) }
+                    $repairVector = @(New-HostRepairWorkerArgumentList -RepoRoot $workerRoot -RequestId $repairRequestId -Budget (New-HostRepairBudget))
+                    $repairAttempt = 0
+                    $null = [int]::TryParse([string]$repairAdmission.Attempt, [ref]$repairAttempt)
+                    if ($repairAttempt -lt 1) { $repairAttempt = 1 }
                     # A relaunch reuses the attempt number, and the earlier
                     # launch's transcripts are the evidence of why it failed.
-                    $refreshStem = Get-StatusWorkerTranscriptStem -Directory ([string]$workDirectory) -Stem ('{0}.{1}' -f $refreshRequestId, $refreshAttempt)
-                    $refreshLaunch = Start-StatusWorker -Directory ([string]$workDirectory) -StdInPath $refreshStdIn -ScriptPath $hostRefreshEntry `
-                        -ArgumentList $refreshVector -TranscriptStem $refreshStem
+                    $repairStem = Get-StatusWorkerTranscriptStem -Directory ([string]$workDirectory) -Stem ('{0}.{1}' -f $repairRequestId, $repairAttempt)
+                    $repairLaunch = Start-StatusWorker -Directory ([string]$workDirectory) -StdInPath $repairStdIn -ScriptPath $hostRepairEntry `
+                        -ArgumentList $repairVector -TranscriptStem $repairStem
                 }
             } finally {
-                $launchOutcome = if ($refreshLaunch -and $refreshLaunch.Launched) { 'started' } else { 'launch-failed' }
-                $launchRecord = Save-StatusLaunchOutcome -Argument @{ RequestId = $refreshRequestId; Outcome = $launchOutcome; Launch = $refreshLaunch } -Record {
+                $launchOutcome = if ($repairLaunch -and $repairLaunch.Launched) { 'started' } else { 'launch-failed' }
+                $launchRecord = Save-StatusLaunchOutcome -Argument @{ RequestId = $repairRequestId; Outcome = $launchOutcome; Launch = $repairLaunch } -Record {
                     param([hashtable]$A, [int]$Attempt)
                     $null = $Attempt
-                    Set-HostRefreshLaunchOutcome -RequestId $A.RequestId -Outcome $A.Outcome -Launch $A.Launch -Confirm:$false
+                    Set-HostRepairLaunchOutcome -RequestId $A.RequestId -Outcome $A.Outcome -Launch $A.Launch -Confirm:$false
                 }
                 if (-not $launchRecord.Saved) {
-                    Write-ServerErr "control/host-refresh could not record launch outcome '$launchOutcome' for $refreshRequestId after $($launchRecord.Attempts) attempt(s); admission reads it as pending until the queued expiry: $(@($launchRecord.Failure) -join '; ')"
+                    Write-ServerErr "control/host-repair could not record launch outcome '$launchOutcome' for $repairRequestId after $($launchRecord.Attempts) attempt(s); admission reads it as pending until the queued expiry: $(@($launchRecord.Failure) -join '; ')"
                 }
             }
-            if ($refreshPrivateUnavailable) {
-                Send-JsonReply -Response $refreshResponse -Request $refreshRequest -StatusCode 503 -Body ([ordered]@{ ok = $false; reason = 'private_state_unavailable' }) `
+            if ($repairPrivateUnavailable) {
+                Send-JsonReply -Response $repairResponse -Request $repairRequest -StatusCode 503 -Body ([ordered]@{ ok = $false; reason = 'private_state_unavailable' }) `
                     -MessageKey 'status.api_private_state_unavailable' -MessageArguments @{ reason = 'work_directory_unavailable' }
                 return
             }
-            if ($refreshLaunch -and $refreshLaunch.Launched) {
-                try { $null = Publish-HostRefreshQueuedState -RuntimeDir $runtimeDir -RequestId $refreshRequestId -Channel $refreshChannel } catch {
-                    Write-ServerErr "control/host-refresh could not publish the queued state: $($_.Exception.Message)"
+            if ($repairLaunch -and $repairLaunch.Launched) {
+                try { $null = Publish-HostRepairQueuedState -RuntimeDir $runtimeDir -RequestId $repairRequestId -Channel $repairChannel } catch {
+                    Write-ServerErr "control/host-repair could not publish the queued state: $($_.Exception.Message)"
                 }
             }
         }
-        $admissionReply = Get-HostRefreshAdmissionReply -Admission $refreshAdmission -Launch $refreshLaunch -Ceiling $refreshCeiling `
-            -StateUrl $hostRefreshStateUrl -StartCycleStateUrl $startCycleStateUrl
-        Send-JsonReply -Response $refreshResponse -Request $refreshRequest -StatusCode $admissionReply.StatusCode -Body $admissionReply.Body `
+        $admissionReply = Get-HostRepairAdmissionReply -Admission $repairAdmission -Launch $repairLaunch -Ceiling $repairCeiling `
+            -StateUrl $hostRepairStateUrl -StartCycleStateUrl $startCycleStateUrl
+        Send-JsonReply -Response $repairResponse -Request $repairRequest -StatusCode $admissionReply.StatusCode -Body $admissionReply.Body `
             -MessageKey $admissionReply.MessageKey -MessageArguments $admissionReply.MessageArguments
     } catch {
-        Write-ServerErr "control/host-refresh failed: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
-        Send-JsonReply -Response $refreshResponse -Request $refreshRequest -StatusCode 500 -Body ([ordered]@{ ok = $false; reason = 'internal_error' }) `
+        Write-ServerErr "control/host-repair failed: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+        Send-JsonReply -Response $repairResponse -Request $repairRequest -StatusCode 500 -Body ([ordered]@{ ok = $false; reason = 'internal_error' }) `
+            -MessageKey 'status.api_internal_error'
+    }
+}
+
+# The second half of POST /control/host-update, once the whole body is in:
+# validate it against the closed schema, require the yup1 proof from a caller
+# that is not this host itself, refuse a host with no controller and a scope
+# the controller does not run, then queue the request in one journal
+# transaction. Nothing is launched: the host controller claims the queued row.
+# The drain is always after-cycle, so no HTTP request can end a running cycle.
+function Invoke-HostUpdateRequest {
+    param([Parameter(Mandatory)]$RequestContext, [byte[]]$BodyBytes, [bool]$Loopback, [string]$ProofWire)
+    $updateRequest = $RequestContext.Request
+    $updateResponse = $RequestContext.Response
+    try {
+        $updateBody = ConvertFrom-HostUpdateRequestBody -Bytes $(if ($BodyBytes) { $BodyBytes } else { [byte[]]@() })
+        if (-not $updateBody.Valid) {
+            $invalidReply = [ordered]@{ ok = $false; reason = [string]$updateBody.Reason }
+            if ($updateBody.Field) { $invalidReply['field'] = [string]$updateBody.Field }
+            Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 400 -Body $invalidReply `
+                -MessageKey 'status.api_request_body_invalid' -MessageArguments @{ reason = [string]$updateBody.Reason; field = $(if ($updateBody.Field) { [string]$updateBody.Field } else { '-' }) }
+            return
+        }
+        $updateChannel = 'listener'
+        if (-not $Loopback) {
+            # The update proof is its own layer: the generic guard has already
+            # checked the transport header and the legacy control proof, and
+            # neither authorizes an update. The proof binds the request id,
+            # so a remote caller must name one.
+            if ([string]::IsNullOrEmpty($ProofWire)) {
+                Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 403 -Body ([ordered]@{ ok = $false; reason = 'update_proof_missing' }) `
+                    -MessageKey 'status.api_host_update_proof_missing'
+                return
+            }
+            if (-not $updateBody.RequestIdSupplied) {
+                Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 400 -Body ([ordered]@{ ok = $false; reason = 'invalid_value'; field = 'requestId' }) `
+                    -MessageKey 'status.api_request_body_invalid' -MessageArguments @{ reason = 'invalid_value'; field = 'requestId' }
+                return
+            }
+            if (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostRepairAuth.psm1' -RequiredCommand 'Test-YurunaHostUpdateAuthorization')) {
+                Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 403 -Body ([ordered]@{ ok = $false; reason = 'update_verifier_failed' }) `
+                    -MessageKey 'status.api_host_update_authorization_refused' -MessageArguments @{ reason = 'update_verifier_failed' }
+                return
+            }
+            $authorizationArguments = @{
+                ProofWire = $ProofWire; HostId = (Get-ArchiveHostId); RequestId = [string]$updateBody.RequestId; Scope = [string]$updateBody.Scope
+                DrainSeconds = [int]$updateBody.DrainSeconds; ExpectCommit = $(if ($updateBody.ExpectCommit) { [string]$updateBody.ExpectCommit } else { '' })
+            }
+            $updateAuthorization = Test-YurunaHostUpdateAuthorization @authorizationArguments
+            if (-not $updateAuthorization.Authorized) {
+                Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 403 -Body ([ordered]@{ ok = $false; reason = [string]$updateAuthorization.Reason }) `
+                    -MessageKey 'status.api_host_update_authorization_refused' -MessageArguments @{ reason = [string]$updateAuthorization.Reason }
+                return
+            }
+            $updateChannel = 'remote'
+        }
+        # Read from the lock now, not from the cached summary: a request
+        # nobody will run is never queued.
+        if ([string](Get-HostUpdateControllerLockState) -cne 'held') {
+            Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 503 -Body ([ordered]@{ ok = $false; reason = 'controller_absent' }) `
+                -MessageKey 'status.api_host_update_controller_absent'
+            return
+        }
+        $updateSummary = Get-HostUpdateSummaryCached
+        $updateScopes = if ([string]$updateSummary.scopes) { @(([string]$updateSummary.scopes).Split(',')) } else { @('restart') }
+        if ($updateScopes -cnotcontains [string]$updateBody.Scope) {
+            Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 409 -Body ([ordered]@{ ok = $false; reason = 'scope_unavailable'; scope = [string]$updateBody.Scope }) `
+                -MessageKey 'status.api_host_update_scope_unavailable' -MessageArguments @{ scope = [string]$updateBody.Scope }
+            return
+        }
+        $updateRequestId = if ($updateBody.RequestIdSupplied) { [string]$updateBody.RequestId } else { New-StatusOperationId }
+        $admissionArguments = @{
+            RequestId = $updateRequestId; Channel = $updateChannel; Scope = [string]$updateBody.Scope; Drain = 'after-cycle'; DrainSeconds = [int]$updateBody.DrainSeconds
+            RuntimeDir = $runtimeDir; HostType = $serverHostType; AdmissionWaitMilliseconds = 1000
+        }
+        if ($updateBody.ExpectCommit) { $admissionArguments.ExpectCommit = [string]$updateBody.ExpectCommit }
+        $updateAdmission = Request-HostUpdateAdmission @admissionArguments -Confirm:$false
+        $admissionReply = Get-HostUpdateAdmissionReply -Admission $updateAdmission -RequestId $updateRequestId -Scope ([string]$updateBody.Scope) `
+            -StateUrl $hostUpdateStateUrl -RepairStateUrl $hostRepairStateUrl -StartCycleStateUrl $startCycleStateUrl
+        Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode $admissionReply.StatusCode -Body $admissionReply.Body `
+            -MessageKey $admissionReply.MessageKey -MessageArguments $admissionReply.MessageArguments
+    } catch {
+        Write-ServerErr "control/host-update failed: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+        Send-JsonReply -Response $updateResponse -Request $updateRequest -StatusCode 500 -Body ([ordered]@{ ok = $false; reason = 'internal_error' }) `
             -MessageKey 'status.api_internal_error'
     }
 }
@@ -1205,7 +1348,7 @@ function Invoke-StartCycleRequest {
         return
     }
     $startCycleOperation = New-StatusOperationId
-    $startCycleReservation = Request-HostRefreshStartCycleReservation -OperationId $startCycleOperation -RuntimeDir $runtimeDir `
+    $startCycleReservation = Request-StartCycleReservation -OperationId $startCycleOperation -RuntimeDir $runtimeDir `
         -AdmissionWaitMilliseconds 1000 -Confirm:$false
     $startCycleLaunch = $null
     if ([string]$startCycleReservation.Decision -ceq 'reserved') {
@@ -1223,7 +1366,7 @@ function Invoke-StartCycleRequest {
             } -Record {
                 param([hashtable]$A, [int]$Attempt)
                 $null = $Attempt
-                Set-HostRefreshStartCycleLaunch -OperationId $A.OperationId -Generation $A.Generation -Outcome $A.Outcome -Launch $A.Launch
+                Set-StartCycleLaunch -OperationId $A.OperationId -Generation $A.Generation -Outcome $A.Outcome -Launch $A.Launch
             }
             if (-not $startCycleRecord.Saved) {
                 Write-ServerErr "start-cycle could not record launch outcome '$startCycleOutcome' for $startCycleOperation after $($startCycleRecord.Attempts) attempt(s); the reservation stays until this listener exits: $(@($startCycleRecord.Failure) -join '; ')"
@@ -1231,7 +1374,7 @@ function Invoke-StartCycleRequest {
         }
     }
     $startCycleReply = Get-StartCycleAdmissionReply -Reservation $startCycleReservation -Launch $startCycleLaunch `
-        -OperationId $startCycleOperation -StateUrl $startCycleStateUrl -RefreshStateUrl $hostRefreshStateUrl
+        -OperationId $startCycleOperation -StateUrl $startCycleStateUrl -RepairStateUrl $hostRepairStateUrl
     Send-JsonReply -Response $Response -Request $Request -StatusCode $startCycleReply.StatusCode -Body $startCycleReply.Body `
         -MessageKey $startCycleReply.MessageKey -MessageArguments $startCycleReply.MessageArguments
 }
@@ -1402,7 +1545,7 @@ function Send-GitArchive {
 # --- REGION: Archived cycle results (poolStorage move mode)
 # See https://yuruna.link/42e5cdfd-0045
 function Get-ArchiveHostId {
-    # The listener may start before host.uuid exists, and host refresh can
+    # The listener may start before host.uuid exists, and host repair can
     # replace it. Read the small local identity file rather than retaining an
     # empty or old audience that rejects correctly bound control proofs.
     try {
@@ -1534,7 +1677,7 @@ try {
     $script:ServerLeaseFailureLogged = $false
     $null = Update-StatusServiceLease -Lease $script:ServerLease -State idle -Confirm:$false
     Write-ServerErr "server hostType='$serverHostType'"
-    # Compile the critical-record I/O helper now, once, so the first refresh
+    # Compile the critical-record I/O helper now, once, so the first repair
     # or start-cycle admission does not pay for it inside a request.
     if (Get-Command -Name 'Initialize-YurunaCriticalRecordIo' -ErrorAction SilentlyContinue) {
         try { $null = Initialize-YurunaCriticalRecordIo } catch { Write-ServerErr "critical-record I/O pre-warm failed: $($_.Exception.Message)" }
@@ -1550,7 +1693,7 @@ try {
             & (Get-Module Test.StatusControlRoute) { $null = Format-YurunaOperatorMessage -Key 'runner.status_worker_directory_prepare_action' }
         }
     } catch { Write-ServerErr "private worker preparation failed: $($_.Exception.Message)" }
-    # Bodies being read for control/host-refresh, the pending accept, and the
+    # Bodies being read for control/host-repair, the pending accept, and the
     # last host-diagnostic launch (which throttles a caller that polls faster
     # than a worker starts).
     $pendingBodies = [System.Collections.Generic.List[object]]::new()
@@ -1930,7 +2073,7 @@ try {
                 }
                 if ($null -eq $perfAggregatesCache) {
                     # Same cap that bounds status.json's history[] (the
-                    # "Recent Cycles" list on the dashboard). Read from
+                    # "Recent cycles" list on the dashboard). Read from
                     # test.config.yml so the constant lives in exactly
                     # one place; Invoke-TestRunnerInnerLoop uses the same
                     # path for its Complete-Run -MaxHistoryRuns.
@@ -2275,15 +2418,23 @@ try {
                 $csTag = $controlIdentity.Tag
                 # The caller's vantage rides along so the page can tell whether
                 # its Start button can work at all from here: a non-loopback
-                # press needs the refresh proof header, which the dashboard
+                # press needs the repair proof header, which the dashboard
                 # never carries, so a remote page offers watching instead of a
                 # press that can only be refused. Copied before the field is
                 # added; the summary parts are cached and shared.
-                $refreshStatusSummary = [ordered]@{}
-                foreach ($refreshPair in (Get-HostRefreshSummaryCached).GetEnumerator()) { $refreshStatusSummary[$refreshPair.Key] = $refreshPair.Value }
-                $refreshCallerLoopback = $false
-                try { $refreshCallerLoopback = [System.Net.IPAddress]::IsLoopback($req.RemoteEndPoint.Address) } catch { $refreshCallerLoopback = $false }
-                $refreshStatusSummary['caller'] = if ($refreshCallerLoopback) { 'loopback' } else { 'remote' }
+                $repairStatusSummary = [ordered]@{}
+                foreach ($repairPair in (Get-HostRepairSummaryCached).GetEnumerator()) { $repairStatusSummary[$repairPair.Key] = $repairPair.Value }
+                $repairCallerLoopback = $false
+                try { $repairCallerLoopback = [System.Net.IPAddress]::IsLoopback($req.RemoteEndPoint.Address) } catch { $repairCallerLoopback = $false }
+                $repairStatusSummary['caller'] = if ($repairCallerLoopback) { 'loopback' } else { 'remote' }
+                # The update's caller follows the route's own rule, address and
+                # Host header, so the page offers a direct press only where the
+                # route accepts one.
+                $updateStatusSummary = [ordered]@{}
+                foreach ($updatePair in (Get-HostUpdateSummaryCached).GetEnumerator()) { $updateStatusSummary[$updatePair.Key] = $updatePair.Value }
+                $updateCallerLoopback = $false
+                try { $updateCallerLoopback = Test-HostUpdateLoopbackCaller -RemoteAddress $req.RemoteEndPoint.Address -HostHeader ([string]$req.Headers['Host']) -Port $Port } catch { $updateCallerLoopback = $false }
+                $updateStatusSummary['caller'] = if ($updateCallerLoopback) { 'loopback' } else { 'remote' }
                 # See https://yuruna.link/42e5cdfd-0045
                 $payload = @{
                     ok              = $true
@@ -2291,7 +2442,8 @@ try {
                     tokenConfigured = (-not [string]::IsNullOrWhiteSpace($csToken))
                     tokenTag        = $csTag
                     utcNow          = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ', [Globalization.CultureInfo]::InvariantCulture)
-                    refresh         = $refreshStatusSummary
+                    repair         = $repairStatusSummary
+                    update          = $updateStatusSummary
                 } | ConvertTo-Json -Compress
                 $body = [System.Text.Encoding]::UTF8.GetBytes($payload)
                 $res.ContentLength64 = $body.Length
@@ -2652,9 +2804,9 @@ try {
                 continue
             }
 
-            # --- REGION: /control/host-refresh: bounded admission and detached repair worker
+            # --- REGION: /control/host-repair: bounded admission and detached repair worker
             # See https://yuruna.link/42e5cdfd-0045
-            if ($path -eq 'control/host-refresh') {
+            if ($path -eq 'control/host-repair') {
                 try {
                     if ($req.HttpMethod -ne 'POST') {
                         $res.ContentType = 'application/json; charset=utf-8'
@@ -2663,12 +2815,12 @@ try {
                         Send-JsonError -Response $res -StatusCode 405 -Request $req -Key 'status.api_post_required_663cc07c'
                         continue
                     }
-                    if (-not (Test-StatusRouteReady -Route 'host-refresh').Ready) {
+                    if (-not (Test-StatusRouteReady -Route 'host-repair').Ready) {
                         Send-JsonReply -Response $res -Request $req -StatusCode 503 -Close -Body ([ordered]@{ ok = $false; reason = 'listener_dependency_missing' }) `
                             -MessageKey 'status.api_listener_dependency_missing'
                         continue
                     }
-                    if (-not (Test-HostRefreshContentType -ContentType ([string]$req.ContentType))) {
+                    if (-not (Test-HostControlContentType -ContentType ([string]$req.ContentType))) {
                         Send-JsonReply -Response $res -Request $req -StatusCode 415 -Close -Body ([ordered]@{ ok = $false; reason = 'unsupported_media_type' }) `
                             -MessageKey 'status.api_unsupported_media_type'
                         continue
@@ -2682,10 +2834,10 @@ try {
                             -MessageKey 'status.api_payload_too_large_4_kb'
                         continue
                     }
-                    $refreshAvailability = Get-HostRefreshSummaryCached
-                    if ($refreshAvailability.availability -ne 'available') {
-                        Send-JsonReply -Response $res -Request $req -StatusCode 503 -Close -Body ([ordered]@{ ok = $false; reason = 'refresh_unavailable' }) `
-                            -MessageKey 'status.api_host_refresh_unavailable' -MessageArguments @{ reason = [string]$refreshAvailability.reason }
+                    $repairAvailability = Get-HostRepairSummaryCached
+                    if ($repairAvailability.availability -ne 'available') {
+                        Send-JsonReply -Response $res -Request $req -StatusCode 503 -Close -Body ([ordered]@{ ok = $false; reason = 'repair_unavailable' }) `
+                            -MessageKey 'status.api_host_repair_unavailable' -MessageArguments @{ reason = [string]$repairAvailability.reason }
                         continue
                     }
                     if ($pendingBodies.Count -ge 4) {
@@ -2693,15 +2845,63 @@ try {
                             -MessageKey 'status.api_listener_busy'
                         continue
                     }
-                    $refreshLoopback = $false
-                    try { $refreshLoopback = [System.Net.IPAddress]::IsLoopback($req.RemoteEndPoint.Address) } catch { $refreshLoopback = $false }
-                    Add-PendingRequestBody -RequestContext $ctx -Loopback $refreshLoopback -ProofWire ([string]$req.Headers['X-Yuruna-Refresh-Proof'])
+                    $repairLoopback = $false
+                    try { $repairLoopback = [System.Net.IPAddress]::IsLoopback($req.RemoteEndPoint.Address) } catch { $repairLoopback = $false }
+                    Add-PendingRequestBody -RequestContext $ctx -Loopback $repairLoopback -ProofWire ([string]$req.Headers['X-Yuruna-Repair-Proof'])
                 } catch {
-                    Write-ServerErr "control/host-refresh failed before its body was read: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+                    Write-ServerErr "control/host-repair failed before its body was read: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
                     try {
                         Send-JsonReply -Response $res -Request $req -StatusCode 500 -Close -Body ([ordered]@{ ok = $false; reason = 'internal_error' }) -MessageKey 'status.api_internal_error'
                     } catch {
-                        Write-ServerErr "control/host-refresh reply failed: $($_.Exception.Message)"
+                        Write-ServerErr "control/host-repair reply failed: $($_.Exception.Message)"
+                        try { $res.Abort() } catch { Write-Debug $_ }
+                    }
+                }
+                continue
+            }
+
+            # --- REGION: /control/host-update: bounded admission, claimed by the host controller
+            # See https://yuruna.link/42185271-0014
+            if ($path -eq 'control/host-update') {
+                try {
+                    if ($req.HttpMethod -ne 'POST') {
+                        $res.ContentType = 'application/json; charset=utf-8'
+                        $res.Headers.Add('Cache-Control', 'no-store')
+                        $res.Headers.Add('Allow', 'POST')
+                        Send-JsonError -Response $res -StatusCode 405 -Request $req -Key 'status.api_post_required_663cc07c'
+                        continue
+                    }
+                    if (-not (Test-StatusRouteReady -Route 'host-update').Ready) {
+                        Send-JsonReply -Response $res -Request $req -StatusCode 503 -Close -Body ([ordered]@{ ok = $false; reason = 'listener_dependency_missing' }) `
+                            -MessageKey 'status.api_listener_dependency_missing'
+                        continue
+                    }
+                    if (-not (Test-HostControlContentType -ContentType ([string]$req.ContentType))) {
+                        Send-JsonReply -Response $res -Request $req -StatusCode 415 -Close -Body ([ordered]@{ ok = $false; reason = 'unsupported_media_type' }) `
+                            -MessageKey 'status.api_unsupported_media_type'
+                        continue
+                    }
+                    if ($req.ContentLength64 -gt 4096) {
+                        Send-JsonReply -Response $res -Request $req -StatusCode 413 -Close -Body ([ordered]@{ ok = $false; reason = 'payload_too_large' }) `
+                            -MessageKey 'status.api_payload_too_large_4_kb'
+                        continue
+                    }
+                    if ($pendingBodies.Count -ge 4) {
+                        Send-JsonReply -Response $res -Request $req -StatusCode 503 -Close -RetryAfter '2' -Body ([ordered]@{ ok = $false; reason = 'listener_busy' }) `
+                            -MessageKey 'status.api_listener_busy'
+                        continue
+                    }
+                    # Decided now, from the address and the Host header the
+                    # request arrived with; the body is dispatched later.
+                    $updateLoopback = $false
+                    try { $updateLoopback = Test-HostUpdateLoopbackCaller -RemoteAddress $req.RemoteEndPoint.Address -HostHeader ([string]$req.Headers['Host']) -Port $Port } catch { $updateLoopback = $false }
+                    Add-PendingRequestBody -RequestContext $ctx -Route 'host-update' -UpdateLoopback $updateLoopback -ProofWire ([string]$req.Headers['X-Yuruna-Update-Proof'])
+                } catch {
+                    Write-ServerErr "control/host-update failed before its body was read: $($_.Exception.GetType().FullName): $($_.Exception.Message)"
+                    try {
+                        Send-JsonReply -Response $res -Request $req -StatusCode 500 -Close -Body ([ordered]@{ ok = $false; reason = 'internal_error' }) -MessageKey 'status.api_internal_error'
+                    } catch {
+                        Write-ServerErr "control/host-update reply failed: $($_.Exception.Message)"
                         try { $res.Abort() } catch { Write-Debug $_ }
                     }
                 }
@@ -3145,8 +3345,8 @@ try {
                 $runtimeServedLeaves = @(
                     'status.json', 'current-action.json', 'break-active.json', 'ipaddresses.txt',
                     'caching-proxy-service.txt', 'host-network.txt', 'host-network.json',
-                    'host.registration.json', 'start-cycle.state.json', 'host-refresh.state.json',
-                    'runner.watchdog-kill.json'
+                    'host.registration.json', 'start-cycle.state.json', 'host-repair.state.json',
+                    'runner.watchdog-kill.json', 'host-update.state.json', 'host-controller.state.json'
                 )
                 $runtimeServed = ($runtimeServedLeaves -ccontains $runtimeLeaf) -or
                     ($runtimeLeaf -cmatch '^runner-attempts/(index\.json|[A-Za-z0-9_-]+/(config-gate\.(json|log)|runner-fault\.json))$')

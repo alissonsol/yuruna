@@ -21,8 +21,8 @@ stateDiagram-v2
     idle --> fault: Diagnostic preservation
     cycle_start --> in_cycle: Spawn inner
     cycle_start --> fault: Archive space exhausted
-    cycle_start --> paused: Pool, refresh, or pull
-    in_cycle --> cycle_end: Pass, degraded, refresh, held
+    cycle_start --> paused: Pool, gate, or pull
+    in_cycle --> cycle_end: Pass, degraded, gate, held
     in_cycle --> fault: Failure, watchdog, or ceiling
     cycle_end --> idle: Close cycle
     fault --> paused: Backoff or preservation
@@ -43,15 +43,17 @@ Each runner also records how it started and which signal ended it. `Register-Yur
 
 A completed cycle that failed nothing but skipped a planned guest exits 75 and
 closes through `cycle-end` to `idle`, with a degraded summary. It takes no
-failure pause, claims no success for automatic refresh, and does not rearm
+failure pause, claims no success for automatic repair, and does not rearm
 repair budgets. [Test.RecoveryContract.psm1](../../test/modules/Test.RecoveryContract.psm1)
 defines that exit code and the outcome-record contract.
 [Invoke-TestProject.ps1](../../test/Invoke-TestProject.ps1) dispatches one cycle
 through the same worker, watchdog, cycle ceiling, and end hooks with framework
-pulling disabled; it reports the cycle's exit code, or 2 when pool, refresh, or
+pulling disabled; it reports the cycle's exit code, or 2 when pool, runner-gate, or
 shutdown controls prevent a verdict.
 
-A framework pull error moves `cycle-start` to `paused` and publishes a `runnerFault` with stage `FrameworkPull` before an interruptible hold that starts at 30 seconds and doubles with each consecutive pull or process-creation failure, up to 15 minutes; with automatic remediation enabled, a pull error from a stale Git lock is repaired and retried immediately. The pull selects its source through [Test.SourceSelection.psm1](../../test/modules/Test.SourceSelection.psm1) and [Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1) within one deadline; an unavailable mirror, or a mirror reply that is not a successful protocol response, falls back to the origin instead of failing the update. A signed stale receipt within `repositories.mirror.mirrorOnlyMaxAgeSeconds` selects the mirror's last confirmed revision without asking the origin. A canary-ring follower installs only the revision its pool qualified and otherwise stays on its current commit, which counts as a successful pull. A cycle process that cannot start holds the same way and publishes a `runnerFault` with stage `CycleSpawn` and class `cycle_spawn_failed`. A very early unexplained cycle-worker abort holds 30 seconds, doubling with each consecutive abort at the same framework commit up to 15 minutes. Neither hold transitions state, so the next dispatch can record an undeclared `cycle-start` or `in-cycle` to `cycle-start` pair that the validator warns about. `runner.framework-health.json` keeps the last framework commit whose cycle recorded an outcome and the streak of dispatches at the current commit that ended without one, aborted or unrecorded. From the second such dispatch the outer pulls the framework with the code it loaded at startup, because a commit that breaks the cycle process also stops the pull that process would make; for an abort it also publishes a `runnerFault` with stage `FrameworkRescue` and class `cycle_killed`, counted toward the crash alert. Pool `paused` rechecks configuration after a short hold; `drain` stops at dispatch. Move-mode archive-space exhaustion can fault before an inner starts or change a passing inner's cycle verdict afterward. `refresh-gated` short-holds without ordinary verdict accounting: a hold before the pull changes no state, a hold before the wipe moves `cycle-start` to `paused`, and a hold inside the inner closes through `cycle-end` to `idle` with a refresh reason.
+A workload authoring session started through [Start-WorkloadMcpServer.ps1](../../test/service/Start-WorkloadMcpServer.ps1) claims the same one-shot lease in `Start-WorkloadSessionRuntime` in [Test.WorkloadRuntime.psm1](../../test/modules/Test.WorkloadRuntime.psm1); while a resident runner or another one-shot run owns the runtime, the session start is refused as `workload_runtime_owned`, and while the session holds the lease, a runner start is refused. The session adds no runner state.
+
+A framework pull error moves `cycle-start` to `paused` and publishes a `runnerFault` with stage `FrameworkPull` before an interruptible hold that starts at 30 seconds and doubles with each consecutive pull or process-creation failure, up to 15 minutes; with automatic remediation enabled, a pull error from a stale Git lock is repaired and retried immediately. The pull selects its source through [Test.SourceSelection.psm1](../../test/modules/Test.SourceSelection.psm1) and [Test.HostGit.psm1](../../test/modules/Test.HostGit.psm1) within one deadline; an unavailable mirror, or a mirror reply that is not a successful protocol response, falls back to the origin instead of failing the update. A signed stale receipt within `repositories.mirror.mirrorOnlyMaxAgeSeconds` selects the mirror's last confirmed revision without asking the origin. A canary-ring follower installs only the revision its pool qualified and otherwise stays on its current commit, which counts as a successful pull. A cycle process that cannot start holds the same way and publishes a `runnerFault` with stage `CycleSpawn` and class `cycle_spawn_failed`. A very early unexplained cycle-worker abort holds 30 seconds, doubling with each consecutive abort at the same framework commit up to 15 minutes. Neither hold transitions state, so the next dispatch can record an undeclared `cycle-start` or `in-cycle` to `cycle-start` pair that the validator warns about. `runner.framework-health.json` keeps the last framework commit whose cycle recorded an outcome and the streak of dispatches at the current commit that ended without one, aborted or unrecorded. From the second such dispatch the outer pulls the framework with the code it loaded at startup, because a commit that breaks the cycle process also stops the pull that process would make; for an abort it also publishes a `runnerFault` with stage `FrameworkRescue` and class `cycle_killed`, counted toward the crash alert. Pool `paused` rechecks configuration after a short hold; `drain` stops at dispatch. Move-mode archive-space exhaustion can fault before an inner starts or change a passing inner's cycle verdict afterward. `gate-held` short-holds without ordinary verdict accounting: a hold before the pull changes no state, a hold before the wipe moves `cycle-start` to `paused`, and a hold inside the inner closes through `cycle-end` to `idle` with a runner-gate reason.
 
 ## VM provisioning
 
@@ -100,10 +102,12 @@ cycle's status document or creating a guest.
 Before the cycle body, a total guest-network loss can refuse VM work in
 [Invoke-TestRunnerInnerLoop.ps1](../../test/modules/Invoke-TestRunnerInnerLoop.ps1).
 Its stranded-VM sweep runs once per loss in a separate process bounded to 300
-seconds, only when the refresh gate allows VM mutation; the network-streak
+seconds, only when the runner gate allows VM mutation; the network-streak
 record remembers the attempt. A healthy check clears that record.
 
 Start sequences that power the guest off use the `stopVm` action in [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1): the driver's `Stop-VM -ShutdownTimeoutSeconds -NoForce` requests the shutdown, and the stopped state is observed through the host. A guest that ignores the request leaves console frames, OCR text, the observed state, the livelock verdict, and the first guest-silence marker, and `Start-GuestOS` fails as `vm_not_stopped`. With `forceOnTimeout`, the VM is turned off with a recorded `guest-shutdown` degradation and the sequence continues. `startVm` shares the same stopped-wait evidence.
+
+The SSH start sequences for [Ubuntu 24](../../test/sequences/start.guest.ubuntu.server.24.ssh.yml) and [Ubuntu 26](../../test/sequences/start.guest.ubuntu.server.26.ssh.yml) build a fresh guest without a console login: they confirm the installer's autoinstall question by blind key injection, and their `sshWaitReady` step carries `currentPassword` and `newPassword` and reads the console only to fail fast on installer error text. In [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1), the first expired-password answer rotates the password once over SSH and the wait continues within the same budget; a second expiry or a failed rotation fails the step. [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1) forgets a host-key pin that no login confirmed during the step when the guest presents another key, at most three times per step, so the installed system is not refused because the live installer was pinned. The sequence commits the new password to the vault only after a shell command proves the rotated login. These steps run inside `Start-GuestOS` and add no runner state.
 
 On macOS UTM the Ubuntu overlay ends the install with a power-off, because a warm reset can wedge the first boot under UTM's QEMU. The UTM start sequences use `startVm` with `installPowerOff: true`, which waits up to 2,400 seconds for the stopped state and then starts the installed system cold; the login wait and its bounded cold restart remain as a safety net. A power-off that never comes saves the same evidence but stays `provisioning_failure`, since the install did not finish. An installer that caught its own error waits at a shell and never powers off either, so the same wait reads the text of each frame it captures, across every OCR engine, and ends on a declared `failurePatterns` entry: the step then fails as `pattern_matched_failure` with that frame as evidence instead of spending the rest of the deadline. The [Ubuntu 24 UTM](../../test/sequences/start.guest.ubuntu.server.24.macos.utm.yml) and [Ubuntu 26 UTM](../../test/sequences/start.guest.ubuntu.server.26.macos.utm.yml) sequences declare `install_fail.crash`, `Press enter to start a shell`, and `An error occurred` on that step.
 
@@ -135,7 +139,7 @@ stateDiagram-v2
 
 The policy check admits only Windows Hyper-V, Ubuntu KVM, and macOS UTM hosts. Its observation prefix permits non-sensitive `Enter` redraw keys, waits of at most 60 seconds, and one login wait; an optional password tail must match the exact five-prompt first-login flow, ending with the confirming new-password entry. Declared recovery steps remain limited to short waits and installer confirmation. A refusal emits `retry_suppressed` before any attempt. The block is capped at three attempts, each attempt refreshes the step heartbeat, and the final attempt never restarts the guest.
 
-A failed hard-severity attempt saves its frames, the observed VM state, and the console second opinion before power is touched. A restart then requires that evidence and either a login-wait OCR timeout or a display-stall end while an admitted password prompt is waiting, with neither a matched failure pattern nor a console flood. Password input failures cannot replay; the final confirming entry ends the eligible block, so later shell checks and password persistence cannot replay it either. When the OCR tail still shows the live installer, restart also requires a driver that can put the installer media first; only the [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1) implements that. Otherwise `retry_suppressed` ends the block without replaying input. `Invoke-SequenceColdPowerCycle` force-stops the VM, confirms that it stopped, optionally reselects installer media, starts it, confirms that it runs, and refreshes the console; any failed or ambiguous phase ends the block, and `retry_vm_restart` records the phase and outcome.
+A failed hard-severity attempt saves its frames, the observed VM state, and the console second opinion before power is touched. A restart then requires that evidence and either a login-wait OCR timeout or a display-stall end while an admitted password prompt is waiting, with neither a matched failure pattern nor a console flood. Password input failures cannot replay; the final confirming entry ends the eligible block, so later shell checks and password persistence cannot replay it either. When the failed wait recorded an installer stage, or its OCR tail still shows the live installer, restart also requires a driver that can put the installer media first; only the [Hyper-V driver](../../host/windows.hyper-v/modules/Yuruna.Host.psm1) implements that. Otherwise `retry_suppressed` ends the block without replaying input. `Invoke-SequenceColdPowerCycle` force-stops the VM, confirms that it stopped, optionally reselects installer media, starts it, confirms that it runs, and refreshes the console; any failed or ambiguous phase ends the block, and `retry_vm_restart` records the phase and outcome.
 
 The login waits inside such a block end early on a guest livelock instead of spending their whole budget. `Wait-ForText` in [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) takes that verdict from the Hyper-V host recording or, where QEMU paints `Display output is not active`, from a 300-second run of such frames confirmed by a `guest-wedged` console second opinion, which only the [UTM driver](../../host/macos.utm/modules/Yuruna.Host.psm1) reports. Any frame with other content restarts that run. On Hyper-V, such a wait and every `fetchAndExecute` completion wait end once the serial console holds a kernel fault report written after the wait began and either one processor has serviced no interrupt for 180 seconds or the console output and the guest recorder's uploads have both stopped for 180 seconds; `guestKernelStallEnd` records the basis as `no-interrupts-serviced` or `guest-silent`. No reading alone ends a wait, and a sensitive step has no recorder path, which keeps the guest-silent rule off. Those login waits and the admitted password prompts also end on a display stall: the retry marks a copy of each applicable step with `endWaitOnDisplayStall`, and `Wait-ForText` ends once the serial console holds at least six page-flip timeout reports from `hyperv_drm` or `virtio_gpu` written after the wait began, spanning at least 20 seconds, with the newest within 30 seconds of the console's newest record, while the console's text or blank run has stayed unchanged for 30 seconds. The retry treats that end as restartable only in the eligible login or password-wait phase, with no matched failure pattern or console flood, and cold-restarts the guest when attempts remain; the failure record carries `causeDetail.guestDisplayStallEnd`, and `retry_attempt` and `retry_vm_restart` carry `guestDisplayStall`. [Test.SequenceFailureState.psm1](../../test/modules/Test.SequenceFailureState.psm1) classifies it as `guest_display_stalled`, with `restart_from_snapshot` and `pause_and_inspect`, and the retry preserves that inner class when exhausted. Explicit guest failure statements and kernel-stall evidence retain precedence. `hyperv_drm` and `virtio_gpu` are named, but only the Hyper-V driver exports the live serial reader the rule needs, so the rule ends waits on Hyper-V guests; without an opted-in display-stall end, `causeDetail.guestKernelFault.serial.displayStall` remains diagnostic evidence that alone adds no kernel-fault kind or failure class. The `arm64HyperVColdPowerCycle` and `arm64HyperVInstallerBoot` modes keep their native ARM64 Hyper-V restriction, and a plain `retry` runs the same attempt loop without the policy check or restart.
 
@@ -192,9 +196,20 @@ through `Save-VMNetworkState`, and checkpoint, disk-chain and storage-folder
 evidence through `Save-VMStorageState`. These captures explain a failure
 without changing its original verdict.
 
+An Ubuntu installer that stalls before the target account accepts SSH leaves
+no guest diagnostics, so the recorder in
+[ubuntu.server.base.user-data](../../host/vmconfig/ubuntu.server.base.user-data)
+uploads a bounded progress snapshot every minute while the live installer runs.
+Before attempting SSH, `Copy-FailureArtifactsToStatusLog` in
+[Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1)
+copies the latest snapshot into the guest's cycle folder as
+`installer-progress.log`, unless it is older than the cycle start or the
+failed step's start; the [recorder notes](../vmconfig.md#429f3d06-002f)
+describe its contents. This capture adds no runner state.
+
 ## Durable diagnostic preservation
 
-[Test.DiagnosticPreservation.psm1](../../test/modules/Test.DiagnosticPreservation.psm1) implements `diagnostic-preserve.json`. The failure handler writes the hold before diagnostic capture can throw or hang. The outer checks it both before dispatch and before automatic refresh or recovery; the hold therefore survives repository updates and runner restarts.
+[Test.DiagnosticPreservation.psm1](../../test/modules/Test.DiagnosticPreservation.psm1) implements `diagnostic-preserve.json`. The failure handler writes the hold before diagnostic capture can throw or hang. The outer checks it both before dispatch and before automatic repair or recovery; the hold therefore survives repository updates and runner restarts.
 
 ```mermaid
 stateDiagram-v2
@@ -254,9 +269,9 @@ or marker deletion resumes in place; only an explicit Continue action with
 `restoreOnContinue: true` can restore a named existing snapshot. This adds no
 persisted runner state.
 
-Step pause refreshes the step heartbeat while waiting before another action. Cycle pause holds at a boundary. Clearing a pre-delay pause permits the configured countdown. A cycle pause armed during countdown is honored after the countdown ends; clearing it then returns without repeating the delay. Pool-wide host control in [hostcontrol.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go) applies the same live pause switches to every pool member, and the [pool page](../../test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js) blocks further pool interactions until that fan-out and its status readback finish. That wait adds no runner state, and host refresh is deliberately not one of its actions: [hostrefresh.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go) authorizes each refresh per host.
+Step pause refreshes the step heartbeat while waiting before another action. Cycle pause holds at a boundary. Clearing a pre-delay pause permits the configured countdown. A cycle pause armed during countdown is honored after the countdown ends; clearing it then returns without repeating the delay. Pool-wide host control in [hostcontrol.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostcontrol.go) applies the same live pause switches to every pool member, and the [pool page](../../test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js) blocks further pool interactions until that fan-out and its status readback finish. That wait adds no runner state, and host repair is deliberately not one of its actions: [hostrepair.go](../../test/extension/pool-control-service/server/internal/httpsrv/hostrepair.go) authorizes each repair per host.
 
-A sequence restart throws `YurunaCycleRestart`; the inner catches it, finalizes once, and follows its exit path. A restart marker during delay ends the wait; the inner verdict still controls subsequent outer failure handling. [Invoke-StartCycleWorker.ps1](../../test/modules/Invoke-StartCycleWorker.ps1) confirms the listener's start-cycle reservation under the lifetime repair lock, clears pause/lab controls, requests restart, and performs bounded VM cleanup. It then rechecks runner identity before waking the resident runner or starting an absent one. Ctrl+C sets shared shutdown state; the outer stops an active cycle child's process tree. A `SIGHUP` from a closed terminal or SSH session, or a `SIGTERM`, is written to `runner.exit.json` and then ends the runner as the signal would; the cycle it leaves appears at the next start as the synthetic prior-state transition.
+A sequence restart throws `YurunaCycleRestart`; the inner catches it, finalizes once, and follows its exit path. A restart marker during delay ends the wait; the inner verdict still controls subsequent outer failure handling. [Invoke-StartCycleWorker.ps1](../../test/modules/Invoke-StartCycleWorker.ps1) confirms the listener's start-cycle reservation under the lifetime host-operation lock, clears pause/lab controls, requests restart, and performs bounded VM cleanup. It then rechecks runner identity before waking the resident runner or starting an absent one. Ctrl+C sets shared shutdown state; the outer stops an active cycle child's process tree. A `SIGHUP` from a closed terminal or SSH session, or a `SIGTERM`, is written to `runner.exit.json` and then ends the runner as the signal would; the cycle it leaves appears at the next start as the synthetic prior-state transition.
 
 ## Watchdog
 
@@ -282,7 +297,7 @@ stateDiagram-v2
     stop_watchdog --> [*]: Supervisor cleanup
 ```
 
-Defaults in `Get-RunnerTunableDefault` in [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1) are 2,700 seconds for steps, 600 seconds for preamble work, and 30-second polling. `runner.phase` selects the tighter preamble bound until the inner clears it on entering the cycle body; configuration can override or disable the tighter bound. Missing step heartbeats age from watchdog arming. Preamble phases are `bootstrap`, `refresh-preflight` in a preflight chain, `config-gate`, `host-detect`, `host-registration`, `host-driver`, `refresh-barrier` on the first chain after a refresh, `stash-address`, `host-conditions`, `vm-admission`, `host-network`, `service-vm-restore`, `caching-proxy-gate`, and `status-service`; the cycle body briefly re-enters the `config-gate` phase for its project storage gate. Each phase write also appends an `[inner phase]` line with PID and generation to `outer.log`, so a kill stays attributable after `runner.phase` is overwritten. When no inner is found, the watchdog writes `runner.watchdog.lapsed` with the bounds it would have applied, the resident outer guards the cycle with them, and the cycle worker reports the lapse when the inner returns.
+Defaults in `Get-RunnerTunableDefault` in [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1) are 2,700 seconds for steps, 600 seconds for preamble work, and 30-second polling. `runner.phase` selects the tighter preamble bound until the inner clears it on entering the cycle body; configuration can override or disable the tighter bound. Missing step heartbeats age from watchdog arming. Preamble phases are `bootstrap`, `handoff-preflight` in a preflight chain, `config-gate`, `host-detect`, `host-registration`, `host-driver`, `handoff-barrier` on the first chain after a handoff, `stash-address`, `host-conditions`, `vm-admission`, `host-network`, `service-vm-restore`, `caching-proxy-gate`, and `status-service`; the cycle body briefly re-enters the `config-gate` phase for its project storage gate. Each phase write also appends an `[inner phase]` line with PID and generation to `outer.log`, so a kill stays attributable after `runner.phase` is overwritten. When no inner is found, the watchdog writes `runner.watchdog.lapsed` with the bounds it would have applied, the resident outer guards the cycle with them, and the cycle worker reports the lapse when the inner returns.
 
 The resident outer also bounds the cycle process itself, independently of the watchdog that runs inside it. `testCycle.maxCycleSeconds`, 21,600 seconds by default and disabled by 0, is re-read for each cycle and measured on a monotonic stopwatch over working time: step pauses, cycle pauses, lab holds and debug breaks stop the clock, and once the cycle publishes its plan the bound rises to two step timeouts per planned run when that is more. At the bound the outer writes `runner.watchdog-kill.json` with class `cycle_killed`, stops the cycle process and its descendants, and reports the outcome as unrecorded with reason `cycle-ceiling`, which takes the in-cycle failure path to `fault`. When `runner.watchdog.lapsed` appears during a cycle, the outer logs it at once and guards the cycle with the bounds the watchdog recorded there; a step heartbeat older than its bound stops the cycle the same way, with the watchdog's class (`wait_timeout` or `preamble_stall`) and reason `resident-watchdog`.
 
@@ -322,7 +337,7 @@ The resident opens no cycle, so each attempt's first published fault also queues
 identifier comes from the attempt generation, so a redelivered copy is one event
 to a consumer.
 
-## Recovery and host refresh
+## Recovery and host repair
 
 [Test.RecoveryLedger.psm1](../../test/modules/Test.RecoveryLedger.psm1) registers bounded repairs and keeps their attempt ledger; the outer plans them per failure through `Invoke-OuterRecovery`, gated by `testCycle.autoRemediation.enabled` (default off). [Test.Recovery.psm1](../../test/modules/Test.Recovery.psm1) runs the startup stale-state sweep. An applied repair can bypass ordinary backoff and use the next cycle for verification. Otherwise outer failure pause defaults to one hour, polling the configured framework upstream tip, the project tip, and local configuration changes every 30 seconds; restart requests, enabled bounded repair, or the deadline can release it. The outer reads configuration through `Read-TestConfig -LastGoodOnError` in [Test.Config.psm1](../../test/modules/Test.Config.psm1), so a malformed save keeps its last parsed settings and warns instead of silently resetting recovery and timeout policy. From the third consecutive stall in the same preamble phase, the pause widens geometrically up to eight times its length while retaining early-release triggers; a passing cycle, or a failure outside a preamble stall, resets the streak. A configuration-gate refusal whose structured failures are all transient network classes holds for 120 seconds instead, doubling up to 15 minutes while consecutive holds expire without recovery; it probes repository access every 30 seconds and ends once every required source answers, while configuration edits and restart requests still end it early.
 
@@ -356,45 +371,78 @@ stateDiagram-v2
     invoke_runner_outer_loop --> [*]: Dispatch next cycle
 ```
 
-Host refresh uses [Test.HostRefresh.psm1](../../test/modules/Test.HostRefresh.psm1), [Test.HostRefreshTrigger.psm1](../../test/modules/Test.HostRefreshTrigger.psm1), and the refresh dispatch/preflight/barrier handlers in both runner loops. The view below shows the existing dispatch roles; preflight and the ordinary barrier run in separate fresh cycle chains.
+Host repair uses [Test.HostRepair.psm1](../../test/modules/Test.HostRepair.psm1), [Test.HostRepairTrigger.psm1](../../test/modules/Test.HostRepairTrigger.psm1), and the runner-gate dispatch and handoff preflight/barrier handlers in both runner loops. The view below shows the existing dispatch roles; preflight and the ordinary barrier run in separate fresh cycle chains.
 
 ```mermaid
 stateDiagram-v2
-    state "Resolve dispatch" as resolve_outer_refresh_dispatch
-    state "Hold dispatch" as write_outer_refresh_gate_hold
-    state "Refresh preflight" as invoke_yuruna_refresh_preflight
+    state "Resolve dispatch" as resolve_outer_runner_gate_dispatch
+    state "Hold dispatch" as write_outer_runner_gate_hold
+    state "Handoff preflight" as invoke_yuruna_handoff_preflight
     state "Wait held controls" as wait_yuruna_held_control_barrier
     state "Ordinary cycle" as invoke_runner_inner_cycle
-    [*] --> resolve_outer_refresh_dispatch
-    resolve_outer_refresh_dispatch --> write_outer_refresh_gate_hold: Gate blocks dispatch
-    resolve_outer_refresh_dispatch --> invoke_yuruna_refresh_preflight: Valid handoff
-    resolve_outer_refresh_dispatch --> wait_yuruna_held_control_barrier: Barrier pending
-    resolve_outer_refresh_dispatch --> invoke_runner_inner_cycle: Open ordinary gate
-    write_outer_refresh_gate_hold --> resolve_outer_refresh_dispatch: Recheck admission
-    invoke_yuruna_refresh_preflight --> write_outer_refresh_gate_hold: Readiness failed
-    invoke_yuruna_refresh_preflight --> wait_yuruna_held_control_barrier: Verified release
+    [*] --> resolve_outer_runner_gate_dispatch
+    resolve_outer_runner_gate_dispatch --> write_outer_runner_gate_hold: Gate blocks dispatch
+    resolve_outer_runner_gate_dispatch --> invoke_yuruna_handoff_preflight: Valid handoff
+    resolve_outer_runner_gate_dispatch --> wait_yuruna_held_control_barrier: Barrier pending
+    resolve_outer_runner_gate_dispatch --> invoke_runner_inner_cycle: Open ordinary gate
+    write_outer_runner_gate_hold --> resolve_outer_runner_gate_dispatch: Recheck admission
+    invoke_yuruna_handoff_preflight --> write_outer_runner_gate_hold: Readiness failed
+    invoke_yuruna_handoff_preflight --> wait_yuruna_held_control_barrier: Verified release
     wait_yuruna_held_control_barrier --> wait_yuruna_held_control_barrier: Operator controls held
     wait_yuruna_held_control_barrier --> invoke_runner_inner_cycle: Controls released
     wait_yuruna_held_control_barrier --> [*]: Shutdown or exhaustion
     invoke_runner_inner_cycle --> [*]: Ordinary outcome
 ```
 
-Closed, recovery-pending, handoff, or unreadable gates prevent ordinary pulls, spawns, and sweeps. A valid handoff admits a preflight inner, which probes the host from its final process ancestry and writes a readiness acknowledgment without ordinary Git, VM, control-sweep, or status-document work. The refresh worker or resident outer validates that acknowledgment before release. Failed preflight holds again; it is not counted as an ordinary failed test.
+Closed, recovery-pending, handoff, or unreadable gates prevent ordinary pulls, spawns, and sweeps. An earlier private root that has not been moved yet (`migration-pending`) or that remains beside the current one (`migration-conflict`) reads as unknown and holds every spawn, and a normal [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) start refuses until it is resolved. A valid handoff admits a preflight inner, which probes the host from its final process ancestry and writes a readiness acknowledgment without ordinary Git, VM, control-sweep, or status-document work. The repair worker, a host update's runner start, or the resident outer validates that acknowledgment before release. Failed preflight holds again; it is not counted as an ordinary failed test.
 
 The outer can re-ensure the status service when a held gate is proven orphaned
 and has no live handoff, keeping the dashboard's recovery controls reachable.
 That exception does not release cycle dispatch. On a normal
 [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) start, an orphaned
-unfinished refresh whose owner predates this boot can also launch
-[Invoke-HostRefresh.ps1](../../test/lab/Invoke-HostRefresh.ps1) with `-Resume`
-once per boot and request. The normal start still refuses; the refresh's
-verified handoff owns restarting the runner. If refresh still finds a hung
+unfinished repair whose owner predates this boot can also launch
+[Invoke-HostRepair.ps1](../../test/lab/Invoke-HostRepair.ps1) with `-Resume`
+once per boot and request. The normal start still refuses; the repair's
+verified handoff owns restarting the runner. If the repair still finds a hung
 hypervisor and no applicable restart or reboot rung ran, its summary names the
 provider's manual remedy; another resume alone only repeats the probe.
+A gate that the host controller closed belongs to a host update: the boot
+resume leaves it to the controller, and the refused start names that update.
 
-The first ordinary chain after refresh adopts preserved pause and lab-hold controls before VM mutation. It refreshes the step heartbeat and waits for their normal consumers; it does not delete pause flags to force progress. The normal lab-health gate handles lab-hold release or exhaustion.
+The first ordinary chain after a handoff adopts preserved pause and lab-hold controls before VM mutation. It refreshes the step heartbeat and waits for their normal consumers; it does not delete pause flags to force progress. The normal lab-health gate handles lab-hold release or exhaustion.
 
-Manual repair rungs are provider-specific and further constrained by qualification, privilege, and session requirements. The current automatic-refresh qualification table disables unattended refresh for every provider, and `testCycle.autoRefreshAfterStalls` defaults to zero. Declared but unavailable repair rungs are not implied operational paths in this diagram.
+Manual repair rungs are provider-specific and further constrained by qualification, privilege, and session requirements. The current automatic-repair qualification table disables unattended repair for every provider, and `testCycle.autoRepairAfterStalls` defaults to zero. Declared but unavailable repair rungs are not implied operational paths in this diagram.
+
+## Host update
+
+**Update host** on the Diagnostics page, sent through the status listener's `host-update` route in [Invoke-StatusServiceRuntime.ps1](../../test/service/Invoke-StatusServiceRuntime.ps1), and [Invoke-HostUpdate.ps1](../../test/lab/Invoke-HostUpdate.ps1) each queue one request row in the journal of [Test.HostOperationJournal.psm1](../../test/modules/Test.HostOperationJournal.psm1). The host controller, [Invoke-HostUpdateController.ps1](../../test/lab/Invoke-HostUpdateController.ps1), claims the row and walks the scope's phases in [Test.HostUpdate.psm1](../../test/modules/Test.HostUpdate.psm1); it drains in its own process and runs every other phase as a detached [Invoke-HostUpdateStep.ps1](../../test/lab/Invoke-HostUpdateStep.ps1) child from [Test.HostUpdateStep.psm1](../../test/modules/Test.HostUpdateStep.psm1). A shim starts the controller from a private snapshot of the framework code that each host's Enable-TestAutomation deploys. On Ubuntu KVM, [Enable-TestAutomation.ps1](../../host/ubuntu.kvm/Enable-TestAutomation.ps1) installs [yuruna-host-controller.service](../../host/ubuntu.kvm/host-controller/yuruna-host-controller.service), which starts [yuruna-host-controller-shim.sh](../../test/lab/yuruna-host-controller-shim.sh); on Windows, [Enable-TestAutomation.ps1](../../host/windows.hyper-v/Enable-TestAutomation.ps1) registers the scheduled task `Yuruna Host Controller` from [yuruna-host-controller.task.xml](../../host/windows.hyper-v/host-controller/yuruna-host-controller.task.xml), which starts [yuruna-host-controller-shim.ps1](../../test/lab/yuruna-host-controller-shim.ps1); on macOS, [Enable-TestAutomation.ps1](../../host/macos.utm/Enable-TestAutomation.ps1) registers nothing, and an ordinary [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) start from the desktop session starts the shell shim in a `tmux` or `screen` session of its own, so nothing starts that controller again before the next ordinary runner start. With no controller holding its lock, a request is refused with nothing queued. Every host type declares the `restart` and `full` scopes; `full` adds `install`, `upgrade_pwsh` (Windows only) and `enable` after `update_source`, a host lists it only while the controller's elevation probe passes, and a scope the host does not list is refused as `scope_unavailable`. The view groups the six journaled phases of the `restart` scope, and folds the `full` scope's three phases into `Update source`: preflight is the entry guard, and `start_listener` and `start_runner` are folded into the transitions out of `Update source`.
+
+```mermaid
+stateDiagram-v2
+    state "Drain cycle" as invoke_host_update_drain
+    state "Stop runner" as invoke_host_update_step_stop_runner
+    state "Update source" as invoke_host_update_step_update_source
+    state "Restore runner" as invoke_host_update_restore
+    state "Recover on backoff" as invoke_host_update_recovering
+    state "Write verdict" as complete_host_update_operation
+    [*] --> invoke_host_update_drain: Preflight passed
+    [*] --> complete_host_update_operation: Preflight refused
+    invoke_host_update_drain --> invoke_host_update_step_stop_runner: Drained or drain now
+    invoke_host_update_drain --> complete_host_update_operation: Timeout or refusal
+    invoke_host_update_step_stop_runner --> invoke_host_update_step_update_source: Runner stopped
+    invoke_host_update_step_stop_runner --> complete_host_update_operation: Stop failed
+    invoke_host_update_step_update_source --> complete_host_update_operation: Started or none planned
+    invoke_host_update_step_update_source --> invoke_host_update_restore: Pull, install, enable failed
+    invoke_host_update_step_update_source --> invoke_host_update_recovering: Start failed or mismatch
+    invoke_host_update_restore --> complete_host_update_operation: Runner restored
+    invoke_host_update_restore --> invoke_host_update_recovering: Restore failed
+    invoke_host_update_recovering --> invoke_host_update_recovering: Retry after backoff
+    invoke_host_update_recovering --> complete_host_update_operation: Started or released
+```
+
+Preflight refuses, changing nothing, on an unqualified lock file system, an unverified home, a held one-shot lease, a diagnostic preservation hold, on macOS a desktop session the started runner could not use, for the `full` scope missing elevation, or, when a runner is to start again, an invalid launch record or missing runner elevation. The drain closes the runner gate under the controller's role, so the resident runner holds at its next gate site, and waits until no resident runs, no cycle process is seen at two consecutive checks, or the cycle is seen parked on a cycle pause twice; `drainSeconds` bounds the wait, and `-Drain now`, offered only by the local command, skips it. A diagnostic hold or a held one-shot lease during the drain also refuses. Stopping identity-checks each inner, cycle, and resident process; a survivor ends the update as `stop_failed`, with the gate open. A failed pull, a commit that does not match `-ExpectCommit`, or a failed `install` or `enable` phase restores the listener and then the runner on the checkout as it is, ending as `failed_restored`; a row that took over a recovering update's stopped runner restores instead of ending on a refusal. A step-protocol change in the pulled code restarts the controller on a new snapshot (exit 75), which continues from the journal, or enters recovery when no snapshot can be staged; an `install` that replaced PowerShell stops the listener and also exits 75, so the shim starts the same snapshot on the new PowerShell, and on Windows the shim runs a pending PowerShell upgrade between two controller runs (exit 77), whose failure is only a remark.
+
+The runner start goes through `Invoke-YurunaRunnerHandoffResume` in [Test.SingleInstance.psm1](../../test/modules/Test.SingleInstance.psm1), so the restarted runner passes the handoff preflight and barrier of the view above; a failed start enters recovery, unless the `install` phase reported that Windows must restart, which ends the update as `reboot_required` with no retry. Recovery retries the source update with the snapshot's own step script and then the starts, after 5, 10, and then every 15 minutes, until the runner starts, a new request takes it over and it ends as `superseded`, or `Invoke-HostUpdate.ps1 -Release` ends it as `released`. A step child that ends without a result, or at its phase's bound, is interrupted; outside recovery the phase starts at most three times before it fails as `step_interrupted`. A stopped controller ends as if killed, with no restore and no new phase; the shim starts another, which continues from the journal. The gate is opened before any verdict is written, and a listener that did not start remains on the verdict as debt. Host update adds no runner state.
 
 ---
 
@@ -402,6 +450,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 [Architecture](../architecture.md) | [Design overview](README.md)

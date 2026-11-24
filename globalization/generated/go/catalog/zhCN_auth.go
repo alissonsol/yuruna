@@ -18,8 +18,8 @@ const DatazhCNauth = `{
     },
     "分钟后重试"
   ],
-  "auth.bearer_required": "需要实验室身份验证令牌",
-  "auth.changes_disabled": "未配置聚合器URL和实验室身份验证令牌；已禁用更改",
+  "auth.bearer_required": "需要内部身份验证密钥",
+  "auth.changes_disabled": "未配置聚合器URL和内部身份验证密钥；已禁用更改",
   "auth.detail_encoding": "请求编码失败",
   "auth.detail_http": [
     "聚合器返回HTTP ",
@@ -31,7 +31,7 @@ const DatazhCNauth = `{
   ],
   "auth.detail_malformed_aggregator": "聚合器URL格式错误",
   "auth.detail_no_aggregator": "未配置聚合器URL",
-  "auth.detail_unconfigured": "未配置实验室身份验证令牌和聚合器URL",
+  "auth.detail_unconfigured": "未配置内部身份验证密钥和聚合器URL",
   "auth.detail_unreachable": "无法访问",
   "auth.encode_refusal": "授权关卡无法对拒绝响应进行编码",
   "auth.host_not_served": [
@@ -51,6 +51,17 @@ const DatazhCNauth = `{
   ],
   "auth.login_unavailable": "未配置聚合器URL，因此池聚合器无法验证实验室令牌；操作保持锁定",
   "auth.malformed_request": "请求正文格式错误",
+  "auth.operator_credential_required": "此操作需要在X-Yuruna-Operator-Credential请求头中提供操作员凭据；不接受实验室会话、实验室令牌或内部身份验证密钥。",
+  "auth.operator_credential_throttled": [
+    "来自此地址的操作员凭据尝试次数过多；请等待",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "分钟后重试。"
+  ],
+  "auth.operator_credential_unconfigured": "远程宿主机修复已禁用：此服务未配置操作员凭据。",
   "auth.proof_check_failed": [
     "无法验证控制证明（",
     {
@@ -62,20 +73,9 @@ const DatazhCNauth = `{
   ],
   "auth.proof_expired": "控制证明已过期或并非来自此池",
   "auth.proof_shape": "不是控制证明",
-  "auth.proof_unconfigured": "未配置实验室身份验证令牌和聚合器URL，因此无法验证控制证明；操作保持锁定",
-  "auth.refresh_credential_required": "此操作需要在X-Yuruna-Refresh-Credential请求头中提供刷新凭据；不接受实验室会话、实验室令牌或内部身份验证密钥。",
-  "auth.refresh_throttled": [
-    "来自此地址的刷新凭据尝试次数过多；请等待",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "分钟后重试。"
-  ],
-  "auth.refresh_unconfigured": "远程宿主机刷新已禁用：此服务未配置刷新凭据。",
-  "auth.route_disabled": "未配置实验室身份验证令牌；此路由已禁用",
-  "auth.session_required": "需要实验室令牌会话或实验室身份验证令牌",
+  "auth.proof_unconfigured": "未配置内部身份验证密钥和聚合器URL，因此无法验证控制证明；操作保持锁定",
+  "auth.route_disabled": "未配置内部身份验证密钥；此路由已禁用",
+  "auth.session_required": "需要实验室会话或内部身份验证密钥",
   "auth.token_check_failed": [
     "池聚合器无法验证实验室令牌（",
     {

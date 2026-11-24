@@ -72,14 +72,14 @@ y:SystemElement((y:SystemElement)) -- subClassOf --> y:Entity((y:Entity))
 | Namespace | Prefix | Classes | Holds | Diagrams |
 | --- | --- | ---: | --- | --- |
 | `https://yuruna.com/ontology/2026/11/yuruna#` | `y:` | 12 | The upper categories every area shares and the relations defined between them. | overview above |
-| `https://yuruna.com/ontology/2026/11/compute#` | `compute:` | 80 | The computing vocabulary: physical and virtual machines, hypervisors, operating systems, firmware, processors, memory, disks, images, snapshots, and guest provisioning. | [Compute](2026/11/diagrams/compute.md) |
-| `https://yuruna.com/ontology/2026/11/diagnostics#` | `diagnostics:` | 69 | The diagnostics vocabulary: incidents, failures and their classification, evidence, checks, recovery, telemetry, logs, metrics, dashboards, and alerts. | [Diagnostics](2026/11/diagrams/diagnostics.md) |
-| `https://yuruna.com/ontology/2026/11/network#` | `network:` | 174 | The networking vocabulary: protocols, interfaces, links, addressing, name resolution, routing, proxies and caches, and the network conditions, failures, and checks. | [Network system elements](2026/11/diagrams/network-elements.md), [Network information artifacts](2026/11/diagrams/network-information.md), [Network processes and situations](2026/11/diagrams/network-processes.md) |
-| `https://yuruna.com/ontology/2026/11/security#` | `security:` | 44 | The security vocabulary: credentials, secrets, authentication, certificates, trust, permissions, and the assessment views and conditions. | [Security](2026/11/diagrams/security.md) |
-| `https://yuruna.com/ontology/2026/11/software#` | `software:` | 105 | The software engineering vocabulary: artifacts, releases, container images and registries, configuration, deployment, Kubernetes resources, packages, localization, and documentation. | [Software delivery and configuration](2026/11/diagrams/software-delivery.md), [Software localization and documentation](2026/11/diagrams/software-localization.md) |
-| `https://yuruna.com/ontology/2026/11/storage#` | `storage:` | 40 | The storage vocabulary: filesystems, mounts, shares, pools, replication, archives, the stash, downloads, and content addressing. | [Storage](2026/11/diagrams/storage.md) |
-| `https://yuruna.com/ontology/2026/11/testing#` | `testing:` | 86 | The test automation vocabulary: the runner, its cycles, plans, sequences, steps, pool, console input and recognition, retries, and sequence failures. | [Testing](2026/11/diagrams/testing.md) |
-| `https://yuruna.com/ontology/2026/11/examples#` | `examples:` | 94 | The vocabulary of the example projects: the AmisAd matching and settlement example, and the yuruna-project examples with their Text-to-SQL agent and website. | [AmisAd example](2026/11/diagrams/examples-amisad.md), [yuruna-project examples](2026/11/diagrams/examples-yuruna-project.md) |
+| `https://yuruna.com/ontology/2026/11/compute#` | `compute:` | 89 | The computing vocabulary: physical and virtual machines, hypervisors, operating systems, firmware, processors, memory, disks, images, snapshots, and guest provisioning. | [Compute](2026/11/diagrams/compute.md) |
+| `https://yuruna.com/ontology/2026/11/diagnostics#` | `diagnostics:` | 74 | The diagnostics vocabulary: incidents, failures and their classification, evidence, checks, recovery, telemetry, logs, metrics, dashboards, and alerts. | [Diagnostics](2026/11/diagrams/diagnostics.md) |
+| `https://yuruna.com/ontology/2026/11/network#` | `network:` | 176 | The networking vocabulary: protocols, interfaces, links, addressing, name resolution, routing, proxies and caches, and the network conditions, failures, and checks. | [Network system elements](2026/11/diagrams/network-elements.md), [Network information artifacts](2026/11/diagrams/network-information.md), [Network processes and situations](2026/11/diagrams/network-processes.md) |
+| `https://yuruna.com/ontology/2026/11/security#` | `security:` | 52 | The security vocabulary: credentials, secrets, authentication, certificates, trust, permissions, and the assessment views and conditions. | [Security](2026/11/diagrams/security.md) |
+| `https://yuruna.com/ontology/2026/11/software#` | `software:` | 109 | The software engineering vocabulary: artifacts, releases, container images and registries, configuration, deployment, Kubernetes resources, packages, localization, and documentation. | [Software delivery and configuration](2026/11/diagrams/software-delivery.md), [Software localization and documentation](2026/11/diagrams/software-localization.md) |
+| `https://yuruna.com/ontology/2026/11/storage#` | `storage:` | 42 | The storage vocabulary: filesystems, mounts, shares, pools, replication, archives, the stash, downloads, and content addressing. | [Storage](2026/11/diagrams/storage.md) |
+| `https://yuruna.com/ontology/2026/11/testing#` | `testing:` | 99 | The test automation vocabulary: the runner, its cycles, plans, sequences, steps, pool, console input and recognition, retries, and sequence failures. | [Testing](2026/11/diagrams/testing.md) |
+| `https://yuruna.com/ontology/2026/11/examples#` | `examples:` | 95 | The vocabulary of the example projects: the AmisAd matching and settlement example, and the yuruna-project examples with their Text-to-SQL agent and website. | [AmisAd example](2026/11/diagrams/examples-amisad.md), [yuruna-project examples](2026/11/diagrams/examples-yuruna-project.md) |
 
 The diagrams of the frozen version 2026/10 stay as they were drawn:
 [Compute](2026/10/diagrams/compute.md),
@@ -100,6 +100,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna documentation](../README.md)

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42fec9c0-cd2a-40fb-b30b-bf873044d79b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test runner process reclamation host-refresh pester
+.TAGS yuruna test runner process reclamation host-operation pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -29,7 +29,7 @@
     or signals the operator's runner.
 
     The source gates read the reclamation functions, the resumed runner's
-    single-instance branch and the refresh entry point by AST: none may reach
+    single-instance branch and the repair entry point by AST: none may reach
     the tree-kill helpers or taskkill /T.
 #>
 
@@ -394,7 +394,7 @@ Describe 'Get-YurunaRunnerExclusionSet' {
         $script:Rows = @(
             (New-Row -ProcessId 30 -ParentPid 1 -CommandLine 'tmux')
             (New-Row -ProcessId 40 -ParentPid 30 -CommandLine 'sg libvirt')
-            (New-Row -ProcessId 50 -ParentPid 40 -CommandLine 'pwsh -File /repo/test/lab/Invoke-HostRefresh.ps1')
+            (New-Row -ProcessId 50 -ParentPid 40 -CommandLine 'pwsh -File /repo/test/lab/Invoke-HostRepair.ps1')
             (New-Row -ProcessId 60 -ParentPid 20 -CommandLine 'pwsh -File /rt/runtime/.status-service.ps1')
             (New-Row -ProcessId 61 -ParentPid 20 -CommandLine 'pwsh -File /repo/test/modules/Invoke-HostAddressBeacon.ps1')
             (New-Row -ProcessId 62 -ParentPid 1 -CommandLine 'pwsh -File /repo/test/service/Start-StashServiceVM.ps1')
@@ -568,7 +568,7 @@ Describe 'Reclamation source gates' {
     It 'the reclamation functions never reach a tree kill, a stale-runner takeover or taskkill /T' {
         $calls = Get-FunctionCommandName -Path (Join-Path $script:Here 'Test.SingleInstance.psm1') -FunctionName @(
             'Get-YurunaRunnerExclusionSet', 'Get-YurunaRunnerSnapshot', 'New-YurunaRunnerReclaimPlan', 'Compare-YurunaRunnerReclaimPlan',
-            'Send-YurunaProcessSignal', 'Stop-YurunaRunnerProcessTarget', 'Invoke-YurunaRunnerRefreshResume', 'Remove-YurunaRunnerRecordGeneration')
+            'Send-YurunaProcessSignal', 'Stop-YurunaRunnerProcessTarget', 'Invoke-YurunaRunnerHandoffResume', 'Remove-YurunaRunnerRecordGeneration')
         Assert-True ($calls.Count -gt 10) 'the functions were found and read'
         $bad = @($calls | Where-Object { $_ -match '^(Stop-YurunaProcessTree|Stop-ProcessTree|Stop-StaleRunner|pkill|killall)\|' -or ($_ -match 'taskkill' -and $_ -match '/T\b') })
         Assert-NoFinding $bad 'forbidden kill paths in the reclamation region'
@@ -576,7 +576,7 @@ Describe 'Reclamation source gates' {
     It 'the resumed runner''s single-instance branch never takes over or deletes a record by hand' {
         $ast = Get-YurunaTestFileAst -Path (Join-Path $script:RepoRoot 'test/Start-TestRunner.ps1')
         $branch = @($ast.FindAll({ param($n)
-            $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$RefreshResume' -and
+            $n -is [System.Management.Automation.Language.IfStatementAst] -and $n.Clauses[0].Item1.Extent.Text -eq '$HandoffResume' -and
             $n.Clauses[0].Item2.Extent.Text -match 'Get-YurunaRunnerRecordState'
         }, $true))
         Assert-Equal -Expected 1 -Actual $branch.Count -Because 'one resume branch in the single-instance region'
@@ -586,10 +586,10 @@ Describe 'Reclamation source gates' {
         }
         Assert-True ($names -contains 'Remove-YurunaRunnerRecordGeneration') 'removal is only ever the proven generation'
     }
-    It 'the refresh entry point and its module never name a tree kill or taskkill /T' {
-        foreach ($relative in @('test/lab/Invoke-HostRefresh.ps1', 'test/modules/Test.HostRefresh.psm1')) {
+    It 'the repair entry point and its module never name a tree kill or taskkill /T' {
+        foreach ($relative in @('test/lab/Invoke-HostRepair.ps1', 'test/modules/Test.HostRepair.psm1')) {
             $path = Join-Path $script:RepoRoot $relative
-            Assert-True (Test-Path -LiteralPath $path) "the guarded refresh source must exist: $relative"
+            Assert-True (Test-Path -LiteralPath $path) "the guarded repair source must exist: $relative"
             $ast = Get-YurunaTestFileAst -Path $path
             $bad = @($ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.CommandAst] }, $true) | Where-Object {
                 $name = $_.GetCommandName()

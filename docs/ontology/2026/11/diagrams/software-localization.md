@@ -35,6 +35,7 @@ software:LocaleNegotiation((software:LocaleNegotiation)) -- subClassOf --> r_Loc
 software:LocaleNegotiation((software:LocaleNegotiation)) -- subClassOf --> y:Process[y:Process]
 software:LocaleRedirect((software:LocaleRedirect)) -- subClassOf --> y:Process[y:Process]
 software:Localization((software:Localization)) -- subClassOf --> y:Process[y:Process]
+software:MachineDraft((software:MachineDraft)) -- subClassOf --> software:Translation((software:Translation))
 software:MessageCatalog -- software:containsMessage --> software:MessageTemplate
 software:MessageCatalog((software:MessageCatalog)) -- subClassOf --> r_MessageCatalog_containsMessage_MessageTemplate_((Anonymous class))
 software:MessageCatalog((software:MessageCatalog)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
@@ -90,6 +91,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

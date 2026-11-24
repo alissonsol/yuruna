@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42c94790-0880-4f88-b0b7-07f2de824904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -564,5 +564,390 @@ try {
         Assert-NotNull $caught 'the invalid snippet was accepted'
         Assert-True (Test-SequencePlannerFailure -ErrorObject $caught) 'the YAML error wrapper discarded the planner classification'
         Assert-True ($caught.Exception.Data['YurunaMessageCode'] -like 'exceptions.*') 'the reader lost the catalog message identity'
+    }
+}
+
+Describe 'step sentences through Read-SequenceFile' {
+    BeforeAll {
+        Import-Module powershell-yaml -ErrorAction Stop
+        $script:SentenceRepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+        $script:SentenceSchemaJson = Get-Content -Raw -LiteralPath (Join-Path $script:SentenceRepoRoot 'test/schemas/sequence.schema.yml') |
+            ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 32
+        $script:SentenceCase = 0
+        $script:FakePhrases = @'
+phrases:
+  press-key:
+    sentence: "press <key:key>"
+    screen:
+      - action: pressKey
+        name: "<key>"
+  wait-for-text:
+    sentence: "wait for text <text>"
+    screen:
+      - action: waitForText
+        pattern: "<text>"
+  greet:
+    sentence: "greet <name>"
+    screen:
+      - action: inputTextAndEnter
+        text: "hello <name>"
+      - action: waitForText
+        pattern: "<name>"
+  probe:
+    sentence: "probe"
+    screen:
+      - action: pressKey
+        name: Enter
+    page:
+      - action: waitForSeconds
+        seconds: 1
+'@
+
+        function New-SentenceRoot {
+            <#
+            .SYNOPSIS
+                A fresh fake framework root with the fixture phrase library and a project test folder.
+            #>
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Creates a test folder under TestDrive.')]
+            [CmdletBinding()]
+            [OutputType([string])]
+            param()
+            $script:SentenceCase++
+            $root = Join-Path $TestDrive ('sentence{0:D3}' -f $script:SentenceCase)
+            foreach ($folder in 'test/sequences', 'project/ex/test') { New-Item -ItemType Directory -Path (Join-Path $root $folder) -Force | Out-Null }
+            [IO.File]::WriteAllText((Join-Path $root 'test/sequences/_phrases.yml'), $script:FakePhrases)
+            return $root
+        }
+
+        function Write-SentenceFile {
+            <#
+            .SYNOPSIS
+                Write a fixture file and move its write time past any earlier write.
+            #>
+            [CmdletBinding()]
+            param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Content)
+            $previous = if (Test-Path -LiteralPath $Path) { (Get-Item -LiteralPath $Path).LastWriteTimeUtc } else { $null }
+            [IO.File]::WriteAllText($Path, $Content)
+            if ($previous) { (Get-Item -LiteralPath $Path).LastWriteTimeUtc = $previous.AddSeconds(2) }
+        }
+
+        function Get-GuestSequenceText {
+            <#
+            .SYNOPSIS
+                A guest sequence with the given component and workload entries.
+            #>
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([string]$Component = '', [string]$Workload = '', [string]$Extra = '')
+            $text = "description: t`nkeystrokeMechanism: gui`nresource:`n  ubuntu.server.26: []`n$Extra"
+            if ($Component) { $text += "component:`n$Component" }
+            if ($Workload) { $text += "workload:`n$Workload" }
+            return $text
+        }
+
+        function Get-FlatAction {
+            <#
+            .SYNOPSIS
+                Action names in order, each step followed by its steps and then its stepsAfterVmRestart.
+            #>
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([AllowEmptyCollection()][object[]]$Step)
+            foreach ($entry in $Step) {
+                [string]$entry['action']
+                if ($entry.Contains('steps')) { Get-FlatAction -Step @($entry['steps']) }
+                if ($entry.Contains('stepsAfterVmRestart')) { Get-FlatAction -Step @($entry['stepsAfterVmRestart']) }
+            }
+        }
+
+        function Get-ReadFailure {
+            <#
+            .SYNOPSIS
+                The error a read throws; fails the case when the read succeeds.
+            #>
+            [CmdletBinding()]
+            [OutputType([Management.Automation.ErrorRecord])]
+            param([Parameter(Mandatory)][string]$Path, [switch]$NoCache)
+            try { $null = Read-SequenceFile -Path $Path -NoCache:$NoCache } catch { return $_ }
+            throw "Expected the read of $Path to fail."
+        }
+    }
+
+    It 'expands a file of step entries on the fresh and the cached read' {
+        $root = New-SentenceRoot
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - step: ""press Enter""`n" -Workload "  - step: ""greet Ann""`n")
+        foreach ($read in 1, 2) {
+            $steps = @((Read-SequenceFile -Path $path).steps)
+            Assert-StringEqual -Expected 'pressKey,inputTextAndEnter,waitForText' -Actual (@($steps | ForEach-Object { $_['action'] }) -join ',') -Because "read $read"
+            foreach ($step in $steps) { Assert-False $step.Contains('step') "read $read left a sentence entry" }
+        }
+    }
+
+    It 'expands sentences under retry steps, stepsAfterVmRestart and snippets in place and in order' {
+        $root = New-SentenceRoot
+        [IO.File]::WriteAllText((Join-Path $root 'test/sequences/_snippets.yml'), "prime:`n  - step: ""press Tab""`n  - action: waitForSeconds`n    seconds: 1`n")
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        $component = @'
+  - action: retry
+    restartVmBeforeRetry: coldPowerCycle
+    steps:
+      - step: "press Enter"
+      - action: retry
+        steps:
+          - step: "wait for text ready"
+    stepsAfterVmRestart:
+      - step: "greet Ann"
+  - snippet: prime
+'@
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component ($component + "`n"))
+        $flat = @(Get-FlatAction -Step @((Read-SequenceFile -Path $path -NoCache).steps)) -join ','
+        Assert-StringEqual -Expected 'retry,pressKey,retry,waitForText,inputTextAndEnter,waitForText,pressKey,waitForSeconds' -Actual $flat
+    }
+
+    It 'expands a snippet placed under stepsAfterVmRestart' {
+        $root = New-SentenceRoot
+        [IO.File]::WriteAllText((Join-Path $root 'test/sequences/_snippets.yml'), "prime:`n  - action: pressKey`n    name: Tab`n  - action: waitForSeconds`n    seconds: 1`n")
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        $component = "  - action: retry`n    restartVmBeforeRetry: coldPowerCycle`n    steps:`n      - action: pressKey`n        name: Enter`n    stepsAfterVmRestart:`n      - snippet: prime`n"
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component $component)
+        $after = @((Read-SequenceFile -Path $path -NoCache).steps[0]['stepsAfterVmRestart'])
+        Assert-StringEqual -Expected 'pressKey,waitForSeconds' -Actual (@($after | ForEach-Object { $_['action'] }) -join ',')
+    }
+
+    It 'uses defaultSurface for a sentence without on' {
+        $root = New-SentenceRoot
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Extra "defaultSurface: page`n" -Component "  - step: ""probe""`n")
+        $steps = @((Read-SequenceFile -Path $path -NoCache).steps)
+        Assert-Equal -Expected 1 -Actual $steps.Count
+        Assert-StringEqual -Expected 'waitForSeconds' -Actual $steps[0]['action']
+    }
+
+    It 'rejects a defaultSurface that is neither screen nor page' {
+        $root = New-SentenceRoot
+        foreach ($surfaceValue in 'web', 'Page') {
+            $path = Join-Path $root "test/sequences/workload.fixture.$surfaceValue.yml"
+            Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Extra "defaultSurface: $surfaceValue`n" -Component "  - action: pressKey`n    name: Enter`n")
+            $caught = Get-ReadFailure -Path $path -NoCache
+            Assert-StringEqual -Expected 'runner.step_sentence_invalid' -Actual $caught.Exception.Data['YurunaMessageCode'] -Because $surfaceValue
+            Assert-True $caught.Exception.Message.Contains('default-surface') $caught.Exception.Message
+        }
+    }
+
+    It 'lets on win over defaultSurface' {
+        $root = New-SentenceRoot
+        $toScreen = Join-Path $root 'test/sequences/workload.fixture.screen.yml'
+        Write-SentenceFile -Path $toScreen -Content (Get-GuestSequenceText -Extra "defaultSurface: page`n" -Component "  - step: ""probe""`n    on: screen`n")
+        Assert-StringEqual -Expected 'pressKey' -Actual @((Read-SequenceFile -Path $toScreen -NoCache).steps)[0]['action']
+        $toPage = Join-Path $root 'test/sequences/workload.fixture.page.yml'
+        Write-SentenceFile -Path $toPage -Content (Get-GuestSequenceText -Extra "defaultSurface: screen`n" -Component "  - step: ""probe""`n    on: page`n")
+        Assert-StringEqual -Expected 'waitForSeconds' -Actual @((Read-SequenceFile -Path $toPage -NoCache).steps)[0]['action']
+    }
+
+    It 'refuses a sentence in a document without resource' {
+        $root = New-SentenceRoot
+        [IO.File]::WriteAllText((Join-Path $root 'test/sequences/_snippets.yml'), "prime:`n  - step: ""press Enter""`n")
+        $direct = Join-Path $root 'test/sequences/orchestration.direct.yml'
+        Write-SentenceFile -Path $direct -Content "description: t`nsteps:`n  - step: ""press Enter""`n"
+        $viaSnippet = Join-Path $root 'test/sequences/orchestration.snippet.yml'
+        Write-SentenceFile -Path $viaSnippet -Content "description: t`nsteps:`n  - snippet: prime`n"
+        foreach ($case in @(@{ Path = $direct; Position = 'steps[1]' }, @{ Path = $viaSnippet; Position = 'steps[1].snippet(prime)[1]' })) {
+            $caught = Get-ReadFailure -Path $case.Path -NoCache
+            Assert-StringEqual -Expected 'runner.step_sentence_invalid' -Actual $caught.Exception.Data['YurunaMessageCode']
+            Assert-True $caught.Exception.Message.Contains('not-guest-sequence') $caught.Exception.Message
+            Assert-True $caught.Exception.Message.Contains("$($case.Path): $($case.Position)") $caught.Exception.Message
+        }
+        $plain = Join-Path $root 'test/sequences/orchestration.plain.yml'
+        Write-SentenceFile -Path $plain -Content "description: t`ndefaultSurface: web`nsteps:`n  - action: InvokeTestSequence`n    sequence: x`n"
+        $read = Read-SequenceFile -Path $plain -NoCache
+        Assert-StringEqual -Expected 'InvokeTestSequence' -Actual @($read.steps)[0]['action']
+        Assert-StringEqual -Expected 'web' -Actual $read['defaultSurface']
+    }
+
+    It 'loads a library once when the project folder is also the sequence folder' {
+        $root = New-SentenceRoot
+        [IO.File]::WriteAllText((Join-Path $root 'project/ex/test/_phrases.yml'), "phrases:`n  hello:`n    sentence: ""hello <name>""`n    screen:`n      - action: inputText`n        text: ""<name>""`n")
+        $path = Join-Path $root 'project/ex/test/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - step: ""hello Bob""`n")
+        $steps = @((Read-SequenceFile -Path $path -NoCache).steps)
+        Assert-StringEqual -Expected 'inputText' -Actual $steps[0]['action']
+        Assert-StringEqual -Expected 'Bob' -Actual $steps[0]['text']
+    }
+
+    It 'sees a library edit, an added library and a removed library on the next cached read' {
+        $root = New-SentenceRoot
+        $framework = Join-Path $root 'test/sequences/_phrases.yml'
+        $project = Join-Path $root 'project/ex/test/_phrases.yml'
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - step: ""probe""`n")
+        Assert-StringEqual -Expected 'Enter' -Actual @((Read-SequenceFile -Path $path).steps)[0]['name']
+        Write-SentenceFile -Path $framework -Content $script:FakePhrases.Replace("        name: Enter`n    page:", "        name: Tab`n    page:")
+        Assert-StringEqual -Expected 'Tab' -Actual @((Read-SequenceFile -Path $path).steps)[0]['name'] -Because 'a library edit is seen'
+        Write-SentenceFile -Path $project -Content "phrases:`n  hello:`n    sentence: ""hello <name>""`n    screen:`n      - action: inputText`n        text: ""<name>""`n"
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - step: ""probe""`n  - step: ""hello Bob""`n")
+        Assert-StringEqual -Expected 'inputText' -Actual @((Read-SequenceFile -Path $path).steps)[1]['action'] -Because 'an added library is seen'
+        Remove-Item -LiteralPath $project
+        $caught = Get-ReadFailure -Path $path
+        Assert-StringEqual -Expected 'runner.step_phrase_no_match' -Actual $caught.Exception.Data['YurunaMessageCode'] -Because 'a removed library is seen'
+    }
+
+    It 'returns new step objects on every read of a sequence with a sentence' {
+        $root = New-SentenceRoot
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - step: ""press Enter""`n")
+        $first = @((Read-SequenceFile -Path $path).steps)
+        $first[0]['name'] = 'Escape'
+        $second = @((Read-SequenceFile -Path $path).steps)
+        Assert-StringEqual -Expected 'Enter' -Actual $second[0]['name']
+        Assert-False ([object]::ReferenceEquals($first[0], $second[0])) 'each read builds new steps'
+    }
+
+    It 'returns a sequence of plain action steps untouched' {
+        $root = New-SentenceRoot
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - action: pressKey`n    name: Enter`n")
+        $first = @((Read-SequenceFile -Path $path).steps)
+        $second = @((Read-SequenceFile -Path $path).steps)
+        Assert-True ([object]::ReferenceEquals($first[0], $second[0])) 'a plain sequence is not rebuilt'
+    }
+
+    It 'rejects <Case> in the schema and in the reader' -TestCases @(
+        @{ Case = 'step with action'; Code = 'runner.step_form_invalid'; Entry = "  - step: ""press Enter""`n    action: pressKey`n    name: Enter`n" }
+        @{ Case = 'step with snippet'; Code = 'runner.step_form_invalid'; Entry = "  - step: ""press Enter""`n    snippet: prime`n" }
+        @{ Case = 'action with snippet'; Code = 'runner.step_form_invalid'; Entry = "  - action: pressKey`n    name: Enter`n    snippet: prime`n" }
+        @{ Case = 'no discriminator'; Code = 'runner.step_form_invalid'; Entry = "  - description: x`n" }
+        @{ Case = 'an unknown key on a sentence step'; Code = 'runner.step_sentence_invalid'; Entry = "  - step: ""press Enter""`n    nudge: 1`n" }
+        @{ Case = 'the key spelled Step'; Code = 'runner.step_sentence_invalid'; Entry = "  - Step: ""press Enter""`n" }
+        @{ Case = 'on web'; Code = 'runner.step_sentence_invalid'; Entry = "  - step: ""press Enter""`n    on: web`n" }
+        @{ Case = 'on Page'; Code = 'runner.step_sentence_invalid'; Entry = "  - step: ""press Enter""`n    on: Page`n" }
+        @{ Case = 'timeoutSeconds 0'; Code = 'runner.step_sentence_invalid'; Entry = "  - step: ""wait for text ready""`n    timeoutSeconds: 0`n" }
+        @{ Case = 'timeoutSeconds 3000000000'; Code = 'runner.step_sentence_invalid'; Entry = "  - step: ""wait for text ready""`n    timeoutSeconds: 3000000000`n" }
+        @{ Case = 'descriptionLocalized without description'; Code = 'runner.step_sentence_invalid'; Entry = "  - step: ""press Enter""`n    descriptionLocalized:`n      pt-BR: x`n" }
+        @{ Case = 'a blank step'; Code = 'runner.step_sentence_invalid'; Entry = "  - step: "" ""`n" }
+    ) {
+        $root = New-SentenceRoot
+        [IO.File]::WriteAllText((Join-Path $root 'test/sequences/_snippets.yml'), "prime:`n  - action: pressKey`n    name: Enter`n")
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component $Entry)
+        $json = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 32
+        Assert-False (Test-Json -Json $json -Schema $script:SentenceSchemaJson -ErrorAction SilentlyContinue) 'the schema refuses it'
+        $caught = Get-ReadFailure -Path $path -NoCache
+        Assert-StringEqual -Expected $Code -Actual $caught.Exception.Data['YurunaMessageCode']
+        Assert-True (Test-SequencePlannerFailure -ErrorObject $caught) 'a planner error'
+    }
+
+    It 'accepts <Case> in the schema and in the reader' -TestCases @(
+        @{ Case = 'a bare sentence'; Entry = "  - step: ""press Enter""`n"; Expected = 'pressKey' }
+        @{ Case = 'a sentence with every key'; Entry = "  - step: ""wait for text ready""`n    on: screen`n    timeoutSeconds: 30`n    description: Wait`n    descriptionLocalized:`n      pt-BR: Esperar`n"; Expected = 'waitForText' }
+        @{ Case = 'a sentence inside retry.steps'; Entry = "  - action: retry`n    steps:`n      - step: ""press Enter""`n"; Expected = 'retry,pressKey' }
+    ) {
+        $root = New-SentenceRoot
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component $Entry)
+        $json = Get-Content -Raw -LiteralPath $path | ConvertFrom-Yaml -Ordered | ConvertTo-Json -Depth 32
+        Assert-True (Test-Json -Json $json -Schema $script:SentenceSchemaJson -ErrorAction SilentlyContinue) 'the schema accepts it'
+        $flat = @(Get-FlatAction -Step @((Read-SequenceFile -Path $path -NoCache).steps)) -join ','
+        Assert-StringEqual -Expected $Expected -Actual $flat
+    }
+
+    It 'names the file and position of a rejected sentence and never its text' {
+        $root = New-SentenceRoot
+        [IO.File]::WriteAllText((Join-Path $root 'test/sequences/_snippets.yml'), "prime:`n  - step: ""dance wildly now""`n")
+        $sentence = 'dance wildly now'
+        $cases = @(
+            @{ Name = 'second'; Text = (Get-GuestSequenceText -Component "  - step: ""press Enter""`n  - step: ""$sentence""`n"); Position = 'component[2]' }
+            @{ Name = 'retry'; Text = (Get-GuestSequenceText -Component "  - step: ""press Enter""`n" -Workload "  - action: retry`n    steps:`n      - step: ""$sentence""`n"); Position = 'workload[1].steps[1]' }
+            @{ Name = 'snippet'; Text = (Get-GuestSequenceText -Component "  - snippet: prime`n"); Position = 'component[1].snippet(prime)[1]' }
+        )
+        foreach ($case in $cases) {
+            $path = Join-Path $root "test/sequences/workload.fixture.$($case.Name).yml"
+            Write-SentenceFile -Path $path -Content $case.Text
+            $caught = Get-ReadFailure -Path $path -NoCache
+            Assert-StringEqual -Expected 'runner.step_phrase_no_match' -Actual $caught.Exception.Data['YurunaMessageCode']
+            Assert-True $caught.Exception.Message.Contains("$path`: $($case.Position)") $caught.Exception.Message
+            Assert-False $caught.Exception.Message.Contains($sentence) 'the sentence is not echoed'
+        }
+    }
+
+    It 'fails a bad sentence on the cached read as a planner error' {
+        $root = New-SentenceRoot
+        $path = Join-Path $root 'test/sequences/workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - step: ""dance wildly now""`n")
+        foreach ($read in 1, 2) {
+            $caught = Get-ReadFailure -Path $path
+            Assert-True (Test-SequencePlannerFailure -ErrorObject $caught) "read $read"
+            Assert-StringEqual -Expected 'runner.step_phrase_no_match' -Actual $caught.Exception.Data['YurunaMessageCode'] -Because "read $read"
+        }
+    }
+
+    It 'returns a phrase library and a runner configuration unchanged when read as files' {
+        $root = New-SentenceRoot
+        $runner = Join-Path $root 'project/ex/test/test.runner.yml'
+        Write-SentenceFile -Path $runner -Content "sequences:`n  - workload.guest.ubuntu.server.26`n  - workload.guest.windows.11`n"
+        foreach ($file in (Join-Path $script:SentenceRepoRoot 'test/sequences/_phrases.yml'), $runner) {
+            $raw = Get-Content -Raw -LiteralPath $file | ConvertFrom-Yaml -Ordered
+            $read = Read-SequenceFile -Path $file -NoCache
+            Assert-StringEqual -Expected (ConvertTo-Json -InputObject $raw -Depth 32 -Compress) -Actual (ConvertTo-Json -InputObject $read -Depth 32 -Compress) -Because $file
+        }
+    }
+
+    It 'reads every framework sequence without generating a step' {
+        $findings = @(foreach ($file in Get-ChildItem -LiteralPath (Join-Path $script:SentenceRepoRoot 'test/sequences') -Filter '*.yml' -File) {
+            $read = Read-SequenceFile -Path $file.FullName -NoCache
+            if ($read -isnot [System.Collections.IDictionary] -or -not $read.Contains('steps')) { continue }
+            $pending = [System.Collections.Generic.Stack[object]]::new()
+            foreach ($step in @($read['steps'])) { $pending.Push($step) }
+            while ($pending.Count -gt 0) {
+                $step = $pending.Pop()
+                if ($step -isnot [System.Collections.IDictionary]) { continue }
+                if ($step.Contains('fromStep')) { "$($file.Name): '$($step['action'])' was generated from '$($step['fromStep'])'" }
+                foreach ($nestedKey in 'steps', 'stepsAfterVmRestart') {
+                    if ($step.Contains($nestedKey)) { foreach ($nested in @($step[$nestedKey])) { $pending.Push($nested) } }
+                }
+            }
+        })
+        Assert-NoFinding $findings 'no shipped sequence is written in sentences'
+    }
+
+    It 'finds the framework library from a folder with no framework above it' {
+        $dir = Join-Path $TestDrive 'bare-sentence'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $path = Join-Path $dir 'workload.fixture.yml'
+        Write-SentenceFile -Path $path -Content (Get-GuestSequenceText -Component "  - step: ""press Enter""`n")
+        $steps = @((Read-SequenceFile -Path $path -NoCache).steps)
+        Assert-Equal -Expected 1 -Actual $steps.Count
+        Assert-StringEqual -Expected 'pressKey' -Actual $steps[0]['action']
+        Assert-StringEqual -Expected 'Enter' -Actual $steps[0]['name']
+    }
+
+    It 'validates a library no sequence uses' {
+        $dir = Join-Path $TestDrive 'unused-library'
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $library = Join-Path $dir '_phrases.yml'
+        [IO.File]::WriteAllText($library, "phrases:`n  go:`n    sentence: ""go now""`n    screen:`n      - action: fly`n")
+        $caught = $null
+        try { $null = Get-SequencePhraseLibrary -SequencePath $library } catch { $caught = $_ }
+        Assert-NotNull $caught 'a broken library loaded'
+        Assert-StringEqual -Expected 'runner.step_phrase_library_invalid' -Actual $caught.Exception.Data['YurunaMessageCode']
+    }
+
+    It 'reads on as an ordinary key' {
+        $root = New-SentenceRoot
+        $path = Join-Path $root 'test/sequences/document.yml'
+        Write-SentenceFile -Path $path -Content "step: ""press Enter""`non: screen`n"
+        $read = Read-SequenceFile -Path $path -NoCache
+        Assert-True (@($read.Keys) -ccontains 'on') "keys: $(@($read.Keys) -join ', ')"
+        Assert-True ($read['on'] -is [string] -and $read['on'] -ceq 'screen') "on is '$($read['on'])'"
+    }
+
+    It 'treats _phrases.yml as a library in Test-Config and Debug-TestSequence' {
+        $config = Get-YurunaTestSourceText (Join-Path $script:SentenceRepoRoot 'test/Test-Config.ps1')
+        $region = [regex]::Match($config, '(?s)# --- REGION: Section 9b2.*?(?=# --- REGION: Section 9b3)').Value
+        Assert-True ($region -match "-notin @\([^)]*'_phrases\.yml'") 'Section 9b2 lists _phrases.yml as a library, not a sequence'
+        Assert-True ($region -match 'Get-SequencePhraseLibrary') 'Section 9b2 validates each phrase library'
+        $debug = Get-YurunaTestSourceText (Join-Path $script:SentenceRepoRoot 'test/Debug-TestSequence.ps1')
+        Assert-True ($debug -match "-notin @\([^)]*'_phrases\.yml'") 'Debug-TestSequence does not offer _phrases as a sequence name'
     }
 }

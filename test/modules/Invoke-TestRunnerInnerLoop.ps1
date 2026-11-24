@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,11 +40,11 @@
 Strict binding: an unknown or misspelled parameter is a binding error, never
 a value silently absorbed into $args while the cycle runs on defaults.
 
-A chain restarted by a host refresh runs this script in one of two extra
+A chain restarted by a handoff runs this script in one of two extra
 roles, chosen from the environment the cycle process sets around the spawn:
-preflight (YURUNA_REFRESH_PREFLIGHT with YURUNA_REFRESH_HANDOFF_TOKEN) proves
+preflight (YURUNA_HANDOFF_PREFLIGHT with YURUNA_HANDOFF_TOKEN) proves
 the host, acknowledges readiness and parks without any git, VM, control or
-status-document work; barrier (YURUNA_REFRESH_BARRIER) runs an ordinary
+status-document work; barrier (YURUNA_HANDOFF_BARRIER) runs an ordinary
 cycle that first waits for the operator's preserved pauses and holds.
 #>
 
@@ -156,8 +156,8 @@ $null = Initialize-YurunaLogDir
 $global:__YurunaHostId = Get-YurunaHostId
 $StatusFile = Join-Path $env:YURUNA_RUNTIME_DIR "status.json"
 
-# Refresh role of this inner: normal, preflight or barrier (see the help).
-$RefreshMode = Get-YurunaRefreshInnerMode -RuntimeDir $env:YURUNA_RUNTIME_DIR
+# Handoff role of this inner: normal, preflight or barrier (see the help).
+$HandoffMode = Get-YurunaHandoffInnerMode -RuntimeDir $env:YURUNA_RUNTIME_DIR
 
 # Per-cycle helpers live in Test.RunnerInnerLoop.psm1 (imported with the Inner
 # module set): Write-InnerLog (exit-path timeline log), the cycle-start
@@ -298,7 +298,7 @@ if ($env:YURUNA_FAULT_POINTS) { Import-Module (Join-Path $PSScriptRoot 'Test.Fau
 # --- REGION: Bootstrap status.json from template if missing
 # A preflight inner writes no status document: the dashboard keeps the last
 # real cycle until the first ordinary cycle of the resumed chain.
-if ($RefreshMode.Mode -ne 'preflight' -and -not (Test-Path $StatusFile)) {
+if ($HandoffMode.Mode -ne 'preflight' -and -not (Test-Path $StatusFile)) {
     if (Test-Path $StatusTmpl) {
         Copy-Item -Path $StatusTmpl -Destination $StatusFile
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_9073dca2f5030e8f')
@@ -324,11 +324,11 @@ $script:RunnerCfgState = New-RunnerConfigState -CmdLineLogLevel $script:CmdLineL
 if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
     Write-Error (Format-YurunaOperatorMessage -Key 'runner.operator_ac92ad6675163216' -Arguments @{ configPath = "$ConfigPath"; templatePath = "$TemplatePath" }); exit $ExitFailure
 }
-if ($RefreshMode.Mode -eq 'preflight') {
+if ($HandoffMode.Mode -eq 'preflight') {
     # Read only: the preflight must not rewrite the operator's config file.
     $Config = $null
     try { $Config = Read-TestConfig -Path $ConfigPath } catch {
-        Write-Verbose "Refresh preflight: config unreadable: $($_.Exception.Message)"
+        Write-Verbose "Handoff preflight: config unreadable: $($_.Exception.Message)"
         $Config = $null
     }
 } else {
@@ -344,7 +344,7 @@ Resolve-LogLevel
 # See https://yuruna.link/4213a0b3-001a
 Import-Module (Join-Path $ModulesDir 'Test.SourceSelection.psm1') -Global -Force -DisableNameChecking
 $cycleSourceHandoff = $null
-if ($env:YURUNA_CYCLE_GENERATION -and $RefreshMode.Mode -ne 'preflight') {
+if ($env:YURUNA_CYCLE_GENERATION -and $HandoffMode.Mode -ne 'preflight') {
     $cycleSourceHandoff = Read-GitSourceHandoff -CycleGeneration $env:YURUNA_CYCLE_GENERATION -RepoRoot $RepoRoot -ConfigPath $ConfigPath
     if (-not $cycleSourceHandoff) {
         # A resident old runner can start the new inner immediately after its
@@ -353,7 +353,7 @@ if ($env:YURUNA_CYCLE_GENERATION -and $RefreshMode.Mode -ne 'preflight') {
         if (-not (Write-GitSourceHandoff -CycleGeneration $env:YURUNA_CYCLE_GENERATION -RepoRoot $RepoRoot -ConfigPath $ConfigPath -Framework $installed -Confirm:$false)) { throw 'source-handoff-write-failed' }
     }
 }
-if ($RefreshMode.Mode -ne 'preflight') {
+if ($HandoffMode.Mode -ne 'preflight') {
     Write-RunnerPhase -Phase 'config-gate'
     $gateSkipReason = if ($NoConfigGate) { '-NoConfigGate' } else { 'parent command already validated configuration' }
     $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:($NoConfigGate -or $ConfigGateInherited) -SkipReason $gateSkipReason -CallerName 'cycle start'
@@ -370,21 +370,21 @@ if ($RefreshMode.Mode -ne 'preflight') {
 # --- REGION: Bootstrap
 $HostType = Get-HostType
 
-# --- REGION: Host-refresh preflight
+# --- REGION: Handoff preflight
 # The whole preflight: prove the host from this ancestry, acknowledge, park
-# until the refresh releases the runner, and exit. Nothing below this block
+# until the host operation releases the runner, and exit. Nothing below this block
 # runs in preflight -- no host registration, no stash marker (an Apple Events
 # call on macOS), no host-condition set, no VM stop or service restore, no
 # status service.
-if ($RefreshMode.Mode -eq 'preflight') {
+if ($HandoffMode.Mode -eq 'preflight') {
     $preflightDeadline = New-YurunaDeadline -TotalMilliseconds 120000
-    $preflight = Invoke-YurunaRefreshPreflight -Mode $RefreshMode -HostType ([string]$HostType) -RepoRoot $RepoRoot `
+    $preflight = Invoke-YurunaHandoffPreflight -Mode $HandoffMode -HostType ([string]$HostType) -RepoRoot $RepoRoot `
         -Config $Config -StepHeartbeatFile $StepHeartbeatFile -Deadline $preflightDeadline -RuntimeDir $env:YURUNA_RUNTIME_DIR
     $preflightExit = $ExitFailure
     if ($preflight.State -eq 'ready') {
-        $release = Wait-YurunaRefreshRelease -TokenId ([string]$RefreshMode.TokenId) -Purpose ([string]$RefreshMode.Purpose) `
+        $release = Wait-YurunaHandoffRelease -TokenId ([string]$HandoffMode.TokenId) -Purpose ([string]$HandoffMode.Purpose) `
             -StepHeartbeatFile $StepHeartbeatFile -ShutdownState @{ Requested = $false } -RuntimeDir $env:YURUNA_RUNTIME_DIR
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.refresh_preflight_released' -Arguments @{ outcome = [string]$release.Outcome }) -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.handoff_preflight_released' -Arguments @{ outcome = [string]$release.Outcome }) -InformationAction Continue
         if ($release.Outcome -in @('released', 'not-parked')) { $preflightExit = $ExitOk }
     }
     try { Stop-RunnerHeartbeat } catch { $null = $_ }
@@ -394,7 +394,7 @@ if ($RefreshMode.Mode -eq 'preflight') {
         if ($innerFilePid -eq $PID) { Remove-Item $InnerPidFile -Force -ErrorAction SilentlyContinue }
     } catch { $null = $_ }
     Clear-RunnerPhase
-    Write-InnerLog "refresh preflight finished ($($preflight.State)); exiting with code $preflightExit"
+    Write-InnerLog "handoff preflight finished ($($preflight.State)); exiting with code $preflightExit"
     exit $preflightExit
 }
 
@@ -425,15 +425,15 @@ Write-RunnerPhase -Phase 'host-driver'
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
 # --- REGION: Held-control barrier
-# The first ordinary cycle after a host refresh adopts the operator's
+# The first ordinary cycle after a handoff adopts the operator's
 # preserved pauses and holds before anything below can touch a VM or the
 # host: the stash marker refresh, the host-condition set, the concurrent-VM
 # stop, the service-VM restore and the cycle sweeps all come after this. The
 # Ctrl+C handler is not registered yet, so a local handle stands in.
-if ($RefreshMode.Mode -eq 'barrier') {
-    Write-RunnerPhase -Phase 'refresh-barrier'
+if ($HandoffMode.Mode -eq 'barrier') {
+    Write-RunnerPhase -Phase 'handoff-barrier'
     $barrier = Wait-YurunaHeldControlBarrier -RuntimeDir $env:YURUNA_RUNTIME_DIR -StepHeartbeatFile $StepHeartbeatFile `
-        -ShutdownState @{ Requested = $false } -Config $Config -HostType $HostType -RequestId ([string]$RefreshMode.RequestId)
+        -ShutdownState @{ Requested = $false } -Config $Config -HostType $HostType -RequestId ([string]$HandoffMode.RequestId)
     if ($barrier.Outcome -eq 'shutdown') { exit $ExitOk }
     if ($barrier.Outcome -eq 'lab-exhausted') { exit $ExitFailure }
     Write-RunnerPhase -Phase 'host-detect'
@@ -568,7 +568,7 @@ $cycleState = @{
     CachingProxyServiceUrl=$cachingProxyUrl; StartScript=$startScript; StepHeartbeatFile=$StepHeartbeatFile
     ShutdownState=$script:ShutdownState; RunnerCfgState=$script:RunnerCfgState; Config=$script:Config
 }
-if ($env:YURUNA_CYCLE_GENERATION -and $RefreshMode.Mode -ne 'preflight') {
+if ($env:YURUNA_CYCLE_GENERATION -and $HandoffMode.Mode -ne 'preflight') {
     $cycleState['SourceHandoff'] = Read-GitSourceHandoff -CycleGeneration $env:YURUNA_CYCLE_GENERATION -RepoRoot $RepoRoot -ConfigPath $ConfigPath
 }
 # Leave the guarded preamble. The cycle body contains work that is legitimately
@@ -611,11 +611,11 @@ try {
     Write-Verbose "Gating-state save failed (best-effort, ignoring): $($_.Exception.Message)"
 }
 Write-InnerLog "post-loop cleanup: gating state saved"
-if ($cycleState.RefreshGated) {
-    # Held by a host refresh before any change: the cycle process reads
-    # runner.refresh-gated.json and reports refresh-gated, so there is no
+if ($cycleState.GateHeld) {
+    # Held by a host operation before any change: the cycle process reads
+    # runner.gate-held.json and reports gate-held, so there is no
     # failure to announce here.
-    Write-InnerLog "cycle held by the host-refresh gate; nothing was changed"
+    Write-InnerLog "cycle held by the runner gate; nothing was changed"
 }
 
 # --- REGION: Heartbeat cleanup
@@ -666,7 +666,7 @@ try {
 }  # end of: if YURUNA_RUNNER_RELAUNCH -ne '1' (pidfile cleanup)
 
 # --- REGION: Failure notification (only reached when stopOnFailure breaks the loop)
-if (-not $OverallPassed -and $FailedGuest -and -not $cycleState.RefreshGated) {
+if (-not $OverallPassed -and $FailedGuest -and -not $cycleState.GateHeld) {
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_729aea0314e609b0')

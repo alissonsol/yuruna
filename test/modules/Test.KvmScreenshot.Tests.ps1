@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4241b748-d045-41cb-81f6-f42876137267
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,10 +25,37 @@
     when installed, also verifies real PNG chunks, decoded RGB and OCR reuse.
 #>
 
+BeforeDiscovery {
+    # BeforeAll runs after discovery, so the fixtures the cases below are
+    # built from are written out again here.
+    $pngHeader = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x20)
+    $ascii = { param([string]$Text) [Text.Encoding]::ASCII.GetBytes($Text) }
+    $wrongChunk = [byte[]]$pngHeader.Clone()
+    $wrongChunk[12] = 0x50
+    $script:FrameSizeCases = @(
+        @{ Name = 'a P6 header'; Bytes = [byte[]]((& $ascii "P6`n1280 800`n255`n") + [byte[]]::new(12)); Width = 1280; Height = 800; Size = '1280x800' }
+        @{ Name = 'a P6 header after comments'; Bytes = [byte[]]((& $ascii "P6`n# first comment`n# second comment`n1280 800`n255`n") + [byte[]]::new(12)); Width = 1280; Height = 800; Size = '1280x800' }
+        @{ Name = 'the P3 fixture'; Bytes = [byte[]](& $ascii "P3`n3 2`n255`n255 0 0 0 255 0 0 0 255`n16 32 64 128 192 255 255 255 255`n"); Width = 3; Height = 2; Size = '3x2' }
+        @{ Name = 'a PNG header'; Bytes = $pngHeader; Width = 1280; Height = 800; Size = '1280x800' }
+        @{ Name = 'a text file'; Bytes = [byte[]](& $ascii 'png-fixture'); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'an empty file'; Bytes = [byte[]]::new(0); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a PNG header cut to 20 bytes'; Bytes = [byte[]]$pngHeader[0..19]; Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a P6 header cut inside the height'; Bytes = [byte[]](& $ascii "P6`n1280 80"); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a zero width'; Bytes = [byte[]](& $ascii "P6`n0 800`n255`n"); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a width above 32768'; Bytes = [byte[]](& $ascii "P6`n40000 800`n255`n"); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a seven-digit width'; Bytes = [byte[]](& $ascii "P6`n1234567 800`n255`n"); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a negative width'; Bytes = [byte[]](& $ascii "P6`n-5 800`n255`n"); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a P5 header'; Bytes = [byte[]](& $ascii "P5`n10 10`n255`n"); Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a PNG header with another chunk type'; Bytes = $wrongChunk; Width = 0; Height = 0; Size = 'nothing' }
+        @{ Name = 'a missing file'; Bytes = $null; Width = 0; Height = 0; Size = 'nothing' }
+    )
+}
+
 BeforeAll {
     $script:ImageMagick = @(Get-Command convert -CommandType Application -ErrorAction SilentlyContinue) | Select-Object -First 1
     Import-Module (Join-Path $PSScriptRoot 'Test.DriverSource.psm1') -DisableNameChecking
-    foreach ($name in 'Get-VMScreenshot', 'Restart-VMConsole', 'Test-DriverNativeResultComplete') {
+    foreach ($name in 'Get-VMScreenshot', 'Get-KvmFrameSize', 'Restart-VMConsole', 'Test-DriverNativeResultComplete') {
         . ([scriptblock]::Create((Get-YurunaDriverFunction -Driver ubuntu.kvm -Name $name)))
     }
     Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
@@ -60,6 +87,9 @@ BeforeAll {
         }
     }
     $script:PpmBytes = [Text.Encoding]::ASCII.GetBytes("P3`n3 2`n255`n255 0 0 0 255 0 0 0 255`n16 32 64 128 192 255 255 255 255`n")
+    # The first 24 bytes of a 1280 by 800 PNG: signature, IHDR length and type, width, height.
+    $script:PngHeader = [byte[]](0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+        0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x03, 0x20)
 }
 
 Describe 'KVM console recovery launch result' {
@@ -134,9 +164,48 @@ Describe 'KVM screenshot fallback behavior' {
         $script:ConvertArgs | Should -Be @([IO.Path]::ChangeExtension($script:OutFile, '.ppm'), '-define', 'png:exclude-chunk=date,time', $script:OutFile)
         Test-Path -LiteralPath ([IO.Path]::ChangeExtension($script:OutFile, '.ppm')) | Should -BeFalse
     }
-    It 'maps window capture to the same framebuffer operation' {
-        Get-VMScreenshot -VMName 'vm' -Source window -OutFile $script:OutFile | Should -BeExactly $script:OutFile
+    It 'returns the image path and the frame size for a window capture' {
+        Mock Invoke-BoundedNativeCommand {
+            [IO.File]::WriteAllBytes($ArgumentList[-1], $script:PngHeader)
+            Get-NativeResultFixture
+        } -ParameterFilter { $FilePath -eq 'convert' }
+        $capture = Get-VMScreenshot -VMName 'vm' -Source window -OutFile $script:OutFile
+        ($capture -is [hashtable]) | Should -BeTrue -Because 'Send-Click binds -Capture as [hashtable]; an ordered dictionary does not bind'
+        $capture.ImagePath | Should -BeExactly $script:OutFile
+        $capture.Width | Should -Be 1280
+        $capture.Height | Should -Be 800
         Should -Invoke Invoke-VirshBounded -Times 1 -Exactly
+    }
+    It 'keeps returning a path string for a frame capture and reads no header' {
+        Mock Get-KvmFrameSize { throw 'frame captures read no header' }
+        $frame = Get-VMScreenshot -VMName 'vm' -OutFile $script:OutFile
+        ($frame -is [string]) | Should -BeTrue
+        $frame | Should -BeExactly $script:OutFile
+        Should -Invoke Get-KvmFrameSize -Times 0 -Exactly
+    }
+    It 'reads the size of the raw frame when no converter is installed' {
+        $script:Engine = 'none'
+        $capture = Get-VMScreenshot -VMName 'vm' -Source window -OutFile $script:OutFile -WarningAction SilentlyContinue
+        $capture.ImagePath | Should -BeExactly ([IO.Path]::ChangeExtension($script:OutFile, '.ppm'))
+        $capture.Width | Should -Be 3
+        $capture.Height | Should -Be 2
+    }
+    It 'reads PNG bytes that virsh wrote under the ppm name' {
+        $script:Engine = 'none'
+        Mock Invoke-VirshBounded {
+            [IO.File]::WriteAllBytes($VirshArgs[-1], $script:PngHeader)
+            Get-NativeResultFixture
+        }
+        $capture = Get-VMScreenshot -VMName 'vm' -Source window -OutFile $script:OutFile -WarningAction SilentlyContinue
+        $capture.Width | Should -Be 1280
+        $capture.Height | Should -Be 800
+    }
+    It 'discards a window capture whose size cannot be read' {
+        $capture = Get-VMScreenshot -VMName 'vm' -Source window -OutFile $script:OutFile -WarningVariable w -WarningAction SilentlyContinue
+        $capture | Should -BeNullOrEmpty
+        Test-Path -LiteralPath $script:OutFile | Should -BeFalse
+        @($w).Count | Should -Be 1
+        "$($w[0])" | Should -BeExactly 'host.kvm_frame_size_unreadable'
     }
     It 'returns no frame when virsh fails' {
         Mock Invoke-VirshBounded { Get-NativeResultFixture -ExitCode 1 }
@@ -208,6 +277,9 @@ Describe 'KVM stable PNG conversion with actual ImageMagick' {
         & $script:ImageMagick.Source $rawPpm $original
         $LASTEXITCODE | Should -Be 0
         Get-VMScreenshot -VMName 'fixture' -OutFile $frameA | Should -BeExactly $frameA
+        $window = Get-VMScreenshot -VMName 'fixture' -Source window -OutFile (Join-Path $TestDrive 'stable-window.png')
+        $window.Width | Should -Be 3
+        $window.Height | Should -Be 2
         Start-Sleep -Milliseconds 1100
         Get-VMScreenshot -VMName 'fixture' -OutFile $frameB | Should -BeExactly $frameB
         (Get-FileHash -LiteralPath $frameA).Hash | Should -BeExactly (Get-FileHash -LiteralPath $frameB).Hash
@@ -230,5 +302,19 @@ Describe 'KVM stable PNG conversion with actual ImageMagick' {
         Invoke-OcrProvider -Name 'stable-kvm-frame-fixture' -ImagePath $frameA | Should -BeExactly 'unchanged screen'
         Invoke-OcrProvider -Name 'stable-kvm-frame-fixture' -ImagePath $frameB | Should -BeExactly 'unchanged screen'
         $counter.Count | Should -Be 1
+    }
+}
+
+Describe 'KVM frame size reader' {
+    It 'reads <Name> as <Size>' -ForEach $script:FrameSizeCases {
+        $path = Join-Path $TestDrive ($Name + '.bin')
+        if ($null -ne $Bytes) { [IO.File]::WriteAllBytes($path, [byte[]]$Bytes) }
+        $frameSize = Get-KvmFrameSize -Path $path
+        if ($Size -eq 'nothing') {
+            $frameSize | Should -BeNullOrEmpty
+        } else {
+            $frameSize.Width | Should -Be $Width
+            $frameSize.Height | Should -Be $Height
+        }
     }
 }

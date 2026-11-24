@@ -3,6 +3,31 @@
   "domain": "remediation",
   "locale": "pt-BR",
   "messages": {
+    "remediation.web_account_action": {
+      "sourceHash": "d03899296d8650bb9c34d41f21690f48589fccdb33073abb3b0ef2537b6235b8",
+      "origin": "machine",
+      "message": "Este passo controlava uma página: kind e detail em causeDetail.web de last_failure.json dizem o que falhou no caminho até a página"
+    },
+    "remediation.web_step_failed_rationale": {
+      "sourceHash": "a479522b62f82488cc63bf5cfbce59305b1f58c3a76626f54ca268180b09a22f",
+      "origin": "machine",
+      "message": "web_step_failed em {vmName}: um passo de página terminou pelo que a página mostrou (kind: {kind}; buscado: {target}; página: {url}). Não é repetido sem supervisão: o teste ou o site precisa mudar antes."
+    },
+    "remediation.web_step_failed_action_evidence": {
+      "sourceHash": "ff5abeb93db988c340b34e7de2a3ce162b3b36e53d754019431d0e1d097e0714",
+      "origin": "machine",
+      "message": "Leia causeDetail.web em last_failure.json: kind diz como o passo terminou, locator o que buscou, candidates o que a página ofereceu, effect se a entrada chegou à página"
+    },
+    "remediation.web_step_failed_action_repair": {
+      "sourceHash": "1878cafd77a7a184360fe920af7df2bac8dc920af8fd3f8b56adc9183ccdf64d",
+      "origin": "machine",
+      "message": "Corrija role, name, match ou nth do passo, ou espere antes pelo estado de que ele precisa; para expectation e navigation verifique o site; para unsupported e page_lost remova do fluxo o diálogo, a nova janela ou a falha"
+    },
+    "remediation.web_step_failed_action_rerun": {
+      "sourceHash": "6504a385c1739bfd11e0e43e4c0e8ab2854667e423b7c5ca1efe802d6ab3445a",
+      "origin": "machine",
+      "message": "Repita com test/Debug-TestSequence.ps1 após a mudança; quando effect for applied ou uncertain, restaure antes um estado conhecido do convidado"
+    },
     "remediation.guest_display_stalled_rationale": {
       "sourceHash": "35b21ac2fcf4a7b00950851c02f4dc90cb7ae74956c8482c3b441365a7a8acd9",
       "message": "guest_display_stalled em {vmName}: o driver de vídeo {driver} do convidado relatou {reports} tempos limite de troca de quadros enquanto o console parou de mudar. O convidado ainda pode estar em execução; uma tela inalterada não é evidência de que seu kernel parou."
@@ -20,16 +45,16 @@
       "message": "Leia utm-control-snapshot.*.json e utm-log-show.*.txt na pasta do ciclo: um PID ou horário de início do UTM que mudou no meio do ciclo indica uma falha seguida de reinicialização, e o trecho do log unificado mostra o que a precedeu"
     },
     "remediation.hypervisor_unresponsive_action_restart": {
-      "sourceHash": "97ca8bc51d0af80b1cfe79b20f6194b18a1660cef55ca9f16df928298c75be1f",
-      "message": "Reinicie o aplicativo de controle do hipervisor na máquina: no macOS, encerre o UTM.app na sessão da área de trabalho (ou execute test/lab/Invoke-HostRefresh.ps1) e confirme que `utmctl stop` em uma VM parada retorna imediatamente"
+      "sourceHash": "1ef43eae0f02a623fcaaea507e519a55d30bd3e62eb4ed3e0f7240a35703d566",
+      "message": "Reinicie o aplicativo de controle do hipervisor na máquina: no macOS, encerre o UTM.app na sessão da área de trabalho (ou execute test/lab/Invoke-HostRepair.ps1) e confirme que `utmctl stop` em uma VM parada retorna imediatamente"
     },
     "remediation.hypervisor_unresponsive_action_resume": {
       "sourceHash": "a0b153ba81d5e39ad1edf6b83e5055b55997ea899c746373607b95405d75aa9e",
       "message": "Retome o executor quando um verbo de ciclo de vida voltar a responder; o próximo ciclo sonda o canal de controle antes de construir qualquer coisa"
     },
     "remediation.hypervisor_unresponsive_rationale": {
-      "sourceHash": "2f998c743ab3c1cec54505c1b17107f3f2f8991135fec6e6fb459449263bb58d",
-      "message": "hypervisor_unresponsive: o canal de controle do hipervisor parou de atender às solicitações de ciclo de vida, embora continue respondendo a consultas de estado; assim, cada início, parada e exclusão de VM espera até o fim do seu tempo limite, e nada que um ciclo faça consegue recuperá-lo. Repetir só reproduz os mesmos tempos limite; o aplicativo dono do canal precisa ser reiniciado na máquina, o que só uma sessão da área de trabalho ou uma atualização da máquina pode fazer.{detail}"
+      "sourceHash": "9e0431b76fd2099c783436dff806627a9de951ebfcbd73e4b36b4daf9c02dbde",
+      "message": "hypervisor_unresponsive: o canal de controle do hipervisor parou de atender às solicitações de ciclo de vida, embora continue respondendo a consultas de estado; assim, cada início, parada e exclusão de VM espera até o fim do seu tempo limite, e nada que um ciclo faça consegue recuperá-lo. Repetir só reproduz os mesmos tempos limite; o aplicativo dono do canal precisa ser reiniciado na máquina, o que só uma sessão da área de trabalho ou um reparo do hospedeiro pode fazer.{detail}"
     },
     "remediation.operator_00fd2209b1a993b2": {
       "sourceHash": "6e04423cbd684cc7a3aa658f13d8eaf85893fd08e3dba50c3963ef3dc4909de7",

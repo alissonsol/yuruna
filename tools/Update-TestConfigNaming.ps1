@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f97555-078b-4a8e-8eef-1fac4bd333c4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -108,7 +108,7 @@ $exitCode = Use-TestConfigLock -Path $ConfigPath -Action {
         return 0
     }
 
-    $backup = New-ConfigNamingBackup -ConfigPath $ConfigPath -Confirm:$false
+    $backup = New-ConfigNamingBackup -ConfigPath $ConfigPath -Change @($migration.Changes) -Confirm:$false
     $null = Save-TestConfigJournalEntry -ConfigPath $ConfigPath -Writer 'config-naming' -NewContent $newYaml
     if (-not (Write-YurunaStateFile -Path $ConfigPath -Content $newYaml -Confirm:$false)) {
         Write-Error (Format-YurunaOperatorMessage -Key 'exceptions.config_naming_save_failed' -Arguments @{ configPath = $ConfigPath })

@@ -15,8 +15,8 @@ var Catalogs = map[string]map[string]string{
     },
     " minutes and try again"
   ],
-  "auth.bearer_required": "lab auth token required",
-  "auth.changes_disabled": "no aggregator URL and no lab auth token configured; changes are disabled",
+  "auth.bearer_required": "internal authentication key required",
+  "auth.changes_disabled": "no aggregator URL and no internal authentication key configured; changes are disabled",
   "auth.detail_encoding": "request encoding failed",
   "auth.detail_http": [
     "aggregator answered HTTP ",
@@ -28,7 +28,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.detail_malformed_aggregator": "malformed aggregator URL",
   "auth.detail_no_aggregator": "no aggregator URL configured",
-  "auth.detail_unconfigured": "no lab auth token and no aggregator URL configured",
+  "auth.detail_unconfigured": "no internal authentication key and no aggregator URL configured",
   "auth.detail_unreachable": "unreachable",
   "auth.encode_refusal": "the gate could not encode its refusal",
   "auth.host_not_served": [
@@ -48,6 +48,17 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.login_unavailable": "no aggregator URL is configured, so the pool aggregator cannot check a lab token; actions stay locked",
   "auth.malformed_request": "malformed request body",
+  "auth.operator_credential_required": "This action requires the operator credential in the X-Yuruna-Operator-Credential header; a lab session, lab token or internal authentication key is not accepted.",
+  "auth.operator_credential_throttled": [
+    "Too many operator credential attempts from this address; wait ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutes and try again."
+  ],
+  "auth.operator_credential_unconfigured": "Remote host repair is disabled: this service has no operator credential provisioned.",
   "auth.proof_check_failed": [
     "the control proof could not be checked (",
     {
@@ -59,20 +70,9 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.proof_expired": "the control proof is expired or not from this pool",
   "auth.proof_shape": "not a control proof",
-  "auth.proof_unconfigured": "no lab auth token and no aggregator URL are configured, so a control proof cannot be checked; actions stay locked",
-  "auth.refresh_credential_required": "This action requires the refresh credential in the X-Yuruna-Refresh-Credential header; a lab session, lab token or internal authentication key is not accepted.",
-  "auth.refresh_throttled": [
-    "Too many refresh credential attempts from this address; wait ",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " minutes and try again."
-  ],
-  "auth.refresh_unconfigured": "Remote host refresh is disabled: this service has no refresh credential provisioned.",
-  "auth.route_disabled": "no lab auth token configured; this route is disabled",
-  "auth.session_required": "lab token session or lab auth token required",
+  "auth.proof_unconfigured": "no internal authentication key and no aggregator URL are configured, so a control proof cannot be checked; actions stay locked",
+  "auth.route_disabled": "no internal authentication key configured; this route is disabled",
+  "auth.session_required": "lab session or internal authentication key required",
   "auth.token_check_failed": [
     "the pool aggregator could not check the lab token (",
     {
@@ -98,8 +98,8 @@ var Catalogs = map[string]map[string]string{
     },
     " דקות ונסו שוב"
   ],
-  "auth.bearer_required": "נדרש אסימון אימות למעבדה",
-  "auth.changes_disabled": "לא הוגדרו כתובת URL של המרכז או אסימון אימות למעבדה; ביצוע שינויים מושבת",
+  "auth.bearer_required": "נדרש מפתח אימות פנימי",
+  "auth.changes_disabled": "לא הוגדרו כתובת URL של המרכז או מפתח אימות פנימי; ביצוע שינויים מושבת",
   "auth.detail_encoding": "קידוד הבקשה נכשל",
   "auth.detail_http": [
     "המרכז השיב בקוד HTTP ",
@@ -111,7 +111,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.detail_malformed_aggregator": "כתובת URL של המרכז אינה תקינה",
   "auth.detail_no_aggregator": "לא הוגדרה כתובת URL של המרכז",
-  "auth.detail_unconfigured": "לא הוגדרו אסימון אימות למעבדה או כתובת URL של המרכז",
+  "auth.detail_unconfigured": "לא הוגדרו מפתח אימות פנימי או כתובת URL של המרכז",
   "auth.detail_unreachable": "לא ניתן להגיע ליעד",
   "auth.encode_refusal": "השער לא הצליח לקודד את הודעת הסירוב שלו",
   "auth.host_not_served": [
@@ -131,6 +131,17 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.login_unavailable": "לא הוגדרה כתובת URL של המרכז, ולכן מרכז המאגר אינו יכול לבדוק אסימון מעבדה; הפעולות נשארות נעולות",
   "auth.malformed_request": "גוף הבקשה אינו תקין",
+  "auth.operator_credential_required": "פעולה זו דורשת את אישור המפעיל בכותרת ⁦X-Yuruna-Operator-Credential⁩; הפעלת מעבדה, אסימון מעבדה או מפתח אימות פנימי אינם מתקבלים.",
+  "auth.operator_credential_throttled": [
+    "יותר מדי ניסיונות של אישור מפעיל מכתובת זו; המתינו ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות ונסו שוב."
+  ],
+  "auth.operator_credential_unconfigured": "תיקון מארח מרחוק מושבת: לא הוקצה לשירות זה אישור מפעיל.",
   "auth.proof_check_failed": [
     "לא ניתן היה לבדוק את הוכחת השליטה (",
     {
@@ -142,20 +153,9 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.proof_expired": "תוקף הוכחת השליטה פג או שמקורה אינו במאגר זה",
   "auth.proof_shape": "זו אינה הוכחת שליטה",
-  "auth.proof_unconfigured": "לא הוגדרו אסימון אימות למעבדה או כתובת URL של המרכז, ולכן לא ניתן לבדוק הוכחת שליטה; הפעולות נשארות נעולות",
-  "auth.refresh_credential_required": "פעולה זו דורשת refresh credential בכותרת X-⁦Yuruna-Refresh⁩-Credential; הפעלת מעבדה, אסימון מעבדה או מפתח אימות פנימי אינם מתקבלים.",
-  "auth.refresh_throttled": [
-    "יותר מדי ניסיונות refresh credential מכתובת זו; המתינו ",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " דקות ונסו שוב."
-  ],
-  "auth.refresh_unconfigured": "רענון מארח מרחוק מושבת: לא הוקצה לשירות זה refresh credential.",
-  "auth.route_disabled": "לא הוגדר אסימון אימות למעבדה; נתיב זה מושבת",
-  "auth.session_required": "נדרשת הפעלה באמצעות אסימון מעבדה או אסימון אימות למעבדה",
+  "auth.proof_unconfigured": "לא הוגדרו מפתח אימות פנימי או כתובת URL של המרכז, ולכן לא ניתן לבדוק הוכחת שליטה; הפעולות נשארות נעולות",
+  "auth.route_disabled": "לא הוגדר מפתח אימות פנימי; נתיב זה מושבת",
+  "auth.session_required": "נדרשת הפעלת מעבדה או מפתח אימות פנימי",
   "auth.token_check_failed": [
     "מרכז המאגר לא הצליח לבדוק את אסימון המעבדה (",
     {
@@ -181,8 +181,8 @@ var Catalogs = map[string]map[string]string{
     },
     " minutos e tente novamente"
   ],
-  "auth.bearer_required": "token de autenticação de laboratório necessário",
-  "auth.changes_disabled": "nenhum URL agregador e nenhum token de autenticação de laboratório configurado; as alterações estão desabilitadas",
+  "auth.bearer_required": "chave de autenticação interna necessária",
+  "auth.changes_disabled": "nenhum URL agregador e nenhuma chave de autenticação interna configurados; as alterações estão desabilitadas",
   "auth.detail_encoding": "a codificação da requisição falhou",
   "auth.detail_http": [
     "aggregator respondeu HTTP ",
@@ -194,7 +194,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.detail_malformed_aggregator": "URL do agregador mal formado",
   "auth.detail_no_aggregator": "nenhum URL agregador configurado",
-  "auth.detail_unconfigured": "nenhum token de autenticação de laboratório e nenhum URL agregador configurado",
+  "auth.detail_unconfigured": "nenhuma chave de autenticação interna e nenhum URL agregador configurados",
   "auth.detail_unreachable": "não alcançável",
   "auth.encode_refusal": "o portão não poderia codificar sua recusa",
   "auth.host_not_served": [
@@ -214,6 +214,17 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.login_unavailable": "nenhum URL agregador está configurado, então o agregador de pool não pode verificar um token do laboratório; as ações permanecem bloqueadas",
   "auth.malformed_request": "organismo de pedido mal formado",
+  "auth.operator_credential_required": "Esta ação exige a credencial do operador no cabeçalho X-Yuruna-Operator-Credential; sessão do laboratório, token do laboratório ou chave de autenticação interna não são aceitos.",
+  "auth.operator_credential_throttled": [
+    "Muitas tentativas de credencial do operador a partir deste endereço; aguarde ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos e tente novamente."
+  ],
+  "auth.operator_credential_unconfigured": "O reparo remoto do hospedeiro está desativado: este serviço não tem credencial do operador provisionada.",
   "auth.proof_check_failed": [
     "não foi possível verificar a prova de controlo (",
     {
@@ -225,20 +236,9 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.proof_expired": "a prova de controlo expirou ou não deste pool",
   "auth.proof_shape": "não é uma prova de controlo",
-  "auth.proof_unconfigured": "nenhum token de autenticação de laboratório e nenhum URL agregador estão configurados, então uma prova de controle não pode ser verificada; as ações permanecem bloqueadas",
-  "auth.refresh_credential_required": "Esta ação exige a credencial de atualização no cabeçalho X-Yuruna-Refresh-Credential; sessão do laboratório, token do laboratório ou chave de autenticação interna não são aceitos.",
-  "auth.refresh_throttled": [
-    "Muitas tentativas de credencial de atualização a partir deste endereço; aguarde ",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " minutos e tente novamente."
-  ],
-  "auth.refresh_unconfigured": "A atualização remota do hospedeiro está desativada: este serviço não tem credencial de atualização provisionada.",
-  "auth.route_disabled": "nenhum token de autenticação de laboratório configurado; esta rota está desabilitada",
-  "auth.session_required": "sessão de token do laboratório ou token de autenticação de laboratório necessário",
+  "auth.proof_unconfigured": "nenhuma chave de autenticação interna e nenhum URL agregador estão configurados, então uma prova de controle não pode ser verificada; as ações permanecem bloqueadas",
+  "auth.route_disabled": "nenhuma chave de autenticação interna configurada; esta rota está desabilitada",
+  "auth.session_required": "sessão do laboratório ou chave de autenticação interna necessária",
   "auth.token_check_failed": [
     "o agregador de grupos não pôde verificar o token do laboratório (",
     {
@@ -264,8 +264,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ɱíñúţéš áñď ţřý áğáíñ ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "auth.bearer_required": "[ļáƀ áúţħ ţóķéñ řéʠúířéď ~~~~~~~~~~]",
-  "auth.changes_disabled": "[ñó áğğřéğáţóř ÚŘĻ áñď ñó ļáƀ áúţħ ţóķéñ çóñƒíğúřéď; çħáñğéš ářé ďíšáƀļéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.bearer_required": "[íñţéřñáļ áúţħéñţíçáţíóñ ķéý řéʠúířéď ~~~~~~~~~~~~~~~]",
+  "auth.changes_disabled": "[ñó áğğřéğáţóř ÚŘĻ áñď ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý çóñƒíğúřéď; çħáñğéš ářé ďíšáƀļéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.detail_encoding": "[řéʠúéšţ éñçóďíñğ ƒáíļéď ~~~~~~~~~~]",
   "auth.detail_http": [
     "[áğğřéğáţóř áñšŵéřéď ĦŢŢƤ ",
@@ -278,7 +278,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.detail_malformed_aggregator": "[ɱáļƒóřɱéď áğğřéğáţóř ÚŘĻ ~~~~~~~~~~]",
   "auth.detail_no_aggregator": "[ñó áğğřéğáţóř ÚŘĻ çóñƒíğúřéď ~~~~~~~~~~~~]",
-  "auth.detail_unconfigured": "[ñó ļáƀ áúţħ ţóķéñ áñď ñó áğğřéğáţóř ÚŘĻ çóñƒíğúřéď ~~~~~~~~~~~~~~~~~~~~]",
+  "auth.detail_unconfigured": "[ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý áñď ñó áğğřéğáţóř ÚŘĻ çóñƒíğúřéď ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.detail_unreachable": "[úñřéáçħáƀļé ~~~~~]",
   "auth.encode_refusal": "[ţħé ğáţé çóúļď ñóţ éñçóďé íţš řéƒúšáļ ~~~~~~~~~~~~~~~]",
   "auth.host_not_served": [
@@ -298,6 +298,17 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.login_unavailable": "[ñó áğğřéğáţóř ÚŘĻ íš çóñƒíğúřéď, šó ţħé ƥóóļ áğğřéğáţóř çáññóţ çħéçķ á ļáƀ ţóķéñ; áçţíóñš šţáý ļóçķéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.malformed_request": "[ɱáļƒóřɱéď řéʠúéšţ ƀóďý ~~~~~~~~~]",
+  "auth.operator_credential_required": "[Ţħíš áçţíóñ řéʠúířéš ţħé óƥéřáţóř çřéďéñţíáļ íñ ţħé Ẋ-Ýúřúñá-Óƥéřáţóř-Çřéďéñţíáļ ħéáďéř; á ļáƀ šéššíóñ, ļáƀ ţóķéñ óř íñţéřñáļ áúţħéñţíçáţíóñ ķéý íš ñóţ áççéƥţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.operator_credential_throttled": [
+    "[Ţóó ɱáñý óƥéřáţóř çřéďéñţíáļ áţţéɱƥţš ƒřóɱ ţħíš áďďřéšš; ŵáíţ ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš áñď ţřý áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "auth.operator_credential_unconfigured": "[Řéɱóţé ħóšţ řéƥáíř íš ďíšáƀļéď: ţħíš šéřṽíçé ħáš ñó óƥéřáţóř çřéďéñţíáļ ƥřóṽíšíóñéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.proof_check_failed": [
     "[ţħé çóñţřóļ ƥřóóƒ çóúļď ñóţ ƀé çħéçķéď (",
     {
@@ -309,20 +320,9 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.proof_expired": "[ţħé çóñţřóļ ƥřóóƒ íš éẋƥířéď óř ñóţ ƒřóɱ ţħíš ƥóóļ ~~~~~~~~~~~~~~~~~~~~]",
   "auth.proof_shape": "[ñóţ á çóñţřóļ ƥřóóƒ ~~~~~~~~]",
-  "auth.proof_unconfigured": "[ñó ļáƀ áúţħ ţóķéñ áñď ñó áğğřéğáţóř ÚŘĻ ářé çóñƒíğúřéď, šó á çóñţřóļ ƥřóóƒ çáññóţ ƀé çħéçķéď; áçţíóñš šţáý ļóçķéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.refresh_credential_required": "[Ţħíš áçţíóñ řéʠúířéš ţħé řéƒřéšħ çřéďéñţíáļ íñ ţħé Ẋ-Ýúřúñá-Řéƒřéšħ-Çřéďéñţíáļ ħéáďéř; á ļáƀ šéššíóñ, ļáƀ ţóķéñ óř íñţéřñáļ áúţħéñţíçáţíóñ ķéý íš ñóţ áççéƥţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.refresh_throttled": [
-    "[Ţóó ɱáñý řéƒřéšħ çřéďéñţíáļ áţţéɱƥţš ƒřóɱ ţħíš áďďřéšš; ŵáíţ ",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " ɱíñúţéš áñď ţřý áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "auth.refresh_unconfigured": "[Řéɱóţé ħóšţ řéƒřéšħ íš ďíšáƀļéď: ţħíš šéřṽíçé ħáš ñó řéƒřéšħ çřéďéñţíáļ ƥřóṽíšíóñéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.route_disabled": "[ñó ļáƀ áúţħ ţóķéñ çóñƒíğúřéď; ţħíš řóúţé íš ďíšáƀļéď ~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.session_required": "[ļáƀ ţóķéñ šéššíóñ óř ļáƀ áúţħ ţóķéñ řéʠúířéď ~~~~~~~~~~~~~~~~~~]",
+  "auth.proof_unconfigured": "[ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý áñď ñó áğğřéğáţóř ÚŘĻ ářé çóñƒíğúřéď, šó á çóñţřóļ ƥřóóƒ çáññóţ ƀé çħéçķéď; áçţíóñš šţáý ļóçķéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.route_disabled": "[ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý çóñƒíğúřéď; ţħíš řóúţé íš ďíšáƀļéď ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.session_required": "[ļáƀ šéššíóñ óř íñţéřñáļ áúţħéñţíçáţíóñ ķéý řéʠúířéď ~~~~~~~~~~~~~~~~~~~~~]",
   "auth.token_check_failed": [
     "[ţħé ƥóóļ áğğřéğáţóř çóúļď ñóţ çħéçķ ţħé ļáƀ ţóķéñ (",
     {
@@ -348,8 +348,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ɱíñúţéš áñď ţřý áğáíñ‬ ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "auth.bearer_required": "[!‮ļáƀ áúţħ ţóķéñ řéʠúířéď‬ ~~~~~~~~~~]",
-  "auth.changes_disabled": "[!‮ñó áğğřéğáţóř ÚŘĻ áñď ñó ļáƀ áúţħ ţóķéñ çóñƒíğúřéď; çħáñğéš ářé ďíšáƀļéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.bearer_required": "[!‮íñţéřñáļ áúţħéñţíçáţíóñ ķéý řéʠúířéď‬ ~~~~~~~~~~~~~~~]",
+  "auth.changes_disabled": "[!‮ñó áğğřéğáţóř ÚŘĻ áñď ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý çóñƒíğúřéď; çħáñğéš ářé ďíšáƀļéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.detail_encoding": "[!‮řéʠúéšţ éñçóďíñğ ƒáíļéď‬ ~~~~~~~~~~]",
   "auth.detail_http": [
     "[!‮áğğřéğáţóř áñšŵéřéď ĦŢŢƤ ",
@@ -362,7 +362,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.detail_malformed_aggregator": "[!‮ɱáļƒóřɱéď áğğřéğáţóř ÚŘĻ‬ ~~~~~~~~~~]",
   "auth.detail_no_aggregator": "[!‮ñó áğğřéğáţóř ÚŘĻ çóñƒíğúřéď‬ ~~~~~~~~~~~~]",
-  "auth.detail_unconfigured": "[!‮ñó ļáƀ áúţħ ţóķéñ áñď ñó áğğřéğáţóř ÚŘĻ çóñƒíğúřéď‬ ~~~~~~~~~~~~~~~~~~~~]",
+  "auth.detail_unconfigured": "[!‮ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý áñď ñó áğğřéğáţóř ÚŘĻ çóñƒíğúřéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.detail_unreachable": "[!‮úñřéáçħáƀļé‬ ~~~~~]",
   "auth.encode_refusal": "[!‮ţħé ğáţé çóúļď ñóţ éñçóďé íţš řéƒúšáļ‬ ~~~~~~~~~~~~~~~]",
   "auth.host_not_served": [
@@ -382,6 +382,17 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.login_unavailable": "[!‮ñó áğğřéğáţóř ÚŘĻ íš çóñƒíğúřéď, šó ţħé ƥóóļ áğğřéğáţóř çáññóţ çħéçķ á ļáƀ ţóķéñ; áçţíóñš šţáý ļóçķéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.malformed_request": "[!‮ɱáļƒóřɱéď řéʠúéšţ ƀóďý‬ ~~~~~~~~~]",
+  "auth.operator_credential_required": "[!‮Ţħíš áçţíóñ řéʠúířéš ţħé óƥéřáţóř çřéďéñţíáļ íñ ţħé Ẋ-Ýúřúñá-Óƥéřáţóř-Çřéďéñţíáļ ħéáďéř; á ļáƀ šéššíóñ, ļáƀ ţóķéñ óř íñţéřñáļ áúţħéñţíçáţíóñ ķéý íš ñóţ áççéƥţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.operator_credential_throttled": [
+    "[!‮Ţóó ɱáñý óƥéřáţóř çřéďéñţíáļ áţţéɱƥţš ƒřóɱ ţħíš áďďřéšš; ŵáíţ ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš áñď ţřý áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "auth.operator_credential_unconfigured": "[!‮Řéɱóţé ħóšţ řéƥáíř íš ďíšáƀļéď: ţħíš šéřṽíçé ħáš ñó óƥéřáţóř çřéďéñţíáļ ƥřóṽíšíóñéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "auth.proof_check_failed": [
     "[!‮ţħé çóñţřóļ ƥřóóƒ çóúļď ñóţ ƀé çħéçķéď (",
     {
@@ -393,20 +404,9 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.proof_expired": "[!‮ţħé çóñţřóļ ƥřóóƒ íš éẋƥířéď óř ñóţ ƒřóɱ ţħíš ƥóóļ‬ ~~~~~~~~~~~~~~~~~~~~]",
   "auth.proof_shape": "[!‮ñóţ á çóñţřóļ ƥřóóƒ‬ ~~~~~~~~]",
-  "auth.proof_unconfigured": "[!‮ñó ļáƀ áúţħ ţóķéñ áñď ñó áğğřéğáţóř ÚŘĻ ářé çóñƒíğúřéď, šó á çóñţřóļ ƥřóóƒ çáññóţ ƀé çħéçķéď; áçţíóñš šţáý ļóçķéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.refresh_credential_required": "[!‮Ţħíš áçţíóñ řéʠúířéš ţħé řéƒřéšħ çřéďéñţíáļ íñ ţħé Ẋ-Ýúřúñá-Řéƒřéšħ-Çřéďéñţíáļ ħéáďéř; á ļáƀ šéššíóñ, ļáƀ ţóķéñ óř íñţéřñáļ áúţħéñţíçáţíóñ ķéý íš ñóţ áççéƥţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.refresh_throttled": [
-    "[!‮Ţóó ɱáñý řéƒřéšħ çřéďéñţíáļ áţţéɱƥţš ƒřóɱ ţħíš áďďřéšš; ŵáíţ ",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    " ɱíñúţéš áñď ţřý áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "auth.refresh_unconfigured": "[!‮Řéɱóţé ħóšţ řéƒřéšħ íš ďíšáƀļéď: ţħíš šéřṽíçé ħáš ñó řéƒřéšħ çřéďéñţíáļ ƥřóṽíšíóñéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.route_disabled": "[!‮ñó ļáƀ áúţħ ţóķéñ çóñƒíğúřéď; ţħíš řóúţé íš ďíšáƀļéď‬ ~~~~~~~~~~~~~~~~~~~~~]",
-  "auth.session_required": "[!‮ļáƀ ţóķéñ šéššíóñ óř ļáƀ áúţħ ţóķéñ řéʠúířéď‬ ~~~~~~~~~~~~~~~~~~]",
+  "auth.proof_unconfigured": "[!‮ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý áñď ñó áğğřéğáţóř ÚŘĻ ářé çóñƒíğúřéď, šó á çóñţřóļ ƥřóóƒ çáññóţ ƀé çħéçķéď; áçţíóñš šţáý ļóçķéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.route_disabled": "[!‮ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý çóñƒíğúřéď; ţħíš řóúţé íš ďíšáƀļéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "auth.session_required": "[!‮ļáƀ šéššíóñ óř íñţéřñáļ áúţħéñţíçáţíóñ ķéý řéʠúířéď‬ ~~~~~~~~~~~~~~~~~~~~~]",
   "auth.token_check_failed": [
     "[!‮ţħé ƥóóļ áğğřéğáţóř çóúļď ñóţ çħéçķ ţħé ļáƀ ţóķéñ (",
     {
@@ -432,8 +432,8 @@ var Catalogs = map[string]map[string]string{
     },
     "分钟后重试"
   ],
-  "auth.bearer_required": "需要实验室身份验证令牌",
-  "auth.changes_disabled": "未配置聚合器URL和实验室身份验证令牌；已禁用更改",
+  "auth.bearer_required": "需要内部身份验证密钥",
+  "auth.changes_disabled": "未配置聚合器URL和内部身份验证密钥；已禁用更改",
   "auth.detail_encoding": "请求编码失败",
   "auth.detail_http": [
     "聚合器返回HTTP ",
@@ -445,7 +445,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.detail_malformed_aggregator": "聚合器URL格式错误",
   "auth.detail_no_aggregator": "未配置聚合器URL",
-  "auth.detail_unconfigured": "未配置实验室身份验证令牌和聚合器URL",
+  "auth.detail_unconfigured": "未配置内部身份验证密钥和聚合器URL",
   "auth.detail_unreachable": "无法访问",
   "auth.encode_refusal": "授权关卡无法对拒绝响应进行编码",
   "auth.host_not_served": [
@@ -465,6 +465,17 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.login_unavailable": "未配置聚合器URL，因此池聚合器无法验证实验室令牌；操作保持锁定",
   "auth.malformed_request": "请求正文格式错误",
+  "auth.operator_credential_required": "此操作需要在X-Yuruna-Operator-Credential请求头中提供操作员凭据；不接受实验室会话、实验室令牌或内部身份验证密钥。",
+  "auth.operator_credential_throttled": [
+    "来自此地址的操作员凭据尝试次数过多；请等待",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    "分钟后重试。"
+  ],
+  "auth.operator_credential_unconfigured": "远程宿主机修复已禁用：此服务未配置操作员凭据。",
   "auth.proof_check_failed": [
     "无法验证控制证明（",
     {
@@ -476,20 +487,9 @@ var Catalogs = map[string]map[string]string{
   ],
   "auth.proof_expired": "控制证明已过期或并非来自此池",
   "auth.proof_shape": "不是控制证明",
-  "auth.proof_unconfigured": "未配置实验室身份验证令牌和聚合器URL，因此无法验证控制证明；操作保持锁定",
-  "auth.refresh_credential_required": "此操作需要在X-Yuruna-Refresh-Credential请求头中提供刷新凭据；不接受实验室会话、实验室令牌或内部身份验证密钥。",
-  "auth.refresh_throttled": [
-    "来自此地址的刷新凭据尝试次数过多；请等待",
-    {
-      "arg": "minutes",
-      "type": "integer",
-      "trust": "internal"
-    },
-    "分钟后重试。"
-  ],
-  "auth.refresh_unconfigured": "远程宿主机刷新已禁用：此服务未配置刷新凭据。",
-  "auth.route_disabled": "未配置实验室身份验证令牌；此路由已禁用",
-  "auth.session_required": "需要实验室令牌会话或实验室身份验证令牌",
+  "auth.proof_unconfigured": "未配置内部身份验证密钥和聚合器URL，因此无法验证控制证明；操作保持锁定",
+  "auth.route_disabled": "未配置内部身份验证密钥；此路由已禁用",
+  "auth.session_required": "需要实验室会话或内部身份验证密钥",
   "auth.token_check_failed": [
     "池聚合器无法验证实验室令牌（",
     {

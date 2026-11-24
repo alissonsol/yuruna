@@ -637,7 +637,7 @@ const DatazhCNexceptions = `{
     }
   ],
   "exceptions.host_ffd2efb19a40de43": "Enable-TestAutomation.ps1（host/windows.hyper-v）只能在Windows上运行。",
-  "exceptions.host_refresh_auth_authority_incomplete": [
+  "exceptions.host_repair_auth_authority_incomplete": [
     "已写入",
     {
       "arg": "path",
@@ -658,17 +658,17 @@ const DatazhCNexceptions = `{
     },
     "）；请运行-NewAuthority -Rotate以重新写入这两个文件。"
   ],
-  "exceptions.host_refresh_auth_authority_missing": [
+  "exceptions.host_repair_auth_authority_missing": [
     "在",
     {
       "arg": "path",
       "type": "detail",
       "trust": "internal"
     },
-    "下找不到刷新签发机构；请先使用-NewAuthority创建。"
+    "下找不到修复签发机构；请先使用-NewAuthority创建。"
   ],
-  "exceptions.host_refresh_auth_host_id_mismatch": [
-    "刷新密钥是为宿主机",
+  "exceptions.host_repair_auth_host_id_mismatch": [
+    "修复验证密钥是为宿主机",
     {
       "arg": "keyHostId",
       "type": "identifier",
@@ -682,7 +682,7 @@ const DatazhCNexceptions = `{
     },
     "；请改为导出适用于此宿主机的密钥。"
   ],
-  "exceptions.host_refresh_auth_host_id_unavailable": [
+  "exceptions.host_repair_auth_host_id_unavailable": [
     "此宿主机尚无宿主机ID（缺少",
     {
       "arg": "path",
@@ -691,8 +691,8 @@ const DatazhCNexceptions = `{
     },
     "）；请启动一次运行器以生成host.uuid，然后重试。"
   ],
-  "exceptions.host_refresh_auth_invalid_claim": [
-    "刷新证明字段",
+  "exceptions.host_repair_auth_invalid_claim": [
+    "修复证明字段",
     {
       "arg": "field",
       "type": "identifier",
@@ -700,13 +700,13 @@ const DatazhCNexceptions = `{
     },
     "无效。"
   ],
-  "exceptions.host_refresh_auth_key_malformed": [
+  "exceptions.host_repair_auth_key_malformed": [
     {
       "arg": "path",
       "type": "detail",
       "trust": "internal"
     },
-    "不是刷新密钥文件（应仅包含以",
+    "不是修复签发机构或修复验证密钥文件（应仅包含以",
     {
       "arg": "prefix",
       "type": "token",
@@ -714,7 +714,7 @@ const DatazhCNexceptions = `{
     },
     "开头的一行）。"
   ],
-  "exceptions.host_refresh_auth_key_permissions_open": [
+  "exceptions.host_repair_auth_key_permissions_open": [
     "其他用户可以读取",
     {
       "arg": "path",
@@ -723,8 +723,8 @@ const DatazhCNexceptions = `{
     },
     "；请将其权限限制为仅所有者可访问（chmod 600），然后重试。"
   ],
-  "exceptions.host_refresh_auth_key_unusable": [
-    "无法使用刷新密钥文件",
+  "exceptions.host_repair_auth_key_unusable": [
+    "无法使用修复签发机构或修复验证密钥文件",
     {
       "arg": "path",
       "type": "detail",
@@ -738,7 +738,7 @@ const DatazhCNexceptions = `{
     },
     "）。"
   ],
-  "exceptions.host_refresh_auth_key_write_failed": [
+  "exceptions.host_repair_auth_key_write_failed": [
     "无法以仅所有者可访问的权限写入",
     {
       "arg": "path",
@@ -753,16 +753,16 @@ const DatazhCNexceptions = `{
     },
     "）。"
   ],
-  "exceptions.host_refresh_auth_private_root_unavailable": [
+  "exceptions.host_repair_auth_private_root_unavailable": [
     "无法保护私有状态根目录（",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "）；未写入刷新密钥。"
+    "）；未写入修复密钥材料。"
   ],
-  "exceptions.host_refresh_relaunch_parameter_unsupported": [
+  "exceptions.host_repair_relaunch_parameter_unsupported": [
     "参数",
     {
       "arg": "name",
@@ -777,8 +777,8 @@ const DatazhCNexceptions = `{
     },
     "，无法在以libvirt组权限重新启动时传递。"
   ],
-  "exceptions.host_refresh_worker_argument_invalid": [
-    "宿主机刷新工作进程的参数",
+  "exceptions.host_repair_worker_argument_invalid": [
+    "宿主机修复工作进程的参数",
     {
       "arg": "name",
       "type": "identifier",
@@ -794,6 +794,30 @@ const DatazhCNexceptions = `{
       "trust": "external"
     },
     "的SHA256SUMS GPG签名"
+  ],
+  "exceptions.host_update_auth_public_key_invalid": "pool-control公钥必须是-NewUpdateSigningKey输出的那一行yupk1，且包含至少3072位的RSA密钥。",
+  "exceptions.host_update_auth_signing_key_unusable": [
+    "无法使用宿主机更新签名密钥",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）；请使用-NewUpdateSigningKey创建一个。"
+  ],
+  "exceptions.host_update_auth_url_invalid": [
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    "不是pool-control地址：请提供不超过256字节、不含用户名、查询或片段的绝对http或https URL。"
   ],
   "exceptions.host_utm_sudo_requires_noninteractive": "Invoke-UtmHostTool：调用sudo时必须将-n作为第一个参数，以确保其绝不等待密码输入。",
   "exceptions.host_utmctl_kill_requires_stop": [

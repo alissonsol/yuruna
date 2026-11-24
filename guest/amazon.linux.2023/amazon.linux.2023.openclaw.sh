@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.16
+# Version: 2026.11.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 42a0d078-1f5b-4b77-a34e-8bddc226f8d7
@@ -41,11 +41,10 @@ dnf_retry sudo dnf -y install git
 # --- REGION: Install Node.js
 echo ""
 echo -e "\e[1;36m==== Node.js ====\e[0m"
-# Install the manifest-pinned Node.js major (YURUNA_NODE_MAJOR); OpenClaw needs a current LTS
-# NodeSource's repository for that major, written the way its setup script
-# writes it, with the signing key checked against its pinned fingerprint
-# instead of piping that unverified script to a root shell. dnf then verifies
-# every package against the key.
+# Install the manifest-pinned Node.js major (YURUNA_NODE_MAJOR); OpenClaw needs a current LTS.
+# Write NodeSource's repository for that major the way its setup script writes it,
+# with the signing key checked against its pinned fingerprint instead of piping that
+# unverified script to a root shell. dnf then verifies every package against the key.
 declare -F _yuruna_verify_key_fpr >/dev/null || { echo "ERROR: this guest's /usr/local/lib/yuruna/yuruna-retry.sh predates key fingerprint checks; rebuild the guest." >&2; exit 1; }
 command -v gpg >/dev/null 2>&1 || dnf_retry sudo dnf install -y gnupg2
 _ns_key="$(mktemp)"

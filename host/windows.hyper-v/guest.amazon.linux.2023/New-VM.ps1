@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,6 +111,7 @@ if (-not (Test-Path -Path $vmDir)) {
 }
 $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
 # --- REGION: Copy base image -> per-VM disk
+# See https://yuruna.link/42e220c4-0004
 # Rebuild from the base so cloud-init never inherits a previous guest's state.
 Write-Verbose "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -LiteralPath $baseImageFile -Destination $vhdxFile -Force -ErrorAction Stop

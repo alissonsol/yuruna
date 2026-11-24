@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42c8b0e7-91d4-4a36-b5f8-2e7c19d3a640
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ function Confirm-SshAclOwnerContract {
 
     Assert-True ($Text -match '\.SetOwner\(\$currentSid\)') `
         'the private key owner is not set to the current account SID'
-    Assert-True ($Text -match '\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)') `
+    Assert-True ($Text -match '\$writtenOwner\s*=\s*\$written\.GetOwner\(\[System\.Security\.Principal\.SecurityIdentifier\]\)') `
         'the written private-key owner is not read back as a SID'
     Assert-True ($Text -match '\$writtenOwner\.Value\s+-ne\s+\$currentSid\.Value') `
         'the written owner SID is not verified against the current account SID'
@@ -175,7 +175,8 @@ Describe 'a Windows principal is identified by its value, not its display name' 
         Assert-True ($text -match 'WindowsIdentity\]::GetCurrent\(\)\.User') 'the current account is not identified by its language-independent SID'
         Assert-True ($text -match 'SecurityIdentifier') 'the verification does not normalize stored identities to SIDs'
         Assert-True ($text -match 'SetAccessRuleProtection\(\$true,\s*\$false\)') 'inherited access survives on the private key'
-        Assert-True ($text -match 'Set-Acl.*-ErrorAction\s+Stop') 'an ACL write failure can still be swallowed'
+        Assert-True ($text -match 'Set-Acl.*-ErrorAction\s+Stop') 'an owner-restoration write failure can still be swallowed'
+        Assert-True ($text -match '\[System\.IO\.FileSystemAclExtensions\]::SetAccessControl\(\$keyFile,\s*\$acl\)') 'the ACL write does not persist only the modified security sections'
         Assert-True (([regex]::Matches($text, 'Get-Acl.*-ErrorAction\s+Stop')).Count -ge 2) 'the ACL is not read back after it is written'
         Assert-True ($text -match 'AreAccessRulesProtected') 'the verification does not prove inheritance stayed disabled'
         Assert-True ($text -match 'FileSystemRights\s+-band\s+\$fullControl') 'the verification does not prove the remaining SID has FullControl'

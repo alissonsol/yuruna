@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4227f6df-0fe0-4a7d-b85b-64c7c2f5ede7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test runner integration host-refresh pester
+.TAGS yuruna test runner integration host-operation pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -20,7 +20,7 @@
 .SYNOPSIS
     The real runner chain -- Start-TestRunner.ps1, Invoke-TestCycleRunner.ps1
     and the inner -- across three real processes: every operator option
-    reaching the inner, a refresh resume that keeps the operator's controls
+    reaching the inner, a handoff resume that keeps the operator's controls
     and admits only its preflight chain, the real inner's preflight, and
     faults fired inside the chain, each ending as a scored non-pass.
 .DESCRIPTION
@@ -123,9 +123,9 @@ foreach ($key in $PSBoundParameters.Keys) {
     relaunch       = $env:YURUNA_RUNNER_RELAUNCH
     nonInteractive = $env:YURUNA_NONINTERACTIVE
     generation     = $env:YURUNA_CYCLE_GENERATION
-    preflight      = $env:YURUNA_REFRESH_PREFLIGHT
-    token          = $env:YURUNA_REFRESH_HANDOFF_TOKEN
-    barrier        = $env:YURUNA_REFRESH_BARRIER
+    preflight      = $env:YURUNA_HANDOFF_PREFLIGHT
+    token          = $env:YURUNA_HANDOFF_TOKEN
+    barrier        = $env:YURUNA_HANDOFF_BARRIER
     commandLine    = @([Environment]::GetCommandLineArgs())
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $capture -Encoding utf8NoBOM
 $release = Join-Path $env:YURUNA_RUNTIME_DIR 'stub.release'
@@ -322,7 +322,7 @@ exit 0
         [CmdletBinding()]
         [OutputType([string])]
         param([hashtable]$F)
-        $root = Join-Path $F.Home '.yuruna/host-refresh'
+        $root = Join-Path $F.Home '.yuruna/host-repair'
         $null = New-Item -ItemType Directory -Path $root -Force
         foreach ($dir in @((Join-Path $F.Home '.yuruna'), $root)) { [IO.File]::SetUnixFileMode($dir, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute') }
         return $root
@@ -334,8 +334,8 @@ exit 0
         [CmdletBinding()]
         [OutputType([pscustomobject])]
         param([hashtable]$F, [string]$Root, [hashtable]$Reclaimed = @{})
-        $gate = Get-YurunaRefreshGateState -RuntimeDir $F.Runtime -PrivateRoot $Root
-        $closed = Set-YurunaRefreshGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $F.Runtime `
+        $gate = Get-YurunaRunnerGateState -RuntimeDir $F.Runtime -PrivateRoot $Root
+        $closed = Set-YurunaRunnerGate -State closed -RequestId $script:RequestId -Attempt 1 -RuntimeDir $F.Runtime `
             -ExpectedGeneration ([string]$gate.Generation) -Reclaimed $Reclaimed -PrivateRoot $Root -Confirm:$false
         if (-not $closed.Written) { throw "gate not closed: $($closed.Reason)" }
         $token = New-YurunaRunnerHandoffToken -RequestId $script:RequestId -Attempt 1 -RuntimeDir $F.Runtime -Purpose new-outer `
@@ -399,7 +399,7 @@ Describe 'Case A: every operator option crosses outer -> cycle -> inner' -Skip:(
             $gitCalls = if (Test-Path -LiteralPath $f.GitLog) { Get-Content -LiteralPath $f.GitLog -Raw } else { '' }
             Assert-False ($gitCalls -match '(^|\s)(pull|fetch)(\s|$)') "no pull or fetch under -NoGitPull: $gitCalls"
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'server.pid')) 'no status service under -NoStatusService'
-            $launch = Read-YurunaRunnerLaunchRecord -RuntimeDir $f.Runtime -PrivateRoot (Join-Path $f.Home '.yuruna/host-refresh')
+            $launch = Read-YurunaRunnerLaunchRecord -RuntimeDir $f.Runtime -PrivateRoot (Join-Path $f.Home '.yuruna/host-repair')
             Assert-True $launch.Valid "launch record ($($launch.Reason))"
             $p = $launch.Record['parameters']
             Assert-Equal -Expected $f.Config -Actual $p['ConfigPath']
@@ -437,7 +437,7 @@ Describe 'Case A2: a runner started by a relative path from its checkout is that
     }
 }
 
-Describe 'Case B: a refresh resume keeps the controls and admits only its preflight chain' -Skip:(-not $script:CanRunChain) {
+Describe 'Case B: a handoff resume keeps the controls and admits only its preflight chain' -Skip:(-not $script:CanRunChain) {
     It 'removes only the reclaimed runner record, runs the preflight with the token, then the barrier cycle after release' {
         $f = New-ChainTree -StubInner
         $runner = $null
@@ -449,7 +449,7 @@ Describe 'Case B: a refresh resume keeps the controls and admits only its prefli
             foreach ($name in @('control.cycle-pause', 'control.lab-hold')) { Set-Content -LiteralPath (Join-Path $f.Runtime $name) -Value 'x' -Encoding utf8NoBOM }
             $token = New-ChainHandoff -F $f -Root $root -Reclaimed @{ outer = @{ pid = $dead.Pid; startTimeUnixMs = ([DateTimeOffset]$dead.Start).ToUnixTimeMilliseconds() } }
             $runner = Start-ChainRunner -F $f -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate',
-                '-RefreshResume', '-RefreshHandoffToken', $token.TokenId)
+                '-HandoffResume', '-HandoffToken', $token.TokenId)
             $preflight = Wait-Capture -F $f -Runner $runner
             Assert-NotNull $preflight (Get-ChainDiagnostic -F $f)
             Assert-Equal -Expected '1' -Actual $preflight.preflight
@@ -458,7 +458,7 @@ Describe 'Case B: a refresh resume keeps the controls and admits only its prefli
             foreach ($name in @('control.cycle-pause', 'control.lab-hold')) {
                 Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime $name)) "$name survived the resumed startup"
             }
-            $gate = Get-YurunaRefreshGateState -RuntimeDir $f.Runtime -PrivateRoot $root
+            $gate = Get-YurunaRunnerGateState -RuntimeDir $f.Runtime -PrivateRoot $root
             $done = Complete-YurunaRunnerHandoff -TokenId $token.TokenId -Verdict released -ExpectedGeneration ([string]$gate.Generation) -PrivateRoot $root -Confirm:$false
             Assert-True $done.Completed "handoff completed ($($done.Reason))"
             Set-Content -LiteralPath (Join-Path $f.Runtime 'stub.release') -Value 'go' -Encoding utf8NoBOM
@@ -491,7 +491,7 @@ Describe 'Case B: a refresh resume keeps the controls and admits only its prefli
             [System.IO.File]::WriteAllText($statePath, $liveState)
             $token = New-ChainHandoff -F $f -Root $root
             $runner = Start-ChainRunner -F $f -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate',
-                '-RefreshResume', '-RefreshHandoffToken', $token.TokenId)
+                '-HandoffResume', '-HandoffToken', $token.TokenId)
             Assert-True ($runner.WaitForExit(180000)) 'the resumed runner exits'
             Assert-Equal -Expected 1 -Actual $runner.ExitCode -Because (Get-ChainDiagnostic -F $f)
             $ack = Get-Content -LiteralPath (Join-Path $root "runner-handoff.$($token.TokenId).ack.json") -Raw | ConvertFrom-Json
@@ -543,7 +543,7 @@ Describe 'Case C: the real inner runs only its preflight and acknowledges it' -S
             $root = Initialize-ChainPrivateRoot -F $f
             $token = New-ChainHandoff -F $f -Root $root
             $runner = Start-ChainRunner -F $f -Arguments @('-ConfigPath', $f.Config, '-NoGitPull', '-NoStatusService', '-NoConfigGate',
-                '-RefreshResume', '-RefreshHandoffToken', $token.TokenId)
+                '-HandoffResume', '-HandoffToken', $token.TokenId)
             $ready = Wait-YurunaRunnerReadiness -TokenId $token.TokenId -Deadline (New-YurunaDeadline -TotalMilliseconds 240000) -PrivateRoot $root
             Assert-True ($ready.State -in @('ready', 'failed')) "acknowledged: $($ready.State) $($ready.Reason) $(Get-ChainDiagnostic -F $f)"
             if ($ready.State -eq 'failed') {
@@ -551,14 +551,14 @@ Describe 'Case C: the real inner runs only its preflight and acknowledges it' -S
             }
             # Recovery-pending, never released: the chain must not reach an
             # ordinary cycle on this host.
-            $gate = Get-YurunaRefreshGateState -RuntimeDir $f.Runtime -PrivateRoot $root
+            $gate = Get-YurunaRunnerGateState -RuntimeDir $f.Runtime -PrivateRoot $root
             $null = Complete-YurunaRunnerHandoff -TokenId $token.TokenId -Verdict recovery-pending -ExpectedGeneration ([string]$gate.Generation) -PrivateRoot $root -Confirm:$false
             $outerLog = Join-Path $f.Runtime 'outer.log'
             $until = [DateTime]::UtcNow.AddSeconds(120)
-            while ([DateTime]::UtcNow -lt $until -and (Read-ChainText -Path $outerLog) -notmatch 'refresh preflight finished') {
+            while ([DateTime]::UtcNow -lt $until -and (Read-ChainText -Path $outerLog) -notmatch 'handoff preflight finished') {
                 Start-Sleep -Milliseconds 500
             }
-            Assert-True ((Read-ChainText -Path $outerLog) -match 'refresh preflight finished') "the outer never logged the end of the preflight: $(Get-ChainDiagnostic -F $f)"
+            Assert-True ((Read-ChainText -Path $outerLog) -match 'handoff preflight finished') "the outer never logged the end of the preflight: $(Get-ChainDiagnostic -F $f)"
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'status.json')) 'a preflight writes no status document'
             Assert-False (Test-Path -LiteralPath (Join-Path $f.Runtime 'host.registration.json')) 'a preflight registers nothing'
             Assert-True (Test-Path -LiteralPath (Join-Path $f.Runtime 'inner.start')) 'the inner published its start record'

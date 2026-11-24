@@ -343,7 +343,8 @@
     },
     "download.pool_bytes": {
       "sourceHash": "971f4de4ded1937edc183aa921ed70e79f9a14e198ea00e9f248eb1116406c47",
-      "message": "bytes de grupo"
+      "origin": "machine",
+      "message": "Bytes do grupo"
     },
     "download.previous_value1": {
       "sourceHash": "66e6823affb37085d2bdc6387ede753316e4457278df653875b8f8b08e017c37",

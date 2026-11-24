@@ -46,8 +46,104 @@ APT_PROXY_BLOCK_PLACEHOLDER
   interactive-sections: []
 # === YURUNA_OVERLAY_SHUTDOWN ===
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
+    # --- REGION: Installer progress evidence
+    - |
+      (
+      set +e
+      # A hung installer never reaches error-commands, and its target login
+      # does not exist yet. Capture from the live system without needing SSH.
+      for TOOL in timeout systemd-run curl; do
+          command -v "$TOOL" >/dev/null 2>&1 || exit 0
+      done
+      cat > /run/yuruna-installer-progress.sh << 'YURUNA_INSTALLER_PROGRESS'
+      #!/bin/sh
+      set +e
+      HOST_IP="YURUNA_STATUS_SERVICE_IP_PLACEHOLDER"
+      HOST_PORT="YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER"
+      [ -n "$HOST_IP" ] && [ -n "$HOST_PORT" ] || exit 0
+      # cloud-init's instance ID is the VM name, even with a pinned hostname.
+      VM_ID=$(cat /var/lib/cloud/data/instance-id 2>/dev/null)
+      case "$VM_ID" in ''|*[!A-Za-z0-9._-]*) exit 0 ;; esac
+      SNAPSHOT=$(mktemp /run/yuruna-installer-progress.XXXXXX) || exit 0
+      PROBE=$(mktemp /run/yuruna-installer-progress.XXXXXX) || { rm -f "$SNAPSHOT"; exit 0; }
+      trap 'rm -f "$SNAPSHOT" "$PROBE"' EXIT
+      trap 'exit 0' HUP INT TERM
+      capture_probe() {
+          LABEL="$1"
+          shift
+          printf '\n== %s ==\n' "$LABEL"
+          if ! command -v "$1" >/dev/null 2>&1; then
+              echo "unavailable: $1 not installed"
+              return
+          fi
+          # Drain after the byte limit instead of buffering unbounded output
+          # or hiding the command's exit status behind a truncating pipeline.
+          (
+              timeout --kill-after=1s 3s "$@"
+              printf '%s\n' "$?" > "$PROBE"
+          ) 2>&1 | { head -c 16384; cat >/dev/null; }
+          printf '\n[exit=%s; timeout=3s, kill-after=1s; output capped at 16384 bytes]\n' "$(cat "$PROBE")"
+      }
+      capture_snapshot() {
+          printf 'capturedUtc=%s\nvmName=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$VM_ID"
+          capture_probe 'boot_id and /proc/uptime' cat /proc/sys/kernel/random/boot_id /proc/uptime
+          capture_probe 'process tree and wait channels (no arguments or environment)' \
+              ps -e -o pid,ppid,stat,etimes,wchan:32,comm
+          # Expansion belongs to the bounded probe's shell.
+          # shellcheck disable=SC2016
+          capture_probe 'apt worker wait state and file references' sh -c '
+              COUNT=0
+              for PROC in /proc/[0-9]*; do
+                  COMM=$(cat "$PROC/comm" 2>/dev/null)
+                  case "$COMM" in apt|apt-get|dpkg|http|https|gpgv) ;; *) continue ;; esac
+                  printf "\npid=%s comm=%s\n" "${PROC##*/}" "$COMM"
+                  for FILE in wchan stack; do
+                      printf "%s: " "$FILE"; head -c 2048 "$PROC/$FILE" 2>&1; echo
+                  done
+                  ls -l "$PROC/fd" 2>&1
+                  COUNT=$((COUNT + 1))
+                  [ "$COUNT" -lt 8 ] || break
+              done
+          '
+          capture_probe 'network interfaces' ip -br address
+          capture_probe 'routes' ip route
+          capture_probe 'TCP sockets and timers' ss -tnpo
+          capture_probe 'networkd journal' journalctl -b -u systemd-networkd --no-pager -n 40 -o short-monotonic
+          for LOG in \
+              /var/log/installer/subiquity-server-debug.log \
+              /var/log/installer/subiquity-curtin-install.log \
+              /var/log/installer/curtin-install.log \
+              /var/log/installer/curtin-install/main.log; do
+              # Network update spam can fill the raw tail while apt is stuck.
+              # shellcheck disable=SC2016
+              capture_probe "$LOG (recent installer, apt and error lines)" sh -c '
+                  if [ -r "$1" ]; then
+                      grep -Ei "subiquity/(Install|Mirror)|apt|curtin|traceback|error|warning|timeout" "$1" | tail -c 16384
+                  else echo "state=absent-or-unreadable"; fi
+              ' sh "$LOG"
+          done
+      }
+      while :; do
+          capture_snapshot | sed -E '
+              s#(https?://)[^/@[:space:]]+:[^/@[:space:]]+@#\1[redacted]@#g
+              /(password|passwd|token|secret|authorized.?keys|private.?key|user-data)/Ic\[redacted credential-bearing line]
+          ' > "$SNAPSHOT"
+          timeout --kill-after=1s 10s curl --silent --show-error --fail --max-time 10 --noproxy '*' \
+              --upload-file "$SNAPSHOT" "http://${HOST_IP}:${HOST_PORT}/log-upload/installer-progress/${VM_ID}/latest.log" \
+              >/dev/null 2>&1
+          sleep 60
+      done
+      YURUNA_INSTALLER_PROGRESS
+      timeout --kill-after=1s 3s systemd-run --quiet --collect --unit=yuruna-installer-progress \
+          --property=RuntimeMaxSec=7200 --property=TimeoutStopSec=5s \
+          --property=StandardInput=null --property=StandardOutput=null --property=StandardError=null \
+          /bin/sh /run/yuruna-installer-progress.sh || true
+      )
+      true
   # --- REGION: late-commands
   late-commands:
+    # Stop before provisioning can put repository credentials in installer logs.
+    - timeout --kill-after=1s 6s systemctl stop yuruna-installer-progress.service 2>/dev/null || true
     # --- REGION: https://yuruna.link/4220a755-004c
     - |
       mkdir -p /target/etc/ssh/sshd_config.d

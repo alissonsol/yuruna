@@ -321,9 +321,9 @@
       "sourceHash": "47dfd350d40ed299f1fbbe5b48dea77f66c962d2fe60f47964b910ef10ac1446",
       "message": "BraçoWindowHours"
     },
-    "status.config_field_autorefreshafterstalls": {
-      "sourceHash": "27e878f22e3647c23b4b53d711dc5b6826e27177c57c4490e65198d795327c31",
-      "message": "AutoRefreshAfterStalls"
+    "status.config_field_autorepairafterstalls": {
+      "sourceHash": "99f6efebe46c49d3fdc47bb3824ea53a81d46ba77b713823f280f5b5c23d7959",
+      "message": "AutoRepairAfterStalls"
     },
     "status.config_field_autoremediation": {
       "sourceHash": "6bb8e0c2e87ca41c03715f5a8759b3b43ba9ed339ec09f80bdd735cd560459cf",
@@ -606,16 +606,16 @@
       "message": "string ({count})"
     },
     "status.control_host_token_missing": {
-      "sourceHash": "833ac232619bca6ec8cee4677274d137587d7433d33b8c6d88e3fd51fcf5d61e",
-      "message": "Este hospedeiro ainda não tem ficha de laboratório."
+      "sourceHash": "45a4288a3b6a5f129ea596a4d6a80cfdad9532e04b8b4eacc8c483deb720f626",
+      "message": "Este hospedeiro ainda não tem chave de autenticação interna."
     },
     "status.control_instructions": {
-      "sourceHash": "e7de24780be991e1f083826f2e55174cac676ea56b7a848c0f5b9bcb88cabc0f",
-      "message": "Esta máquina só aceita o controle a partir de um navegador na própria máquina ({address}), ou um aberto através do link do painel de máquinas Yuruna (que concede um token de curta duração). o painel; se este host nunca foi matriculado, execute {command} com o código do ladrilho de token Lab do painel."
+      "sourceHash": "7f7873410d10199dd5d72bfd02bb923dab30149be1db983a0c6021f974d6bc73",
+      "message": "Este hospedeiro só aceita controle de um navegador no próprio hospedeiro ({address}) ou de um navegador aberto pelo link do painel de hospedeiros Yuruna (que concede uma prova de controle de curta duração). Para controlá-lo de outra máquina, abra-o pelo painel; se este hospedeiro nunca foi inscrito, execute {command} com o código do bloco do token do laboratório no painel."
     },
     "status.control_proof_expired": {
-      "sourceHash": "8d7dce508c18371637b1a6a75db30047f70bad4806fbeec429babe767b34a1a8",
-      "message": "O token de controle desta página expirou (duram 15 minutos)."
+      "sourceHash": "8d79d356599649edccdaba3094dcb215139c327cdc4dfb81e692ffc7271225b9",
+      "message": "A prova de controle desta página expirou (as provas duram 15 minutos)."
     },
     "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": {
       "sourceHash": "0d197e08ba938ec94cfc0572a94847b17715659413a9c21f590d5856efc38f1f",
@@ -626,12 +626,12 @@
       "message": "A prova de controle expira em {value1}s -- salvar em breve, ou reabrir este host do link do painel para um novo."
     },
     "status.control_proof_invalid": {
-      "sourceHash": "1e75f93926ee04e48e8ee6c49cdb4a020177a07d7d61fc11a6ef54c741a270d9",
-      "message": "O token de controle desta página não verifica aqui – o token do laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza."
+      "sourceHash": "ec5d2068339b6088f055fb5c416e732170a894e1fd018fda5cde7ccbeede4a3d",
+      "message": "A prova de controle desta página não é verificada aqui – a chave de autenticação interna deste hospedeiro provavelmente difere da atual do laboratório, então inscreva-o novamente com um token do laboratório."
     },
     "status.control_proof_missing": {
-      "sourceHash": "ee80d08833c5ecb26090580f2a9823cb63017f871179c16d368cb547d1d9b303",
-      "message": "Esta página foi aberta sem um token de controle, então nenhuma foi enviada."
+      "sourceHash": "b285eb18756e5272ab196e196bb0ca3f750aa2bfadd32872a3310963025cde0c",
+      "message": "Esta página foi aberta sem uma prova de controle, então nenhuma foi enviada."
     },
     "status.control_refused": {
       "sourceHash": "b98b8caf73b0dbbc2153ecd87a6b6b369d664318736fe8d2b6cf0f87653f111a",
@@ -642,8 +642,8 @@
       "message": "configuração da rota de controlo"
     },
     "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": {
-      "sourceHash": "726c76fd6a7223d4d029d5b36ee65997c67b29d37bd4fa550a0a3c96e829ab07",
-      "message": "Esta máquina não tem nenhum lab-auth-token, então o controle remoto é somente loopback. Abra esta página como {address} na máquina, ou inscreva-a: {command} <code from the dashboard’s Lab token tile>. Veja {documentation}"
+      "sourceHash": "f3754c5ce41e55366dc86a79e833bc4c8a12112afbeab102569ee23c7689b673",
+      "message": "Esta máquina não tem chave de autenticação interna, então o controle remoto é somente loopback. Abra esta página como {address} na máquina, ou inscreva-a: {command} <code from the dashboard’s Lab token tile>. Veja {documentation}"
     },
     "status.control_verifier_unavailable": {
       "sourceHash": "25ab697d01992ffcc393c0ea27744f1c68a2aa3181b970821211d5818052105b",
@@ -913,7 +913,8 @@
     },
     "status.images_refresh": {
       "sourceHash": "4cbffcd41dba7f8b65a306cca5c08d0369fff4b8c100d705530ea46a4d2a6885",
-      "message": "Actualizar as Imagens"
+      "origin": "machine",
+      "message": "Atualização das imagens"
     },
     "status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple": {
       "sourceHash": "644c81ddc9b4a3c382317c6ae9f52f2529d4aa03a04b77dad7158539bf3d3a7f",
@@ -932,8 +933,9 @@
       "message": "Lab hold -- esperando por um serviço de laboratório"
     },
     "status.latest_cycle": {
-      "sourceHash": "c33f561d6bdd662ea7f707d03853528726cd25bcb928b87fa16baea4f846738d",
-      "message": "Último Ciclo"
+      "sourceHash": "12bb49e74a3016c83f1710a1f32cf130f5bde26addf021fb1e9920d3daab0f54",
+      "origin": "machine",
+      "message": "Último ciclo"
     },
     "status.latest_runs": {
       "sourceHash": "d877079aa1d951402a7dcb1b34cbddced1f14212439d25474985c86e367a0ba4",
@@ -1186,8 +1188,9 @@
       "message": "Recalculando os agregados perf..."
     },
     "status.recent_cycles": {
-      "sourceHash": "dff430e202db83017c889038d53d24089f32c6088b4fe86d6f13ffe8975dc63a",
-      "message": "Ciclos Recentes"
+      "sourceHash": "d29d46deca931e21ccc62aa3462743401bdd9b7a48cfb1c4e5c206584703d1ae",
+      "origin": "machine",
+      "message": "Ciclos recentes"
     },
     "status.refresh": {
       "sourceHash": "9a461146e7f37ddf30a75954da91d8d089e4901d8af2f9bb03d10efd970a2d2a",
@@ -1386,8 +1389,8 @@
       "message": "A prova de controlo expirou."
     },
     "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": {
-      "sourceHash": "d688961646f44e84b7b9389b5eab8bec98a6b22edcd87c98b0d65150748e1110",
-      "message": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com um lab-auth-token diferente do que este host mantém; o re-introdução com test/lab/Set-LabToken.ps1 realinha-os."
+      "sourceHash": "3b55d5593c5b0a089fde510d9978ff59dd79243e75ab1a48fdef6547f7da484d",
+      "message": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com uma chave de autenticação interna diferente da que este hospedeiro mantém; a nova inscrição com test/lab/Set-LabToken.ps1 as realinha."
     },
     "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": {
       "sourceHash": "aaa1a44999bf9f16cb012cace5db71c1438dd84227754648967732a66bd8b859",
@@ -1516,39 +1519,62 @@
       "message": "Estado da máquina do Yuruna"
     },
     "status.yuruna_status": {
-      "sourceHash": "3f18d89f931e700c90035cedd6786c0fdcbade6a2ad9292c0efca8a1b6c60be4",
+      "sourceHash": "09b2b85f2656cd9756956b1d50ad61b84027765f42e22414d616263240052d51",
+      "origin": "machine",
       "message": "Estado do Yuruna"
     },
     "status.api_admission_unavailable": {
-      "sourceHash": "88f2f1665f9c5f7df475af36ea910017c1407b871256badf4cebde9ae9fa236f",
+      "sourceHash": "cb17a645fa218a5ce86e12f0da654697943c1951604a441feefb62155d6b441b",
       "message": "o hospedeiro não pôde registrar a solicitação ({reason})"
     },
-    "status.api_host_refresh_authorization_refused": {
-      "sourceHash": "f793591c7563d3b843f464cfbd3df28d3684e7fd5e863bc085ea41754d75779d",
-      "message": "autorização de atualização recusada ({reason})"
+    "status.api_host_repair_authorization_refused": {
+      "sourceHash": "8dc6b79d408cbe68a2a742a75380f4e9196534b10345dd73c6c06b0812a2ca0b",
+      "message": "autorização de reparo recusada ({reason})"
     },
-    "status.api_host_refresh_busy": {
-      "sourceHash": "a185926eefe4934ed8a85d387b12af84e363d095167fa67f63547409ed32196e",
+    "status.api_host_repair_busy": {
+      "sourceHash": "e03e68699bd00a9c6a948e16aef8f33579650a98d21f6ae8ee0d957cee62954b",
       "message": "outra operação do hospedeiro está em andamento"
     },
-    "status.api_host_refresh_request_closed": {
-      "sourceHash": "99681fb11c3ecd473723e55b4d9f64b4fc421b616349578f9f2c4ca3b6ade4f4",
+    "status.api_host_repair_request_closed": {
+      "sourceHash": "543c37d8fb74c65251ea3a98db40e3b6ea85716f30ff880346b290d47c1be761",
       "message": "este ID de solicitação já foi encerrado ({state})"
     },
-    "status.api_host_refresh_request_conflict": {
-      "sourceHash": "9f9e4d4be06c66558bf2115cda5471c8f9995288222b38aef15a2ed388b06709",
+    "status.api_host_repair_request_conflict": {
+      "sourceHash": "cfde329042d48587ca2ba60d3457353b975822ed7576958d493bca7635cffbf9",
       "message": "este ID de solicitação já foi usado com configurações diferentes"
     },
-    "status.api_host_refresh_unavailable": {
-      "sourceHash": "c939f9097fa4068b1e720faa677d751a8d2fe909a45dff9a9d5f463066508089",
-      "message": "a atualização do hospedeiro não está disponível neste hospedeiro ({reason})"
+    "status.api_host_repair_unavailable": {
+      "sourceHash": "d2cf39a69b71ab74b2a22fa8a68af6d16c98701bc1b1d49dc0fb6eb4f4a9162d",
+      "message": "o reparo do hospedeiro não está disponível neste hospedeiro ({reason})"
+    },
+    "status.api_host_update_busy": {
+      "sourceHash": "6ef3c79c4a1a01d4ae4caa989c43c789e713997d898ddc7cf1536733c080d450",
+      "message": "uma atualização do hospedeiro está em andamento neste hospedeiro"
+    },
+    "status.api_host_update_controller_absent": {
+      "sourceHash": "05342aaa0a3a28d87b77bc18831244acc994231b712ed0e60635ea55e7048cf1",
+      "message": "nenhum controlador do hospedeiro está em execução neste hospedeiro; nada foi enfileirado"
+    },
+    "status.api_host_update_proof_missing": {
+      "sourceHash": "ca7d5db83f36dd802719f37560af94d4c2d13f048b064ce15deb58c624f2f90f",
+      "origin": "machine",
+      "message": "uma atualização de hospedeiro vinda de outra máquina precisa de uma prova de atualização do pool-control; nada foi enfileirado"
+    },
+    "status.api_host_update_authorization_refused": {
+      "sourceHash": "bf033579d8fe70956ed361df770661547a995e164e737f86ed68dc63a9926ccb",
+      "origin": "machine",
+      "message": "autorização de atualização do hospedeiro recusada ({reason})"
+    },
+    "status.api_host_update_scope_unavailable": {
+      "sourceHash": "744d4e5f6712275d67213c757fdede2dd31e03f84a59d6217be8300671172891",
+      "message": "o controlador do hospedeiro não executa o escopo {scope}; nada foi enfileirado"
     },
     "status.api_internal_error": {
-      "sourceHash": "bfe48a2f94a6554ed148551b776368a32930c18d6409356671df30256d2942f7",
+      "sourceHash": "6893746abc9c8de601e7570d4dd42cf0d860bcbf0a9c3a4d58d810b089541897",
       "message": "a solicitação falhou no hospedeiro; consulte server.err"
     },
     "status.api_listener_busy": {
-      "sourceHash": "030963685ca1cbbc9b35def6bdf5545f7630032a310db9fe1f683784a0c41dac",
+      "sourceHash": "66de8e4488dd15c7ee738026b0f9e88123c5b03f054453140a82357e33e2a531",
       "message": "há corpos de solicitação demais sendo lidos; tente novamente em instantes"
     },
     "status.api_listener_dependency_missing": {
@@ -1556,7 +1582,7 @@
       "message": "não foi possível carregar um módulo necessário para esta rota; consulte server.err"
     },
     "status.api_payload_too_large_4_kb": {
-      "sourceHash": "ab47184a0e20ddc2160e8b26ecbb4dd72f997768434226cd614e705a8f7be3b6",
+      "sourceHash": "e0f5dc6fbd77614bcc0f3b0ebf0c69c2461424c47f8a96949702694f122b62a1",
       "message": "carga muito grande (máximo de 4 KB)"
     },
     "status.api_private_state_unavailable": {
@@ -1564,19 +1590,19 @@
       "message": "o diretório de estado privado do hospedeiro está indisponível ({reason})"
     },
     "status.api_request_body_invalid": {
-      "sourceHash": "fb38a27aa5d71053c8ef2f3c2347dd88e6c23de4ca92ff310458ec65344e4b08",
+      "sourceHash": "2f759cc4377c758c89ef8bd76aa80b1a9e60fd26a1c4f7eed03e006ec23b5db1",
       "message": "corpo da solicitação inválido: {reason} ({field})"
     },
     "status.api_request_body_timeout": {
-      "sourceHash": "98ddcf47e7950d633f96b81c92a063151c32656dabb31260e0c6f603bb06b5fa",
+      "sourceHash": "9b062f633c59cc65afa4be45101f54a73f6700767c89fc335db6d4c15c7ca86d",
       "message": "o corpo da solicitação não chegou em 2 segundos"
     },
     "status.api_unsupported_media_type": {
-      "sourceHash": "afcb4e55e721fc04d420f489813e33168b3f72a65afd4495dfe66463312d6e3c",
+      "sourceHash": "cfdca8e94b3d6a242819bccb73e9658630afd50e46e60853a633ab457d7ca9bd",
       "message": "Content-Type deve ser application/json"
     },
     "status.api_worker_launcher_failed": {
-      "sourceHash": "aea77d2b1dca40319f3d5deee6b0d5b43b56a6e5cbdd5d0b3c3b75996fc346fa",
+      "sourceHash": "550d307cad79a8df1bb806936bd237e570f0bd337c90542707e12348540ef170",
       "message": "não foi possível iniciar o processo de trabalho ({reason}); a solicitação pode ser repetida"
     },
     "status.host_diagnostic_pending": {
@@ -1587,157 +1613,319 @@
       "sourceHash": "d30843f2bc788316b3df4a32b727c9ad0e1adc22351ff7c05ec6215971c17a84",
       "message": "Os diagnósticos do hospedeiro não terminaram em {seconds} segundos. Recarregue a página para tentar novamente."
     },
-    "status.host_refresh_action_dispose_obligations": {
-      "sourceHash": "9a76de0bc8b101254982bf07a5cfd2afb2e3b1ac82ceb908848322b344db0a9a",
-      "message": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation."
+    "status.host_repair_action_dispose_obligations": {
+      "sourceHash": "3626ab4b57cc39f46bdafbb752d2ca4db064f3dbd0b09fa3ccd984a4f37c617a",
+      "message": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation."
     },
-    "status.host_refresh_action_elevate": {
-      "sourceHash": "ee4e76642b0018d511eece8dd6d3c7765c54d1786aa138b9a1123fbb83cdbd8d",
+    "status.host_repair_action_elevate": {
+      "sourceHash": "4d95fc74a166de44e3353d4ef39fcbfc9e941da6d8ed6f4034d38773985f2e07",
       "message": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada."
     },
-    "status.host_refresh_action_grant_automation": {
-      "sourceHash": "0c85dd0306f7cd48c2ef3c093311adc02db37fe2716bd3573425abb3ffac2c3b",
-      "message": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e atualize novamente."
+    "status.host_repair_action_grant_automation": {
+      "sourceHash": "7cebd3086bd4d4a8a28c15dbaba9896ac2379989f476e4badb23aa68611fe946",
+      "message": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e repare novamente."
     },
-    "status.host_refresh_action_gui_session": {
-      "sourceHash": "ab53cf784ab25a4dfbf21cf1d5de0c0e52e1d847d064b6bb80a28f461d57d365",
-      "message": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e atualize novamente."
+    "status.host_repair_action_gui_session": {
+      "sourceHash": "1aee61c544bfc1a620d1284829e661e6076ceebff61ad8b8af5df744be9f7bf6",
+      "message": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e repare novamente."
     },
-    "status.host_refresh_action_install_client": {
-      "sourceHash": "359681126bbea61c9185c269c2d247539276e2388cc6c1c242402ad1bc7cb9f2",
-      "message": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e atualize novamente."
+    "status.host_repair_action_install_client": {
+      "sourceHash": "3b304256e86d7aeadded73ac00bb57a3654be6a3da126cfc62dc15c6cb7e9b1a",
+      "message": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e repare novamente."
     },
-    "status.host_refresh_action_resume_request": {
-      "sourceHash": "f9a1d4c3bbc9bb2e83f89401d975b272cb0ca9a51e6d3d2d6066dcb39f1934bb",
-      "message": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRefresh.ps1 -Resume."
+    "status.host_repair_action_resume_request": {
+      "sourceHash": "5e27f6225d59d5aab032a81ea6a7c8b2b489427dac5c3e2a2306f1743d921f6f",
+      "message": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRepair.ps1 -Resume."
     },
-    "status.host_refresh_action_start_runner": {
-      "sourceHash": "1cd17614d0f7d168ae043ab3776fa593265eff6508052dd150fd4e567847d360",
+    "status.host_repair_action_start_runner": {
+      "sourceHash": "80b9acec07028bfc1631959585911a73b970e4e2607256c2b7435c6818c58340",
       "message": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo."
     },
-    "status.host_refresh_authorization_refused": {
-      "sourceHash": "bc616071f68187cb02cd0fdf802f51b22b68cdff1ec47a17b577723d68098e36",
-      "message": "Esta atualização exige uma prova de atualização que esta página não tem ({reason}). Use a página de status no próprio hospedeiro ou a ação de atualização do controle do grupo."
+    "status.host_repair_authorization_refused": {
+      "sourceHash": "ed65330437db0e0466a931712c095c95ad307732cec06fbe4931d840c43af223",
+      "message": "Este reparo exige uma prova de reparo que esta página não tem ({reason}). Use a página de status no próprio hospedeiro ou a ação de reparo do controle do grupo."
     },
-    "status.host_refresh_busy": {
-      "sourceHash": "7cf0dd5bf96f819d4824123d90f3c396f1c6d61ae3af8c4f94eccf85d12f7e25",
-      "message": "Outra atualização do hospedeiro ({requestId}) está em andamento; exibindo o progresso dela."
+    "status.host_repair_busy": {
+      "sourceHash": "d87a43b80ae07a3e48e62acfbd4b6f6c76f13490c38c522a2d6fb6bf917f25b7",
+      "message": "Outro reparo do hospedeiro ({requestId}) está em andamento; exibindo o progresso dele."
     },
-    "status.host_refresh_check_host": {
-      "sourceHash": "559cf785a80fadc87b7d963e23841e0a8c1dd624f55913d87612765b9456e32e",
-      "message": "No hospedeiro, execute pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf para ver o estado atual."
+    "status.host_repair_check_host": {
+      "sourceHash": "659c5327da85ee79077b96637dfdd4b3f59b10bb77eefc80de421cd9187fd8cd",
+      "message": "No hospedeiro, execute pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf para ver o estado atual."
     },
-    "status.host_refresh_closed": {
-      "sourceHash": "c49538118d42f49cad0d0b9b3399c35ca1efdedbd9d658ebff00049131417dae",
-      "message": "A solicitação {requestId} já foi encerrada ({state}); inicie uma nova atualização."
+    "status.host_repair_closed": {
+      "sourceHash": "baae55105a8aa087f6b6ff1b49f6c071ababbbe41d1adeeea47e0763a0482935",
+      "message": "A solicitação {requestId} já foi encerrada ({state}); inicie um novo reparo."
     },
-    "status.host_refresh_confirm": {
-      "sourceHash": "6dae5956200014040f9dd965beb3bd2376e34b7ff782b34ce644e8bba9f83b23",
-      "message": "Atualizar este hospedeiro, até a etapa {ceiling}? As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera, e o executor será reiniciado. Isso pode levar até {minutes} minutos."
+    "status.host_repair_confirm": {
+      "sourceHash": "ead7f8a4194abc01685cb12d72775490267140c462f57d77287f29c257dfda7c",
+      "message": "Reparar este hospedeiro, até a etapa {ceiling}? As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera, e o executor será reiniciado. Isso pode levar até {minutes} minutos."
     },
-    "status.host_refresh_conflict": {
-      "sourceHash": "6366e45e764b8bd907e4c22d9ae1de2ba9d54286eaec0a1f8a4bf6e611023836",
-      "message": "A solicitação {requestId} já foi enviada com configurações diferentes; inicie uma nova atualização."
+    "status.host_request_conflict": {
+      "sourceHash": "5b355c49f1237c7f73556c4d8f848df51528e3916d9526e48df3742dd0d63803",
+      "message": "A solicitação {requestId} já foi enviada com configurações diferentes; inicie uma nova solicitação."
     },
-    "status.host_refresh_launcher_failed": {
-      "sourceHash": "951c587d039276d53cc474891f3bb1b196792ec3304a240dfffe3b49eff0050e",
-      "message": "O hospedeiro não pôde iniciar o processo de atualização. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo."
+    "status.host_repair_launcher_failed": {
+      "sourceHash": "994f497817540e04cff3769e9d0fdbca447b5e904c14849e36887da45b5f2cde",
+      "message": "O hospedeiro não pôde iniciar o processo de reparo. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo."
     },
-    "status.host_refresh_lost": {
-      "sourceHash": "ef4234b56c9b61ed0a42ef85c8f80aa5eb0bce9416615ea95f7b355ba2f2bfcb",
-      "message": "Atualização {requestId}: nenhum resultado após {seconds} segundos, ou uma solicitação posterior substituiu o relatório dela. Selecione Tentar novamente para perguntar ao hospedeiro como ela terminou, ou Atualizar hospedeiro para iniciar uma nova."
+    "status.host_repair_lost": {
+      "sourceHash": "9176ee0a54140eee431554c5683b0cffd1ca49beac3071776d65189dffab2403",
+      "message": "Reparo {requestId}: nenhum resultado após {seconds} segundos, ou uma solicitação posterior substituiu o relatório dele. Selecione Tentar novamente para perguntar ao hospedeiro como ele terminou, ou Reparar hospedeiro para iniciar um novo."
     },
-    "status.host_refresh_note": {
-      "sourceHash": "ff4a991c377f474f23e75005f4dfb72c289a85546a83d2f80d406deddf69c152",
+    "status.host_repair_note": {
+      "sourceHash": "fa82cecdb5d604a7286426a49de9308af9d5a5908b26b70783e4505b767a8b84",
       "message": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera."
     },
-    "status.host_refresh_progress": {
-      "sourceHash": "f4070f825719d309006f68db81e14c31c0539d1df577f3328073338e73164f63",
-      "message": "Atualização {requestId}: etapa {step} de {count} ({stepName}), até {remainingSeconds} segundos restantes."
+    "status.host_repair_progress": {
+      "sourceHash": "94b666f914742f7e4ee236debf13bd30430756593042fcb196e029d643d5e1f4",
+      "message": "Reparo {requestId}: etapa {step} de {count} ({stepName}), até {remainingSeconds} segundos restantes."
     },
-    "status.host_refresh_recovery_pending": {
-      "sourceHash": "fdffa422bcdf33e553308a1ee2811d9d03c5020e5bc1ffb68344ce7430b24cc9",
+    "status.host_repair_recovery_pending": {
+      "sourceHash": "632685d9060f0e984594d41435c2d9dac5d7acfe23ff715be3f8fecda1123e37",
       "message": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação."
     },
-    "status.host_refresh_rejected": {
-      "sourceHash": "36d39c63373a68279a159e35c7e503fbece467ea263e58588c95e81a3a8e10b7",
-      "message": "O hospedeiro rejeitou a solicitação de atualização: {detail}"
+    "status.host_request_rejected": {
+      "sourceHash": "a46fd1a4373dc23c184d1ac4dfd709f7772a9902eee894939601b9a8a345811c",
+      "message": "O hospedeiro rejeitou a solicitação: {detail}"
     },
-    "status.host_refresh_remote_viewer": {
-      "sourceHash": "c3e7bea03101a96f1efc6bd91514653375ab2912dc28f925be2a457e67ea5a91",
-      "message": "Esta página está aberta em outra máquina, então ela pode acompanhar uma atualização do hospedeiro, mas não iniciá-la. Inicie-a no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRefresh.ps1."
+    "status.host_repair_remote_viewer": {
+      "sourceHash": "03188d168ded1c28fa55c36fb920d01be68a1e4a9747c91a87ffba6a0a2cec47",
+      "message": "Esta página está aberta em outra máquina, então ela pode acompanhar um reparo do hospedeiro, mas não iniciá-lo. Inicie-o no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRepair.ps1."
     },
-    "status.host_refresh_retry": {
-      "sourceHash": "0652202c1a5f16f4b6edf8ce72290f62b7c19495dbaf4b9e33d051c0c15e9ff7",
+    "status.host_repair_retry": {
+      "sourceHash": "85499c834e1c6b41da78a818252db2db03db53badde315db54d00b08fdacc1e2",
       "message": "Tentar novamente"
     },
-    "status.host_refresh_stale": {
-      "sourceHash": "9c37138e39a2370139984ac58a67e01d78c7f7404a97b6eb8a4d57f040a2661f",
-      "message": "Atualização {requestId}: nenhum relatório de progresso há {seconds} segundos. O processo de trabalho pode ter parado; verifique o hospedeiro antes de iniciar outro reparo."
+    "status.host_repair_stale": {
+      "sourceHash": "1d73bfe180882e2a2fa2998768751746238af2dc797c7f021a8117feab1295f3",
+      "message": "Reparo {requestId}: nenhum relatório de progresso há {seconds} segundos. O processo de trabalho pode ter parado; verifique o hospedeiro antes de iniciar outro reparo."
     },
-    "status.host_refresh_start": {
-      "sourceHash": "27b87fc90c23120cebb056358cfeb8658af53847046cf53c28ebc704dea8e134",
-      "message": "Atualizar hospedeiro"
+    "status.host_repair_start": {
+      "sourceHash": "410a3c507e856517fee16e200e4a93b9e9fd91f4e52bcdf69572dde63ab93f73",
+      "message": "Reparar hospedeiro"
     },
-    "status.host_refresh_start_cycle_busy": {
-      "sourceHash": "96b34d90f4619bc989f3c72999e183edfbe58819920becd934aa930ed1b59ae5",
+    "status.host_repair_start_cycle_busy": {
+      "sourceHash": "3ed6818034b78d6c553e79912085682dfcf93337ead8d496f49c6d9d4428a74f",
       "message": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar."
     },
-    "status.host_refresh_submitting": {
-      "sourceHash": "517542e0aa19065c72df764f40d46adf463b73cf020696a7b3a7bd81e5e55978",
-      "message": "Enviando a solicitação de atualização..."
+    "status.host_request_submitting": {
+      "sourceHash": "ee2c84a12e83d91ddcb5622672b9895441e110e0ec0cf6fe275b47e77c86c8b6",
+      "message": "Enviando a solicitação..."
     },
-    "status.host_refresh_title": {
-      "sourceHash": "d77727e001caaccb24b397e414affbd5b5629b4dd149987a5d08720e307d0ca2",
+    "status.host_repair_title": {
+      "sourceHash": "1052330dd9405c2db5e87a2db36bd84eadb88f64cd3e42ae386c974197ce467e",
+      "message": "Reparo do hospedeiro"
+    },
+    "status.host_repair_unavailable": {
+      "sourceHash": "7aedf6fa35db3f3e2ecd99e7034d979f708cd8f9c8839b2e1d16ab4c4117ad97",
+      "message": "O reparo do hospedeiro não está disponível neste hospedeiro ({reason})."
+    },
+    "status.host_repair_verdict_abandoned": {
+      "sourceHash": "ef252fdf2668508a3a41b314e0fb73d5c65f179ffa7324ef2d6d8bb8f26d186c",
+      "message": "O reparo {requestId} foi abandonado após tentativas repetidas; o registro de recuperação dele é mantido no hospedeiro."
+    },
+    "status.host_repair_verdict_already_healthy": {
+      "sourceHash": "eac5b2d59af889aa14bc3273020adaa6a5f1fcf625d1fedd2f3adff3ddda930f",
+      "message": "Reparo {requestId} concluído: o hospedeiro já estava íntegro, então nada foi alterado."
+    },
+    "status.host_repair_verdict_failed": {
+      "sourceHash": "28cdc32b23487f7455cded4d0068d48f50e8e1c2d7cc6bdb0a1c3f162eccc552",
+      "message": "O reparo {requestId} falhou ({reason})."
+    },
+    "status.host_repair_verdict_partial": {
+      "sourceHash": "3a0ee9fee4add5465625869c3de7be6eb8721a154013e3dec4407c57cdc34071",
+      "message": "O reparo {requestId} terminou incompleto ({reason}); alguns serviços ou o executor ainda precisam de atenção."
+    },
+    "status.host_repair_verdict_refused": {
+      "sourceHash": "c092ca374a5d6635f46e5a26d125fa6d3f1f3a9b7c9b168130277e2f996d3629",
+      "message": "O reparo {requestId} foi recusado antes de qualquer alteração ({reason})."
+    },
+    "status.host_repair_verdict_repaired": {
+      "sourceHash": "81da0fe8852721597970647747dcb168e4e5f544639290e3e2cee0c3fc7a37ef",
+      "message": "Reparo {requestId} concluído: o hospedeiro foi reparado e o executor está pronto."
+    },
+    "status.host_repair_verdict_still_unresponsive": {
+      "sourceHash": "f18f4a7c10469962b6d01d1876133fcaa0d3acab904ccfeb0c9ab15e38f31f89",
+      "message": "Reparo {requestId} encerrado: o hipervisor ainda não responde."
+    },
+    "status.host_repair_verdict_unknown": {
+      "sourceHash": "8004e636a79b633329f9b32f0bd9e973376fbca1672d337bfebb188b559f7f3e",
+      "message": "O reparo {requestId} terminou com um resultado que esta página não reconhece ({verdict})."
+    },
+    "status.host_repair_waiting": {
+      "sourceHash": "574e1ef800ac38535993036b6a60e9bad110e21676bb3b698d95c5f5a93ef9cb",
+      "message": "O reparo {requestId} foi aceito; aguardando o primeiro relatório do worker."
+    },
+    "status.host_repair_waiting_long": {
+      "sourceHash": "59ddef9d78cff8a81bb57b1e9e1047f5257a3e9e2308c8c2db727c66d2d897c6",
+      "message": "Reparo {requestId}: nenhum relatório após {seconds} segundos. O worker pode ter falhado ao iniciar; verifique o hospedeiro."
+    },
+    "status.host_update_title": {
+      "sourceHash": "457ab3a744fa8aed5c01f6cc2f3922d8656e541b4c521a18767768f1c4f82a3b",
       "message": "Atualização do hospedeiro"
     },
-    "status.host_refresh_unavailable": {
-      "sourceHash": "54e71ffc2ae26845eec8bed3469f074c777e142faf0761131d6320ab19051b9c",
-      "message": "A atualização do hospedeiro não está disponível neste hospedeiro ({reason})."
+    "status.host_update_start": {
+      "sourceHash": "99b7a407492d238f226e7a82acdbb7535dc1b7864a5cc961e3f9eb462b35c376",
+      "message": "Atualizar hospedeiro"
     },
-    "status.host_refresh_verdict_abandoned": {
-      "sourceHash": "15274dc45a970e00ec860d5f0d83fcfa8075758860933b665f7f07cad204100a",
-      "message": "A atualização {requestId} foi abandonada após tentativas repetidas; o registro de recuperação dela é mantido no hospedeiro."
+    "status.host_update_note": {
+      "sourceHash": "ab2f57fa5cf99daff768d77d014cd8e0006c2fae4c7d73d2c1810034dae69f80",
+      "origin": "machine",
+      "message": "Atualiza o código deste hospedeiro e reinicia o executor quando o ciclo em execução termina, desistindo após {minutes} minutos. Para encerrar o ciclo agora, execute no hospedeiro: {command}"
     },
-    "status.host_refresh_verdict_already_healthy": {
-      "sourceHash": "512c1744f283a09d8f5848855cd8b1a0e23f5cc7dd915d4e74c04bd498b3913e",
-      "message": "Atualização {requestId} concluída: o hospedeiro já estava íntegro, então nada foi alterado."
+    "status.host_update_scope": {
+      "sourceHash": "70038c64afb34be670b3ab0f1ba816fe5743a14330a2dce47698fd5168bb4e3b",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "restart": "Reiniciar o executor no código atual",
+          "full": "Reinstalar dependências e configurações, depois reiniciar",
+          "other": "{scope}"
+        }
+      }
     },
-    "status.host_refresh_verdict_failed": {
-      "sourceHash": "70e923c1b5df48d2aa779a70c3b178a152a3fb0e34fd980303de12210333338f",
-      "message": "A atualização {requestId} falhou ({reason})."
+    "status.host_update_confirm": {
+      "sourceHash": "265a74272b8e163fc92cee9f1afff1d8b765ff3ac23e18d93f07bfa287c09a09",
+      "origin": "machine",
+      "message": "Atualizar hospedeiro ({scope})? O executor para quando o ciclo em execução termina e reinicia no código atual; a atualização desiste após {minutes} minutos. Para encerrar o ciclo agora, execute no hospedeiro: {command}"
     },
-    "status.host_refresh_verdict_partial": {
-      "sourceHash": "7ec24ee6933b95015b229b937272a1ea000911ba932831fc13ac8014862dbc53",
-      "message": "A atualização {requestId} terminou incompleta ({reason}); alguns serviços ou o executor ainda precisam de atenção."
+    "status.host_update_cycle_time": {
+      "sourceHash": "83e63e4fa54ff026a08ba00526ccab706f4ec2a01567196c32f6b9a10f2ab78b",
+      "message": "O ciclo em execução já dura {elapsed}; ciclos recentes levaram cerca de {median}."
     },
-    "status.host_refresh_verdict_refused": {
-      "sourceHash": "e4861c26e35c89e46beca88b22fb2752f8ed11474acd445bcd27e988e80cea18",
-      "message": "A atualização {requestId} foi recusada antes de qualquer alteração ({reason})."
+    "status.host_update_unavailable": {
+      "sourceHash": "52bf3a198ce310729249e78b8950bcf39b4b1d0e1f608dd5bae438d56d063877",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "controller_absent": "Nenhum controlador de hospedeiro está em execução aqui. Para configurar um, execute no hospedeiro: {command}",
+          "controller_absent_macos": "Nenhum controlador de hospedeiro está em execução aqui. No macOS, o início do executor o inicia: execute {runner} em um terminal da sessão da área de trabalho, ou pare um executor em execução após seu ciclo e inicie-o de novo dessa forma. Em um hospedeiro nunca preparado para atualizações de hospedeiro, execute {command} primeiro.",
+          "controller_absent_gate": "Uma atualização de hospedeiro retém o executor deste hospedeiro e nenhum controlador de hospedeiro está em execução. Execute {runner} mais uma vez em um terminal da sessão da área de trabalho e deixe como está um executor em execução: esse início para no portão do executor e inicia o controlador, que continua a atualização.",
+          "host_type": "Atualizações de hospedeiro ainda não estão disponíveis neste tipo de hospedeiro.",
+          "journal_unreadable": "O hospedeiro não consegue ler seu diário de operações; verifique o hospedeiro.",
+          "session_unusable": "A sessão do controlador do hospedeiro não consegue iniciar um executor funcional: ela não é a sessão da área de trabalho, ou falta ali uma permissão de privacidade. No hospedeiro, encerre a sessão yuruna-controller com {tmux} (no screen, encerre a sessão yuruna-controller que {screen} lista), pare um executor em execução após seu ciclo e inicie o executor de novo em um terminal da sessão da área de trabalho que tenha as permissões.",
+          "listener_dependency_missing": "O serviço de status não carregou o que as atualizações de hospedeiro exigem; reinicie-o no hospedeiro.",
+          "remote": "De outra máquina, esta página só acompanha uma atualização de hospedeiro; até que {file} esteja instalado no hospedeiro, pressione Atualizar hospedeiro lá.",
+          "scope_unavailable": "Este hospedeiro não pode executar o escopo escolhido agora.",
+          "other": "Atualizações de hospedeiro não estão disponíveis neste hospedeiro ({reason})."
+        }
+      }
     },
-    "status.host_refresh_verdict_repaired": {
-      "sourceHash": "63ed8dc658f67612c9960e246669a08bd976be588b76079fea2c4fac3537ef50",
-      "message": "Atualização {requestId} concluída: o hospedeiro foi reparado e o executor está pronto."
+    "status.host_update_remote_hint": {
+      "sourceHash": "89a579480f7e6d9ab82e97bc62bb9ccbd91f5d149d0601d7c662ea1502026c33",
+      "origin": "machine",
+      "message": "Atualizar hospedeiro abre o pool-control em {url}, que assina a solicitação e traz você de volta aqui."
     },
-    "status.host_refresh_verdict_still_unresponsive": {
-      "sourceHash": "6c20d4b5e9d4d9e24bbb2705d2b504185dcbe260b909b7b1aee8ff674363f431",
-      "message": "Atualização {requestId} encerrada: o hipervisor ainda não responde."
+    "status.host_update_busy": {
+      "sourceHash": "bb34582769153c86cb9ca71b0e953e376c1179614a0d986cdc03a1b078a6c5a8",
+      "select": {
+        "variants": {
+          "host_update": "Outra atualização de hospedeiro ({requestId}) está em andamento; mostrando o progresso dela.",
+          "host_repair": "Um reparo do hospedeiro ({requestId}) está em andamento; tente novamente quando ele terminar.",
+          "other": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar."
+        }
+      }
     },
-    "status.host_refresh_verdict_unknown": {
-      "sourceHash": "5f03881897779c9885487edb448fac62b64974d577215d7d38532012b81d2a32",
-      "message": "A atualização {requestId} terminou com um resultado que esta página não reconhece ({verdict})."
+    "status.host_update_blocks": {
+      "sourceHash": "d3cc897255a6cb0108ae9c1e284dcad9d868fa9815eb3cca3be1698b9d150c36",
+      "message": "Uma atualização de hospedeiro ({requestId}) está em andamento; tente novamente quando ela terminar."
     },
-    "status.host_refresh_waiting": {
-      "sourceHash": "c8a793b93748a78c11e2a49d45b020be9971edffe2a43bbed62860fc4e58ab15",
-      "message": "A atualização {requestId} foi aceita; aguardando o primeiro relatório do worker."
+    "status.host_update_queued": {
+      "sourceHash": "473c787be3d6c5584ea2d5fe007c7d119eea2fccb675f8241a91a5f5577e3af5",
+      "message": "A atualização de hospedeiro {requestId} está na fila; ela começa quando o ciclo em execução termina."
     },
-    "status.host_refresh_waiting_long": {
-      "sourceHash": "ebfb71153041df44ffd6e31c1c58f38115e179c8bbc1253f23cf31f506284909",
-      "message": "Atualização {requestId}: nenhum relatório após {seconds} segundos. O worker pode ter falhado ao iniciar; verifique o hospedeiro."
+    "status.host_update_progress": {
+      "sourceHash": "e85fd925020af7e2190a6c8f60bfdf79726f32926525823730937b4e39650043",
+      "message": "Atualização de hospedeiro {requestId}: fase {index} de {count} ({phase}), limitada a {bound}."
     },
-    "status.start_cycle_blocked_by_refresh": {
-      "sourceHash": "3897b3a96059016fb7fb36fe7f1ffb9aa9de34ec5ec7e7071353437bae5eedb4",
-      "message": "Uma atualização do hospedeiro ({requestId}) está em andamento; o ciclo não pode iniciar até que ela termine."
+    "status.host_update_stale": {
+      "sourceHash": "e41cbc66b300a3f3a9f716e75720c48c4d291fe787a85c95372fe9a2a6286632",
+      "message": "Atualização de hospedeiro {requestId}: nenhum relatório há {seconds} segundos; verifique o hospedeiro."
+    },
+    "status.host_update_lost": {
+      "sourceHash": "b44daaa38cc437cfa71ef3c0dc7dd9b8711e9244093290f877518fa00a3b397d",
+      "message": "Atualização de hospedeiro {requestId}: o hospedeiro não a reporta mais, então o resultado é desconhecido aqui; verifique o hospedeiro."
+    },
+    "status.host_update_countdown": {
+      "sourceHash": "3c4f26eabdfe1300a811c4dafd6ff97d7a614316dec4e27a590e92c35b33f91d",
+      "message": "O serviço de status está reiniciando; previsto de volta em {seconds} segundos."
+    },
+    "status.host_update_verdict": {
+      "sourceHash": "1e517ff2584e6acb88a7bbf7a4b2ed08f9fc9e2d98dc41e2265880a6c3af0983",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "refused": "A atualização de hospedeiro {requestId} foi recusada; nada mudou ({reason}).",
+          "drain_timeout": "A atualização de hospedeiro {requestId} desistiu: o ciclo em execução durou mais que a espera. Nada mudou.",
+          "stop_failed": "Atualização de hospedeiro {requestId}: não foi possível parar o executor, então nada foi iniciado.",
+          "recovering": "Atualização de hospedeiro {requestId}: o executor ainda não está em execução; o hospedeiro continua tentando ({reason}).",
+          "recovering_without_controller": "Atualização de hospedeiro {requestId}: o executor ainda não está em execução ({reason}), e nenhum controlador de hospedeiro está em execução para tentar de novo.",
+          "released": "A atualização de hospedeiro {requestId} foi liberada no hospedeiro.",
+          "superseded": "A atualização de hospedeiro {requestId} foi assumida por {supersededBy}.",
+          "failed_restored": "A atualização de hospedeiro {requestId} não foi concluída ({reason}); o hospedeiro foi restaurado.",
+          "reboot_required": "A atualização de hospedeiro {requestId} terminou, mas o Windows precisa reiniciar antes que o hipervisor possa ser executado, então o executor não foi iniciado.",
+          "updated_not_started": "A atualização de hospedeiro {requestId} terminou; o executor estava parado antes dela, então não foi iniciado.",
+          "updated_with_remarks": "A atualização de hospedeiro {requestId} terminou com observações; o executor executa o código atual.",
+          "updated": "A atualização de hospedeiro {requestId} terminou; o executor executa o código atual.",
+          "other": "A atualização de hospedeiro {requestId} terminou com um resultado que esta página não reconhece ({verdict})."
+        }
+      }
+    },
+    "status.host_update_action": {
+      "sourceHash": "0649f69cf0cd5a07eb4270eb0a4e9aa37873f04e336102880fcf417fb34884ad",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "end_one_shot": "Próxima etapa: encerre a sessão avulsa no hospedeiro e pressione novamente.",
+          "release_diagnostic_hold": "Próxima etapa: libere a VM mantida para diagnóstico e pressione novamente.",
+          "provision_elevation": "Próxima etapa: dê ao executor sua regra de sudo no hospedeiro e pressione novamente.",
+          "provision_elevation_macos": "Próxima etapa: no hospedeiro, execute {command} em um terminal da sessão da área de trabalho e responda às perguntas; ele instala a entrada de sudoers que as atualizações de hospedeiro usam. Depois pressione novamente.",
+          "retry_or_drain_now": "Próxima etapa: pressione novamente, ou encerre o ciclo agora no hospedeiro: {command}",
+          "stop_runner_by_hand": "Próxima etapa: pare o executor no hospedeiro manualmente.",
+          "repair_checkout": "Próxima etapa: repare o checkout no hospedeiro; o hospedeiro continua tentando.",
+          "act_at_host": "Próxima etapa: verifique o hospedeiro e aja nele.",
+          "release": "Próxima etapa: para encerrá-la, execute no hospedeiro: {command}",
+          "read_remarks": "Próxima etapa: leia as observações.",
+          "start_runner": "Próxima etapa: inicie o executor no hospedeiro.",
+          "reboot_host": "Próxima etapa: reinicie o Windows no hospedeiro e depois inicie o executor.",
+          "other": "Próxima etapa: {action}."
+        }
+      }
+    },
+    "status.host_update_remarks": {
+      "sourceHash": "6dfc6eb9691387028fb1e593b89f760b3f330f178b63a4353fca85f37188bbc0",
+      "message": "Observações: {remarks}."
+    },
+    "status.host_update_debt": {
+      "sourceHash": "2addd8adba8d184c8d3ca6dcdb6907192590feb70e7bfcebb686b0a0147c7aaa",
+      "message": "Ainda pendente no hospedeiro: {actions}."
+    },
+    "status.host_update_console": {
+      "sourceHash": "0ea8ad31f0339fc53aef263e63ae8e769a2e0901965135c54da4eb2d2bea13fc",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "tmux": "Para abrir o console do executor, execute no hospedeiro: {command}",
+          "window": "O console do executor é uma janela própria na área de trabalho da conta de teste: abra-a na máquina ou por uma conexão de área de trabalho remota a essa sessão.",
+          "none": "O executor foi iniciado sem console.",
+          "other": "Console do executor: {console}."
+        }
+      }
+    },
+    "status.host_update_first_cycle": {
+      "sourceHash": "2e2ec057c48ea5983c2aec84af5dfe45e7307be14c6c38a9b88c11fbde4714aa",
+      "select": {
+        "variants": {
+          "pass": "O primeiro ciclo após a atualização passou.",
+          "fail": "O primeiro ciclo após a atualização falhou.",
+          "other": "Aguardando o primeiro ciclo após a atualização."
+        }
+      }
+    },
+    "status.start_cycle_blocked_by_repair": {
+      "sourceHash": "679089f9cee1945f16f08320fed398d6f100cd9bea9b85dedbf5e6bb1d3d7ab8",
+      "message": "Um reparo do hospedeiro ({requestId}) está em andamento; o ciclo não pode iniciar até que ele termine."
     },
     "status.start_cycle_cycle_restarted": {
       "sourceHash": "777f87538467b94b76119cfba7f06cf9b399e88621f084591bfdcc89ec5b5eba",
@@ -1764,8 +1952,9 @@
       "message": "Runner iniciado"
     },
     "status.preflight_failed": {
-      "sourceHash": "25b9509846e9875002e2839c39fbc6ac2589b0d6033595e4e86e366994ecb5f0",
-      "message": "FALHA NA VERIFICAÇÃO PRÉVIA"
+      "sourceHash": "a843b2f63689b9e6da8f590b6d6d89351a1c608a00afe197aad2e6b610af8f0f",
+      "origin": "machine",
+      "message": "Falha na verificação prévia"
     },
     "status.runner_attempts_title": {
       "sourceHash": "f424289c7e871ddb789be2cc58a7c586089e2339ddd5144d2def45b926ccb8b6",
@@ -1784,24 +1973,29 @@
       "message": "O histórico de tentativas do executor está indisponível."
     },
     "status.git_source_mirror_confirmed": {
-      "sourceHash": "fac6f4fe1d5880d4888ea1d9d2c093b70f8b6bf838abd976521f56f96bf9f8e2",
-      "message": "mirror.origin"
+      "sourceHash": "f38fd90765626a1007d70d481897b93e867abadda54dc4cfef7d8e4404ac651b",
+      "origin": "machine",
+      "message": "mirror"
     },
     "status.git_source_mirror_stale": {
-      "sourceHash": "edc9ae7cd03e6100d6d0ef6a68713ddf85efd2823b663d74df8f6131b4a7091e",
-      "message": "mirror.stale"
+      "sourceHash": "637a40d9c185d570bd730149a8b2e0ba4c025e35a776f8bed3b8a53d146a3b06",
+      "origin": "machine",
+      "message": "mirror stale"
     },
     "status.git_source_origin_direct": {
-      "sourceHash": "465d52d0a2dc68d6c416899ca29f6dbab5eeec1ce42958a8d67cd1136467fc03",
-      "message": "remote.origin"
+      "sourceHash": "f9a8df9544a6c32d6cc83db834d47310ebefb2c8324675a22c62c84c78343cd6",
+      "origin": "machine",
+      "message": "remote"
     },
     "status.git_source_not_applicable": {
-      "sourceHash": "e12c116f88d0f81329f9d9846b12041b478402c2ffabe8d49f8194dd0cf733f3",
-      "message": "not.applicable"
+      "sourceHash": "c49f6189f0b466dd920e2eae6fdc65d867c23bed2341f944662548afcc71a0b7",
+      "origin": "machine",
+      "message": "not applicable"
     },
     "status.git_source_mirror_fresh": {
-      "sourceHash": "2e62b6db2caa115b2d04e6793e072b9e3b1f18aea522e01483293bd438ca33fe",
-      "message": "mirror.fresh"
+      "sourceHash": "b6fe61002a32fdfd3c46020094204b52654bd9ffb6b8056179c68ca85c77ef23",
+      "origin": "machine",
+      "message": "mirror fresh"
     },
     "status.banner_unguarded": {
       "sourceHash": "394fbed24b4960662a7b9c8bb6cedd3c22522edf75f1be81da46f9e6621968eb",

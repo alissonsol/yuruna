@@ -1362,11 +1362,12 @@ foregone conclusion.
 
 ## Apt signing-key fingerprint verification
 
-The Ubuntu guest provisioning scripts (`*.k8s.sh`, `*.code.sh`) fetch
-third-party apt signing keys -- Docker
+The Ubuntu guest provisioning scripts (`*.k8s.sh`, `*.code.sh`,
+`ubuntu.browser.sh`) fetch third-party apt signing keys -- Docker
 (`download.docker.com/linux/ubuntu/gpg`), Kubernetes
-(`pkgs.k8s.io/.../Release.key`), and Microsoft
-(`packages.microsoft.com/keys/microsoft.asc`) -- over the guest's
+(`pkgs.k8s.io/.../Release.key`), Microsoft
+(`packages.microsoft.com/keys/microsoft.asc`), and Google
+(`dl.google.com/linux/linux_signing_key.pub`) -- over the guest's
 SSL-bump caching-proxy-service, which is a **trust boundary**: a tampering proxy
 or CDN could otherwise land an attacker key in apt's trust store.
 `_yuruna_verify_key_fpr` verifies every downloaded key against a pinned
@@ -2298,6 +2299,57 @@ the payload merely failed to terminate; the supervisor appends the newline
 itself before the last drain, so that line is delivered rather than held
 back forever by the complete-lines rule.
 
+<a id="4220a755-005f"></a>
+
+## The yuruna-web-browser launcher
+
+<a id="4220a755-0060"></a>
+
+### Defining the yuruna-web-browser launcher
+
+[automation/yuruna-web-browser.sh](../automation/yuruna-web-browser.sh)
+starts, holds and stops the headless browser of a web session in the guest.
+Like the run supervisor it is never installed: the host sends its text inside
+the ssh command, so a guest restored from an old snapshot still runs the
+current launcher.
+
+- `start` creates the session folder, starts the browser detached from the
+  ssh session with its DevTools endpoint on a port the browser picks, and
+  returns once that endpoint is written.
+- `hold` keeps the browser of a session while its stdin lasts; when
+  the input ends it stops the browser and removes the session folder.
+- `stop` ends one session, or with `--all` every session of the guest
+  account, and removes their folders.
+
+Each verb writes exactly one result line, `YURUNA_WEB_BROWSER <json>`, on
+stdout: whether it succeeded, the event or the refusal kind, and for `start`
+the port, the endpoint path and the process identity. Every diagnostic goes to
+stderr.
+
+<a id="4220a755-0061"></a>
+
+### Why the tunnel holds the browser
+
+The remote command of the host's tunnel is `hold`, so the browser lives exactly
+as long as the tunnel's input. An owner that dies, a dropped connection and an
+orderly close all end that input, so each of them ends the browser and removes
+its folder, and no state is left on the host. A tunnel opened with `ssh -N`
+would have no remote command to tie the browser to, and it would outlive an
+owner that was killed.
+
+<a id="4220a755-0062"></a>
+
+### Why the session folder is short and under /tmp
+
+The browser binds a socket below its temporary folder and stops at start when
+that path is longer than a socket address may be, so the base folder is
+`/tmp/yuruna-web-<uid>` whatever `TMPDIR` says and a session id has at most
+sixteen characters. The session folder holds the browser profile, the
+temporary folder and the home folder, so one removal takes everything the
+browser wrote. The first eight characters of the boot id are part of its name,
+which separates folders that a guest restored from a snapshot or a reboot left
+behind from the session of the running boot.
+
 <a id="4220a755-003c"></a>
 
 ## Driving a guest over SSH across an address change
@@ -2940,6 +2992,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

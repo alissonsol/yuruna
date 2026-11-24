@@ -4,6 +4,17 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.11.23
+
+- **Host update and repair on Diagnostics.** Update host has a host
+  controller on KVM, Windows or macOS pull, optionally reinstall unattended,
+  and restart the runner; pool-control signs remote presses.
+- **Also in this release.** A workload MCP server authors sequences, SSH start
+  sequences provision Ubuntu, page steps drive guest pages, KVM clicks use
+  QEMU's monitor, steps read as sentences, host refresh becomes repair
+  (`~/.yuruna/host-refresh` moves once to `host-repair`; starts refuse with
+  `migration-conflict` if both exist), and suites use scratch homes.
+
 ## 2026.11.16
 
 - **Idempotent kubectl create retries.** A `kubectl create` retried after an
@@ -705,6 +716,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](README.md)

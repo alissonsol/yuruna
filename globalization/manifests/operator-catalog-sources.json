@@ -13190,17 +13190,6 @@
     },
     {
       "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
-      "line": 1379,
-      "sink": "Write-Warning",
-      "key": "host.operator_00de7e0959068c8c",
-      "arguments": [
-        "vMName",
-        "x",
-        "y"
-      ]
-    },
-    {
-      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
       "line": 1417,
       "sink": "Write-Warning",
       "key": "host.operator_ba1882e41aac59a1",
@@ -28433,7 +28422,7 @@
       ]
     },
     {
-      "path": "test/modules/Test.HostRefreshIntent.psm1",
+      "path": "test/modules/Test.HostOperationJournal.psm1",
       "line": 412,
       "sink": "ShouldProcess-prompt",
       "key": "runner.operator_ae404c37892f11d1",

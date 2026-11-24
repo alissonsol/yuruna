@@ -47,6 +47,13 @@ type mirrorHarness struct {
 
 func newMirrorHarness(t *testing.T) *mirrorHarness {
 	t.Helper()
+	return newMirrorHarnessWithCancelGrace(t, defaultMirrorLimits().CancelGrace)
+}
+
+// Fast-cancellation cases choose their grace before any worker starts. Normal
+// Git commands retain the production output-drain budget on a busy host.
+func newMirrorHarnessWithCancelGrace(t *testing.T, cancelGrace time.Duration) *mirrorHarness {
+	t.Helper()
 	// Nested suite temp folders can exceed Git for Windows' default path limit.
 	if runtime.GOOS == "windows" {
 		appendMirrorGitConfig(t, "core.longpaths", "true")
@@ -76,7 +83,7 @@ func newMirrorHarness(t *testing.T) *mirrorHarness {
 		SigningKey: mirrorFixtureKey(t), Limits: defaultMirrorLimits(), Now: func() time.Time { return time.Unix(0, h.clock.Load()).UTC() }}
 	options.Limits.ReserveBytes = 0
 	options.Limits.CapBytes = 0
-	options.Limits.CancelGrace = 50 * time.Millisecond
+	options.Limits.CancelGrace = cancelGrace
 	options.Limits.Query = 5 * time.Second
 	options.Limits.Job = 10 * time.Second
 	options.Limits.Population = 15 * time.Second

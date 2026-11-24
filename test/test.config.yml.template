@@ -79,7 +79,7 @@ testCycle:
     enabled: false
     maxAttemptsPerCycle: 2
   # See https://yuruna.link/42d38664-0023
-  autoRefreshAfterStalls: 0
+  autoRepairAfterStalls: 0
   cycleDelaySeconds: 300
   # Circuit breaker: skip a guest that keeps failing the same way, so it stops
   # burning a full provision+deploy every cycle. After failuresToQuarantine

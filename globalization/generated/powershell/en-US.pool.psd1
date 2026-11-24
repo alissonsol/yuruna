@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4287c576-70ba-465a-5472-248e943d02a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 # locale: en-US  domain: pool
 
 @{
-    'pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to' = 'A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool Status reads what the members are doing now — choosing a value applies it to every member.'
+    'pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to' = 'A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool status reads what the members are doing now — choosing a value applies it to every member.'
     'pool.a_scan_of_value1_is_already_running_following_that_one' = @(
         'A scan of '
         @{
@@ -71,7 +71,7 @@
         }
         '); control state is unknown. Moving hosts still works.'
     )
-    'pool.aggregator_url' = 'aggregator URL'
+    'pool.aggregator_url' = 'Aggregator URL'
     'pool.all_checks_passed_pool_control_service_value1_value2_collected_va' = @(
         'All checks passed. pool-control-service '
         @{
@@ -171,7 +171,7 @@
         }
         '.'
     )
-    'pool.configuration_git_url' = 'configuration git URL'
+    'pool.configuration_git_url' = 'Configuration git URL'
     'pool.configuration_read_raw_invocation' = 'Configuration read — raw invocation'
     'pool.continue' = 'Continue'
     'pool.control' = 'Control'
@@ -476,7 +476,7 @@
         }
     )
     'pool.display_name' = 'Display name'
-    'pool.duration' = 'duration'
+    'pool.duration' = 'Duration'
     'pool.each_of_the_four_numbers_must_be_0_to_255' = 'Each of the four numbers must be 0 to 255.'
     'pool.empty' = '(empty)'
     'pool.enrollment_target' = @(
@@ -532,7 +532,7 @@
         }
         ' means it cannot read the one configured. A re-keyed row is one machine''s old identity: it was reimaged or re-cloned, so the live host answers under the id shown beside it while any pool membership stays on the old one — hand it over from that row. Hostnames appear once this browser is unlocked.'
     )
-    'pool.exit_code' = 'exit code'
+    'pool.exit_code' = 'Exit code'
     'pool.fail' = 'FAIL'
     'pool.failed' = 'failed'
     'pool.first_seen' = 'First seen'
@@ -550,11 +550,11 @@
     'pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r' = 'Found by scanning the network; it belongs to no pool and has not registered with the aggregator.'
     'pool.framework' = 'Framework'
     'pool.framework_project' = 'Framework / Project'
-    'pool.framework_revision' = 'framework revision'
+    'pool.framework_revision' = 'Framework revision'
     'pool.framework_url' = 'Framework URL'
-    'pool.framework_version' = 'framework version'
-    'pool.free_storage' = 'Free Storage'
-    'pool.go' = 'go'
+    'pool.framework_version' = 'Framework version'
+    'pool.free_storage' = 'Free storage'
+    'pool.go' = 'Go'
     'pool.guide' = 'Guide'
     'pool.hand_over' = 'Hand over'
     'pool.hand_over_failed_value1' = @(
@@ -570,7 +570,7 @@
     'pool.home' = 'HOME'
     'pool.host' = '+ host'
     'pool.host_id' = 'Host ID'
-    'pool.host_id_7b624c8f' = 'host id'
+    'pool.host_id_7b624c8f' = 'Host ID'
     'pool.host_id_to_add_to_pool_value1' = @(
         'Host id to add to pool '
         @{
@@ -579,8 +579,8 @@
             'trust' = 'external'
         }
     )
-    'pool.host_refresh_body_invalid' = @(
-        'The refresh request must be a JSON object of strings with only hostId, requestId, tier and maxRung ('
+    'pool.host_repair_body_invalid' = @(
+        'The repair request must be a JSON object of strings with only hostId, requestId, tier and maxRung ('
         @{
             'arg' = 'detail'
             'type' = 'identifier'
@@ -588,14 +588,14 @@
         }
         ').'
     )
-    'pool.host_refresh_busy' = @(
+    'pool.host_repair_busy' = @(
         'Host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' is already handling refresh request '
+        ' is already handling repair request '
         @{
             'arg' = 'activeRequestId'
             'type' = 'identifier'
@@ -603,7 +603,7 @@
         }
         '; follow that request instead of starting another.'
     )
-    'pool.host_refresh_control_proof_unavailable' = @(
+    'pool.host_repair_control_proof_unavailable' = @(
         'No control proof could be obtained for host '
         @{
             'arg' = 'hostId'
@@ -618,8 +618,8 @@
         }
         ').'
     )
-    'pool.host_refresh_field_unsupported' = @(
-        'The refresh request carried the unsupported field '
+    'pool.host_repair_field_unsupported' = @(
+        'The repair request carried the unsupported field '
         @{
             'arg' = 'field'
             'type' = 'identifier'
@@ -627,7 +627,7 @@
         }
         '; force and hard-stop options are never accepted remotely.'
     )
-    'pool.host_refresh_host_address_unknown' = @(
+    'pool.host_repair_host_address_unknown' = @(
         'The pool aggregator knows host '
         @{
             'arg' = 'hostId'
@@ -636,15 +636,15 @@
         }
         ' but has no address for it.'
     )
-    'pool.host_refresh_host_id_invalid' = 'hostId must be a 32-character hexadecimal host id.'
-    'pool.host_refresh_host_refused' = @(
+    'pool.host_repair_host_id_invalid' = 'hostId must be a 32-character hexadecimal host id.'
+    'pool.host_repair_host_refused' = @(
         'Host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' refused the refresh (HTTP '
+        ' refused the repair (HTTP '
         @{
             'arg' = 'status'
             'type' = 'integer'
@@ -658,14 +658,14 @@
         }
         ').'
     )
-    'pool.host_refresh_host_unavailable' = @(
+    'pool.host_repair_host_unavailable' = @(
         'Host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' could not start the refresh (HTTP '
+        ' could not start the repair (HTTP '
         @{
             'arg' = 'status'
             'type' = 'integer'
@@ -685,7 +685,7 @@
         }
         '.'
     )
-    'pool.host_refresh_host_unknown' = @(
+    'pool.host_repair_host_unknown' = @(
         'The pool aggregator does not know host '
         @{
             'arg' = 'hostId'
@@ -694,7 +694,7 @@
         }
         '.'
     )
-    'pool.host_refresh_host_unreachable' = @(
+    'pool.host_repair_host_unreachable' = @(
         'Host '
         @{
             'arg' = 'hostId'
@@ -709,8 +709,8 @@
         }
         '.'
     )
-    'pool.host_refresh_mint_failed' = @(
-        'This service could not sign the refresh request for host '
+    'pool.host_repair_mint_failed' = @(
+        'This service could not sign the repair request for host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
@@ -718,7 +718,7 @@
         }
         '.'
     )
-    'pool.host_refresh_reply_invalid' = @(
+    'pool.host_repair_reply_invalid' = @(
         'Host '
         @{
             'arg' = 'hostId'
@@ -733,7 +733,7 @@
         }
         ').'
     )
-    'pool.host_refresh_request_closed' = @(
+    'pool.host_repair_request_closed' = @(
         'Request '
         @{
             'arg' = 'requestId'
@@ -758,9 +758,9 @@
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '); generate a new request id to refresh again.'
+        '); generate a new request id to repair again.'
     )
-    'pool.host_refresh_request_conflict' = @(
+    'pool.host_repair_request_conflict' = @(
         'Request '
         @{
             'arg' = 'requestId'
@@ -769,10 +769,10 @@
         }
         ' was already used with a different tier or ceiling; resend the original policy or generate a new request id.'
     )
-    'pool.host_refresh_request_id_invalid' = 'requestId must be a lowercase UUID (8-4-4-4-12) that the caller generates once and reuses on every retry.'
-    'pool.host_refresh_rung_unsupported' = 'maxRung must be probe, reclaim, start-if-stopped, restart-if-hung or restart-broker.'
-    'pool.host_refresh_signing_unconfigured' = @(
-        'Remote host refresh is disabled: this service holds no refresh signing authority ('
+    'pool.host_repair_request_id_invalid' = 'requestId must be a lowercase UUID (8-4-4-4-12) that the caller generates once and reuses on every retry.'
+    'pool.host_repair_rung_unsupported' = 'maxRung must be probe, reclaim, start-if-stopped, restart-if-hung or restart-broker.'
+    'pool.host_repair_signing_unconfigured' = @(
+        'Remote host repair is disabled: this service holds no repair signing authority ('
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -780,15 +780,245 @@
         }
         ').'
     )
-    'pool.host_refresh_tier_unsupported' = 'Only the restart tier can be requested remotely; the full tier is local-only.'
-    'pool.host_refresh_unavailable' = @(
+    'pool.host_repair_tier_unsupported' = 'Only the restart tier can be requested remotely; the full tier is local-only.'
+    'pool.host_repair_unavailable' = @(
         'Host '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' does not advertise remote refresh ('
+        ' does not advertise remote repair ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_action' = 'Update host'
+    'pool.host_update_body_invalid' = @(
+        'The update request must be one JSON object with only hostId, requestId, scope, drainSeconds and expectCommit, each once ('
+        @{
+            'arg' = 'detail'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'pool.host_update_busy' = @(
+        'Host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' is busy with request '
+        @{
+            'arg' = 'activeRequestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; follow that request instead of starting another.'
+    )
+    'pool.host_update_commit_invalid' = 'expectCommit must be 7 to 40 lowercase hexadecimal digits.'
+    'pool.host_update_commit_label' = 'Expected commit'
+    'pool.host_update_completed' = @(
+        'Request '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' already ended on host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_credential_label' = 'Operator credential'
+    'pool.host_update_credential_missing' = 'Enter the operator credential.'
+    'pool.host_update_drain_invalid' = 'drainSeconds must be a whole number from 60 to 21600.'
+    'pool.host_update_drain_label' = 'Drain bound'
+    'pool.host_update_drain_now_label' = 'To end the running cycle now'
+    'pool.host_update_drain_value' = @(
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' s ('
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' min)'
+    )
+    'pool.host_update_field_forbidden' = @(
+        'The update request carried '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; no request from this service ends a running cycle. To end one, run Invoke-HostUpdate.ps1 -Drain now in a shell on the host.'
+    )
+    'pool.host_update_field_unsupported' = @(
+        'The update request carried the unsupported field '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.host_update_heading' = 'Update host'
+    'pool.host_update_host_refused' = @(
+        'Host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' refused the update (HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ', '
+        @{
+            'arg' = 'hostReason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_host_unavailable' = @(
+        'Host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' could not queue the update (HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ', '
+        @{
+            'arg' = 'hostReason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '); retry with the same request id '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.host_update_intro' = 'This page signs one host update for the host below and sends it there. The host waits for its running cycle to end, then stops its runner, brings its checkout current and starts the runner again; it gives up after the drain bound with nothing changed. No request from this page ends a running cycle: to end one, run the command shown below in a shell on the host.'
+    'pool.host_update_loading' = 'Reading the host…'
+    'pool.host_update_mint_failed' = @(
+        'This service could not sign the update request for host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.host_update_not_offered' = @(
+        'Host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' cannot take a remote host update now ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_open_diagnostics' = 'Open the host''s Diagnostics page'
+    'pool.host_update_page_title' = 'Update host — Yuruna Pool Control'
+    'pool.host_update_request_conflict' = @(
+        'Request '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' was already used with a different scope, drain bound or expected commit; resend the original request or start a new one.'
+    )
+    'pool.host_update_request_label' = 'Request ID'
+    'pool.host_update_scope' = @{
+        'kind' = 'select'
+        'selector' = 'scope'
+        'variants' = @{
+            'full' = 'Reinstall dependencies and settings, then restart'
+            'other' = @(
+                @{
+                    'arg' = 'scope'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+            )
+            'restart' = 'Restart the runner on current code'
+        }
+    }
+    'pool.host_update_scope_invalid' = 'scope must be restart or full.'
+    'pool.host_update_scope_label' = 'Scope'
+    'pool.host_update_sending' = 'Signing and sending the update…'
+    'pool.host_update_sent' = @(
+        'Host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' queued update '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; opening its Diagnostics page.'
+    )
+    'pool.host_update_signing_unconfigured' = @(
+        'Remote host update is disabled: this service holds no update signing key or no operator credential ('
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'pool.host_update_submit' = 'Send the update'
+    'pool.host_update_unavailable' = @(
+        'Host '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' cannot take a remote host update now ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -949,7 +1179,7 @@
             'trust' = 'external'
         }
     )
-    'pool.listen_addr' = 'listen addr'
+    'pool.listen_addr' = 'Listen addr'
     'pool.loaded' = 'Loaded:'
     'pool.loading_hosts' = 'Loading hosts...'
     'pool.loading_pools' = 'Loading pools...'
@@ -1046,8 +1276,8 @@
     'pool.paused_after_cycle_and_step' = 'Paused after cycle and step'
     'pool.persisted_health' = 'Persisted health'
     'pool.persistence_disabled' = '(persistence disabled)'
-    'pool.pid' = 'pid'
-    'pool.platform' = 'platform'
+    'pool.pid' = 'PID'
+    'pool.platform' = 'Platform'
     'pool.pool' = 'Pool'
     'pool.pool_for_host_value1' = @(
         'Pool for host '
@@ -1070,7 +1300,7 @@
     )
     'pool.pool_project_denied' = 'The pool assigned this host a project its git credential cannot read. Grant its token access to that repository, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.'
     'pool.pool_project_unreachable' = 'The project this host''s pool assigned did not answer. This is network, not permission, and the clone retries through the normal backoff.'
-    'pool.pool_status' = 'Pool Status'
+    'pool.pool_status' = 'Pool status'
     'pool.pool_status_change_failed_value1' = @(
         'Pool status change failed: '
         @{
@@ -1171,7 +1401,7 @@
             'project' = 'This host cannot read the project repository it is configured with. Check its git credential and the url in test.config.yml.'
         }
     }
-    'pool.repo_dir' = 'repo dir'
+    'pool.repo_dir' = 'Repo dir'
     'pool.repo_held_detail' = @{
         'kind' = 'select'
         'selector' = 'repo'
@@ -1433,10 +1663,10 @@
     )
     'pool.scan_yuruna_pool_control' = 'Scan — Yuruna Pool Control'
     'pool.service_diagnostics' = 'Service diagnostics'
-    'pool.service_user' = 'service user'
+    'pool.service_user' = 'Service user'
     'pool.show_hostnames' = 'Show hostnames'
-    'pool.started_at' = 'started at'
-    'pool.state_dir' = 'state dir'
+    'pool.started_at' = 'Started at'
+    'pool.state_dir' = 'State dir'
     'pool.state_fail' = 'fail'
     'pool.state_idle' = 'idle'
     'pool.state_mismatch' = 'mismatch'
@@ -1578,12 +1808,12 @@
     'pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o' = 'This id no longer answers at this address; the id beside it does. One machine, two ids -- it was reimaged or re-cloned. Any pool membership is still recorded against THIS id, so the live host is doing the work outside the pool.'
     'pool.time_period' = 'Time period'
     'pool.token_is_right_but_the_clock_is_off_fix_the_host_clock' = 'Token is right but the clock is off -- fix the host clock.'
-    'pool.total_storage' = 'Total Storage'
+    'pool.total_storage' = 'Total storage'
     'pool.type' = 'Type'
     'pool.unlock' = 'Unlock'
     'pool.unlock_with_the_lab_token_to_see_hostnames' = 'Unlock with the Lab token to see hostnames.'
     'pool.unsupported_range' = 'unsupported range; use 1h, 24h, 7d or 30d'
-    'pool.uptime' = 'uptime'
+    'pool.uptime' = 'Uptime'
     'pool.use_this_network' = 'Use this network'
     'pool.value1_applied_to_value2_host_s_in_pool_value3' = @(
         @{
@@ -1687,7 +1917,7 @@
             'trust' = 'external'
         }
     )
-    'pool.version' = 'version'
+    'pool.version' = 'Version'
     'pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch' = 'What the daemon was launched with, and the environment its pwsh child processes inherit.'
     'pool.what_to_do' = 'What to do'
     'pool.which_build_is_actually_running_and_for_how_long_establishes_whet' = 'Which build is actually running, and for how long — establishes whether a fix was deployed at all.'

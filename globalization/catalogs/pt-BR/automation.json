@@ -3018,6 +3018,18 @@
     "automation.system_diagnostic_probe_stopped": {
       "sourceHash": "151e442d54f958fb41fd1993da02d5506b5323aa600f8c7d98abd61051832ec6",
       "message": "  ({label} não terminou em {seconds}s e foi interrompido; o que imprimiu até então está acima)"
+    },
+    "automation.private_state_moved": {
+      "sourceHash": "dcf2f8a00bc77e24d93485e809427045c436e328da31a5fd3f73a7c139b08ffe",
+      "message": "Estado privado do hospedeiro movido: {previous} -> {current}"
+    },
+    "automation.private_state_migration_conflict": {
+      "sourceHash": "530899f83d96f595e3a4473533b59c3507931730da67ac99baece71a1ba7b857",
+      "message": "Tanto {legacy} quanto {current} existem, então a raiz de estado privada é recusada e nada foi mesclado, movido ou criado. Mantenha o diretório que guarda o estado deste hospedeiro, mova o outro para outro lugar e execute novamente."
+    },
+    "automation.private_state_migration_lock_held": {
+      "sourceHash": "85e7a7721014da777cdcea330049531c9d45aeba2650eaffc7e32a8f75513464",
+      "message": "A raiz de estado privada anterior {legacy} não foi movida: {lockFile} está retido por outro processo, como um runner, um ouvinte de status ou um controlador de hospedeiro antigo. Pare esse processo e inicie novamente."
     }
   }
 }

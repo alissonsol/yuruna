@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,7 +121,7 @@ if ([string]::IsNullOrWhiteSpace($runtimeDir)) { Write-Error 'No runtime dir (YU
 # --- REGION: Record the host-side start intent
 # The host-side proof records its start and holds the service lock too: a Stop
 # must not remove the marker of a daemon that is still being launched, and a
-# host refresh must see that this service is a host process, not a guest.
+# host repair must see that this service is a host process, not a guest.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Globalization.psm1') -Global -DisableNameChecking
 Import-Module (Join-Path $ModulesDir 'Test.ServiceCensus.psm1') -Global -Force -DisableNameChecking
 $serviceOp = Enter-YurunaServiceOperation -Key 'pool-control' -VMName $VMName -Operation Start -HostingMode 'host-process' -Script 'Start-PoolControlServiceVM.ps1' -Confirm:$false

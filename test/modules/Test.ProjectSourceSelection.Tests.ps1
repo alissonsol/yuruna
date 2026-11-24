@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42adb3a3-d392-473c-9950-ce00a1d52620
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,6 +19,11 @@ BeforeAll {
     Import-Module (Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1') -Force -DisableNameChecking
     Import-Module powershell-yaml -Force
     $script:EntryAst = [Management.Automation.Language.Parser]::ParseFile((Join-Path $script:Root 'test/Invoke-TestProject.ps1'), [ref]$null, [ref]$null)
+    $guards = @($script:EntryAst.EndBlock.Statements | Where-Object {
+        $_ -is [Management.Automation.Language.IfStatementAst] -and $_.Clauses[0].Item1.Extent.Text -ceq '-not (Assert-Elevation -HostType (Get-HostType))'
+    })
+    if ($guards.Count -ne 1) { throw 'Expected one native elevation admission check in the project entry point.' }
+    $script:ElevationGuard = $guards[0]
 
     # What a cycle does before its inner refreshes the project: the cycle
     # process binds the installed framework, then the inner's configuration
@@ -139,9 +144,43 @@ Describe 'The cycle refreshes the project from the pin its gate selected' {
 }
 
 Describe 'Invoke-TestProject -WhatIf' {
+    It 'keeps native elevation admission before the preview when access is <Allowed>' -ForEach @(@{Allowed=$false}, @{Allowed=$true}) {
+        $fixture = @'
+$script:Allowed=$false
+$script:Stopped=$null
+$ExitFailure=1
+function Get-HostType { 'host.windows.hyper-v' }
+function Assert-Elevation { param($HostType) $null=$HostType; return $script:Allowed }
+function Stop-WithReason { param($Code,$Step,$Reason) $script:Stopped=@{Code=$Code;Step=$Step;Reason=$Reason}; throw 'fixture-elevation-stop' }
+'@
+        $module = New-Module -ScriptBlock ([scriptblock]::Create($fixture + "`nfunction Invoke-Admission {`n" + $script:ElevationGuard.Extent.Text + "`n}"))
+        & $module { param($value) $script:Allowed=$value } $Allowed
+        if ($Allowed) {
+            & $module { Invoke-Admission }
+            & $module { $script:Stopped } | Should -BeNullOrEmpty
+        } else {
+            { & $module { Invoke-Admission } } | Should -Throw '*fixture-elevation-stop*'
+            $stopped = & $module { $script:Stopped }
+            $stopped.Code | Should -Be 1
+            $stopped.Step | Should -BeExactly 'Pre-flight (elevation)'
+            $stopped.Reason | Should -Match 'before <RepoRoot>/project is wiped and re-cloned'
+        }
+        $preview = $script:EntryAst.Find({param($node)
+            $node -is [Management.Automation.Language.InvokeMemberExpressionAst] -and $node.Member.Extent.Text -eq 'ShouldProcess'
+        }, $true)
+        $script:ElevationGuard.Extent.EndOffset | Should -BeLessThan $preview.Extent.StartOffset
+    }
+
     It 'imports its modules and reports the replacement without an error, changing nothing' {
         $config = Join-Path $TestDrive 'whatif.test.config.yml'
         [IO.File]::WriteAllText($config, "repositories:`n  projectUrl: file:///nonexistent/yuruna-project`n")
+        # Supply native platform admission in the disposable copy so every host
+        # exercises the real imports and preview. Admission is tested separately.
+        $source = [IO.File]::ReadAllText((Join-Path $script:Root 'test/Invoke-TestProject.ps1'))
+        $source = $source.Remove($script:ElevationGuard.Extent.StartOffset, $script:ElevationGuard.Extent.Text.Length)
+        $source = $source.Replace('$PSScriptRoot', "'" + (Join-Path $script:Root 'test').Replace("'", "''") + "'")
+        $entry = Join-Path $TestDrive 'Invoke-TestProject.preview.ps1'
+        [IO.File]::WriteAllText($entry, $source)
         $before = [IO.File]::ReadAllText($config)
         $stderrPath = Join-Path $TestDrive 'whatif.err'
         $saved = Save-YurunaTestEnvironment -Name 'YURUNA_RUNTIME_DIR', 'YURUNA_LOG_DIR'
@@ -149,18 +188,14 @@ Describe 'Invoke-TestProject -WhatIf' {
         try {
             $env:YURUNA_RUNTIME_DIR = $runtime
             $env:YURUNA_LOG_DIR = Join-Path $TestDrive 'log'
-            $out = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File (Join-Path $script:Root 'test/Invoke-TestProject.ps1') -WhatIf -ConfigPath $config 2> $stderrPath
+            $out = & (Get-Process -Id $PID).Path -NoProfile -NonInteractive -File $entry -WhatIf -ConfigPath $config 2> $stderrPath
             $exit = $LASTEXITCODE
         } finally { Restore-YurunaTestEnvironment -Saved $saved }
         [IO.File]::ReadAllText($stderrPath) | Should -BeNullOrEmpty -Because 'the preview raises no error while its modules import'
         [IO.File]::ReadAllText($config) | Should -Be $before
         Test-Path -LiteralPath $runtime | Should -BeFalse -Because 'the preview stops before it claims the runtime'
-        # A non-elevated Windows shell stops at the elevation check, before the
-        # replacement is described; every other host reaches it.
-        if (-not $IsWindows) {
-            $exit | Should -Be 0
-            (@($out) -join "`n") | Should -Match 'file:///nonexistent/yuruna-project'
-        }
+        $exit | Should -Be 0
+        (@($out) -join "`n") | Should -Match 'file:///nonexistent/yuruna-project'
     }
 }
 

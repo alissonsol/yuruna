@@ -1357,7 +1357,7 @@ Additional implementation constraints are in the [host source rationale](https:/
 
 <a id="42e5cdfd-003d"></a>
 
-## test/service/Start-StatusService.ps1: Startup serialization and the refresh-safe outcome
+## test/service/Start-StatusService.ps1: Startup serialization and the non-destructive outcome
 
 Applies to:
 
@@ -1369,7 +1369,7 @@ startup lock serializes them. It lives in the private state root, keyed by
 runtime, because the runtime directory is served and lock metadata there
 would be public, and so two checkouts' listeners never wait on each other.
 The normal start waits a bounded time and then proceeds without it (a
-start that never happens is worse than the race); the refresh-safe start
+start that never happens is worse than the race); the non-destructive start
 refuses instead, because its whole promise is to disturb nothing.
 
 The lock is an open handle held by this process. The normal start is
@@ -1410,7 +1410,7 @@ within 600 s leaves it running, and any restart for new framework code waits
 for the next start (`runner.status_listener_busy`); a wedged or missing lease
 replaces it as before, naming the verdict. In the middle of a cycle the
 host-address beacon watches the same lease and, after two wedged passes and a
-probe that fails, runs `Start-StatusService.ps1 -RefreshSafe -ReplaceWedged`,
+probe that fails, runs `Start-StatusService.ps1 -NonDestructive -ReplaceWedged`,
 which stops that listener and starts a new one without the full start's
 sweeps.
 
@@ -1434,7 +1434,7 @@ the operator finish a cleanup the harness caused and can do itself; it already
 has (or can ask once for) the authorization. Every target is named as it is
 stopped, and this process, its ancestors and pid 1 are never candidates.
 
-The refresh-safe start takes nothing: a port anyone holds is reported, and
+The non-destructive start takes nothing: a port anyone holds is reported, and
 the privilege case is told apart from a real holder for the same reason the
 normal path tells them apart.
 
@@ -1466,7 +1466,7 @@ current-action.json, control.*-pause, .status-service.ps1 in those
 locations. A checkout upgrade can leave those untracked (no longer
 .gitignored), cluttering `git status`. Drop them on every start so
 operator runs land on a clean status dir.
-The refresh-safe start skips this sweep: it removes the break sidecar and
+The non-destructive start skips this sweep: it removes the break sidecar and
 the continue flag, which a held runner still needs.
 
 Additional implementation constraints are in the [host source rationale](https://yuruna.link/42f52e37-0017).
@@ -1838,7 +1838,7 @@ durable-fix pointer only when we can positively determine it's blocked.
 indeterminate state (e.g. can't read ufw unprivileged) stays quiet -- host
 setup (Enable-TestAutomation) is the durable owner, which matters for a host
 whose runner is stopped and so never re-runs this per-cycle start.
-The refresh-safe start edits no firewall: a rule change is host
+The non-destructive start edits no firewall: a rule change is host
 configuration, and the listener it restores was reachable before.
 
 <a id="42e5cdfd-004a"></a>

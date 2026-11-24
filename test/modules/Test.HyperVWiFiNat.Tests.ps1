@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4284e886-4b60-4b77-815f-041d9206d0dc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ Describe 'hyper-v-wifi-nat-divert' {
         $fn = Get-FunctionAst -Name 'Test-WindowsUplinkNotBridgeable'
         Assert-True ($null -ne $fn) 'the not-bridgeable detector must exist'
         # It must key off the physical media type, not a name heuristic.
-        Assert-True ($fn.Extent.Text -match 'Native 802\.11') 'must test PhysicalMediaType against Native 802.11'
+        Assert-True ($fn.Extent.Text -match "PhysicalMediaType -eq 'Native 802\.11'") 'must test PhysicalMediaType against Native 802.11'
         Assert-True ($fn.Extent.Text -match 'PhysicalMediaType') 'must read the adapter PhysicalMediaType'
     }
 
@@ -76,7 +76,7 @@ Describe 'hyper-v-wifi-nat-divert' {
         # detector must consult the PnP bus, not just the media type.
         $fn = Get-FunctionAst -Name 'Test-WindowsUplinkNotBridgeable'
         Assert-True ($fn.Extent.Text -match 'PnPDeviceID') 'must read the adapter PnPDeviceID to spot a USB bus'
-        Assert-True ($fn.Extent.Text -match "USB") 'must treat a USB-attached uplink as not bridgeable'
+        Assert-True ($fn.Extent.Text -match "PnPDeviceID -like 'USB\\\*'") 'must treat a USB-attached uplink as not bridgeable'
     }
 
     It 'Test-WindowsUplinkNotBridgeable resolves a vEthernet route back to the physical NIC' {

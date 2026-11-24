@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.16
+# Version: 2026.11.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 4293fe9e-c743-4e9d-b6c1-586585bfa3d1
@@ -517,16 +517,10 @@ fae_process_start() {
     [[ ${fields[19]:-} =~ ^[0-9]+$ ]] || return 1
     printf '%s' "${fields[19]}"
 }
-# The previous invocation's recorder folder and profile are named only in the
-# log this run is about to replace. Without this a guest keeps one recorder
-# folder (up to ~2 MB) per step it has ever run. That invocation can still be
-# running: a generated wrapper delegates to its shared workflow through a
-# nested invocation, and the outer recorder keeps writing into its folder and
-# the outer exit still writes the stop file there. The paths of an owner that
-# still runs are kept and printed as '# retained:' lines for the new log, so a
-# later invocation removes them once that owner has exited. A log without an
-# owner line names no process to wait for, so its paths are removed. Only
-# paths of the exact shape this script creates are removed.
+# Remove the recorder folder and profile the previous log names, unless their
+# owner still runs; those are re-listed as '# retained:' lines for the new log.
+# Only paths of the exact shape this script creates are removed.
+# See https://yuruna.link/42d38664-0022
 fae_prune_prior_invocation() {
     local log="$1" line path pid start owner_pid='' owner_start=''
     [ -f "$log" ] || return 0

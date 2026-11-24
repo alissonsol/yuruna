@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42131309-1c41-47e3-a6f7-4eec70770d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
     measured from this process, not accepted from the profile.
 .PARAMETER DisposableTarget
     Acknowledge that the profile names a disposable qualification host and its
-    test checkout. Installer and refresh recipes can change host configuration.
+    test checkout. Installer and repair recipes can change host configuration.
 #>
 [CmdletBinding()]
 param(
@@ -242,7 +242,7 @@ foreach ($id in $nativeProfile.scenarios) {
     }
     if ($id -ceq 'GM-UTM-AQUA') {
         $row.sessionKind = ($observations | Where-Object name -CEQ sessionKind).after.value
-        $row.refreshVerdict = ($observations | Where-Object name -CEQ refreshVerdict).after.value
+        $row.repairVerdict = ($observations | Where-Object name -CEQ repairVerdict).after.value
     }
     $rows.Add($row)
 }

@@ -673,6 +673,19 @@ padrão do cloud-init de AL2023 (`chpasswd.expire: true`), portanto o primeiro l
 pela interface gráfica dispara o mesmo diálogo Current/New/Retype em todos os
 hospedeiros suportados.
 
+Uma cadeia por SSH encontra a mesma expiração: um login por chave recebe
+`Password change required but no TTY available` e não executa nenhum comando
+até que a senha seja trocada. Por isso, as sequências de início por SSH do
+Ubuntu Server fazem a rotação na etapa
+[`sshWaitReady`](../test-sequences.md#428e4df6-0022) (`currentPassword` /
+`newPassword`), que responde aos mesmos três prompts por `ssh -tt`, e gravam
+a nova senha no cofre depois que um login posterior a comprova, como faz o
+início pelo console. Quando essa etapa chega a um shell cuja senha não está
+expirada, como numa repetição em um convidado já provisionado, ela define a
+senha como `newPassword` com `sudo -n chpasswd`, por meio do
+[sudo sem senha](#429f3d06-001a) descrito abaixo, para que o cofre nunca grave
+uma senha que o convidado não recebeu.
+
 <a id="429f3d06-0019"></a>
 
 <a id="login-session-budget"></a>
@@ -1380,6 +1393,26 @@ O hook de erro também exibe `/log/installer-fail/<hostname>/<UTC-timestamp>/` n
 console. Esses envios são separados da pasta de diagnóstico do convidado no ciclo
 e continuam úteis quando esse diagnóstico excede o prazo. Abra diretamente o
 conjunto de arquivos indicado para obter os snapshots e `curtin-errors.tar`.
+
+Um instalador que trava sem abortar nunca executa `error-commands`, e a conta
+do sistema de destino pode ainda não existir para os diagnósticos por SSH. Por
+isso, um comando inicial compartilhado inicia um gravador de diagnóstico no
+instalador ativo, sem tornar sua disponibilidade obrigatória. A cada minuto,
+ele envia um snapshot limitado para
+`/log-upload/installer-progress/<VM-name>/latest.log`, usando a identidade da VM já
+fornecida nos metadados do cloud-init. Os snapshots incluem o horário da
+captura e o ID de inicialização, o progresso do instalador, os nomes dos
+processos e seus canais de espera, além do estado da rede. Argumentos e
+ambientes de processos e o user-data do autoinstall são excluídos.
+
+O gravador funciona por no máximo duas horas e para antes de late-commands.
+Cada sondagem e envio tem limites; ferramentas indisponíveis ou envios que
+falham nunca fazem a instalação falhar. Em caso de falha, o executor copia um
+snapshot da etapa que falhou para a pasta do convidado no ciclo, com o nome
+`installer-progress.log`, antes de tentar o SSH. Snapshots anteriores ao início
+conhecido da etapa que falhou ou do ciclo são omitidos. O arquivo copiado fica
+disponível pelo link normal da pasta de falha e pelo arquivo do ciclo, mesmo
+quando a conta do sistema de destino está indisponível.
 
 <a id="429f3d06-0030"></a>
 
@@ -3023,6 +3056,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../../README.md)

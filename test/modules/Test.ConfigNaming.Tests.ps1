@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42acc4f5-2748-4b33-95f6-25b431645860
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -389,6 +389,97 @@ Describe 'naming tool preservation of YAML scalar content' {
             $after.repositories.ghToken | Should -BeExactly $before.repositories.GH_TOKEN
             [IO.File]::ReadAllText($cfg) | Should -Match '#   unregistered.keep: evidence'
         } finally { Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming" -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'testCycle.autoRefreshAfterStalls -> testCycle.autoRepairAfterStalls keeps the operator value' {
+    # The operator-configuration rule: every writer of test.config.yml keeps a
+    # value the operator set, reports the rename as previous -> new before the
+    # write, and names where the previous file is kept. The seeded value 3 is
+    # not the template default (0), so a writer that drops the retired key and
+    # fills the default fails here.
+    BeforeAll {
+        Import-Module powershell-yaml -ErrorAction Stop
+        Import-Module (Join-Path $here 'Test.ConfigSync.psm1') -DisableNameChecking
+        $script:KnobTemplate = Join-Path $repoRoot 'test/test.config.yml.template'
+        $templateText = [IO.File]::ReadAllText($script:KnobTemplate)
+        if ($templateText -notmatch '(?m)^  autoRepairAfterStalls: 0\s*$') { throw 'The template no longer carries testCycle.autoRepairAfterStalls with its default 0.' }
+        $script:KnobSeed = $templateText -replace '(?m)^  autoRepairAfterStalls: 0(\s*)$', '  autoRefreshAfterStalls: 3$1'
+        $script:KnobReport = 'testCycle.autoRefreshAfterStalls: 3 -> testCycle.autoRepairAfterStalls: 3'
+        function Confirm-KnobMigrated {
+            param([string]$ConfigPath)
+            $text = [IO.File]::ReadAllText($ConfigPath)
+            $doc = ConvertFrom-Yaml -Yaml $text -Ordered
+            $doc.testCycle.autoRepairAfterStalls | Should -Be 3 -Because 'the operator value survives on disk under the new key'
+            Test-RetiredConfigKeyLine -Text $text -DottedPath 'testCycle.autoRefreshAfterStalls' | Should -BeFalse
+            [IO.File]::ReadAllText("$ConfigPath.pre-renaming") | Should -BeExactly $script:KnobSeed -Because 'the previous file is kept beside the config'
+        }
+    }
+
+    It 'is a registered retired key' {
+        $found = @(Get-RetiredConfigKeyPresent -Text $script:KnobSeed)
+        $found.Count | Should -Be 1
+        $found[0].New | Should -Be 'testCycle.autoRepairAfterStalls'
+        $found[0].Factor | Should -Be 1
+    }
+
+    It 'survives the cycle-start template refresh, reported before the write with the backup named' {
+        $cfg = New-TempConfig ''
+        [IO.File]::WriteAllText($cfg, $script:KnobSeed)
+        $script:KnobSeen = [System.Collections.Generic.List[object]]::new()
+        $script:KnobPath = $cfg
+        Mock -ModuleName Test.ConfigNaming Write-Warning {
+            $script:KnobSeen.Add([pscustomobject]@{ Message = [string]$Message; OnDisk = [IO.File]::ReadAllText($script:KnobPath) })
+        }
+        try {
+            $null = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $script:KnobTemplate 6>$null
+            Confirm-KnobMigrated -ConfigPath $cfg
+            $report = @($script:KnobSeen | Where-Object { $_.Message.Contains($script:KnobReport) })
+            $report.Count | Should -Be 1 -Because "the rename is reported as previous -> new; saw: $(@($script:KnobSeen.Message) -join ' | ')"
+            $report[0].OnDisk | Should -BeExactly $script:KnobSeed -Because 'the report comes before the file changes'
+            $report[0].Message | Should -Match ([regex]::Escape("$cfg.pre-renaming")) -Because 'the report says where the previous file is kept'
+        } finally {
+            Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming", "$cfg.backup", "$cfg.journal" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'survives the validator reconciliation, reported before the write' {
+        $cfg = New-TempConfig ''
+        [IO.File]::WriteAllText($cfg, $script:KnobSeed)
+        $script:KnobSeen = [System.Collections.Generic.List[object]]::new()
+        $script:KnobPath = $cfg
+        Mock -ModuleName Test.ConfigNaming Write-Warning {
+            $script:KnobSeen.Add([pscustomobject]@{ Message = [string]$Message; OnDisk = [IO.File]::ReadAllText($script:KnobPath) })
+        }
+        try {
+            $template = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($script:KnobTemplate)) -Ordered
+            $current = ConvertFrom-Yaml -Yaml $script:KnobSeed -Ordered
+            $result = Sync-TestConfigToTemplate -Template $template -Current $current -ConfigPath $cfg -TemplatePath $script:KnobTemplate
+            $result.Wrote | Should -BeTrue
+            $result.BackupPath | Should -Be "$cfg.pre-renaming"
+            Confirm-KnobMigrated -ConfigPath $cfg
+            $report = @($script:KnobSeen | Where-Object { $_.Message.Contains($script:KnobReport) })
+            $report.Count | Should -Be 1 -Because "the rename is reported as previous -> new; saw: $(@($script:KnobSeen.Message) -join ' | ')"
+            $report[0].OnDisk | Should -BeExactly $script:KnobSeed -Because 'the report comes before the file changes'
+        } finally {
+            Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming", "$cfg.backup", "$cfg.journal" -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'survives tools/Update-TestConfigNaming.ps1, which reports the rename and the backup' {
+        $cfg = New-TempConfig ''
+        [IO.File]::WriteAllText($cfg, $script:KnobSeed)
+        try {
+            $run = Invoke-MigrateTool -ConfigPath $cfg
+            $run.ExitCode | Should -Be 0 -Because $run.Output
+            $doc = ConvertFrom-Yaml -Yaml ([IO.File]::ReadAllText($cfg)) -Ordered
+            $doc.testCycle.autoRepairAfterStalls | Should -Be 3
+            [IO.File]::ReadAllText("$cfg.pre-renaming") | Should -BeExactly $script:KnobSeed
+            $run.Output | Should -Match ([regex]::Escape($script:KnobReport))
+            $run.Output | Should -Match ([regex]::Escape("$cfg.pre-renaming"))
+        } finally {
+            Remove-Item -LiteralPath $cfg, "$cfg.pre-renaming", "$cfg.journal" -Recurse -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 

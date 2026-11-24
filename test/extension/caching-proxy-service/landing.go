@@ -197,8 +197,8 @@ const landingStyle = `
   body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
          background: #111827; color: #e5e7eb; margin: 0; padding: 16px; }
   h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
-  h2 { font-size: 13px; margin: 20px 0 6px; color: #9ca3af; font-weight: 600;
-       text-transform: uppercase; letter-spacing: .04em; }
+  h2 { font-size: 13px; margin: 20px 0 6px; color: #9ca3af;
+       font-weight: 600; }
   p.lead { margin: 0 0 4px; color: #9ca3af; }
   ul { list-style: none; margin: 0; padding: 0; max-width: 90ch; }
   li { padding: 8px 0; border-bottom: 1px solid #1f2937; }

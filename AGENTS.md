@@ -87,6 +87,24 @@ text or execution/session notes to a commit message.
 These rules apply equally to direct Git commands, generated messages, IDEs,
 CLI tools, delegated agents and automated commit/push workflows.
 
+## Re-sign the installer manifest
+
+A repository that publishes a signed installer manifest
+(`install/install.sha256` with its signature `install/install.sha256.sig`)
+regenerates the manifest and signs it again in the same change whenever an
+installer under `install/` changes, including a release version sweep. Never
+commit installers that fail their signed-hash check.
+
+- When the location of the release signing key on the machine is known,
+  because the operator stated it or the agent's own records on that machine
+  name it, re-sign without asking: run `tools/Update-YurunaReleasePins.ps1`
+  with `-PrivateKeyPath` (add `-SkipPins` when the release pins must not move)
+  and confirm it reports the signature as self-verified.
+- When the key's location is not known, regenerate the manifest with
+  `-SkipSign` and ask the operator for the key before committing.
+- Never copy, print or commit the key, and never write its location into a
+  repository.
+
 ## Read and plan before editing
 
 Read the files you will change and the relevant callers, tests and local
@@ -188,8 +206,15 @@ They must not depend on the conversation or process that produced the change.
 - When removing a procedural reference, retain the technical rationale. Delete
   the comment if nothing useful remains.
 
-Use American English consistently in prose, code comments and documentation.
-Avoid churn between regional spelling conventions.
+Use American English consistently in prose, code comments and documentation,
+and in names: variables, functions, types, test names, file and directory
+names, database tables and columns, JSON and YAML keys, enum and status values,
+and log event, metric and label names. Avoid churn between regional spelling
+conventions. A rename to American spelling updates every producer and consumer
+of the name in the same change. A name that an external standard or protocol
+fixes, such as the Model Context Protocol method `notifications/cancelled`,
+keeps its external spelling and is recorded as an exception beside the
+spelling check.
 
 ## Verify behavior and keep all Pester tests working
 

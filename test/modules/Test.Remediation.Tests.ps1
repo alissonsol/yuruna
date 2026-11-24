@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -343,6 +343,47 @@ Describe 'Invoke-Remediation names a stalled guest display' {
         ($r.Actions -join ' ') | Should -Match 'serial-console.log'
         (Get-AutoRemediationAllowList).Keys | Should -Not -Contain 'guest_display_stalled'
         (Get-FailureClassRoute -FailureClass 'guest_display_stalled').WarmResume | Should -BeFalse
+    }
+}
+
+Describe 'Invoke-Remediation reads a page step''s own account' {
+    It 'advises inspection and quotes the kind, the target and the page, also after an exhausted retry' {
+        $r = Invoke-Remediation -FailureRecord @{
+            failureClass = 'retry_exhausted'; severity = 'hard'; actionVerb = 'retry'
+            innerFailureClass = 'web_step_failed'; innerSeverity = 'hard'; vmName = 'test-guest-01'
+            context = @{ causeDetail = @{ web = @{ kind = 'ambiguous'; url = 'http://localhost:8080/login'; locator = @{ role = 'button'; name = 'Sign in' } } } }
+        }
+        $r.FailureClass | Should -BeExactly 'web_step_failed'
+        $r.RoutedFromFailureClass | Should -BeExactly 'retry_exhausted'
+        $r.Recommendation | Should -BeExactly 'pause_and_inspect'
+        $r.Rationale | Should -Match 'test-guest-01'
+        $r.Rationale | Should -Match 'kind: ambiguous'
+        $r.Rationale | Should -Match 'button "Sign in"'
+        $r.Rationale | Should -Match ([regex]::Escape('http://localhost:8080/login'))
+        @($r.Actions).Count | Should -Be 3
+        @($r.Actions)[0] | Should -Match 'causeDetail\.web'
+    }
+    It 'reads dashes for a record without an account' {
+        $r = Invoke-Remediation -FailureRecord @{ failureClass = 'web_step_failed'; severity = 'hard'; vmName = 'test-guest-01' }
+        $r.Rationale | Should -Match 'kind: -; sought: -; page: -'
+    }
+    It 'names the class, registers its handler and keeps it out of both recovery routes' {
+        @(Get-FailureClassEnum) | Should -Contain 'web_step_failed'
+        @(Get-RegisteredFailureClass) | Should -Contain 'web_step_failed'
+        Test-AutoRemediationAllowed -FailureClass 'web_step_failed' | Should -BeFalse
+        (Get-AutoRemediationAllowList).Keys | Should -Not -Contain 'web_step_failed'
+        (Get-FailureClassRoute -FailureClass 'web_step_failed').WarmResume | Should -BeFalse
+    }
+    It 'adds one action naming the account to a page step filed under another class' {
+        $withAccount = Invoke-Remediation -FailureRecord @{ failureClass = 'plan_invalid'; severity = 'hard'; vmName = 'v'
+            context = @{ causeDetail = @{ web = @{ kind = 'browser_unavailable' } } } }
+        @($withAccount.Actions).Count | Should -Be 4
+        @($withAccount.Actions)[-1] | Should -Match 'causeDetail\.web'
+        $without = Invoke-Remediation -FailureRecord @{ failureClass = 'plan_invalid'; severity = 'hard'; vmName = 'v' }
+        @($without.Actions).Count | Should -Be 3
+        $ownClass = Invoke-Remediation -FailureRecord @{ failureClass = 'web_step_failed'; severity = 'hard'; vmName = 'v'
+            context = @{ causeDetail = @{ web = @{ kind = 'not_found' } } } }
+        @($ownClass.Actions).Count | Should -Be 3
     }
 }
 

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e081b9-58a9-4e13-8b33-aad4c1f05feb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test private-state host-refresh pester
+.TAGS yuruna test private-state host-operation pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -79,7 +79,7 @@ Describe 'Get-YurunaPrivateStateRoot -- creation' {
         $r.Reason        | Should -Be 'ok'
         $r.OwnerVerified | Should -Be $true
         $r.HomeVerified  | Should -Be 'not-requested'
-        $r.Path          | Should -Be (Join-Path (Join-Path $homeDir '.yuruna') 'host-refresh')
+        $r.Path          | Should -Be (Join-Path (Join-Path $homeDir '.yuruna') 'host-repair')
         $r.FileSystem    | Should -Not -BeNullOrEmpty
         [IO.Directory]::Exists($r.Path) | Should -Be $true
         if (-not $IsWindows) {
@@ -98,13 +98,13 @@ Describe 'Get-YurunaPrivateStateRoot -- creation' {
         $null = [IO.Directory]::CreateSymbolicLink($alias, $real)
         $r = Get-YurunaPrivateStateRoot -HomePath $alias
         $r.Resolved      | Should -Be $true
-        $r.Path          | Should -Be (Join-Path $alias '.yuruna/host-refresh')
-        $r.CanonicalPath | Should -Be ((Resolve-YurunaCanonicalPath -Path (Join-Path $real '.yuruna/host-refresh')).Path)
+        $r.Path          | Should -Be (Join-Path $alias '.yuruna/host-repair')
+        $r.CanonicalPath | Should -Be ((Resolve-YurunaCanonicalPath -Path (Join-Path $real '.yuruna/host-repair')).Path)
     }
 
     It 'tightens a loose existing root to owner-only, and only reports it under -NoCreate' -Skip:$IsWindows {
         $homeDir = New-TempHome
-        $root = Join-Path $homeDir '.yuruna/host-refresh'
+        $root = Join-Path $homeDir '.yuruna/host-repair'
         $null = [IO.Directory]::CreateDirectory((Join-Path $homeDir '.yuruna'), $script:OwnerOnly)
         $null = [IO.Directory]::CreateDirectory($root)
         $loose = [IO.UnixFileMode]'UserRead, UserWrite, UserExecute, GroupRead, GroupWrite, GroupExecute, OtherRead, OtherExecute'
@@ -162,7 +162,7 @@ Describe 'Get-YurunaPrivateStateRoot -- creation' {
             [IO.Directory]::Exists((Join-Path $homeDir '.yuruna')) | Should -Be $false
             (Invoke-PreviewStandIn -HomePath $homeDir).Reason | Should -Be 'ok' -Because 'without -WhatIf the same call creates the root'
             (Invoke-PreviewStandIn -HomePath $homeDir -Subdirectory -WhatIf).Reason | Should -Be 'absent'
-            [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-refresh/work')) | Should -Be $false
+            [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-repair/work')) | Should -Be $false
         } finally { Remove-Module -ModuleInfo $standIn -Force -ErrorAction SilentlyContinue }
     }
 
@@ -190,19 +190,19 @@ Describe 'Get-YurunaPrivateStateRoot -- creation' {
 }
 
 Describe 'Get-YurunaPrivateStateRoot -- links and parents' {
-    It 'refuses a linked .yuruna and a linked host-refresh' -Skip:$IsWindows {
+    It 'refuses a linked .yuruna and a linked host-repair' -Skip:$IsWindows {
         $homeDir = New-TempHome
         $elsewhere = Join-Path $homeDir 'elsewhere'
         $null = [IO.Directory]::CreateDirectory($elsewhere)
         $null = [IO.Directory]::CreateSymbolicLink((Join-Path $homeDir '.yuruna'), $elsewhere)
         (Get-YurunaPrivateStateRoot -HomePath $homeDir).Reason | Should -Be 'reparse-point'
-        [IO.Directory]::Exists((Join-Path $elsewhere 'host-refresh')) | Should -Be $false -Because 'nothing is created through the link'
+        [IO.Directory]::Exists((Join-Path $elsewhere 'host-repair')) | Should -Be $false -Because 'nothing is created through the link'
 
         $second = New-TempHome
         $null = [IO.Directory]::CreateDirectory((Join-Path $second '.yuruna'), $script:OwnerOnly)
         $target = Join-Path $second 'target'
         $null = [IO.Directory]::CreateDirectory($target)
-        $null = [IO.Directory]::CreateSymbolicLink((Join-Path $second '.yuruna/host-refresh'), $target)
+        $null = [IO.Directory]::CreateSymbolicLink((Join-Path $second '.yuruna/host-repair'), $target)
         (Get-YurunaPrivateStateRoot -HomePath $second).Reason | Should -Be 'reparse-point'
     }
 
@@ -526,7 +526,7 @@ Describe 'Get-YurunaPrivateStateRoot -- served trees and file systems' {
         $null = [IO.Directory]::CreateSymbolicLink($alias, $homeDir)
         (Get-YurunaPrivateStateRoot -HomePath $homeDir -ServedRoot @($alias)).Reason | Should -Be 'served-tree'
 
-        (Get-YurunaPrivateStateRoot -HomePath $homeDir -ServedRoot @((Join-Path $homeDir '.yuruna/host-refresh/work'))).Reason | Should -Be 'served-tree'
+        (Get-YurunaPrivateStateRoot -HomePath $homeDir -ServedRoot @((Join-Path $homeDir '.yuruna/host-repair/work'))).Reason | Should -Be 'served-tree'
 
         $unrelated = Get-YurunaPrivateStateRoot -HomePath $homeDir -ServedRoot @($base, '', (Join-Path $homeDir 'repo'))
         $unrelated.Resolved | Should -Be $true
@@ -608,12 +608,12 @@ Describe 'Get-YurunaPrivateStatePath' {
         $homeDir = New-TempHome
         $r = Get-YurunaPrivateStatePath -HomePath $homeDir -Name 'stdin.empty' -Subdirectory 'work'
         $r.Resolved | Should -Be $true
-        $r.Path     | Should -Be (Join-Path $homeDir '.yuruna/host-refresh/work/stdin.empty')
+        $r.Path     | Should -Be (Join-Path $homeDir '.yuruna/host-repair/work/stdin.empty')
         [IO.File]::Exists($r.Path) | Should -Be $false
         [IO.Directory]::Exists((Split-Path -Parent $r.Path)) | Should -Be $true
         if (-not $IsWindows) { (Get-Mode (Split-Path -Parent $r.Path)) | Should -Be $script:OwnerOnly }
-        $leaf = Get-YurunaPrivateStatePath -HomePath $homeDir -Name 'host-refresh.journal'
-        $leaf.Path | Should -Be (Join-Path $homeDir '.yuruna/host-refresh/host-refresh.journal')
+        $leaf = Get-YurunaPrivateStatePath -HomePath $homeDir -Name 'host-operation.journal'
+        $leaf.Path | Should -Be (Join-Path $homeDir '.yuruna/host-repair/host-operation.journal')
     }
 
     It 'refuses names that could leave the root or hide a file' {
@@ -629,8 +629,8 @@ Describe 'Get-YurunaPrivateStatePath' {
         $homeDir = New-TempHome
         $null = Get-YurunaPrivateStateRoot -HomePath $homeDir
         (Get-YurunaPrivateStatePath -HomePath $homeDir -Name 'x' -Subdirectory 'work' -NoCreate).Reason | Should -Be 'absent'
-        [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-refresh/work')) | Should -Be $false
-        $work = Join-Path $homeDir '.yuruna/host-refresh/work'
+        [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-repair/work')) | Should -Be $false
+        $work = Join-Path $homeDir '.yuruna/host-repair/work'
         $null = [IO.Directory]::CreateDirectory($work)
         [IO.File]::SetUnixFileMode($work, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute, GroupRead, GroupExecute')
         (Get-YurunaPrivateStatePath -HomePath $homeDir -Name 'x' -Subdirectory 'work' -NoCreate).Reason | Should -Be 'permission-loose'
@@ -655,6 +655,263 @@ Describe 'Get-YurunaPrivateStatePath' {
         $r.Resolved | Should -Be $false
         $r.Reason   | Should -Be 'absent'
         $r.Path     | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Get-YurunaPrivateStateRoot -- the earlier host-refresh root' {
+    # A host whose earlier release kept its journal, budget, gate and locks
+    # under .yuruna/host-refresh still has them there. Each case
+    # seeds that tree and resolves the root the way every entry point does.
+    BeforeAll {
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.CriticalRecord.psm1') -Force -DisableNameChecking
+        function New-LegacyRoot {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture temp dir.')]
+            param([string]$HomeDir)
+            $stateDir = Join-Path $HomeDir '.yuruna'
+            $legacy = Join-Path $stateDir 'host-refresh'
+            foreach ($dir in @($stateDir, $legacy)) {
+                if ($IsWindows) { $null = [IO.Directory]::CreateDirectory($dir) }
+                else { $null = [IO.Directory]::CreateDirectory($dir, $script:OwnerOnly) }
+            }
+            return $legacy
+        }
+        function Write-LegacyJournal {
+            param([string]$Legacy)
+            $payload = [ordered]@{
+                schemaVersion = 2; writtenUtc = '2026-11-19T08:00:00Z'; owner = $null
+                requests      = @(
+                    [ordered]@{ id = '11111111-1111-4111-8111-111111111111'; kind = 'host-refresh'; state = 'recovery-pending'; policyHash = 'hash-a' }
+                    [ordered]@{ id = '22222222-2222-4222-8222-222222222222'; state = 'completed'; policyHash = 'hash-b' }
+                    [ordered]@{ id = '33333333-3333-4333-8333-333333333333'; kind = 'host-update'; state = 'queued' })
+                reservations  = @()
+                tombstones    = @([ordered]@{ id = '44444444-4444-4444-8444-444444444444'; kind = 'host-refresh'; policyHash = 'hash-d' })
+            }
+            $write = Write-YurunaCriticalRecord -Path (Join-Path $Legacy 'host-refresh.journal') -Kind 'host-refresh.request-journal' `
+                -Payload $payload -ExpectedGeneration 0 -MaxBytes 4194304 -Confirm:$false
+            $write.Committed | Should -Be $true
+        }
+        function Get-TreeListing {
+            param([string]$Path)
+            if (-not [IO.Directory]::Exists($Path)) { return @() }
+            return @([IO.Directory]::EnumerateFileSystemEntries($Path, '*', [IO.SearchOption]::AllDirectories) |
+                    ForEach-Object { [IO.Path]::GetRelativePath($Path, $_) } | Sort-Object)
+        }
+    }
+
+    It 'moves the root, re-keys the journal, budget and streak, keeps the gate record, and reports each item as previous -> new' {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        Write-LegacyJournal -Legacy $legacy
+        $budgetPayload = [ordered]@{ schemaVersion = 1; kind = 'host-refresh-auto-budget'; reservations = @([ordered]@{ day = '2026-11-19'; requestId = 'r-1' }, [ordered]@{ day = '2026-11-19'; requestId = 'r-2' }) }
+        $null = Write-YurunaCriticalRecord -Path (Join-Path $legacy 'host-refresh.auto-budget.record') -Kind 'host-refresh-auto-budget' -Payload $budgetPayload -ExpectedGeneration 0 -Confirm:$false
+        [IO.File]::WriteAllText((Join-Path $legacy 'host-refresh.auto-streak.json'), '{"schemaVersion":1,"kind":"host-refresh-auto-streak","streak":3,"lastFaultUtc":"2026-11-19T07:00:00Z"}')
+        $gate = Write-YurunaCriticalRecord -Path (Join-Path $legacy 'runner-gate.record') -Kind 'runner-gate' -Payload @{ schemaVersion = 1; state = 'closed'; requestId = 'r-1' } -ExpectedGeneration 0 -Confirm:$false
+        $gate.Committed | Should -Be $true
+        $gateBytes = [IO.File]::ReadAllBytes((Join-Path $legacy 'runner-gate.record'))
+        foreach ($leaf in @('host-refresh.lock', 'host-refresh.admission.lock', 'runner-gate.lock')) { [IO.File]::WriteAllText((Join-Path $legacy $leaf), '') }
+
+        $warnings = @()
+        $r = Get-YurunaPrivateStateRoot -HomePath $homeDir -WarningVariable warnings -WarningAction SilentlyContinue
+        $root = Join-Path $homeDir '.yuruna/host-repair'
+        $r.Resolved | Should -Be $true
+        $r.Reason   | Should -Be 'ok'
+        $r.Path     | Should -Be $root
+        [IO.Directory]::Exists($legacy) | Should -Be $false -Because 'the earlier root is moved, not copied'
+        Get-TreeListing -Path $root | Should -Be @(
+            'host-operation.admission.lock', 'host-operation.journal', 'host-operation.lock',
+            'host-repair.auto-budget.record', 'host-repair.auto-streak.json', 'runner-gate.lock', 'runner-gate.record')
+
+        $journal = Read-YurunaCriticalRecord -Path (Join-Path $root 'host-operation.journal') -Kind 'host-operation.request-journal' -MaxBytes 4194304
+        $journal.Status | Should -Be 'ok'
+        $journal.Degraded | Should -Be $false
+        @($journal.Payload.requests | ForEach-Object { [string]$_['kind'] }) | Should -Be @('host-repair', '', 'host-update')
+        @($journal.Payload.requests | ForEach-Object { [string]$_['policyHash'] }) | Should -Be @('hash-a', 'hash-b', '') -Because 'the policy hash covers policy fields only and is kept as stored'
+        $journal.Payload.requests[0]['state'] | Should -Be 'recovery-pending'
+        $journal.Payload.tombstones[0]['kind'] | Should -Be 'host-repair'
+
+        $budget = Read-YurunaCriticalRecord -Path (Join-Path $root 'host-repair.auto-budget.record') -Kind 'host-repair-auto-budget'
+        $budget.Status | Should -Be 'ok'
+        $budget.Payload['kind'] | Should -Be 'host-repair-auto-budget'
+        @($budget.Payload['reservations'] | ForEach-Object { $_['requestId'] }) | Should -Be @('r-1', 'r-2') -Because 'the day''s spent attempts survive the move'
+
+        $streak = [IO.File]::ReadAllText((Join-Path $root 'host-repair.auto-streak.json')) | ConvertFrom-Json -AsHashtable -DateKind String
+        $streak['kind'] | Should -Be 'host-repair-auto-streak'
+        $streak['streak'] | Should -Be 3
+        $streak['lastFaultUtc'] | Should -Be '2026-11-19T07:00:00Z'
+
+        [IO.File]::ReadAllBytes((Join-Path $root 'runner-gate.record')) | Should -Be $gateBytes -Because 'the gate record stores no renamed name and moves unchanged'
+
+        $report = @($warnings | ForEach-Object { [string]$_ })
+        @($report | Where-Object { $_.Contains("$legacy -> $root") }).Count | Should -Be 1
+        @($report | Where-Object { $_.Contains("$(Join-Path $legacy 'host-refresh.journal') -> $(Join-Path $root 'host-operation.journal')") }).Count | Should -Be 1
+        @($report | Where-Object { $_.Contains("$(Join-Path $legacy 'host-refresh.auto-budget.record') -> $(Join-Path $root 'host-repair.auto-budget.record')") }).Count | Should -Be 1
+        @($report | Where-Object { $_.Contains("$(Join-Path $legacy 'host-refresh.auto-streak.json') -> $(Join-Path $root 'host-repair.auto-streak.json')") }).Count | Should -Be 1
+        @($report | Where-Object { $_.Contains("$(Join-Path $legacy 'host-refresh.lock') -> $(Join-Path $root 'host-operation.lock')") }).Count | Should -Be 1
+        @($report | Where-Object { $_.Contains("$(Join-Path $legacy 'host-refresh.admission.lock') -> $(Join-Path $root 'host-operation.admission.lock')") }).Count | Should -Be 1
+
+        $again = Get-YurunaPrivateStateRoot -HomePath $homeDir -WarningVariable warnings -WarningAction SilentlyContinue
+        $again.Reason | Should -Be 'ok'
+        @($warnings).Count | Should -Be 0 -Because 'the move happens once'
+    }
+
+    It 'leaves everything in place and reports migration-pending while a lock under the earlier root is held' {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        Write-LegacyJournal -Legacy $legacy
+        $controller = Join-Path $legacy 'host-controller'
+        $null = [IO.Directory]::CreateDirectory($controller)
+        $lockPath = Join-Path $controller 'host-controller.lock'
+        [IO.File]::WriteAllText($lockPath, '')
+        $before = Get-TreeListing -Path $legacy
+        $holder = [IO.FileStream]::new($lockPath, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+        $warnings = @()
+        try {
+            $r = Get-YurunaPrivateStateRoot -HomePath $homeDir -WarningVariable warnings -WarningAction SilentlyContinue
+        } finally { $holder.Dispose() }
+        $r.Resolved | Should -Be $false
+        $r.Reason   | Should -Be 'migration-pending'
+        @($warnings | Where-Object { ([string]$_).Contains($lockPath) }).Count | Should -Be 1 -Because 'the operator is told which lock holds the move'
+        [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-repair')) | Should -Be $false -Because 'nothing is created beside a root that has not moved'
+        Get-TreeListing -Path $legacy | Should -Be $before
+        (Get-YurunaPrivateStateRoot -HomePath $homeDir -WarningAction SilentlyContinue).Reason | Should -Be 'ok' -Because 'the move goes ahead once the holder is gone'
+    }
+
+    It 'refuses with migration-conflict when both roots exist, merging, moving and creating nothing' {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        Write-LegacyJournal -Legacy $legacy
+        $root = Join-Path $homeDir '.yuruna/host-repair'
+        if ($IsWindows) { $null = [IO.Directory]::CreateDirectory($root) } else { $null = [IO.Directory]::CreateDirectory($root, $script:OwnerOnly) }
+        [IO.File]::WriteAllText((Join-Path $root 'runner-gate.lock'), '')
+        $legacyBefore = Get-TreeListing -Path $legacy
+        $warnings = @()
+        $r = Get-YurunaPrivateStateRoot -HomePath $homeDir -WarningVariable warnings -WarningAction SilentlyContinue
+        $r.Resolved | Should -Be $false
+        $r.Reason   | Should -Be 'migration-conflict'
+        Get-TreeListing -Path $legacy | Should -Be $legacyBefore
+        Get-TreeListing -Path $root | Should -Be @('runner-gate.lock')
+        $text = (@($warnings | ForEach-Object { [string]$_ }) -join "`n")
+        $text | Should -Match ([regex]::Escape($legacy)) -Because 'the report names both roots'
+        $text | Should -Match ([regex]::Escape($root))
+        (Get-YurunaPrivateStateRoot -HomePath $homeDir -NoCreate).Reason | Should -Be 'migration-conflict'
+    }
+
+    It 'reports migration-pending, never absent, and moves nothing under -NoCreate or an ambient -WhatIf' {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        Write-LegacyJournal -Legacy $legacy
+        $before = Get-TreeListing -Path $legacy
+        (Get-YurunaPrivateStateRoot -HomePath $homeDir -NoCreate).Reason | Should -Be 'migration-pending'
+        (Get-YurunaPrivateStatePath -HomePath $homeDir -Name 'runner-gate.record' -NoCreate).Reason | Should -Be 'migration-pending'
+        $WhatIfPreference = $true
+        try { (Get-YurunaPrivateStateRoot -HomePath $homeDir).Reason | Should -Be 'migration-pending' } finally { $WhatIfPreference = $false }
+        Get-TreeListing -Path $legacy | Should -Be $before
+        [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-repair')) | Should -Be $false
+    }
+
+    It 'holds every spawn while the earlier root has not moved' {
+        $homeDir = New-TempHome
+        $null = New-LegacyRoot -HomeDir $homeDir
+        $probe = Join-Path $homeDir 'gate-probe.ps1'
+        [IO.File]::WriteAllText($probe, @"
+Import-Module '$(Join-Path $script:RepoRoot 'test/modules/Test.SingleInstance.psm1')' -DisableNameChecking
+`$gate = Get-YurunaRunnerGateState -RuntimeDir '$(Join-Path $homeDir 'runtime')'
+"`$(`$gate.SpawnAllowed)|`$(`$gate.State)|`$(`$gate.Reason)"
+"@)
+        $run = Invoke-BoundedNativeCommand -FilePath ([Environment]::ProcessPath) -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $probe) `
+            -Environment @{ HOME = $homeDir; USERPROFILE = $homeDir } -TimeoutSeconds 120
+        $run.ExitCode | Should -Be 0 -Because $run.StdErr
+        $answer = @(([string]$run.StdOut) -split "`r?`n" | Where-Object { $_ -match '\|' })[-1]
+        ($answer -split '\|')[0] | Should -Be 'False' -Because "a root that has not moved is never an absent gate ($answer)"
+        [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-repair')) | Should -Be $false -Because 'the gate read creates nothing'
+    }
+
+    It 'holds every spawn on a closed gate in the earlier root when the root is refused before its move (<Case>)' -Skip:$IsWindows -ForEach @(
+        @{ Case = 'a .yuruna other users can write' }
+        @{ Case = 'a linked earlier root' }
+    ) {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        $gate = Write-YurunaCriticalRecord -Path (Join-Path $legacy 'runner-gate.record') -Kind 'runner-gate' -Payload @{ schemaVersion = 1; state = 'closed'; requestId = 'r-1' } -ExpectedGeneration 0 -Confirm:$false
+        $gate.Committed | Should -Be $true
+        $stateDir = Join-Path $homeDir '.yuruna'
+        if ($Case -eq 'a linked earlier root') {
+            [IO.Directory]::Move($legacy, "$legacy.real")
+            $null = [IO.Directory]::CreateSymbolicLink($legacy, "$legacy.real")
+            $expectedRefusal = 'reparse-point'
+        } else {
+            [IO.File]::SetUnixFileMode($stateDir, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute, GroupRead, GroupWrite, GroupExecute, OtherRead, OtherWrite, OtherExecute')
+            $expectedRefusal = $null
+        }
+        try {
+            $refusal = Get-YurunaPrivateStateRoot -HomePath $homeDir -NoCreate
+            $refusal.Resolved | Should -Be $false
+            if ($expectedRefusal) { $refusal.Reason | Should -Be $expectedRefusal }
+            $refusal.Reason | Should -Not -BeIn @('migration-pending', 'migration-conflict', 'absent') -Because 'the case covers a refusal that comes before the move is tried'
+            $probe = Join-Path $homeDir 'gate-probe.ps1'
+            [IO.File]::WriteAllText($probe, @"
+Import-Module '$(Join-Path $script:RepoRoot 'test/modules/Test.SingleInstance.psm1')' -DisableNameChecking
+`$gate = Get-YurunaRunnerGateState -RuntimeDir '$(Join-Path $homeDir 'runtime')'
+"`$(`$gate.SpawnAllowed)|`$(`$gate.State)|`$(`$gate.Reason)"
+"@)
+            $run = Invoke-BoundedNativeCommand -FilePath ([Environment]::ProcessPath) -ArgumentList @('-NoProfile', '-NonInteractive', '-File', $probe) `
+                -Environment @{ HOME = $homeDir; USERPROFILE = $homeDir } -TimeoutSeconds 120
+            $run.ExitCode | Should -Be 0 -Because $run.StdErr
+            $answer = @(([string]$run.StdOut) -split "`r?`n" | Where-Object { $_ -match '\|' })[-1]
+            ($answer -split '\|') | Should -Be @('False', 'unknown', 'private-root-unsafe') -Because "a closed gate under the earlier root still holds ($answer)"
+            [IO.Directory]::Exists((Join-Path $stateDir 'host-repair')) | Should -Be $false -Because 'the gate read creates nothing'
+        } finally {
+            [IO.File]::SetUnixFileMode($stateDir, $script:OwnerOnly)
+        }
+    }
+
+    It 'carries a journal it cannot read byte for byte, so it still holds the work it guards' {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        $damaged = [Text.Encoding]::UTF8.GetBytes("not a critical record`n")
+        [IO.File]::WriteAllBytes((Join-Path $legacy 'host-refresh.journal'), $damaged)
+        $r = Get-YurunaPrivateStateRoot -HomePath $homeDir -WarningAction SilentlyContinue
+        $r.Reason | Should -Be 'ok'
+        [IO.File]::ReadAllBytes((Join-Path $r.Path 'host-operation.journal')) | Should -Be $damaged
+        (Read-YurunaCriticalRecord -Path (Join-Path $r.Path 'host-operation.journal') -Kind 'host-operation.request-journal' -MaxBytes 4194304).Status | Should -Be 'corrupt'
+        [IO.File]::Exists((Join-Path $r.Path 'host-refresh.journal')) | Should -Be $false
+    }
+
+    It 'rewrites the new names from the old ones after an interrupted earlier attempt' {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        Write-LegacyJournal -Legacy $legacy
+        $null = Write-YurunaCriticalRecord -Path (Join-Path $legacy 'host-operation.journal') -Kind 'host-operation.request-journal' `
+            -Payload @{ schemaVersion = 2; requests = @(); reservations = @(); tombstones = @() } -ExpectedGeneration 0 -MaxBytes 4194304 -Confirm:$false
+        $r = Get-YurunaPrivateStateRoot -HomePath $homeDir -WarningAction SilentlyContinue
+        $r.Reason | Should -Be 'ok'
+        $journal = Read-YurunaCriticalRecord -Path (Join-Path $r.Path 'host-operation.journal') -Kind 'host-operation.request-journal' -MaxBytes 4194304
+        @($journal.Payload.requests).Count | Should -Be 3 -Because 'the old journal stays authoritative until the directory has moved'
+    }
+
+    It 'refuses to move an earlier root that holds an entry owned by someone else, and never changes its owner' {
+        $homeDir = New-TempHome
+        $legacy = New-LegacyRoot -HomeDir $homeDir
+        $foreign = Join-Path $legacy 'caching-proxy'
+        $null = [IO.Directory]::CreateDirectory($foreign)
+        Mock -ModuleName Yuruna.Common Get-YurunaPathOwnerId { [pscustomobject]@{ Resolved = $true; OwnerId = [string](Get-YurunaCurrentOwnerId).OwnerId; Reason = 'ok' } }
+        Mock -ModuleName Yuruna.Common Get-YurunaPathOwnerId { [pscustomobject]@{ Resolved = $true; OwnerId = '0'; Reason = 'ok' } } -ParameterFilter { $Path -like '*caching-proxy' }
+        $r = Get-YurunaPrivateStateRoot -HomePath $homeDir
+        $r.Reason | Should -Be 'owner-mismatch'
+        [IO.Directory]::Exists($foreign) | Should -Be $true
+        [IO.Directory]::Exists((Join-Path $homeDir '.yuruna/host-repair')) | Should -Be $false
+    }
+
+    It 'refuses an earlier root that is a link' -Skip:$IsWindows {
+        $homeDir = New-TempHome
+        $stateDir = Join-Path $homeDir '.yuruna'
+        $null = [IO.Directory]::CreateDirectory($stateDir, $script:OwnerOnly)
+        $outside = Join-Path $homeDir 'outside'
+        $null = [IO.Directory]::CreateDirectory($outside, $script:OwnerOnly)
+        $null = [IO.Directory]::CreateSymbolicLink((Join-Path $stateDir 'host-refresh'), $outside)
+        (Get-YurunaPrivateStateRoot -HomePath $homeDir).Reason | Should -Be 'reparse-point'
+        [IO.Directory]::Exists((Join-Path $stateDir 'host-repair')) | Should -Be $false
     }
 }
 

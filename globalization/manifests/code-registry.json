@@ -5,7 +5,106 @@
     "stash.api_search_detail",
     "stash.api_detail",
     "stash.api_open_archive_detail",
-    "stash.api_create_detail"
+    "stash.api_create_detail",
+    "host_refresh.available",
+    "host_refresh.unavailable",
+    "host_refresh.no_qualified_rung",
+    "host_refresh.protocol_unreadable",
+    "host_refresh.journal_unreadable",
+    "host_refresh.unsupported_host",
+    "host_refresh.capability_unavailable",
+    "host_refresh.listener_dependency_missing",
+    "host_refresh.provisioned",
+    "host_refresh.missing",
+    "host_refresh.invalid",
+    "host_refresh.unqualified",
+    "host_refresh.idle",
+    "host_refresh.active",
+    "host_refresh.recovery_pending",
+    "host_refresh.unknown",
+    "host_refresh.queued",
+    "host_refresh.running",
+    "host_refresh.completed",
+    "host_refresh.refused",
+    "host_refresh.abandoned",
+    "host_refresh.repaired",
+    "host_refresh.already_healthy",
+    "host_refresh.failed",
+    "host_refresh.partial",
+    "host_refresh.still_unresponsive",
+    "host_refresh.starting",
+    "host_refresh.claimed",
+    "host_refresh.capturing",
+    "host_refresh.probing",
+    "host_refresh.climbing",
+    "host_refresh.converging",
+    "host_refresh.reporting",
+    "host_refresh.terminal",
+    "host_refresh.resume_request",
+    "host_refresh.start_runner",
+    "host_refresh.grant_automation",
+    "host_refresh.gui_session",
+    "host_refresh.dispose_obligations",
+    "host_refresh.elevate",
+    "host_refresh.install_client",
+    "host_refresh.not_advertised",
+    "host_refresh.protocol_unsupported",
+    "host_refresh.capability_malformed",
+    "host_refresh.control_status_unreadable",
+    "host_refresh.host_unreachable",
+    "host_refresh.observation_expired",
+    "host_refresh.never_observed",
+    "host_refresh.busy",
+    "host_refresh.request_conflict",
+    "host_refresh.request_closed",
+    "host_refresh.launcher_failed",
+    "host_refresh.listener_busy",
+    "host_refresh.admission_unavailable",
+    "host_refresh.refresh_unavailable",
+    "host_refresh.private_state_unavailable",
+    "host_refresh.payload_too_large",
+    "host_refresh.body_timeout",
+    "host_refresh.invalid_json",
+    "host_refresh.unsupported_field",
+    "host_refresh.forbidden_field",
+    "host_refresh.invalid_value",
+    "host_refresh.unsupported_media_type",
+    "host_refresh.internal_error",
+    "host_refresh.refresh_verifier_unavailable",
+    "host_refresh.host_reply_invalid",
+    "host_refresh.spawned",
+    "host_refresh.already_claimed",
+    "host_refresh.pending",
+    "host_refresh.host_refresh",
+    "host_refresh.start_cycle",
+    "host_refresh.refresh_proof_missing",
+    "host_refresh.refresh_proof_malformed",
+    "host_refresh.refresh_proof_version_unsupported",
+    "host_refresh.refresh_proof_invalid",
+    "host_refresh.refresh_proof_host_mismatch",
+    "host_refresh.refresh_proof_request_mismatch",
+    "host_refresh.refresh_proof_policy_mismatch",
+    "host_refresh.refresh_proof_lifetime_invalid",
+    "host_refresh.refresh_proof_not_yet_valid",
+    "host_refresh.refresh_proof_expired",
+    "host_refresh.refresh_remote_unqualified",
+    "host_refresh.refresh_tier_not_remote",
+    "host_refresh.refresh_remote_unprovisioned",
+    "host_refresh.refresh_remote_key_invalid",
+    "host_refresh.refresh_verifier_failed",
+    "host_refresh.refresh_auth_unconfigured",
+    "host_refresh.refresh_credential_required",
+    "host_refresh.refresh_auth_throttled",
+    "host_refresh.succeeded",
+    "host_refresh.incomplete",
+    "host_refresh.restarted",
+    "host_refresh.not_spawned",
+    "host_refresh.lock_busy",
+    "host_refresh.reservation_lost",
+    "host_refresh.runner_unknown",
+    "host_refresh.cleanup_failed",
+    "host_refresh.cleanup_timeout",
+    "host_refresh.spawn_failed"
   ],
   "description": "Every stable code a surface may branch on. A code is what crosses a boundary; the sentence a reader sees is rendered from it at the last moment, in their language. This file exists because the codes were bare literals repeated across PowerShell, Go and JavaScript with nothing naming them: a code added on one side and forgotten on another stops being recognized, and the surface that missed it reports the state as unknown rather than as an error anyone chases.",
   "rules": [
@@ -529,7 +628,7 @@
       "owner": "download_agent_service",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The request failed with this classified service condition: refresh refused: {reason}",
+      "means": "The request failed with this classified service condition: repair refused: {reason}",
       "producedBy": [
         "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
       ],
@@ -571,7 +670,7 @@
       "owner": "download_agent_service",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The request failed with this classified service condition: pool refresh refused: {reason}",
+      "means": "The request failed with this classified service condition: pool repair refused: {reason}",
       "producedBy": [
         "test/extension/download-agent-service/server/internal/httpsrv/handlers.go"
       ],
@@ -1353,6 +1452,1016 @@
       ],
       "consumedBy": [],
       "rendersAs": "runner.mcp_false_verdict"
+    },
+    {
+      "code": "workload_no_session",
+      "wireCode": "mcp.workload_no_session",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the call needs an attached session and there is none",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1",
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_no_session"
+    },
+    {
+      "code": "workload_session_active",
+      "wireCode": "mcp.workload_session_active",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a session with other input is attached or starting",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_session_active"
+    },
+    {
+      "code": "workload_session_starting",
+      "wireCode": "mcp.workload_session_starting",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the start is still running after the response budget",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_session_starting"
+    },
+    {
+      "code": "workload_busy",
+      "wireCode": "mcp.workload_busy",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "another operation is running",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_busy"
+    },
+    {
+      "code": "workload_queue_full",
+      "wireCode": "mcp.workload_queue_full",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "sixteen calls already wait for the worker",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_queue_full"
+    },
+    {
+      "code": "workload_operation_conflict",
+      "wireCode": "mcp.workload_operation_conflict",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the id was used by another tool or with other input",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_operation_conflict"
+    },
+    {
+      "code": "workload_operation_unknown",
+      "wireCode": "mcp.workload_operation_unknown",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "no operation of this session has the id",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_operation_unknown"
+    },
+    {
+      "code": "workload_still_waiting",
+      "wireCode": "mcp.workload_still_waiting",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the operation is still running after the response budget",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_still_waiting"
+    },
+    {
+      "code": "workload_not_dispatched",
+      "wireCode": "mcp.workload_not_dispatched",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the operation ended before it was sent to the worker; nothing ran",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_not_dispatched"
+    },
+    {
+      "code": "workload_call_timeout",
+      "wireCode": "mcp.workload_call_timeout",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the worker did not answer within the response budget",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_call_timeout"
+    },
+    {
+      "code": "workload_worker_start_failed",
+      "wireCode": "mcp.workload_worker_start_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the worker did not start or did not attach",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_worker_start_failed"
+    },
+    {
+      "code": "workload_worker_lost",
+      "wireCode": "mcp.workload_worker_lost",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the worker ended while it held the session",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_worker_lost"
+    },
+    {
+      "code": "workload_surface_unsupported",
+      "wireCode": "mcp.workload_surface_unsupported",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the worker does not offer the surface",
+      "producedBy": [
+        "test/service/Start-WorkloadMcpServer.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_surface_unsupported"
+    },
+    {
+      "code": "workload_stale_reference",
+      "wireCode": "mcp.workload_stale_reference",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the reference is not in the current snapshot",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_stale_reference"
+    },
+    {
+      "code": "workload_capture_failed",
+      "wireCode": "mcp.workload_capture_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the frame could not be captured",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_capture_failed"
+    },
+    {
+      "code": "workload_internal_error",
+      "wireCode": "mcp.workload_internal_error",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a handler failed or answered without a boolean ok",
+      "producedBy": [
+        "test/service/Invoke-WorkloadSession.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_internal_error"
+    },
+    {
+      "code": "workload_verb_unregistered",
+      "wireCode": "mcp.workload_verb_unregistered",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the action is not a registered verb",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_verb_unregistered"
+    },
+    {
+      "code": "workload_verb_alias",
+      "wireCode": "mcp.workload_verb_alias",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the action is an alias spelling of a registered verb",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_verb_alias"
+    },
+    {
+      "code": "workload_verb_denied_vm_state",
+      "wireCode": "mcp.workload_verb_denied_vm_state",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the verb changes the power state or the name of the VM",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_verb_denied_vm_state"
+    },
+    {
+      "code": "workload_verb_denied_operator_hold",
+      "wireCode": "mcp.workload_verb_denied_operator_hold",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the verb waits for an operator",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_verb_denied_operator_hold"
+    },
+    {
+      "code": "workload_verb_denied_composite",
+      "wireCode": "mcp.workload_verb_denied_composite",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the verb wraps other steps",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_verb_denied_composite"
+    },
+    {
+      "code": "workload_verb_denied_unclassified",
+      "wireCode": "mcp.workload_verb_denied_unclassified",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the verb declares no replay class",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_verb_denied_unclassified"
+    },
+    {
+      "code": "workload_field_reserved",
+      "wireCode": "mcp.workload_field_reserved",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the field is set by the session and cannot be supplied",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_field_reserved"
+    },
+    {
+      "code": "workload_field_missing",
+      "wireCode": "mcp.workload_field_missing",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the verb requires a field the call did not supply",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_field_missing"
+    },
+    {
+      "code": "workload_field_invalid",
+      "wireCode": "mcp.workload_field_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a field does not match the sequence schema",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_field_invalid"
+    },
+    {
+      "code": "workload_field_undeclared",
+      "wireCode": "mcp.workload_field_undeclared",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a supplied field is not declared for the verb (a warning)",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_field_undeclared"
+    },
+    {
+      "code": "workload_variable_reserved",
+      "wireCode": "mcp.workload_variable_reserved",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the variable is set by the session and cannot be supplied",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_variable_reserved"
+    },
+    {
+      "code": "workload_variables_failed",
+      "wireCode": "mcp.workload_variables_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the session variables could not be resolved",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_variables_failed"
+    },
+    {
+      "code": "workload_mask_failed",
+      "wireCode": "mcp.workload_mask_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the front end did not confirm the values to hide before dispatch",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_mask_failed"
+    },
+    {
+      "code": "workload_intent_invalid",
+      "wireCode": "mcp.workload_intent_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the intent is not one line of 1 to 200 characters without a variable token",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_intent_invalid"
+    },
+    {
+      "code": "workload_secret_literal",
+      "wireCode": "mcp.workload_secret_literal",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the request contains a value the session holds as a secret",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_secret_literal"
+    },
+    {
+      "code": "workload_secret_reference_required",
+      "wireCode": "mcp.workload_secret_reference_required",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a secret field does not refer to its value through a variable or an extension expression",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_secret_reference_required"
+    },
+    {
+      "code": "workload_secret_variable_unknown",
+      "wireCode": "mcp.workload_secret_variable_unknown",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a secret field refers to a variable the session does not define",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_secret_variable_unknown"
+    },
+    {
+      "code": "workload_secret_too_short",
+      "wireCode": "mcp.workload_secret_too_short",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a secret is shorter than the session can mask",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_secret_too_short"
+    },
+    {
+      "code": "workload_step_unresolved",
+      "wireCode": "mcp.workload_step_unresolved",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the sentence did not resolve",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_step_unresolved"
+    },
+    {
+      "code": "workload_step_too_large",
+      "wireCode": "mcp.workload_step_too_large",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the authored step is larger than the limit",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_step_too_large"
+    },
+    {
+      "code": "workload_yaml_mismatch",
+      "wireCode": "mcp.workload_yaml_mismatch",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the step cannot be written as YAML that reads back unchanged",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_yaml_mismatch"
+    },
+    {
+      "code": "workload_step_failed",
+      "wireCode": "mcp.workload_step_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a primitive of the step failed",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_step_failed"
+    },
+    {
+      "code": "workload_operation_canceled",
+      "wireCode": "mcp.workload_operation_canceled",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the operation was canceled before all its primitives ran",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_operation_canceled"
+    },
+    {
+      "code": "workload_secret_filter_failed",
+      "wireCode": "mcp.workload_secret_filter_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "an answer still held a secret after filtering or could no longer be read, so it was withheld",
+      "producedBy": [
+        "test/service/Invoke-WorkloadSession.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_secret_filter_failed"
+    },
+    {
+      "code": "workload_mask_unconfirmed",
+      "wireCode": "mcp.workload_mask_unconfirmed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the front end did not confirm the values to hide during a run (a warning)",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_mask_unconfirmed"
+    },
+    {
+      "code": "workload_journal_write_failed",
+      "wireCode": "mcp.workload_journal_write_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the journal file could not be written; the entry is kept in memory (a warning)",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_journal_write_failed"
+    },
+    {
+      "code": "workload_argument_invalid",
+      "wireCode": "mcp.workload_argument_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "an argument does not match its pattern",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1",
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_argument_invalid"
+    },
+    {
+      "code": "workload_host_unsupported",
+      "wireCode": "mcp.workload_host_unsupported",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the platform has no host driver",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_host_unsupported"
+    },
+    {
+      "code": "workload_guest_unknown",
+      "wireCode": "mcp.workload_guest_unknown",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the guest has no folder for the host type",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_guest_unknown"
+    },
+    {
+      "code": "workload_elevation_required",
+      "wireCode": "mcp.workload_elevation_required",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the host type drives VMs only from an elevated process",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_elevation_required"
+    },
+    {
+      "code": "workload_libvirt_group_missing",
+      "wireCode": "mcp.workload_libvirt_group_missing",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the process does not carry the libvirt group",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_libvirt_group_missing"
+    },
+    {
+      "code": "workload_config_unreadable",
+      "wireCode": "mcp.workload_config_unreadable",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the test configuration could not be read",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_config_unreadable"
+    },
+    {
+      "code": "workload_host_driver_failed",
+      "wireCode": "mcp.workload_host_driver_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the host driver did not load",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_host_driver_failed"
+    },
+    {
+      "code": "workload_host_not_ready",
+      "wireCode": "mcp.workload_host_not_ready",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the host is not ready to drive a guest",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_host_not_ready"
+    },
+    {
+      "code": "workload_runtime_owned",
+      "wireCode": "mcp.workload_runtime_owned",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "another run owns the runtime",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_runtime_owned"
+    },
+    {
+      "code": "workload_lease_incomplete",
+      "wireCode": "mcp.workload_lease_incomplete",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the lease was written without its start record and was released",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_lease_incomplete"
+    },
+    {
+      "code": "workload_vm_absent",
+      "wireCode": "mcp.workload_vm_absent",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the VM does not exist on the host",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_vm_absent"
+    },
+    {
+      "code": "workload_vm_stopped",
+      "wireCode": "mcp.workload_vm_stopped",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the VM is not running",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_vm_stopped"
+    },
+    {
+      "code": "workload_vm_unknown",
+      "wireCode": "mcp.workload_vm_unknown",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the hypervisor did not report the state of the VM",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_vm_unknown"
+    },
+    {
+      "code": "workload_sequence_not_found",
+      "wireCode": "mcp.workload_sequence_not_found",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the sequence was not found",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_sequence_not_found"
+    },
+    {
+      "code": "workload_sequence_not_guest",
+      "wireCode": "mcp.workload_sequence_not_guest",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the sequence is not a guest sequence with a resource chain for the OS key",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_sequence_not_guest"
+    },
+    {
+      "code": "workload_plan_invalid",
+      "wireCode": "mcp.workload_plan_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the chain of the sequence could not be planned",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_plan_invalid"
+    },
+    {
+      "code": "workload_start_failed",
+      "wireCode": "mcp.workload_start_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the session did not start",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_start_failed"
+    },
+    {
+      "code": "workload_session_detached",
+      "wireCode": "mcp.workload_session_detached",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the session has no running VM",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_session_detached"
+    },
+    {
+      "code": "workload_ownership_lost",
+      "wireCode": "mcp.workload_ownership_lost",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the session no longer owns the runtime",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_ownership_lost"
+    },
+    {
+      "code": "workload_replay_spawn_failed",
+      "wireCode": "mcp.workload_replay_spawn_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the replay process did not start",
+      "producedBy": [
+        "test/modules/Test.WorkloadRuntime.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_replay_spawn_failed"
+    },
+    {
+      "code": "workload_journal_empty",
+      "wireCode": "mcp.workload_journal_empty",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the journal holds no successful step to save",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_journal_empty"
+    },
+    {
+      "code": "workload_name_invalid",
+      "wireCode": "mcp.workload_name_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the sequence name does not match the save rules",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_name_invalid"
+    },
+    {
+      "code": "workload_name_exists",
+      "wireCode": "mcp.workload_name_exists",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "a sequence file for the name already exists",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_name_exists"
+    },
+    {
+      "code": "workload_folder_outside",
+      "wireCode": "mcp.workload_folder_outside",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the sequences folder resolves outside the framework checkout",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_folder_outside"
+    },
+    {
+      "code": "workload_split_invalid",
+      "wireCode": "mcp.workload_split_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "componentSteps is outside the journal",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_split_invalid"
+    },
+    {
+      "code": "workload_resource_invalid",
+      "wireCode": "mcp.workload_resource_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "resource does not hold 1 to 16 valid sequence names",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_resource_invalid"
+    },
+    {
+      "code": "workload_candidate_invalid",
+      "wireCode": "mcp.workload_candidate_invalid",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the generated sequence failed a check",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_candidate_invalid"
+    },
+    {
+      "code": "workload_secret_found",
+      "wireCode": "mcp.workload_secret_found",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the generated sequence would contain a resolved secret",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_secret_found"
+    },
+    {
+      "code": "workload_publish_failed",
+      "wireCode": "mcp.workload_publish_failed",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "the sequence file could not be published",
+      "producedBy": [
+        "test/modules/Test.WorkloadSequenceFile.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_publish_failed"
+    },
+    {
+      "code": "workload_no_page",
+      "wireCode": "mcp.workload_no_page",
+      "namespace": "mcp",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "no page is open in the session",
+      "producedBy": [
+        "test/modules/Test.WorkloadSession.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "runner.workload_no_page"
     },
     {
       "code": "auth.malformed_request",
@@ -2162,7 +3271,8 @@
       "means": "Typed planner exception classification. The separate YurunaMessageCode identifies its localized diagnostic; message prose never controls plan fallback.",
       "producedBy": [
         "test/modules/Test.SequenceResolve.psm1",
-        "test/modules/Test.SequencePlanner.psm1"
+        "test/modules/Test.SequencePlanner.psm1",
+        "test/modules/Test.StepPhrase.psm1"
       ],
       "consumedBy": [
         "test/modules/Test.SequenceResolve.psm1"
@@ -2171,14 +3281,14 @@
     },
     {
       "code": "available",
-      "wireCode": "host_refresh.available",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.available",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The host can run a host refresh now: a rung above the probe is qualified here, every listener route dependency resolves, and the protocol matches. The Config page shows its refresh control only for this value.",
+      "means": "The host can run a host repair now: a rung above the probe is qualified here, every listener route dependency resolves, and the protocol matches. The Diagnostics page shows its repair control only for this value.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -2190,32 +3300,32 @@
     },
     {
       "code": "unavailable",
-      "wireCode": "host_refresh.unavailable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.unavailable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The host cannot run a host refresh; the capability reason says why. Also what an answering server without a refresh field means.",
+      "means": "The host cannot run a host repair; the capability reason says why. Also what an answering server without a repair field means.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [
         "test/extension/extension-sdk/pool/pool.go"
       ],
-      "rendersAs": "status.host_refresh_unavailable"
+      "rendersAs": "status.host_repair_unavailable"
     },
     {
       "code": "no_qualified_rung",
-      "wireCode": "host_refresh.no_qualified_rung",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.no_qualified_rung",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "No rung above the probe is qualified on this host type, so nothing a refresh could do would act.",
+      "means": "No rung above the probe is qualified on this host type, so nothing a repair could do would act.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -2224,14 +3334,14 @@
     },
     {
       "code": "protocol_unreadable",
-      "wireCode": "host_refresh.protocol_unreadable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.protocol_unreadable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The host-refresh protocol version file is missing, unreadable or not the version this listener speaks.",
+      "means": "The host-repair protocol version file is missing, unreadable or not the version this listener speaks.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [],
@@ -2239,28 +3349,28 @@
     },
     {
       "code": "journal_unreadable",
-      "wireCode": "host_refresh.journal_unreadable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.journal_unreadable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The private request journal could not be read, so admission cannot be decided safely.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "unsupported_host",
-      "wireCode": "host_refresh.unsupported_host",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.unsupported_host",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The listener does not know its host type, so it cannot name a rung ladder to advertise.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
@@ -2268,14 +3378,14 @@
     },
     {
       "code": "capability_unavailable",
-      "wireCode": "host_refresh.capability_unavailable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.capability_unavailable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The capability could not be computed at all; it is reported as unavailable rather than guessed.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -2284,9 +3394,9 @@
     },
     {
       "code": "listener_dependency_missing",
-      "wireCode": "host_refresh.listener_dependency_missing",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.listener_dependency_missing",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "A command a worker-backed listener route calls does not resolve in the listener runspace; the route refuses (503) and the capability reads unavailable. Machine-facing reason; the reply sentence comes from its key.",
@@ -2299,14 +3409,14 @@
     },
     {
       "code": "provisioned",
-      "wireCode": "host_refresh.provisioned",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.provisioned",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "This host holds a valid remote-refresh verifier key, so pool-control can request a refresh with a proof.",
+      "means": "This host holds a valid remote-repair verifier key, so pool-control can request a repair with a proof.",
       "producedBy": [
-        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.HostRepairAuth.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
@@ -2316,14 +3426,14 @@
     },
     {
       "code": "missing",
-      "wireCode": "host_refresh.missing",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.missing",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "No remote-refresh verifier key is installed on this host; only local and loopback refresh are possible.",
+      "means": "No remote-repair verifier key is installed on this host; only local and loopback repair are possible.",
       "producedBy": [
-        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.HostRepairAuth.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
@@ -2333,14 +3443,14 @@
     },
     {
       "code": "invalid",
-      "wireCode": "host_refresh.invalid",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.invalid",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A remote-refresh verifier key is present but unusable (malformed, wrong host, or not private).",
+      "means": "A remote-repair verifier key is present but unusable (malformed, wrong host, or not private).",
       "producedBy": [
-        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.HostRepairAuth.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
@@ -2350,14 +3460,14 @@
     },
     {
       "code": "unqualified",
-      "wireCode": "host_refresh.unqualified",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.unqualified",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "Remote refresh is not qualified on this platform, whatever keys exist.",
+      "means": "Remote repair is not qualified on this platform, whatever keys exist.",
       "producedBy": [
-        "test/modules/Test.HostRefreshAuth.psm1",
+        "test/modules/Test.HostRepairAuth.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -2368,14 +3478,14 @@
     },
     {
       "code": "idle",
-      "wireCode": "host_refresh.idle",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.idle",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "No host-refresh request holds the host.",
+      "means": "No host-repair request holds the host.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
@@ -2385,14 +3495,14 @@
     },
     {
       "code": "active",
-      "wireCode": "host_refresh.active",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.active",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh request is queued or running on the host.",
+      "means": "A host-repair request is queued or running on the host.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
@@ -2402,32 +3512,32 @@
     },
     {
       "code": "recovery_pending",
-      "wireCode": "host_refresh.recovery_pending",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.recovery_pending",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host refresh ended with restoration still owed (services, runner, listener or controls); the same request can be resumed and a new one is refused meanwhile.",
+      "means": "A host repair ended with restoration still owed (services, runner, listener or controls); the same request can be resumed and a new one is refused meanwhile.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
         "test/extension/extension-sdk/pool/pool.go",
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_recovery_pending"
+      "rendersAs": "status.host_repair_recovery_pending"
     },
     {
       "code": "unknown",
-      "wireCode": "host_refresh.unknown",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.unknown",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The listener could not tell whether a host refresh holds the host; the capability is unavailable in that case.",
+      "means": "The listener could not tell whether a host operation holds the host; the capability is unavailable in that case.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
+        "test/modules/Test.HostRepair.psm1",
         "test/modules/Test.StatusControlRoute.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -2438,55 +3548,55 @@
     },
     {
       "code": "queued",
-      "wireCode": "host_refresh.queued",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.queued",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "Accepted and waiting for its worker; also the start-cycle reply action for an accepted start.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1",
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
-        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/modules/Test.HostRepairTrigger.psm1",
         "test/status/yuruna.common.js"
       ],
       "rendersAs": "status.start_cycle_queued"
     },
     {
       "code": "running",
-      "wireCode": "host_refresh.running",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.running",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "A worker holds the request and is repairing the host. Also the host-diagnostic worker phase while its run is in progress.",
       "producedBy": [
         "test/modules/Invoke-HostDiagnosticWorker.ps1",
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1"
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1"
       ],
       "consumedBy": [
-        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/modules/Test.HostRepairTrigger.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "rendersAs": ""
     },
     {
       "code": "completed",
-      "wireCode": "host_refresh.completed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.completed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The request reached a verdict and holds no outstanding obligation; also the replay action and the start-cycle and diagnostic terminal phase.",
       "producedBy": [
         "test/modules/Invoke-HostDiagnosticWorker.ps1",
         "test/modules/Invoke-StartCycleWorker.ps1",
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1",
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
@@ -2497,234 +3607,234 @@
     },
     {
       "code": "refused",
-      "wireCode": "host_refresh.refused",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.refused",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host refresh refused before changing anything (state and verdict).",
+      "means": "A host repair refused before changing anything (state and verdict).",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1"
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_verdict_refused"
+      "rendersAs": "status.host_repair_verdict_refused"
     },
     {
       "code": "abandoned",
-      "wireCode": "host_refresh.abandoned",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.abandoned",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host refresh gave up after repeated attempts; its recovery record is retained.",
+      "means": "A host repair gave up after repeated attempts; its recovery record is retained.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1"
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_verdict_abandoned"
+      "rendersAs": "status.host_repair_verdict_abandoned"
     },
     {
       "code": "repaired",
-      "wireCode": "host_refresh.repaired",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.repaired",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh changed something and the host converged: probe responsive, services, listener and runner restored.",
+      "means": "The repair changed something and the host converged: probe responsive, services, listener and runner restored.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1"
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1"
       ],
       "consumedBy": [
-        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/modules/Test.HostRepairTrigger.psm1",
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_verdict_repaired"
+      "rendersAs": "status.host_repair_verdict_repaired"
     },
     {
       "code": "already_healthy",
-      "wireCode": "host_refresh.already_healthy",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.already_healthy",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh found nothing to repair and changed nothing.",
+      "means": "The repair found nothing to repair and changed nothing.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_verdict_already_healthy"
+      "rendersAs": "status.host_repair_verdict_already_healthy"
     },
     {
       "code": "failed",
-      "wireCode": "host_refresh.failed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.failed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh, or a start-cycle or diagnostic worker, failed with nothing left armed; also the diagnostic phase a failed run ends in.",
+      "means": "The repair, or a start-cycle or diagnostic worker, failed with nothing left armed; also the diagnostic phase a failed run ends in.",
       "producedBy": [
         "test/modules/Invoke-HostDiagnosticWorker.ps1",
         "test/modules/Invoke-StartCycleWorker.ps1",
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1",
-        "test/modules/Test.HostRefreshTrigger.psm1"
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostRepairTrigger.psm1"
       ],
       "consumedBy": [
         "test/modules/Test.StatusControlRoute.psm1",
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_verdict_failed"
+      "rendersAs": "status.host_repair_verdict_failed"
     },
     {
       "code": "partial",
-      "wireCode": "host_refresh.partial",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.partial",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh acted but restoration or readiness is incomplete.",
+      "means": "The repair acted but restoration or readiness is incomplete.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1",
-        "test/modules/Test.HostRefreshIntent.psm1"
+        "test/modules/Test.HostRepair.psm1",
+        "test/modules/Test.HostOperationJournal.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_verdict_partial"
+      "rendersAs": "status.host_repair_verdict_partial"
     },
     {
       "code": "still_unresponsive",
-      "wireCode": "host_refresh.still_unresponsive",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.still_unresponsive",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh ended with the hypervisor still not answering its probe.",
+      "means": "The repair ended with the hypervisor still not answering its probe.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_verdict_still_unresponsive"
+      "rendersAs": "status.host_repair_verdict_still_unresponsive"
     },
     {
       "code": "starting",
-      "wireCode": "host_refresh.starting",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.starting",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh worker process started and is loading its module set.",
+      "means": "The repair worker process started and is loading its module set.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "claimed",
-      "wireCode": "host_refresh.claimed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.claimed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh worker holds the lifetime lock and has claimed the request.",
+      "means": "The repair worker holds the lifetime lock and has claimed the request.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "capturing",
-      "wireCode": "host_refresh.capturing",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.capturing",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh worker is recording the recovery snapshot before any change.",
+      "means": "The repair worker is recording the recovery snapshot before any change.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "probing",
-      "wireCode": "host_refresh.probing",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.probing",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh worker is probing the hypervisor.",
+      "means": "The repair worker is probing the hypervisor.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "climbing",
-      "wireCode": "host_refresh.climbing",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.climbing",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh worker is running repair rungs.",
+      "means": "The repair worker is running repair rungs.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "converging",
-      "wireCode": "host_refresh.converging",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.converging",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh worker is restoring services, the listener and the runner.",
+      "means": "The repair worker is restoring services, the listener and the runner.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "reporting",
-      "wireCode": "host_refresh.reporting",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.reporting",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh worker is recording its verdict.",
+      "means": "The repair worker is recording its verdict.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "terminal",
-      "wireCode": "host_refresh.terminal",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.terminal",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh request reached its final state; the Config page stops polling on it.",
+      "means": "The repair request reached its final state; the Diagnostics page stops polling on it.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
@@ -2733,124 +3843,124 @@
     },
     {
       "code": "resume_request",
-      "wireCode": "host_refresh.resume_request",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.resume_request",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The operator should resume the same request on the host.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_action_resume_request"
+      "rendersAs": "status.host_repair_action_resume_request"
     },
     {
       "code": "start_runner",
-      "wireCode": "host_refresh.start_runner",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.start_runner",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The operator should start the runner; no recorded launch could be reused.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_action_start_runner"
+      "rendersAs": "status.host_repair_action_start_runner"
     },
     {
       "code": "grant_automation",
-      "wireCode": "host_refresh.grant_automation",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.grant_automation",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The operator should grant the automation permission the hypervisor client needs.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_action_grant_automation"
+      "rendersAs": "status.host_repair_action_grant_automation"
     },
     {
       "code": "gui_session",
-      "wireCode": "host_refresh.gui_session",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.gui_session",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The operator should sign in to a desktop session on the host.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_action_gui_session"
+      "rendersAs": "status.host_repair_action_gui_session"
     },
     {
       "code": "dispose_obligations",
-      "wireCode": "host_refresh.dispose_obligations",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.dispose_obligations",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The operator should review and dispose of outstanding recovery obligations.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_action_dispose_obligations"
+      "rendersAs": "status.host_repair_action_dispose_obligations"
     },
     {
       "code": "elevate",
-      "wireCode": "host_refresh.elevate",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.elevate",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The repair needs administrator rights the worker does not have.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_action_elevate"
+      "rendersAs": "status.host_repair_action_elevate"
     },
     {
       "code": "install_client",
-      "wireCode": "host_refresh.install_client",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.install_client",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The hypervisor's command-line client is missing on the host.",
       "producedBy": [
-        "test/modules/Test.HostRefresh.psm1"
+        "test/modules/Test.HostRepair.psm1"
       ],
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_action_install_client"
+      "rendersAs": "status.host_repair_action_install_client"
     },
     {
       "code": "not_advertised",
-      "wireCode": "host_refresh.not_advertised",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.not_advertised",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "An answering host omitted the refresh capability, which reads as unavailable (an older listener).",
+      "means": "An answering host omitted the repair capability, which reads as unavailable (an older listener).",
       "producedBy": [
         "test/extension/extension-sdk/pool/pool.go"
       ],
@@ -2859,12 +3969,12 @@
     },
     {
       "code": "protocol_unsupported",
-      "wireCode": "host_refresh.protocol_unsupported",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.protocol_unsupported",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host advertised a refresh protocol this aggregator does not speak.",
+      "means": "A host advertised a repair protocol this aggregator does not speak.",
       "producedBy": [
         "test/extension/extension-sdk/pool/pool.go"
       ],
@@ -2873,12 +3983,12 @@
     },
     {
       "code": "capability_malformed",
-      "wireCode": "host_refresh.capability_malformed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.capability_malformed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host advertised a refresh capability outside the allowed vocabulary.",
+      "means": "A host advertised a repair capability outside the allowed vocabulary.",
       "producedBy": [
         "test/extension/extension-sdk/pool/pool.go"
       ],
@@ -2887,9 +3997,9 @@
     },
     {
       "code": "control_status_unreadable",
-      "wireCode": "host_refresh.control_status_unreadable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.control_status_unreadable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "A host's control-status reply could not be read (too large, not JSON).",
@@ -2901,9 +4011,9 @@
     },
     {
       "code": "host_unreachable",
-      "wireCode": "host_refresh.host_unreachable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.host_unreachable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The aggregator could not reach the host to read its capability.",
@@ -2915,12 +4025,12 @@
     },
     {
       "code": "observation_expired",
-      "wireCode": "host_refresh.observation_expired",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.observation_expired",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The last observation of a host's refresh capability is too old to trust.",
+      "means": "The last observation of a host's repair capability is too old to trust.",
       "producedBy": [
         "test/extension/extension-sdk/pool/pool.go"
       ],
@@ -2929,12 +4039,12 @@
     },
     {
       "code": "never_observed",
-      "wireCode": "host_refresh.never_observed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.never_observed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The aggregator has never read this host's refresh capability.",
+      "means": "The aggregator has never read this host's repair capability.",
       "producedBy": [
         "test/extension/extension-sdk/pool/pool.go"
       ],
@@ -2943,32 +4053,32 @@
     },
     {
       "code": "busy",
-      "wireCode": "host_refresh.busy",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.busy",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "Another host operation (a host refresh or a start-cycle) holds the host; the reply names which in activeKind. Also the start-cycle worker reason when a refresh became active.",
+      "means": "Another host operation (a host repair or a start-cycle) holds the host; the reply names which in activeKind. Also the start-cycle worker reason when a repair became active.",
       "producedBy": [
         "test/modules/Invoke-StartCycleWorker.ps1",
-        "test/modules/Test.HostRefreshIntent.psm1",
+        "test/modules/Test.HostOperationJournal.psm1",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
       "consumedBy": [
         "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
-        "test/modules/Test.HostRefreshTrigger.psm1",
+        "test/modules/Test.HostRepairTrigger.psm1",
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.api_host_refresh_busy"
+      "rendersAs": "status.api_host_repair_busy"
     },
     {
       "code": "request_conflict",
-      "wireCode": "host_refresh.request_conflict",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.request_conflict",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A known host-refresh request id arrived with a different tier or ceiling.",
+      "means": "A known host-repair request id arrived with a different tier or ceiling.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -2976,16 +4086,16 @@
         "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_conflict"
+      "rendersAs": "status.host_request_conflict"
     },
     {
       "code": "request_closed",
-      "wireCode": "host_refresh.request_closed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.request_closed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh request id that was refused, expired or abandoned; it is never run again.",
+      "means": "A host-repair request id that was refused, expired or abandoned; it is never run again.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -2993,16 +4103,16 @@
         "test/extension/pool-control-service/server/internal/hostctl/hostctl.go",
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_closed"
+      "rendersAs": "status.host_repair_closed"
     },
     {
       "code": "launcher_failed",
-      "wireCode": "host_refresh.launcher_failed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.launcher_failed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The listener could not launch the detached worker; a host-refresh request stays queued and can be retried, a start-cycle reservation is removed.",
+      "means": "The listener could not launch the detached worker; a host-repair request stays queued and can be retried, a start-cycle reservation is removed.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1",
         "test/service/Invoke-StatusServiceRuntime.ps1"
@@ -3010,13 +4120,13 @@
       "consumedBy": [
         "test/status/yuruna.common.js"
       ],
-      "rendersAs": "status.host_refresh_launcher_failed"
+      "rendersAs": "status.host_repair_launcher_failed"
     },
     {
       "code": "listener_busy",
-      "wireCode": "host_refresh.listener_busy",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.listener_busy",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "Four request bodies are already being read; the caller retries after Retry-After.",
@@ -3028,12 +4138,12 @@
     },
     {
       "code": "admission_unavailable",
-      "wireCode": "host_refresh.admission_unavailable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.admission_unavailable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh journal or reservation store could not record the request.",
+      "means": "The repair journal or reservation store could not record the request.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -3041,24 +4151,24 @@
       "rendersAs": "status.api_admission_unavailable"
     },
     {
-      "code": "refresh_unavailable",
-      "wireCode": "host_refresh.refresh_unavailable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_unavailable",
+      "wireCode": "host_repair.repair_unavailable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The host advertises no refresh it can run; nothing was admitted.",
+      "means": "The host advertises no repair it can run; nothing was admitted.",
       "producedBy": [
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.api_host_refresh_unavailable"
+      "rendersAs": "status.api_host_repair_unavailable"
     },
     {
       "code": "private_state_unavailable",
-      "wireCode": "host_refresh.private_state_unavailable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.private_state_unavailable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The private state root or a worker directory under it could not be secured; the route fails closed.",
@@ -3070,12 +4180,12 @@
     },
     {
       "code": "payload_too_large",
-      "wireCode": "host_refresh.payload_too_large",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.payload_too_large",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh body exceeded 4096 bytes, declared or counted.",
+      "means": "A host-repair body exceeded 4096 bytes, declared or counted.",
       "producedBy": [
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -3084,12 +4194,12 @@
     },
     {
       "code": "body_timeout",
-      "wireCode": "host_refresh.body_timeout",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.body_timeout",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh body did not complete within two seconds of the request.",
+      "means": "A host-repair body did not complete within two seconds of the request.",
       "producedBy": [
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -3098,12 +4208,12 @@
     },
     {
       "code": "invalid_json",
-      "wireCode": "host_refresh.invalid_json",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.invalid_json",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh body was not a strict JSON object.",
+      "means": "A host-repair body was not a strict JSON object.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -3112,15 +4222,15 @@
     },
     {
       "code": "unsupported_field",
-      "wireCode": "host_refresh.unsupported_field",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.unsupported_field",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh body named a key outside requestId, tier and maxRung.",
+      "means": "A host-repair body named a key outside requestId, tier and maxRung.",
       "producedBy": [
         "test/extension/extension-sdk/strictjson/strings.go",
-        "test/extension/pool-control-service/server/internal/httpsrv/hostrefresh.go",
+        "test/extension/pool-control-service/server/internal/httpsrv/hostrepair.go",
         "test/extension/pool-control-service/server/internal/httpsrv/mcp.go",
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -3129,12 +4239,12 @@
     },
     {
       "code": "forbidden_field",
-      "wireCode": "host_refresh.forbidden_field",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.forbidden_field",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh body named a local-only safety switch (force, hard stop, service selection, config path).",
+      "means": "A host-repair body named a local-only safety switch (force, hard stop, service selection, config path).",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -3143,12 +4253,12 @@
     },
     {
       "code": "invalid_value",
-      "wireCode": "host_refresh.invalid_value",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.invalid_value",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh body carried a value outside its field domain.",
+      "means": "A host-repair body carried a value outside its field domain.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -3157,12 +4267,12 @@
     },
     {
       "code": "unsupported_media_type",
-      "wireCode": "host_refresh.unsupported_media_type",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.unsupported_media_type",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host-refresh request did not declare application/json.",
+      "means": "A host-repair request did not declare application/json.",
       "producedBy": [
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
@@ -3171,9 +4281,9 @@
     },
     {
       "code": "internal_error",
-      "wireCode": "host_refresh.internal_error",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.internal_error",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "A worker-backed route or worker failed unexpectedly; the listener answered 500 instead of tearing the connection.",
@@ -3189,27 +4299,27 @@
       "rendersAs": "status.api_internal_error"
     },
     {
-      "code": "refresh_verifier_unavailable",
-      "wireCode": "host_refresh.refresh_verifier_unavailable",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_verifier_unavailable",
+      "wireCode": "host_repair.repair_verifier_unavailable",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The listener could not load the refresh-proof verifier for a non-loopback caller; it refuses.",
+      "means": "The listener could not load the repair-proof verifier for a non-loopback caller; it refuses.",
       "producedBy": [
         "test/service/Invoke-StatusServiceRuntime.ps1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
       "code": "host_reply_invalid",
-      "wireCode": "host_refresh.host_reply_invalid",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.host_reply_invalid",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A host answered a pool-control refresh with a reply outside the documented table.",
+      "means": "A host answered a pool-control repair with a reply outside the documented table.",
       "producedBy": [
         "test/extension/pool-control-service/server/internal/hostctl/hostctl.go"
       ],
@@ -3218,12 +4328,12 @@
     },
     {
       "code": "spawned",
-      "wireCode": "host_refresh.spawned",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.spawned",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The detached worker was launched (host-refresh admission, or the runner a start-cycle started).",
+      "means": "The detached worker was launched (host-repair admission, or the runner a start-cycle started).",
       "producedBy": [
         "test/modules/Invoke-StartCycleWorker.ps1",
         "test/modules/Test.StatusControlRoute.psm1"
@@ -3236,9 +4346,9 @@
     },
     {
       "code": "already_claimed",
-      "wireCode": "host_refresh.already_claimed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.already_claimed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The same request is already claimed by a live or unknown worker; nothing new was launched.",
@@ -3252,9 +4362,9 @@
     },
     {
       "code": "pending",
-      "wireCode": "host_refresh.pending",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.pending",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The host diagnostic is still running; ask again after Retry-After.",
@@ -3266,13 +4376,13 @@
       "rendersAs": "status.host_diagnostic_pending"
     },
     {
-      "code": "host_refresh",
-      "wireCode": "host_refresh.host_refresh",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "host_repair",
+      "wireCode": "host_repair.host_repair",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The operation holding the host is a host refresh.",
+      "means": "The operation holding the host is a host repair.",
       "producedBy": [
         "test/modules/Test.StatusControlRoute.psm1"
       ],
@@ -3283,9 +4393,9 @@
     },
     {
       "code": "start_cycle",
-      "wireCode": "host_refresh.start_cycle",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.start_cycle",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The operation holding the host is a start-cycle.",
@@ -3298,277 +4408,277 @@
       "rendersAs": ""
     },
     {
-      "code": "refresh_proof_missing",
-      "wireCode": "host_refresh.refresh_proof_missing",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_missing",
+      "wireCode": "host_repair.repair_proof_missing",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "A non-loopback refresh carried no refresh proof.",
+      "means": "A non-loopback repair carried no repair proof.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_malformed",
-      "wireCode": "host_refresh.refresh_proof_malformed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_malformed",
+      "wireCode": "host_repair.repair_proof_malformed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof is not the eight-field wire shape.",
+      "means": "The repair proof is not the eight-field wire shape.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_version_unsupported",
-      "wireCode": "host_refresh.refresh_proof_version_unsupported",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_version_unsupported",
+      "wireCode": "host_repair.repair_proof_version_unsupported",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof names a version this verifier does not accept.",
+      "means": "The repair proof names a version this verifier does not accept.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_invalid",
-      "wireCode": "host_refresh.refresh_proof_invalid",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_invalid",
+      "wireCode": "host_repair.repair_proof_invalid",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof MAC does not verify.",
+      "means": "The repair proof MAC does not verify.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_host_mismatch",
-      "wireCode": "host_refresh.refresh_proof_host_mismatch",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_host_mismatch",
+      "wireCode": "host_repair.repair_proof_host_mismatch",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof is for another host.",
+      "means": "The repair proof is for another host.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_request_mismatch",
-      "wireCode": "host_refresh.refresh_proof_request_mismatch",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_request_mismatch",
+      "wireCode": "host_repair.repair_proof_request_mismatch",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof is for another request id.",
+      "means": "The repair proof is for another request id.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_policy_mismatch",
-      "wireCode": "host_refresh.refresh_proof_policy_mismatch",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_policy_mismatch",
+      "wireCode": "host_repair.repair_proof_policy_mismatch",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof binds another tier or ceiling.",
+      "means": "The repair proof binds another tier or ceiling.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_lifetime_invalid",
-      "wireCode": "host_refresh.refresh_proof_lifetime_invalid",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_lifetime_invalid",
+      "wireCode": "host_repair.repair_proof_lifetime_invalid",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof lifetime is longer than allowed or inverted.",
+      "means": "The repair proof lifetime is longer than allowed or inverted.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_not_yet_valid",
-      "wireCode": "host_refresh.refresh_proof_not_yet_valid",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_not_yet_valid",
+      "wireCode": "host_repair.repair_proof_not_yet_valid",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof is issued in the future beyond the skew allowance.",
+      "means": "The repair proof is issued in the future beyond the skew allowance.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_proof_expired",
-      "wireCode": "host_refresh.refresh_proof_expired",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_proof_expired",
+      "wireCode": "host_repair.repair_proof_expired",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The refresh proof expired.",
+      "means": "The repair proof expired.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_remote_unqualified",
-      "wireCode": "host_refresh.refresh_remote_unqualified",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_remote_unqualified",
+      "wireCode": "host_repair.repair_remote_unqualified",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "Remote refresh is not qualified on this platform.",
+      "means": "Remote repair is not qualified on this platform.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_tier_not_remote",
-      "wireCode": "host_refresh.refresh_tier_not_remote",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_tier_not_remote",
+      "wireCode": "host_repair.repair_tier_not_remote",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The requested tier or ceiling is not allowed remotely (restart tier, Order 0-4 only).",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_remote_unprovisioned",
-      "wireCode": "host_refresh.refresh_remote_unprovisioned",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_remote_unprovisioned",
+      "wireCode": "host_repair.repair_remote_unprovisioned",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "No remote-refresh verifier key is installed on the host.",
+      "means": "No remote-repair verifier key is installed on the host.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_remote_key_invalid",
-      "wireCode": "host_refresh.refresh_remote_key_invalid",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_remote_key_invalid",
+      "wireCode": "host_repair.repair_remote_key_invalid",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "The host's remote-refresh verifier key is unusable.",
+      "means": "The host's remote-repair verifier key is unusable.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_verifier_failed",
-      "wireCode": "host_refresh.refresh_verifier_failed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "repair_verifier_failed",
+      "wireCode": "host_repair.repair_verifier_failed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The verifier itself failed (including a listener that does not know its host id); refused.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/hostrefresh.go",
-        "test/modules/Test.HostRefreshAuth.psm1"
+        "test/extension/extension-sdk/hostrepair/hostrepair.go",
+        "test/modules/Test.HostRepairAuth.psm1"
       ],
       "consumedBy": [],
-      "rendersAs": "status.host_refresh_authorization_refused"
+      "rendersAs": "status.host_repair_authorization_refused"
     },
     {
-      "code": "refresh_auth_unconfigured",
-      "wireCode": "host_refresh.refresh_auth_unconfigured",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "operator_auth_unconfigured",
+      "wireCode": "host_repair.operator_auth_unconfigured",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "pool-control holds no refresh authority or credential, so it cannot request a refresh.",
+      "means": "pool-control holds no repair authority or credential, so it cannot request a repair.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/gate.go"
-      ],
-      "consumedBy": [],
-      "rendersAs": ""
-    },
-    {
-      "code": "refresh_credential_required",
-      "wireCode": "host_refresh.refresh_credential_required",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
-      "schemaVersion": "yuruna.code/v1",
-      "lifecycle": "active",
-      "means": "The pool-control refresh route needs the separately provisioned refresh credential.",
-      "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/gate.go"
+        "test/extension/extension-sdk/hostrepair/gate.go"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
-      "code": "refresh_auth_throttled",
-      "wireCode": "host_refresh.refresh_auth_throttled",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "code": "operator_credential_required",
+      "wireCode": "host_repair.operator_credential_required",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "Too many failed refresh-credential attempts; retry later.",
+      "means": "The pool-control repair route needs the separately provisioned operator credential.",
       "producedBy": [
-        "test/extension/extension-sdk/hostrefresh/gate.go"
+        "test/extension/extension-sdk/hostrepair/gate.go"
+      ],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "operator_auth_throttled",
+      "wireCode": "host_repair.operator_auth_throttled",
+      "namespace": "host_repair",
+      "owner": "host_repair",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Too many failed operator-credential attempts; retry later.",
+      "producedBy": [
+        "test/extension/extension-sdk/hostrepair/gate.go"
       ],
       "consumedBy": [],
       "rendersAs": ""
     },
     {
       "code": "succeeded",
-      "wireCode": "host_refresh.succeeded",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.succeeded",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The start-cycle worker cleared the controls, cleaned up and started or woke the runner.",
@@ -3580,9 +4690,9 @@
     },
     {
       "code": "incomplete",
-      "wireCode": "host_refresh.incomplete",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.incomplete",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The start-cycle worker made its decision but the cleanup failed or the runner state was unknown.",
@@ -3594,9 +4704,9 @@
     },
     {
       "code": "restarted",
-      "wireCode": "host_refresh.restarted",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.restarted",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The start-cycle worker woke a live runner through the restart request instead of starting another.",
@@ -3612,9 +4722,9 @@
     },
     {
       "code": "not_spawned",
-      "wireCode": "host_refresh.not_spawned",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.not_spawned",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The start-cycle worker left the runner alone (its state was unknown, or its launch failed).",
@@ -3628,12 +4738,12 @@
     },
     {
       "code": "lock_busy",
-      "wireCode": "host_refresh.lock_busy",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.lock_busy",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
-      "means": "Another operation held the lifetime repair lock; the start-cycle worker changed nothing.",
+      "means": "Another operation held the lifetime host-operation lock; the start-cycle worker changed nothing.",
       "producedBy": [
         "test/modules/Invoke-StartCycleWorker.ps1"
       ],
@@ -3642,9 +4752,9 @@
     },
     {
       "code": "reservation_lost",
-      "wireCode": "host_refresh.reservation_lost",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.reservation_lost",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The start-cycle worker's reservation was no longer its own; it changed nothing.",
@@ -3657,9 +4767,9 @@
     },
     {
       "code": "runner_unknown",
-      "wireCode": "host_refresh.runner_unknown",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.runner_unknown",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The runner's state could not be positively established after cleanup; no runner was started.",
@@ -3674,9 +4784,9 @@
     },
     {
       "code": "cleanup_failed",
-      "wireCode": "host_refresh.cleanup_failed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.cleanup_failed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The bounded VM cleanup exited non-zero or did not complete; the runner decision still followed.",
@@ -3688,9 +4798,9 @@
     },
     {
       "code": "cleanup_timeout",
-      "wireCode": "host_refresh.cleanup_timeout",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.cleanup_timeout",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The bounded VM cleanup reached its time limit; the runner decision still followed.",
@@ -3702,9 +4812,9 @@
     },
     {
       "code": "spawn_failed",
-      "wireCode": "host_refresh.spawn_failed",
-      "namespace": "host_refresh",
-      "owner": "host_refresh",
+      "wireCode": "host_repair.spawn_failed",
+      "namespace": "host_repair",
+      "owner": "host_repair",
       "schemaVersion": "yuruna.code/v1",
       "lifecycle": "active",
       "means": "The start-cycle worker could not launch the runner.",
@@ -3713,6 +4823,843 @@
       ],
       "consumedBy": [],
       "rendersAs": ""
+    },
+    {
+      "code": "drain_timeout",
+      "wireCode": "host_update.drain_timeout",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict and reason: the running cycle outlasted drainSeconds; the host is untouched and the gate is open again. Action retry_or_drain_now.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "stop_failed",
+      "wireCode": "host_update.stop_failed",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict: the resident could not be identified or stopped; the gate is open and nothing was started. Action stop_runner_by_hand.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "recovering",
+      "wireCode": "host_update.recovering",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update state that is not terminal: the runner is to be started and is not running, and the host controller tries again on a backoff until it starts or an operator releases the update.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "released",
+      "wireCode": "host_update.released",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict: an operator released the update on the host with Invoke-HostUpdate.ps1 -Release; debt lists what was still armed.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/lab/Invoke-HostUpdate.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "superseded",
+      "wireCode": "host_update.superseded",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict: a new host update took over this one while it was recovering, with its obligations and runner plan.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "failed_restored",
+      "wireCode": "host_update.failed_restored",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict: the scope did not complete; restore started the runner on the checkout as it is, or left it stopped as the operator had it. The reason says why.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "updated_not_started",
+      "wireCode": "host_update.updated_not_started",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict: every phase passed and no runner was started, because an operator had stopped it before the update. Action start_runner.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "updated_with_remarks",
+      "wireCode": "host_update.updated_with_remarks",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict: current code and the runner running, with at least one remark. Action read_remarks.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "updated",
+      "wireCode": "host_update.updated",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update verdict: current code and the runner running, with no remark.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "end_one_shot",
+      "wireCode": "host_update.end_one_shot",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action: end the one-shot run that holds the host, then press again.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "release_diagnostic_hold",
+      "wireCode": "host_update.release_diagnostic_hold",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action: release the diagnostic hold that keeps a VM for diagnosis, then press again.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "provision_elevation",
+      "wireCode": "host_update.provision_elevation",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action: install the runner's sudo rule with an interactive runner start, then press again.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "retry_or_drain_now",
+      "wireCode": "host_update.retry_or_drain_now",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action after drain_timeout: press again, or run Invoke-HostUpdate.ps1 -Drain now on the host.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "stop_runner_by_hand",
+      "wireCode": "host_update.stop_runner_by_hand",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action after stop_failed: stop the runner at the host, then press again.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "repair_checkout",
+      "wireCode": "host_update.repair_checkout",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action: the checkout could not be updated or the runner did not start from it; repair the checkout at the host.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "act_at_host",
+      "wireCode": "host_update.act_at_host",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action: a condition only a person at the host can change (lock filesystem, home directory, startup config gate, console state).",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "release",
+      "wireCode": "host_update.release",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action while recovering: run Invoke-HostUpdate.ps1 -Release with the request id to end the update.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/lab/Invoke-HostUpdate.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "read_remarks",
+      "wireCode": "host_update.read_remarks",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update operator action: read the remarks and reason the state file lists.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_action"
+    },
+    {
+      "code": "lock_unqualified",
+      "wireCode": "host_update.lock_unqualified",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: the private root's filesystem does not qualify for the single-flight locks.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "home_unverified",
+      "wireCode": "host_update.home_unverified",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: the account's home directory could not be verified.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runtime_unresolved",
+      "wireCode": "host_update.runtime_unresolved",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the step child's runtime directory is not the one the request names.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "host_identity_unresolved",
+      "wireCode": "host_update.host_identity_unresolved",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the host identity file is missing or empty; a step never mints one.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "one_shot_active",
+      "wireCode": "host_update.one_shot_active",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: a one-shot run holds the host. Action end_one_shot.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "diagnostic_hold",
+      "wireCode": "host_update.diagnostic_hold",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: a VM is kept for diagnosis. Action release_diagnostic_hold.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runner_elevation_missing",
+      "wireCode": "host_update.runner_elevation_missing",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: the runner is to be started and its sudo rule is missing. Action provision_elevation.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "launch_record_invalid",
+      "wireCode": "host_update.launch_record_invalid",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: the runner's launch record cannot be read, so the runner could not be started the same way.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "gate_busy",
+      "wireCode": "host_update.gate_busy",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: another request holds the runner gate.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runner_identity_unknown",
+      "wireCode": "host_update.runner_identity_unknown",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: a runner process could not be identified safely, so nothing was stopped.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runner_survived",
+      "wireCode": "host_update.runner_survived",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: a runner process was still alive when the stop phase ended.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "pull_failed",
+      "wireCode": "host_update.pull_failed",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the source update did not complete.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "commit_mismatch",
+      "wireCode": "host_update.commit_mismatch",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the checkout is not at the commit the request expected.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "protocol_mismatch",
+      "wireCode": "host_update.protocol_mismatch",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update reason: the checkout's host-update protocol differs from the controller's, and no new snapshot could be staged; an expired request carries it.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "request_expired",
+      "wireCode": "host_update.request_expired",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update refusal reason: the request expired before a controller claimed it.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runner_start_failed",
+      "wireCode": "host_update.runner_start_failed",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the runner start failed for a reason no other code names.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runner_start_timeout",
+      "wireCode": "host_update.runner_start_timeout",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the started runner did not acknowledge readiness in time.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runner_exited",
+      "wireCode": "host_update.runner_exited",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the started runner exited before acknowledging readiness.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "console_state_unknown",
+      "wireCode": "host_update.console_state_unknown",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: the console multiplexer answered in a way that leaves its session state unknown. Action act_at_host.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "step_interrupted",
+      "wireCode": "host_update.step_interrupted",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update failure reason: a step child ended without a usable result three times.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_verdict"
+    },
+    {
+      "code": "runner_console_unavailable",
+      "wireCode": "host_update.runner_console_unavailable",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update remark: the runner started without a console (no multiplexer, a socket path too long, or no session created).",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_remarks"
+    },
+    {
+      "code": "ring_held",
+      "wireCode": "host_update.ring_held",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update remark: the pull kept a held framework ring.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_remarks"
+    },
+    {
+      "code": "checkout_pinned",
+      "wireCode": "host_update.checkout_pinned",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update remark: the checkout is on a detached HEAD.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_remarks"
+    },
+    {
+      "code": "no_git_pull",
+      "wireCode": "host_update.no_git_pull",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update remark: the runner runs with NoGitPull, so the source update was skipped.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_remarks"
+    },
+    {
+      "code": "listener_disabled",
+      "wireCode": "host_update.listener_disabled",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update remark: the status service is disabled for this runner, so the listener phase was skipped.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_remarks"
+    },
+    {
+      "code": "tmux",
+      "wireCode": "host_update.tmux",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Runner console of a host update on KVM: the runner runs in a tmux session on the controller's socket.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1",
+        "test/modules/Test.InnerSpawn.psm1",
+        "test/modules/Test.SingleInstance.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_console"
+    },
+    {
+      "code": "controller_absent",
+      "wireCode": "host_update.controller_absent",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update capability and route reason: no host controller holds its lock on this host.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1",
+        "test/service/Invoke-StatusServiceRuntime.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_unavailable"
+    },
+    {
+      "code": "session_unusable",
+      "wireCode": "host_update.session_unusable",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update capability reason: the controller's state says its session cannot start a runner.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_unavailable"
+    },
+    {
+      "code": "scope_unavailable",
+      "wireCode": "host_update.scope_unavailable",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update capability, route and verdict reason: the controller does not run the scope asked for.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/service/Invoke-StatusServiceRuntime.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_unavailable"
+    },
+    {
+      "code": "update_proof_missing",
+      "wireCode": "host_update.update_proof_missing",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update route refusal: the caller is not this host by the loopback rule.",
+      "producedBy": [
+        "test/service/Invoke-StatusServiceRuntime.ps1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.api_host_update_proof_missing"
+    },
+    {
+      "code": "host_update",
+      "wireCode": "host_update.host_update",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Busy holder kind: a host update holds the host; the reply names its id and the host-update state URL.",
+      "producedBy": [
+        "test/modules/Test.StatusControlRoute.psm1"
+      ],
+      "consumedBy": [
+        "test/status/yuruna.common.js"
+      ],
+      "rendersAs": "status.host_update_busy"
+    },
+    {
+      "code": "stop_runner",
+      "wireCode": "host_update.stop_runner",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update phase 3: stop the runner's processes.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1",
+        "test/lab/Invoke-HostUpdateStep.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_progress"
+    },
+    {
+      "code": "update_source",
+      "wireCode": "host_update.update_source",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update phase 4: update the checkout.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1",
+        "test/lab/Invoke-HostUpdateStep.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_progress"
+    },
+    {
+      "code": "start_listener",
+      "wireCode": "host_update.start_listener",
+      "namespace": "host_update",
+      "owner": "host_update",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Host-update phase 8: start the status listener; also the debt action of an armed listener obligation.",
+      "producedBy": [
+        "test/modules/Test.HostOperationJournal.psm1",
+        "test/modules/Test.HostUpdate.psm1",
+        "test/modules/Test.HostUpdateStep.psm1",
+        "test/lab/Invoke-HostUpdateStep.ps1"
+      ],
+      "consumedBy": [],
+      "rendersAs": "status.host_update_progress"
     }
   ]
 }

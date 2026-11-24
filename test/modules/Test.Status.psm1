@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,7 +132,7 @@ function Set-StatusRunnerResident {
     cycle start would; a document that does not parse is left for the cycle
     start to move aside, and nothing is written.
 .PARAMETER ExistingOnly
-    Write into an existing document only. A runner resumed by a host refresh
+    Write into an existing document only. A runner resumed by a host repair
     runs a preflight first, and a preflight writes no new status document.
 #>
     [CmdletBinding(SupportsShouldProcess)]

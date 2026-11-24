@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import socket
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -67,14 +68,48 @@ class PoolConfiguration(unittest.TestCase):
         # These cases run one maintenance process, not competing lock holders.
         self.stub('flock', 'exit 0')
         self.stub('id', '[ "$*" = "-g www-data" ] || exit 99; printf "33\\n"')
+        if not shutil.which('jq'):
+            self.stub_jq()
 
     def stub(self, name, body):
         path = self.bin / name
         path.write_text('#!/bin/sh\n' + body + '\n', encoding='utf-8', newline='\n')
         path.chmod(0o755)
 
+    def stub_jq(self):
+        # The seed reads flat credential fields; keep those checks runnable with
+        # the fixture's Python dependency when the developer host has no jq.
+        code = r'''
+import json
+import re
+import sys
+args = sys.argv[1:]
+if args and args[0] == '--binary':
+    args = args[1:]
+if len(args) != 2 or args[0] != '-r':
+    sys.exit('unsupported fixture jq flags')
+field = re.fullmatch(r'\.([A-Za-z_][A-Za-z0-9_]*) // empty', args[1])
+if field is None:
+    sys.exit('unsupported fixture jq filter')
+try:
+    document = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.exit('invalid fixture JSON')
+if not isinstance(document, dict):
+    sys.exit('fixture jq requires an object')
+value = document.get(field[1])
+if value is not None and value is not False:
+    text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False, separators=(',', ':'))
+    sys.stdout.buffer.write((text + '\n').encode('utf-8'))
+'''
+        self.stub('jq', 'exec ' + shlex.quote(Path(sys.executable).as_posix())
+                  + ' -c ' + shlex.quote(code) + ' "$@"')
+
     def shell(self, body, *args, env=None, timeout=90):
-        body = 'PATH=' + shlex.quote(self.bin.as_posix()) + ':"$PATH"\nexport PATH\n' + body
+        # Shell PATH uses colons; a native Windows drive path would split at C:.
+        # Set it after shell startup, which can prepend the host's tool folders.
+        body = ('fixture_bin=$(cd ' + shlex.quote(self.bin.as_posix()) + ' && pwd -P) || exit 1\n'
+                'PATH="$fixture_bin:$PATH"\nexport PATH\n' + body)
         if os.name == 'nt':
             # Native jq otherwise writes CRLF instead of the guest's LF values.
             body = 'jq() { command jq --binary "$@"; }\n' + body
@@ -92,6 +127,30 @@ class PoolConfiguration(unittest.TestCase):
         body = body.replace('/run/yuruna-pool-configuration.lock', shlex.quote((self.root / 'lock').as_posix()))
         body = body.replace('http://127.0.0.1', self.url)
         return self.shell(body)
+
+    def test_shell_resolves_fixture_tools_before_host_executables(self):
+        for name in ('curl', 'git', 'id'):
+            self.stub(name, 'printf "fixture-' + name + '\\n"')
+        result = self.shell('curl --version; git --version; id', timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, 'fixture-curl\nfixture-git\nfixture-id\n')
+
+    def test_jq_fixture_extracts_fields_and_rejects_unsupported_or_malformed_input(self):
+        self.stub_jq()
+        document = json.dumps({'networkPath': '//nas/share with "quotes"', 'absent': None, 'disabled': False})
+        prefix = 'printf %s ' + shlex.quote(document) + ' | jq '
+        result = self.shell(prefix + '-r ' + shlex.quote('.networkPath // empty'), timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, '//nas/share with "quotes"\n')
+        for field in ('missing', 'absent', 'disabled'):
+            result = self.shell(prefix + '-r ' + shlex.quote('.' + field + ' // empty'), timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, '')
+        for request in ('-c ' + shlex.quote('.networkPath // empty'), '-r ' + shlex.quote('.networkPath | length')):
+            self.assertNotEqual(self.shell(prefix + request, timeout=5).returncode, 0)
+        malformed = self.shell("printf %s '{broken' | jq -r '.networkPath // empty'", timeout=5)
+        self.assertNotEqual(malformed.returncode, 0)
+        self.assertIn('invalid fixture JSON', malformed.stderr)
 
     def test_missing_mount_reports_failure_without_creating_a_local_store(self):
         self.stub('mountpoint', 'exit 1')

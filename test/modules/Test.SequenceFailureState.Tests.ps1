@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,15 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
         if ($Name -eq 'startVm') {
             return [pscustomobject]@{ FailureClass = 'provisioning_failure'; Severity = 'hard'; SuggestedRecoveries = @('retry_immediately') }
         }
+        # The click verb, with the values it registers: a label never found is
+        # an ocr_timeout.
+        if ($Name -eq 'tapOn') {
+            return [pscustomobject]@{ FailureClass = 'ocr_timeout'; Severity = 'hard'; SuggestedRecoveries = @('restart_from_snapshot') }
+        }
+        # A page verb, with the values the page verbs register.
+        if ($Name -eq 'webClick') {
+            return [pscustomobject]@{ FailureClass = 'web_step_failed'; Severity = 'hard'; SuggestedRecoveries = @('pause_and_inspect') }
+        }
         return $null
     }
 }
@@ -92,6 +101,9 @@ function Reset-FailState {
     # later failure in this file as input_lost.
     $f.StepInputLost = $null
     $f.StepHostInputFault = $null
+    # A phase left set would move every later record of a wait verb to the
+    # class of the phase.
+    $f.StepFailurePhase = $null
     $f.StepLauncherRejection = $null
     $f.StepAptIndexMismatch = $null
     $f.StepAptUpdateStall = $null
@@ -124,6 +136,12 @@ function Reset-FailState {
     # A step start left set would open a host-address window for every later
     # record in this file.
     $f.LastFailedStepStartedUtc = $null
+    # A sentence left set would be claimed by every later record as the source
+    # of its step.
+    $f.LastFailureFromStep = ''
+    # A page account left set would be claimed by every later record whose
+    # step it names.
+    $f.StepWebFailure = $null
     return $f
 }
 
@@ -1807,6 +1825,254 @@ Describe 'A send the host can never make' {
         Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "event must validate; got: $($violations -join '; ')"
         $f.StepHostInputFault = $null
     }
+    It 'files a step whose label was found and whose click then failed as host_io_blocked' {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'tapOn'
+        $f.LastFailedStepInvocationId = 'step-a'
+        $f.StepFailurePhase = 'input'
+        $f.StepHostInputFault = [ordered]@{ action = 'Send-Click'; stepInvocationId = 'step-a'; kind = 'transient'; reason = 'send-failed'
+            transport = 'test'; detail = ''; delivered = -1; total = -1 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'host_io_blocked' -Actual $r.File.failureClass -Because 'the step failed in its input path, not on the screen'
+        Assert-Equal -Expected 'retry_immediately' -Actual @($r.File.suggestedRecoveries)[0]
+        $f.StepHostInputFault = $null; $f.StepFailurePhase = $null
+    }
+    It 'keeps the wait class when no send of the step failed' {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'tapOn'
+        $f.LastFailedStepInvocationId = 'step-a'
+        $f.StepFailurePhase = 'input'
+        $f.StepHostInputFault = $null
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass
+        $f.StepFailurePhase = $null
+    }
+    It 'keeps a refused click kind plan_invalid' {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'tapOn'
+        $f.LastFailedStepInvocationId = 'step-a'
+        $f.StepFailurePhase = 'input'
+        $f.StepHostInputFault = [ordered]@{ action = 'Send-Click'; stepInvocationId = 'step-a'; kind = 'deterministic'; reason = 'click-kind-unsupported'
+            transport = 'test'; detail = ''; delivered = -1; total = -1 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'plan_invalid' -Actual $r.File.failureClass -Because 'the deterministic rule comes first'
+        $f.StepHostInputFault = $null; $f.StepFailurePhase = $null
+    }
+    It 'files a KVM guest with no absolute pointer as plan_invalid' {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'tapOn'
+        $f.LastFailedStepInvocationId = 'step-a'
+        $f.StepFailurePhase = 'input'
+        $f.StepHostInputFault = [ordered]@{ action = 'Send-Click'; stepInvocationId = 'step-a'; kind = 'deterministic'; reason = 'no-absolute-pointer'
+            transport = 'KVM'; detail = 'Input handler not found for event type abs'; delivered = 0; total = 2 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'plan_invalid' -Actual $r.File.failureClass -Because 'every retry would meet the same domain without a tablet'
+        Assert-Equal -Expected 'no-absolute-pointer' -Actual $r.File.context.causeDetail.hostInputFault.reason
+        $f.StepHostInputFault = $null; $f.StepFailurePhase = $null
+    }
+    It 'tells a click that may have landed from one that sent nothing: <Name>' -ForEach @(
+        @{ Name = 'a press with no answer'; Action = 'Send-Click'; Reason = 'delivery-unknown'; Delivered = -1; FaultStep = 'step-a'; Expected = $true }
+        @{ Name = 'a double click that failed at its second press'; Action = 'Send-Click'; Reason = 'send-failed'; Delivered = 2; FaultStep = 'step-a'; Expected = $true }
+        @{ Name = 'a click that sent nothing'; Action = 'Send-Click'; Reason = 'send-failed'; Delivered = 0; FaultStep = 'step-a'; Expected = $false }
+        @{ Name = 'a provider that said nothing'; Action = 'Send-Click'; Reason = 'unspecified'; Delivered = -1; FaultStep = 'step-a'; Expected = $false }
+        @{ Name = 'a text send of unknown extent'; Action = 'Send-Text'; Reason = 'delivery-unknown'; Delivered = -1; FaultStep = 'step-a'; Expected = $false }
+        @{ Name = 'another step''s click'; Action = 'Send-Click'; Reason = 'delivery-unknown'; Delivered = -1; FaultStep = 'inner'; Expected = $false }
+        @{ Name = 'no fault'; Action = $null; Reason = $null; Delivered = 0; FaultStep = 'step-a'; Expected = $false }
+    ) {
+        $f = Reset-FailState
+        $f.LastFailedAction = 'tapOn'
+        $f.LastFailedStepInvocationId = 'step-a'
+        $f.StepHostInputFault = if ($null -eq $Action) { $null } else {
+            [ordered]@{ action = $Action; stepInvocationId = $FaultStep; kind = 'transient'; reason = $Reason
+                transport = 'KVM'; detail = ''; delivered = $Delivered; total = 4 }
+        }
+        Assert-Equal -Expected $Expected -Actual (Test-StepHostClickDeliveryUncertain -State $f)
+        $f.StepHostInputFault = $null; $f.StepFailurePhase = $null
+    }
+}
+
+Describe 'A page step that named how it ended' {
+    BeforeAll {
+        function Set-PageFailureState {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test helper: seeds the in-memory failure-state slots; no external state.')]
+            param([string]$Kind = 'not_found', [hashtable]$Arguments = @{}, [switch]$Sensitive)
+            $f = Reset-FailState
+            $f.LastFailedAction = 'webClick'
+            $f.LastFailedStepInvocationId = 'leaf'
+            $f.OriginatingStepInvocationId = 'leaf'
+            $f.OriginatingSequenceInvocationId = 'seq'
+            $step = [ordered]@{ action = 'webClick' }
+            if ($Sensitive) { $step.sensitive = $true }
+            Set-StepWebFailure -Context @{ StepInvocationId = 'leaf'; Step = $step } -Kind $Kind @Arguments
+            return $f
+        }
+    }
+    It 'maps every kind to one class' {
+        $expected = [ordered]@{
+            not_found = 'web_step_failed'; ambiguous = 'web_step_failed'; not_actionable = 'web_step_failed'
+            expectation = 'web_step_failed'; navigation = 'web_step_failed'; unsupported = 'web_step_failed'
+            page_lost = 'web_step_failed'; transport = 'network_timeout'; address_unresolved = 'ip_not_discovered'
+            browser_unavailable = 'plan_invalid'; protocol = 'plan_invalid'; invalid_step = 'plan_invalid'
+        }
+        $actual = Get-WebFailureKind
+        Assert-StringEqual -Expected (@($expected.Keys) -join ',') -Actual (@($actual.Keys) -join ',') -Because 'the twelve kinds, in order'
+        foreach ($pageKind in $expected.Keys) {
+            Assert-StringEqual -Expected $expected[$pageKind] -Actual ([string]$actual[$pageKind]) -Because $pageKind
+        }
+    }
+    It 'files what the page showed as web_step_failed and carries the account' {
+        $f = Set-PageFailureState -Arguments @{
+            Locator = @{ role = 'button'; name = 'Sign in' }; Candidates = @(@{ role = 'link'; name = 'Sign in' })
+            Title = 'Login'; WaitedSeconds = 30; Url = 'http://localhost:8080/login'; Detail = ''
+        }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'web_step_failed' -Actual $r.File.failureClass
+        Assert-Equal -Expected 'pause_and_inspect' -Actual (@($r.File.suggestedRecoveries) -join ',')
+        Assert-Equal -Expected 'verb-registry' -Actual $r.File.classificationSource
+        $web = $r.File.context.causeDetail.web
+        Assert-Equal -Expected 'webClick' -Actual $web.verb
+        Assert-Equal -Expected 'not_found' -Actual $web.kind
+        Assert-Equal -Expected 'none-proven' -Actual $web.effect
+        Assert-Equal -Expected 'button' -Actual $web.locator.role
+        Assert-Equal -Expected 'Sign in' -Actual $web.locator.name
+        Assert-Equal -Expected 1 -Actual @($web.candidates).Count
+        Assert-Equal -Expected 'link' -Actual @($web.candidates)[0].role
+        Assert-Equal -Expected 1 -Actual $web.matchCount -Because 'no count given: the number of candidates'
+        Assert-Equal -Expected 'http://localhost:8080/login' -Actual $web.url
+        Assert-Equal -Expected 'Login' -Actual $web.title
+        Assert-Equal -Expected 30 -Actual $web.waitedSeconds
+        Assert-Equal -Expected 'none-proven' -Actual $r.File.stepEffect
+        Assert-Equal -Expected 'web-not-dispatched' -Actual $r.File.stepEffectSource
+        Assert-Equal -Expected 'not_found' -Actual $r.Event.causeWeb
+        $f.StepWebFailure = $null
+    }
+    It 'files <Kind> as <Class>' -ForEach @(
+        @{ Kind = 'transport'; Class = 'network_timeout'; Recoveries = 'reconnect,retry_with_backoff' }
+        @{ Kind = 'address_unresolved'; Class = 'ip_not_discovered'; Recoveries = 'retry_with_backoff' }
+        @{ Kind = 'browser_unavailable'; Class = 'plan_invalid'; Recoveries = 'pause_and_inspect' }
+        @{ Kind = 'protocol'; Class = 'plan_invalid'; Recoveries = 'pause_and_inspect' }
+        @{ Kind = 'invalid_step'; Class = 'plan_invalid'; Recoveries = 'pause_and_inspect' }
+    ) {
+        $f = Set-PageFailureState -Kind $Kind
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected $Class -Actual $r.File.failureClass
+        Assert-Equal -Expected $Recoveries -Actual (@($r.File.suggestedRecoveries) -join ',')
+        Assert-Equal -Expected $Kind -Actual $r.File.context.causeDetail.web.kind
+        $f.StepWebFailure = $null
+    }
+    It 'derives the effect from what was handed to the browser' -ForEach @(
+        @{ Name = 'not dispatched'; Dispatched = $false; Acknowledged = $false; Effect = 'none-proven'; StepEffect = 'none-proven' }
+        @{ Name = 'dispatched and acknowledged'; Dispatched = $true; Acknowledged = $true; Effect = 'applied'; StepEffect = 'unknown' }
+        @{ Name = 'dispatched alone'; Dispatched = $true; Acknowledged = $false; Effect = 'uncertain'; StepEffect = 'unknown' }
+    ) {
+        $f = Set-PageFailureState -Arguments @{ Dispatched = $Dispatched; Acknowledged = $Acknowledged }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected $Effect -Actual $r.File.context.causeDetail.web.effect -Because $Name
+        Assert-Equal -Expected $StepEffect -Actual $r.File.stepEffect -Because $Name
+        $f.StepWebFailure = $null
+    }
+    It 'keeps a page step that set the wait phase out of ocr_timeout' {
+        $f = Set-PageFailureState -Kind expectation
+        $f.StepFailurePhase = 'wait'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'web_step_failed' -Actual $r.File.failureClass
+        $f.StepWebFailure = $null; $f.StepFailurePhase = $null
+    }
+    It 'records no typed value, masks the sought text of a sensitive step and strips the URL' {
+        $f = Set-PageFailureState -Sensitive -Arguments @{ Locator = @{ text = 'hunter2' }; Url = 'http://user:pw@localhost:8080/login?token=abc#frag' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        $web = $r.File.context.causeDetail.web
+        Assert-Equal -Expected '***' -Actual $web.locator.text
+        Assert-Equal -Expected 'http://localhost:8080/login' -Actual $web.url
+        $fileJson = $r.File | ConvertTo-Json -Depth 12
+        $eventJson = $r.Event | ConvertTo-Json -Depth 12
+        Assert-True ($fileJson.Contains('***')) 'the account was serialized'
+        foreach ($secretPart in 'hunter2', 'token=abc', 'user:pw') {
+            Assert-False ($fileJson.Contains($secretPart)) "the record holds $secretPart"
+            Assert-False ($eventJson.Contains($secretPart)) "the event holds $secretPart"
+        }
+        $f = Set-PageFailureState -Arguments @{ Url = 'data:text/html,<p>secret</p>' }
+        Assert-Equal -Expected 'data:' -Actual $f.StepWebFailure.url
+        $parameters = (Get-Command Set-StepWebFailure).Parameters
+        Assert-False ($parameters.ContainsKey('Text')) 'no parameter takes a typed text'
+        Assert-False ($parameters.ContainsKey('Value')) 'no parameter takes a typed value'
+        $f.StepWebFailure = $null
+    }
+    It 'bounds the account' {
+        $candidates = @(1..25 | ForEach-Object { @{ role = 'button'; name = ('n' * 300) } })
+        $longPath = 'http://localhost:8080/' + ('p' * 900)
+        $f = Set-PageFailureState -Arguments @{
+            Candidates = $candidates; Locator = @{ role = 'button'; name = ('a' * 500); nth = '2' }
+            Detail = ('d' * 900); Url = $longPath; MatchCount = 25
+        }
+        $web = $f.StepWebFailure
+        Assert-Equal -Expected 10 -Actual @($web.candidates).Count
+        Assert-Equal -Expected 120 -Actual ([string]@($web.candidates)[0].name).Length
+        Assert-Equal -Expected 200 -Actual ([string]$web.locator.name).Length
+        Assert-True ($web.locator.nth -is [int]) 'nth is an integer'
+        Assert-Equal -Expected 2 -Actual $web.locator.nth
+        Assert-Equal -Expected 300 -Actual ([string]$web.detail).Length
+        Assert-Equal -Expected 300 -Actual ([string]$web.url).Length
+        Assert-Equal -Expected 25 -Actual $web.matchCount
+        $f = Set-PageFailureState -Arguments @{ Locator = @{ role = 'button'; name = 'Go'; nth = 'x' } }
+        Assert-False ($f.StepWebFailure.locator.Contains('nth')) 'an nth that is no number is left out'
+        $f.StepWebFailure = $null
+    }
+    It 'refuses a kind the table does not name' {
+        { Set-StepWebFailure -Context @{ StepInvocationId = 'leaf'; Step = [ordered]@{ action = 'webClick' } } -Kind 'no_such_kind' } | Should -Throw
+    }
+    It 'ignores an account another step left behind' {
+        $f = Set-PageFailureState
+        $f.LastFailedStepInvocationId = 'other'
+        $f.OriginatingStepInvocationId = 'other'
+        $f.LastFailedAction = 'waitForText'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass
+        Assert-Null $r.File.context.causeDetail.web
+        Assert-Equal -Expected '' -Actual $r.Event.causeWeb
+        Assert-Equal -Expected 'unknown' -Actual $r.File.stepEffect
+        $f.StepWebFailure = $null
+    }
+    It 'leaves a wrapper its own class and carries the leaf''s account' {
+        $f = Set-PageFailureState -Kind transport
+        $f.LastFailedStepInvocationId = 'wrapper'
+        $f.LastFailedAction = 'waitForText'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'the wrapper keeps the class of its own verb, not network_timeout'
+        Assert-Equal -Expected 'transport' -Actual $r.File.context.causeDetail.web.kind
+        Assert-Equal -Expected 'unknown' -Actual $r.File.stepEffect
+        $f.StepWebFailure = $null
+    }
+    It 'clears the account at the next step' {
+        $f = Set-PageFailureState
+        Reset-SequenceFailureSlot -Lifetime step
+        Assert-Null $f.StepWebFailure
+        $slot = @(Get-SequenceFailureSlot | Where-Object Name -ceq 'StepWebFailure')
+        Assert-Equal -Expected 1 -Actual $slot.Count
+        Assert-Equal -Expected 'step' -Actual $slot[0].Lifetime
+    }
+    It 'answers nothing for an empty step id' {
+        $null = Reset-FailState
+        Set-StepWebFailure -Context @{ StepInvocationId = ''; Step = [ordered]@{ action = 'webClick' } } -Kind not_found
+        Assert-Null (Get-StepWebFailureClass -StepInvocationId '')
+        (Get-SequenceFailureState).StepWebFailure = $null
+    }
+    It 'gives way to a matched failure pattern' {
+        $f = Set-PageFailureState
+        $f.WaitForTextMatchedFailurePattern = 'FAILED'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+        $f.StepWebFailure = $null; $f.WaitForTextMatchedFailurePattern = $null
+    }
+    It 'emits an event that passes the cycle event schema validator and types causeWeb' {
+        $f = Set-PageFailureState -Kind ambiguous -Arguments @{ MatchCount = 2 }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        $violations = Test-CycleEventSchema -Record $r.Event
+        Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "event must validate; got: $($violations -join '; ')"
+        Assert-Equal -Expected 'string' -Actual (Get-CycleEventSchemaDescriptor).TypedField.causeWeb
+        $f.StepWebFailure = $null
+    }
 }
 
 Describe 'A deploy that reported its own failure class' {
@@ -1853,6 +2119,30 @@ Describe 'Every failure record links its class''s documentation' {
         $infra = New-InfraFailureRecord -Stage 'GetImage' -FailureClass 'source_integrity' -Severity 'hard' -GuestKey 'g' -VMName 'vm1' -ErrorMessage 'checksum' -HostType 'h'
         $infra.File.docUrl | Should -BeExactly 'https://yuruna.link/42820e91#failure-class-source_integrity'
         $infra.Event.docUrl | Should -BeExactly $infra.File.docUrl
+    }
+}
+
+Describe 'a failed step that a sentence generated' {
+    It 'carries the sentence of a generated step into context.fromStep' {
+        $f = Reset-FailState
+        $f.LastFailureFromStep = 'login ${username} with password ***'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        $r.File.context.fromStep | Should -BeExactly 'login ${username} with password ***'
+        $keys = @($r.File.context.Keys)
+        $at = [array]::IndexOf($keys, 'stepFailurePhase')
+        Assert-True ($at -ge 0) 'the step record has stepFailurePhase'
+        Assert-StringEqual -Expected 'fromStep' -Actual $keys[$at + 1] -Because 'fromStep stands directly after stepFailurePhase'
+        Assert-False $r.Event.Contains('fromStep') 'the event record does not change'
+        $err = $null
+        try { throw 'boom' } catch { $err = $_ }
+        $crash = New-SequenceFailureRecord -Reason crash -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5 -CrashError $err
+        Assert-False $crash.File.context.Contains('fromStep') 'the crash record does not change'
+    }
+
+    It 'leaves context.fromStep empty for an authored step' {
+        [void](Reset-FailState)
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        $r.File.context.fromStep | Should -BeExactly ''
     }
 }
 
@@ -1923,7 +2213,7 @@ Describe 'The failure-state slots are declared once, with a lifetime' {
         # written by one module and never read by the record.
         $declared = [System.Collections.Generic.HashSet[string]]::new([string[]]@(Get-SequenceFailureSlot | ForEach-Object Name), [StringComparer]::Ordinal)
         $here = Split-Path -Parent $PSCommandPath
-        $unknown = foreach ($file in 'Test.SequenceEngine.psm1', 'Test.SequenceHandler.psm1', 'Test.SequenceFailureState.psm1') {
+        $unknown = foreach ($file in 'Test.SequenceEngine.psm1', 'Test.SequenceHandler.psm1', 'Test.SequenceFailureState.psm1', 'Test.WebHandler.psm1', 'Test.WebSession.psm1') {
             $ast = [System.Management.Automation.Language.Parser]::ParseFile((Join-Path $here $file), [ref]$null, [ref]$null)
             $uses = $ast.FindAll({ param($n)
                 ($n -is [System.Management.Automation.Language.MemberExpressionAst] -and

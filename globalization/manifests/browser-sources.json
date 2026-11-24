@@ -84,6 +84,12 @@
       "surface": "pool control scan"
     },
     {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/hostupdate.html",
+      "surface": "pool control host update confirmation",
+      "timed": false,
+      "timedNote": "The page renders one host's update confirmation from that host's own control status, so what it shows depends on a live host controller and pool-control record on the host it names, and every load mints a new request id. A timing taken on the evidence machine would describe whichever refusal that host gives rather than the page. The page stays registered: it ships, and its bytes and accessibility are measured with every other page."
+    },
+    {
       "path": "test/extension/download-agent-service/server/internal/httpsrv/web/index.html",
       "surface": "download agent images"
     },

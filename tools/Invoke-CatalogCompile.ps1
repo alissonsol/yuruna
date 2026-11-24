@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -618,7 +618,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.11.16'
+        '.VERSION 2026.11.23'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -1085,7 +1085,7 @@ foreach ($translationKey in $translationProvenance.Keys) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.11.16'
+    compilerVersion = '2026.11.23'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash

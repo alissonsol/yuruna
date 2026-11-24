@@ -221,9 +221,15 @@ footer.app a { color: var(--chrome-muted); }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
   body.has-footer-bar main { padding-bottom: 6.5rem; padding-bottom: calc(6.5rem + env(safe-area-inset-bottom)); padding-bottom: calc(var(--footer-h, calc(5.75rem + env(safe-area-inset-bottom))) + .75rem); }
 }
-@media (pointer: coarse) {
+/* any-pointer, not pointer: a touch screen beside a mouse or touchpad
+   reports a fine primary pointer, so a (pointer: coarse) rule misses it at
+   desktop width, where the phone block above does not apply either. */
+@media (any-pointer: coarse) {
   .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); }
   .menu-panel a { min-height: var(--touch-min); line-height: 1.7; }
+  textarea#footer-ip-list { min-height: var(--touch-min); }
+}
+@media (pointer: coarse) {
   /* iOS zooms into a text control under 16px when it takes focus. That is a
      property of the device, not the width: a landscape phone is wider than
      the 600px block above. */
@@ -279,10 +285,10 @@ main {
 h1 { font-size: 1.15rem; margin: 0 0 1rem; }
 table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
 th, td { text-align: start; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-/* Scoped to thead: the body now carries a <th scope="row"> per row so the
+/* Scoped to thead: the body carries a <th scope="row"> per row so the
    image key names its own row, and that cell is data, not a column heading --
-   it must not inherit the uppercase muted treatment. */
-thead th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+   it must not inherit the muted heading treatment. */
+thead th { color: var(--muted); font-weight: 600; font-size: .82rem; }
 tbody th { font-weight: 400; }
 tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--line); }
 /* The counter column (Y.numCell). It numbers positions on screen rather than
@@ -308,7 +314,7 @@ tbody tr:nth-child(odd) { background: var(--band-odd); }
 tbody tr:nth-child(even) { background: var(--band-even); }
 /* A sortable header is a real button wearing the header's own typography, so
    the column still reads as a label while being reachable by keyboard. */
-th button.th-sort { font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; background: none; border: 0; border-radius: 0; padding: 0; cursor: pointer; text-align: start; }
+th button.th-sort { font: inherit; color: inherit; background: none; border: 0; border-radius: 0; padding: 0; cursor: pointer; text-align: start; }
 th button.th-sort:hover { color: var(--fg); background: none; }
 .sort-arrow { margin-inline-start: .25rem; }
 button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); background: var(--btn-bg); color: var(--fg); border-radius: 5px; cursor: pointer; }
@@ -330,12 +336,12 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 /* Agent header: the six facts an operator checks before reading the table. */
 .cards { display: flex; flex-wrap: wrap; margin: 0 -.35rem 1rem; }
 .card { flex: 1 1 10rem; margin: .35rem; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 6px; display: flex; flex-direction: column; }
-.card-label { color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.card-label { color: var(--muted); font-size: .72rem; }
 .card-value { font-size: 1.05rem; font-weight: 600; margin-top: .15rem; }
 .card-sub { color: var(--muted); font-size: .78rem; margin-top: .1rem; word-break: break-all; }
 
 /* State badges. The color says how urgent, the word says what. */
-.badge { display: inline-block; padding: .1rem .45rem; border-radius: 999px; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; border: 1px solid transparent; }
+.badge { display: inline-block; padding: .1rem .45rem; border-radius: 999px; font-size: .75rem; font-weight: 600; border: 1px solid transparent; }
 .badge.fresh { background: var(--ok-bg); color: var(--ok); border-color: var(--ok-line); }
 .badge.stale { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); }
 .badge.downloading { background: var(--info-bg); color: var(--accent); border-color: var(--info-line); }

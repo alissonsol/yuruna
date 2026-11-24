@@ -25,11 +25,13 @@ compute:AppleVirtualizationFramework((compute:AppleVirtualizationFramework)) -- 
 compute:ArchitectureCompatibility((compute:ArchitectureCompatibility)) -- subClassOf --> y:Situation[y:Situation]
 compute:Autoinstall((compute:Autoinstall)) -- subClassOf --> y:Process[y:Process]
 compute:BackingImage((compute:BackingImage)) -- subClassOf --> compute:DiskImage((compute:DiskImage))
+compute:CacheVM((compute:CacheVM)) -- subClassOf --> compute:ServiceGuest((compute:ServiceGuest))
 compute:ClockSkew((compute:ClockSkew)) -- subClassOf --> y:Situation[y:Situation]
 compute:CloudImage((compute:CloudImage)) -- subClassOf --> compute:InstallationImage((compute:InstallationImage))
 compute:CloudInitConfiguration((compute:CloudInitConfiguration)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 compute:CloudInitOverlay((compute:CloudInitOverlay)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 compute:CloudInitSeed((compute:CloudInitSeed)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
+compute:CodeSnapshot((compute:CodeSnapshot)) -- subClassOf --> y:Artifact[y:Artifact]
 compute:CommittedMemory((compute:CommittedMemory)) -- subClassOf --> y:Quantity[y:Quantity]
 compute:ComputingNode -- compute:hasInterface --> network:NetworkInterface
 compute:ComputingNode -- compute:hosts --> y:SystemElement
@@ -50,6 +52,7 @@ compute:Guest((compute:Guest)) -- subClassOf --> compute:VirtualMachine((compute
 compute:Guest((compute:Guest)) -- subClassOf --> r_Guest_hostedBy_Host_((Anonymous class))
 compute:Guest((compute:Guest)) -- subClassOf --> r_Guest_managedByHypervisor_Hypervisor_((Anonymous class))
 compute:Guest((compute:Guest)) -- subClassOf --> r_Guest_runsOperatingSystem_GuestOperatingSystem_((Anonymous class))
+compute:GuestDisplayStalledFailure((compute:GuestDisplayStalledFailure)) -- subClassOf --> testing:SequenceFailure[testing:SequenceFailure]
 compute:GuestIdentity((compute:GuestIdentity)) -- subClassOf --> y:Identifier[y:Identifier]
 compute:GuestKernelStall((compute:GuestKernelStall)) -- subClassOf --> y:Situation[y:Situation]
 compute:GuestKernelStalledFailure((compute:GuestKernelStalledFailure)) -- subClassOf --> testing:SequenceFailure[testing:SequenceFailure]
@@ -57,8 +60,14 @@ compute:GuestOperatingSystem((compute:GuestOperatingSystem)) -- subClassOf --> c
 compute:GuestProcessCheck((compute:GuestProcessCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
 compute:Host((compute:Host)) -- subClassOf --> compute:ComputingNode((compute:ComputingNode))
 compute:Host((compute:Host)) -- subClassOf --> r_Host_runsOperatingSystem_HostOperatingSystem_((Anonymous class))
+compute:HostController((compute:HostController)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 compute:HostIdentity((compute:HostIdentity)) -- subClassOf --> y:Identifier[y:Identifier]
 compute:HostOperatingSystem((compute:HostOperatingSystem)) -- subClassOf --> compute:OperatingSystem((compute:OperatingSystem))
+compute:HostRepair((compute:HostRepair)) -- subClassOf --> diagnostics:RecoveryAction[diagnostics:RecoveryAction]
+compute:HostRepairVerdict((compute:HostRepairVerdict)) -- subClassOf --> y:State[y:State]
+compute:HostType((compute:HostType)) -- subClassOf --> y:Identifier[y:Identifier]
+compute:HostUpdate((compute:HostUpdate)) -- subClassOf --> y:Process[y:Process]
+compute:HostUpdateVerdict((compute:HostUpdateVerdict)) -- subClassOf --> y:State[y:State]
 compute:HyperV((compute:HyperV)) -- subClassOf --> compute:Hypervisor((compute:Hypervisor))
 compute:Hypervisor((compute:Hypervisor)) -- subClassOf --> y:SystemElement[y:SystemElement]
 compute:HypervisorUnresponsiveFailure((compute:HypervisorUnresponsiveFailure)) -- subClassOf --> diagnostics:InfrastructureFailure[diagnostics:InfrastructureFailure]
@@ -142,6 +151,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

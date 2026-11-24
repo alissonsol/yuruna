@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
 # fall back to the raw leaf when Test.Log is not imported for this cycle.
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -DisableNameChecking
-# The refresh gate the cycle-start sites consult and the readiness helpers the
+# The runner gate the cycle-start sites consult and the readiness helpers the
 # preflight inner uses; imported here so no inner can run without them.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
 # Write-RunnerStepHeartbeat, the one writer of the heartbeat the watchdog judges.
@@ -521,7 +521,7 @@ function Copy-FailureArtifactsToStatusLog {
     the per-guest cycle folder and link it from the cycle log and status doc.
 #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
-        Justification = '$global:__YurunaCycleFolder / $global:__YurunaLogFile are the cross-module channels with Yuruna.Log for the per-cycle folder and the HTML transcript handle this function appends the artifact link to.')]
+        Justification = '$global:__YurunaCycleFolder / $global:__YurunaLogFile / $global:__YurunaCycleStartUtc are the cross-module channels with Yuruna.Log for the per-cycle folder, transcript handle and evidence freshness boundary.')]
     param(
         [Parameter(Mandatory)][string]$VMName,
         # See https://yuruna.link/4213a0b3-00e4
@@ -549,6 +549,24 @@ function Copy-FailureArtifactsToStatusLog {
         # resolve to the post-rename location once Stop-LogFile moves
         # the folder to <base>/.
         $cycleBase   = Get-StableCycleBaseName
+
+        # The live installer can stall before the target account accepts SSH.
+        # Keep its uploaded process/log snapshot before diagnostic waits, but
+        # never carry a previous cycle or cold-boot attempt into this failure.
+        try {
+            $installerSince = $global:__YurunaCycleStartUtc -as [datetime]
+            if ($installerSince -and $VMName -match '^[A-Za-z0-9][A-Za-z0-9_.-]*$') {
+                if (Get-Command Get-SequenceFailureState -ErrorAction SilentlyContinue) {
+                    $failedStepStart = (Get-SequenceFailureState).LastFailedStepStartedUtc -as [datetime]
+                    if ($failedStepStart -and $failedStepStart -gt $installerSince) { $installerSince = $failedStepStart }
+                }
+                $installerSource = Join-Path $env:YURUNA_LOG_DIR "installer-progress/$VMName/latest.log"
+                $installerItem = Get-Item -LiteralPath $installerSource -ErrorAction SilentlyContinue
+                if ($installerItem -is [IO.FileInfo] -and $installerItem.LastWriteTimeUtc -ge $installerSince.ToUniversalTime()) {
+                    Copy-Item -LiteralPath $installerItem.FullName -Destination (Join-Path $destSeqDir 'installer-progress.log') -Force -ErrorAction Stop
+                }
+            }
+        } catch { Write-Verbose "Installer progress snapshot not retained: $($_.Exception.Message)" }
 
         # See https://yuruna.link/4213a0b3-00e5
         $srcSequenceDir = Get-CycleScreenDir -VMName $VMName -WhatIf:$false
@@ -1585,8 +1603,8 @@ function Invoke-CycleHostNetworkGate {
             Write-Warning "========"
             # Leave the host no dirtier than a normal cycle start: the sweep that
             # removes VMs stranded by the previous cycle lives inside the cycle
-            # body, which this refusal skips. Not while a host refresh holds the
-            # host: the sweep is a VM mutation the refresh has not released.
+            # body, which this refusal skips. Not while a host operation holds the
+            # host: the sweep is a VM mutation the host operation has not released.
             # Once per loss: no cycle runs between two refusals, so nothing new
             # can be stranded, and the state file of the streak remembers the
             # sweep. In a bounded process of its own: a hypervisor that stopped
@@ -1594,7 +1612,7 @@ function Invoke-CycleHostNetworkGate {
             # watchdog killed it.
             if ($hostNetworkSweptUtc) {
                 Write-Verbose "The stranded-VM sweep already ran during this loss of the guest network ($hostNetworkSweptUtc)."
-            } elseif (Test-YurunaRefreshSpawnAllowed -RuntimeDir $RuntimeDir) {
+            } elseif (Test-YurunaRunnerSpawnAllowed -RuntimeDir $RuntimeDir) {
                 try {
                     $sweep = Invoke-BoundedNativeCommand -FilePath (Get-PwshApplicationPath) -TimeoutSeconds 300 `
                         -ArgumentList @('-NoLogo', '-NoProfile', '-NonInteractive', '-File', (Join-Path $TestRoot 'Remove-TestVMFiles.ps1'), '-Quiet')
@@ -1629,7 +1647,7 @@ function Invoke-CycleServiceVmRestore {
     <#
     .SYNOPSIS
         The cycle-start service-VM restore: start the service VMs a reboot left
-        off, report what it found, and leave the host-refresh evidence the outer
+        off, report what it found, and leave the host-repair evidence the outer
         loop reads.
     .DESCRIPTION
         A function rather than inline preamble code so its never-fatal contract
@@ -1659,24 +1677,24 @@ function Invoke-CycleServiceVmRestore {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_96a9c1c4155d58e1' -Arguments @{ message = "$($_.Exception.Message)" })
     }
     $result.Results = $serviceRestore
-    # Automatic host-refresh evidence for the outer: the per-service probe
+    # Automatic host-repair evidence for the outer: the per-service probe
     # reasons of this restore, tagged with the generation the outer issued for
     # this cycle so the loop never counts a sidecar from another cycle. Written
     # even when the cycle later passes, and never allowed to change the cycle.
     if ($env:YURUNA_CYCLE_GENERATION) {
         try {
-            if (-not (Get-Command Write-HostRefreshAutoEvidence -ErrorAction SilentlyContinue)) {
-                $triggerModule = Join-Path $PSScriptRoot 'Test.HostRefreshTrigger.psm1'
+            if (-not (Get-Command Write-HostRepairAutoEvidence -ErrorAction SilentlyContinue)) {
+                $triggerModule = Join-Path $PSScriptRoot 'Test.HostRepairTrigger.psm1'
                 if (Test-Path -LiteralPath $triggerModule) { Import-Module $triggerModule -Global -ErrorAction SilentlyContinue }
             }
-            if (Get-Command Write-HostRefreshAutoEvidence -ErrorAction SilentlyContinue) {
-                $null = Write-HostRefreshAutoEvidence -RuntimeDir $RuntimeDir -Generation $env:YURUNA_CYCLE_GENERATION `
+            if (Get-Command Write-HostRepairAutoEvidence -ErrorAction SilentlyContinue) {
+                $null = Write-HostRepairAutoEvidence -RuntimeDir $RuntimeDir -Generation $env:YURUNA_CYCLE_GENERATION `
                     -Phase 'service-vm-restore' -ServiceRestoreResult $serviceRestore -HostType $HostType `
                     -HostId ([string]$global:__YurunaHostId) -Confirm:$false
                 $result.EvidenceWritten = $true
             }
         } catch {
-            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.refresh_trigger_call_failed' -Arguments @{ site = 'service-vm-restore'; message = "$($_.Exception.Message)" })
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.host_repair_trigger_call_failed' -Arguments @{ site = 'service-vm-restore'; message = "$($_.Exception.Message)" })
         }
     }
     return $result
@@ -2651,8 +2669,8 @@ function Write-CapabilityGateFailureBanner {
     .SYNOPSIS
         Print the capability-gate failure banner: the cycle plan references a host
         I/O action no backend on this host registered, has a step whose handler
-        runs a host command this host does not have, or requires OCR with no
-        provider available. Pure output; $Cap is a Test-CyclePlanCapabilityFromPlan
+        runs a host command or calls an OCR engine this host does not have, or
+        requires OCR with no provider available. Pure output; $Cap is a Test-CyclePlanCapabilityFromPlan
         result. The caller still zeroes the guest list + writes the infra record.
     #>
     [CmdletBinding()]
@@ -2676,6 +2694,16 @@ function Write-CapabilityGateFailureBanner {
         }
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.capability_gate_host_command_remedy')
     }
+    if ($Cap.missingOcrEngine.Count) {
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.capability_gate_ocr_engine_missing')
+        foreach ($missing in $Cap.missingOcrEngine) {
+            Write-Output "    - $($missing.engine)"
+            foreach ($step in $missing.steps) {
+                Write-Output (Format-YurunaOperatorMessage -Key 'runner.capability_gate_ocr_engine_step' -Arguments @{ sequence = "$($step.sequence)"; step = [int]$step.step; action = "$($step.action)" })
+            }
+        }
+        Write-Output (Format-YurunaOperatorMessage -Key 'runner.capability_gate_ocr_engine_remedy')
+    }
     if ($Cap.ocrRequired -and -not $Cap.ocrAvailable) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_02d1fa76ed2f0ae2')
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_20c8d607a6fb6e96')
@@ -2688,8 +2716,8 @@ function Get-CapabilityGateFailureMessage {
     .SYNOPSIS
         The error message of the capability gate's plan_invalid record: the
         missing host I/O actions, each missing host command with the steps that
-        run it, and the OCR verdict. $Cap is a Test-CyclePlanCapabilityFromPlan
-        result.
+        run it, the OCR verdict, and each missing OCR engine with the steps
+        that call it. $Cap is a Test-CyclePlanCapabilityFromPlan result.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -2698,7 +2726,15 @@ function Get-CapabilityGateFailureMessage {
         $steps = @(foreach ($step in $missing.steps) { "$($step.sequence) step $($step.step) $($step.action)" }) -join ', '
         "$($missing.command) ($steps)"
     }
-    return "Missing host I/O: $($Cap.missingHostIO -join ', '); Missing host commands: $(@($commands) -join '; '); ocrRequired=$($Cap.ocrRequired) ocrAvailable=$($Cap.ocrAvailable)"
+    $message = "Missing host I/O: $($Cap.missingHostIO -join ', '); Missing host commands: $(@($commands) -join '; '); ocrRequired=$($Cap.ocrRequired) ocrAvailable=$($Cap.ocrAvailable)"
+    if ($Cap.missingOcrEngine.Count) {
+        $engines = foreach ($missing in $Cap.missingOcrEngine) {
+            $steps = @(foreach ($step in $missing.steps) { "$($step.sequence) step $($step.step) $($step.action)" }) -join ', '
+            "$($missing.engine) ($steps)"
+        }
+        $message += "; Missing OCR engines: $(@($engines) -join '; ')"
+    }
+    return $message
 }
 
 function Test-CycleHostNetworkDegraded {
@@ -3414,10 +3450,10 @@ $AlertArmed           = $gatingState.AlertArmed
 $GatingFile           = $gatingState.GatingFile
 $OverallPassed        = $true
 $MaxConsecutiveCrashes = 3
-# Set when a host refresh holds this cycle at a gate site. The cycle ends
+# Set when a host operation holds this cycle at a gate site. The cycle ends
 # before changing anything, OverallPassed stays true and the gating counters
 # are untouched: a held cycle is neither a pass nor a failure.
-$refreshGated         = $false
+$gateHeld         = $false
 $configGateFailed     = $false
 $skippedGuests        = [System.Collections.Generic.List[string]]::new()
 $cycleDegraded        = $false
@@ -3432,10 +3468,10 @@ do {
         break
     }
 
-    # Refresh gate, before any cycle work: a host refresh that is reclaiming
+    # Runner gate, before any cycle work: a host operation that is reclaiming
     # or repairing must not race this cycle's host checks, git pull or sweeps.
-    if (-not (Test-YurunaRefreshCycleGate -Site 'cycle-start')) {
-        $refreshGated = $true
+    if (-not (Test-YurunaRunnerCycleGate -Site 'cycle-start')) {
+        $gateHeld = $true
         break
     }
 
@@ -3515,8 +3551,8 @@ do {
 
     # The gate can close while the host checks above run; re-read it right
     # before the pull.
-    if (-not (Test-YurunaRefreshCycleGate -Site 'git-pull')) {
-        $refreshGated = $true
+    if (-not (Test-YurunaRunnerCycleGate -Site 'git-pull')) {
+        $gateHeld = $true
         break
     }
 
@@ -3987,14 +4023,17 @@ do {
 
     # --- REGION: Initialize status for this cycle
     # See https://yuruna.link/4213a0b3-00f8
+    # Built for both cycle shapes: an orchestration cycle hands the list to the
+    # orchestrator that initializes its status document, so its commits carry
+    # the same source provenance as a guest cycle's.
+    $GitCommitsList = New-CycleGitCommitList -GitCommit $GitCommit `
+        -FrameworkUrl $Config.repositories.frameworkUrl `
+        -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl `
+        -FrameworkSelection $(if ($sourceHandoff) { $sourceHandoff.framework } else { $null }) -ProjectSelection $projectSourceSelection -RepoRoot $RepoRoot
     if ($isOrchestrationCycle) {
         $CycleStartUtc = ''
         $LogFile = ''
     } else {
-        $GitCommitsList = New-CycleGitCommitList -GitCommit $GitCommit `
-            -FrameworkUrl $Config.repositories.frameworkUrl `
-            -ProjectGitCommit $ProjectGitCommit -ProjectUrl $projLinkUrl `
-            -FrameworkSelection $(if ($sourceHandoff) { $sourceHandoff.framework } else { $null }) -ProjectSelection $projectSourceSelection -RepoRoot $RepoRoot
         $CycleStartUtc = Initialize-StatusDocument `
             -StatusFilePath $StatusFile `
             -HostType       $HostType `
@@ -4021,7 +4060,7 @@ do {
         # Commit line mirrors the dashboard's "Commit" meta-card: framework
         # SHA first, then the project SHA when repositories.projectUrl is set,
         # comma-space delimited (matching renderCommitLinks() in
-        # status/index.html). $ProjectGitCommit is $null when the in-tree
+        # status/yuruna.common.js). $ProjectGitCommit is $null when the in-tree
         # fallback path is in use; in that case we emit framework-only so
         # the log doesn't show a dangling ", --".
         $CommitLine = if ($ProjectGitCommit) { "$GitCommit, $ProjectGitCommit" } else { $GitCommit }
@@ -4147,17 +4186,17 @@ do {
         break
     }
 
-    # Last refresh gate before the first VM mutation of the cycle. The cycle
+    # Last runner gate before the first VM mutation of the cycle. The cycle
     # log is already open here, so it is closed the way any other pre-sweep
     # abort closes it. A held cycle is neither a pass nor a failure, so its
     # status and history row read 'skipped': the dashboard already knows the
     # word, and the fleet counters tally only pass and fail. OverallPassed
     # stays true so nothing downstream counts it either.
-    if (-not (Test-YurunaRefreshCycleGate -Site 'cycle-start-sweep')) {
-        $refreshGated = $true
+    if (-not (Test-YurunaRunnerCycleGate -Site 'cycle-start-sweep')) {
+        $gateHeld = $true
         Complete-Run -OverallStatus "skipped" -MaxHistoryRuns (Get-RunnerHistoryLimit -Config $Config)
         Save-CycleHostSample
-        Stop-LogFile -Outcome 'aborted' -Reason 'host refresh'
+        Stop-LogFile -Outcome 'aborted' -Reason 'runner gate held'
         $script:CycleFinalized = $true
         break
     }
@@ -4318,7 +4357,8 @@ do {
         $orchRc = Invoke-OrchestrationSequence `
             -Sequence $orchestrationDoc -SequencePath $orchestrationPath `
             -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
-            -HostType $HostType -Config $Config -BeforeSeal $decideBeforeSeal -CaptureHostDiagnostic
+            -HostType $HostType -Config $Config -BeforeSeal $decideBeforeSeal -CaptureHostDiagnostic `
+            -GitCommits $GitCommitsList
         # The alert below ships this payload rather than deciding a second time.
         if ($orchestrationDecision.EventData) { $cycleFailureEventData = $orchestrationDecision.EventData }
         $OverallPassed = ($orchRc -eq 0)
@@ -4648,7 +4688,7 @@ do {
     $State.AlertArmed           = $AlertArmed
     $State.FailuresBeforeAlert  = $FailuresBeforeAlert
     $State.GatingFile           = $GatingFile
-    $State.RefreshGated         = $refreshGated
+    $State.GateHeld         = $gateHeld
     $State.ConfigGateFailed     = $configGateFailed
     $State.Degraded             = $cycleDegraded
     $State.SkippedGuests        = @($skippedGuests)
@@ -5143,35 +5183,35 @@ function Invoke-GuestProvisionIteration {
 }
 
 
-# --- REGION: Host-refresh preflight and held-control barrier
-# A runner chain restarted by a host refresh (or a resident outer resuming
+# --- REGION: Handoff preflight and held-control barrier
+# A runner chain restarted by a handoff (or a resident outer resuming
 # after one) first runs one preflight cycle: its inner proves the host is
 # usable from the final process ancestry, acknowledges readiness, and parks
 # without git, VM, control-sweep or status-document work. The first ordinary
 # cycle after that carries the barrier: before any VM mutation it adopts the
 # operator's preserved pauses and holds and waits for their normal consumers.
 
-# Operator controls that survive a refresh, reported in the readiness
+# Operator controls that survive a handoff, reported in the readiness
 # acknowledgment. break-active.json belongs to the inner that parked on it.
-$script:RefreshControlName = @(
+$script:HandoffControlName = @(
     'control.step-pause', 'control.cycle-pause', 'control.pause',
     'control.lab-hold', 'lab-hold.json', 'control.lab-hold-release', 'control.cycle-restart', 'break-active.json'
 )
 # The three pause flags the barrier parks on; their normal consumers are the
 # status page's resume endpoints, which delete them.
-$script:RefreshPauseName = @('control.cycle-pause', 'control.step-pause', 'control.pause')
+$script:HandoffPauseName = @('control.cycle-pause', 'control.step-pause', 'control.pause')
 
-function Get-YurunaRefreshInnerMode {
+function Get-YurunaHandoffInnerMode {
     <#
     .SYNOPSIS
-        Which refresh role, if any, this inner plays: normal, preflight or
+        Which handoff role, if any, this inner plays: normal, preflight or
         barrier.
     .DESCRIPTION
-        Preflight needs both YURUNA_REFRESH_PREFLIGHT=1 and a token in
-        YURUNA_REFRESH_HANDOFF_TOKEN; the token is validated for the inner
+        Preflight needs both YURUNA_HANDOFF_PREFLIGHT=1 and a token in
+        YURUNA_HANDOFF_TOKEN; the token is validated for the inner
         role (parent is the recorded cycle process). An invalid token is still
         preflight -- the inner then acknowledges failure instead of running an
-        ordinary cycle. Barrier needs YURUNA_REFRESH_BARRIER (the request id).
+        ordinary cycle. Barrier needs YURUNA_HANDOFF_BARRIER (the request id).
     .PARAMETER RuntimeDir
         The runtime directory.
     .OUTPUTS
@@ -5182,8 +5222,8 @@ function Get-YurunaRefreshInnerMode {
     [OutputType([pscustomobject])]
     param([string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR)
     $out = [ordered]@{ Mode = 'normal'; TokenId = $null; RequestId = $null; Purpose = $null; Token = $null }
-    $tokenId = [string]$env:YURUNA_REFRESH_HANDOFF_TOKEN
-    if ($env:YURUNA_REFRESH_PREFLIGHT -eq '1' -and $tokenId) {
+    $tokenId = [string]$env:YURUNA_HANDOFF_TOKEN
+    if ($env:YURUNA_HANDOFF_PREFLIGHT -eq '1' -and $tokenId) {
         $out.Mode = 'preflight'
         $out.TokenId = $tokenId
         $token = if ($tokenId -notmatch '^[0-9a-f]{32}$') {
@@ -5198,14 +5238,14 @@ function Get-YurunaRefreshInnerMode {
         $out.Purpose = $token.Purpose
         return [pscustomobject]$out
     }
-    if ($env:YURUNA_REFRESH_BARRIER) {
+    if ($env:YURUNA_HANDOFF_BARRIER) {
         $out.Mode = 'barrier'
-        $out.RequestId = [string]$env:YURUNA_REFRESH_BARRIER
+        $out.RequestId = [string]$env:YURUNA_HANDOFF_BARRIER
     }
     return [pscustomobject]$out
 }
 
-function Get-YurunaRefreshControlPresent {
+function Get-YurunaHandoffControlPresent {
     <#
     .SYNOPSIS
         The operator control files present in a runtime directory.
@@ -5213,12 +5253,12 @@ function Get-YurunaRefreshControlPresent {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][string]$RuntimeDir)
-    foreach ($name in $script:RefreshControlName) {
+    foreach ($name in $script:HandoffControlName) {
         if (Test-Path -LiteralPath (Join-Path $RuntimeDir $name)) { $name }
     }
 }
 
-function Invoke-YurunaRefreshPreflight {
+function Invoke-YurunaHandoffPreflight {
     <#
     .SYNOPSIS
         The preflight inner's one job: prove the host from the final process
@@ -5229,7 +5269,7 @@ function Invoke-YurunaRefreshPreflight {
         acknowledgment with the chain identities and the operator controls
         present. No git, no VM, no control sweep, no status-document write.
     .PARAMETER Mode
-        Get-YurunaRefreshInnerMode output.
+        Get-YurunaHandoffInnerMode output.
     .PARAMETER HostType
         The detected host type (empty when detection failed).
     .PARAMETER RepoRoot
@@ -5256,7 +5296,7 @@ function Invoke-YurunaRefreshPreflight {
         [Parameter(Mandatory)][psobject]$Deadline,
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
     )
-    if (Get-Command Write-RunnerPhase -ErrorAction SilentlyContinue) { Write-RunnerPhase -Phase 'refresh-preflight' }
+    if (Get-Command Write-RunnerPhase -ErrorAction SilentlyContinue) { Write-RunnerPhase -Phase 'handoff-preflight' }
     Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
     $failure = $null
     $probe = $null
@@ -5270,7 +5310,7 @@ function Invoke-YurunaRefreshPreflight {
         try {
             [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
         } catch {
-            Write-Verbose "Refresh preflight: host driver import failed: $($_.Exception.Message)"
+            Write-Verbose "Handoff preflight: host driver import failed: $($_.Exception.Message)"
             $failure = 'driver-import-failed'
         }
         if (-not $failure) {
@@ -5284,7 +5324,7 @@ function Invoke-YurunaRefreshPreflight {
                     try {
                         $probe = Test-VirtualizationResponsive -TimeoutSeconds $seconds -Deadline $Deadline
                     } catch {
-                        Write-Verbose "Refresh preflight: probe threw: $($_.Exception.Message)"
+                        Write-Verbose "Handoff preflight: probe threw: $($_.Exception.Message)"
                         $probe = $null
                     }
                     $failure = switch ([string]$probe.state) {
@@ -5301,24 +5341,24 @@ function Invoke-YurunaRefreshPreflight {
     if ($Mode.TokenId -match '^[0-9a-f]{32}$' -and (Get-Command Write-YurunaRunnerReadinessAck -ErrorAction SilentlyContinue)) {
         $ack = @{
             TokenId = [string]$Mode.TokenId; Role = 'inner'; State = $state; RuntimeDir = $RuntimeDir
-            PreservedControl = @(Get-YurunaRefreshControlPresent -RuntimeDir $RuntimeDir)
+            PreservedControl = @(Get-YurunaHandoffControlPresent -RuntimeDir $RuntimeDir)
         }
         if ($failure) { $ack.FailureReason = $failure }
         if ($probe) { $ack.Probe = $probe }
         $written = [bool](Write-YurunaRunnerReadinessAck @ack -Confirm:$false)
     }
     if ($failure) {
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.refresh_preflight_failed' -Arguments @{ reason = $failure }) -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.handoff_preflight_failed' -Arguments @{ reason = $failure }) -InformationAction Continue
     } else {
-        Write-Information (Format-YurunaOperatorMessage -Key 'runner.refresh_preflight_ready' -Arguments @{ requestId = "$($Mode.RequestId)" }) -InformationAction Continue
+        Write-Information (Format-YurunaOperatorMessage -Key 'runner.handoff_preflight_ready' -Arguments @{ requestId = "$($Mode.RequestId)" }) -InformationAction Continue
     }
     return [pscustomobject]@{ State = $state; FailureReason = $failure; Probe = $probe; AckWritten = $written }
 }
 
-function Wait-YurunaRefreshRelease {
+function Wait-YurunaHandoffRelease {
     <#
     .SYNOPSIS
-        Park a preflight inner until the refresh worker releases the runner,
+        Park a preflight inner until the host-operation worker releases the runner,
         revokes the handoff, or the token expires.
     .DESCRIPTION
         A resident-outer chain returns not-parked at once: the outer that
@@ -5355,7 +5395,7 @@ function Wait-YurunaRefreshRelease {
     while ($true) {
         if ($ShutdownState['Requested']) { return [pscustomobject]@{ Outcome = 'shutdown' } }
         Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
-        $gate = Get-YurunaRefreshGateState -RuntimeDir $RuntimeDir -TokenId $TokenId
+        $gate = Get-YurunaRunnerGateState -RuntimeDir $RuntimeDir -TokenId $TokenId
         if ($gate.State -eq 'open') { return [pscustomobject]@{ Outcome = 'released' } }
         if ($gate.State -ne 'handoff') { return [pscustomobject]@{ Outcome = 'revoked' } }
         if (-not $gate.PreflightAllowed) {
@@ -5392,7 +5432,7 @@ function Wait-YurunaHeldControlBarrier {
     .PARAMETER HostType
         Host type for the lab-health gate's failure record.
     .PARAMETER RequestId
-        The refresh request that restarted the chain.
+        The host-operation request that restarted the chain.
     .PARAMETER PollDelay
         Poll delay in milliseconds for an attempt number; defaults to
         Get-PollDelay.
@@ -5419,14 +5459,14 @@ function Wait-YurunaHeldControlBarrier {
         param([string]$Outcome)
         $seconds = [int]([DateTime]::UtcNow - $startedAt).TotalSeconds
         if ($held -and $Outcome -eq 'released') {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.refresh_barrier_released' -Arguments @{ seconds = "$seconds" }) -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.handoff_barrier_released' -Arguments @{ seconds = "$seconds" }) -InformationAction Continue
         }
         [pscustomobject]@{ Held = $held; Controls = $controls.ToArray(); Outcome = $Outcome; HeldSeconds = $seconds }
     }
     while ($true) {
         if ($ShutdownState['Requested']) { return (& $finish 'shutdown') }
         Write-RunnerStepHeartbeat -Path $StepHeartbeatFile
-        $pauses = @($script:RefreshPauseName | Where-Object { Test-Path -LiteralPath (Join-Path $RuntimeDir $_) })
+        $pauses = @($script:HandoffPauseName | Where-Object { Test-Path -LiteralPath (Join-Path $RuntimeDir $_) })
         $labHold = Test-Path -LiteralPath (Join-Path $RuntimeDir 'control.lab-hold')
         if ($pauses.Count -eq 0 -and -not $labHold) {
             return (& $finish $(if ($held) { 'released' } else { 'none' }))
@@ -5436,7 +5476,7 @@ function Wait-YurunaHeldControlBarrier {
         }
         if (-not $held) {
             $held = $true
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.refresh_barrier_held' -Arguments @{ requestId = $RequestId; controls = ($controls -join ', ') }) -InformationAction Continue
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.handoff_barrier_held' -Arguments @{ requestId = $RequestId; controls = ($controls -join ', ') }) -InformationAction Continue
         }
         if ($pauses.Count -gt 0) {
             Start-Sleep -Milliseconds ([int](& $PollDelay $attempt))
@@ -5457,7 +5497,7 @@ function Wait-YurunaHeldControlBarrier {
             continue
         }
         try {
-            $gate = Invoke-LabHealthGate -Label 'refresh-resume' -Stage 'refresh-resume' -Config $Config -HostType $HostType
+            $gate = Invoke-LabHealthGate -Label 'handoff-resume' -Stage 'handoff-resume' -Config $Config -HostType $HostType
         } catch {
             if ($_.Exception.Data -and $_.Exception.Data['YurunaLabDependencyDown']) { return (& $finish 'lab-exhausted') }
             throw
@@ -5469,11 +5509,11 @@ function Wait-YurunaHeldControlBarrier {
     }
 }
 
-function Test-YurunaRefreshCycleGate {
+function Test-YurunaRunnerCycleGate {
     <#
     .SYNOPSIS
         An inner cycle's gate site: $true when the cycle may proceed; when a
-        host refresh holds spawns, write runner.refresh-gated.json for the
+        host operation holds spawns, write runner.gate-held.json for the
         cycle process, log, and return $false before any change.
     .PARAMETER Site
         The site name (cycle-start, git-pull, cycle-start-sweep).
@@ -5489,8 +5529,8 @@ function Test-YurunaRefreshCycleGate {
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR
     )
     if (-not $RuntimeDir) { return $true }
-    $gate = if (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue) {
-        Get-YurunaRefreshGateState -RuntimeDir $RuntimeDir
+    $gate = if (Get-Command Get-YurunaRunnerGateState -ErrorAction SilentlyContinue) {
+        Get-YurunaRunnerGateState -RuntimeDir $RuntimeDir
     } else {
         [pscustomobject]@{ SpawnAllowed = $false; RequestId = $null; State = 'unknown'; Reason = 'gate-unavailable' }
     }
@@ -5508,16 +5548,16 @@ function Test-YurunaRefreshCycleGate {
         innerParentPid       = $parentPid
         observedUtc          = [DateTime]::UtcNow.ToString('o')
     }
-    $sidecarPath = Join-Path $RuntimeDir 'runner.refresh-gated.json'
+    $sidecarPath = Join-Path $RuntimeDir 'runner.gate-held.json'
     if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
         $null = Write-YurunaStateFileJson -Path $sidecarPath -InputObject $sidecar -Confirm:$false
     } else {
         try { [System.IO.File]::WriteAllText($sidecarPath, ($sidecar | ConvertTo-Json -Compress)) } catch {
-            Write-Verbose "runner.refresh-gated.json not written: $($_.Exception.Message)"
+            Write-Verbose "runner.gate-held.json not written: $($_.Exception.Message)"
         }
     }
-    Write-Information (Format-YurunaOperatorMessage -Key 'runner.refresh_site_gated' -Arguments @{ site = $Site; requestId = "$($gate.RequestId)"; state = "$($gate.State)" }) -InformationAction Continue
-    if (Get-Command Write-InnerLog -ErrorAction SilentlyContinue) { Write-InnerLog "refresh gate held the cycle at $Site ($($gate.State))" }
+    Write-Information (Format-YurunaOperatorMessage -Key 'runner.runner_gate_site_held' -Arguments @{ site = $Site; requestId = "$($gate.RequestId)"; state = "$($gate.State)" }) -InformationAction Continue
+    if (Get-Command Write-InnerLog -ErrorAction SilentlyContinue) { Write-InnerLog "runner gate held the cycle at $Site ($($gate.State))" }
     return $false
 }
 
@@ -5527,7 +5567,7 @@ Export-ModuleMember -Function `
     Get-RunnerReloadableConfig, New-RunnerConfigState, Sync-RunnerCycleConfig, `
     Sync-RunnerStepConfig, `
     Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Save-SerialConsoleKernelFault, Invoke-RunnerInnerCycle, `
-    Write-CycleInfraFailure, Save-CycleHostDiagnostic, Get-YurunaRefreshInnerMode, Invoke-YurunaRefreshPreflight, `
-    Wait-YurunaRefreshRelease, Wait-YurunaHeldControlBarrier, Test-YurunaRefreshCycleGate, `
+    Write-CycleInfraFailure, Save-CycleHostDiagnostic, Get-YurunaHandoffInnerMode, Invoke-YurunaHandoffPreflight, `
+    Wait-YurunaHandoffRelease, Wait-YurunaHeldControlBarrier, Test-YurunaRunnerCycleGate, `
     Test-RunnerHypervisorControlGate, Invoke-RunnerTempHousekeeping, Invoke-CycleProjectRefresh, Test-CycleHostNetworkDegraded, `
     Invoke-CycleHostNetworkGate, Invoke-CycleServiceVmRestore, Invoke-CycleExternalSwitchRepair, Invoke-CycleCachingProxyGate

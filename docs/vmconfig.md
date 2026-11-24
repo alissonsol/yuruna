@@ -621,6 +621,18 @@ AL2023's cloud-init default (`chpasswd.expire: true`), so the GUI test
 sequence's first login fires the same Current/New/Retype dialog on every
 supported host.
 
+An SSH chain meets the same expiry: a key login gets `Password change
+required but no TTY available` and runs no command until the password is
+changed. The Ubuntu Server SSH start sequences therefore rotate it in their
+[`sshWaitReady`](test-sequences.md#428e4df6-0022) step (`currentPassword` /
+`newPassword`), which answers the same three prompts over `ssh -tt`, and
+commit the new password to the vault after a later login proves it, as the
+console start does. When that step reaches a shell whose password is not
+expired, as a replay on a guest provisioned already does, it sets the password
+to `newPassword` with `sudo -n chpasswd` instead, through the
+[passwordless sudo](#429f3d06-001a) below, so the vault never stores a password
+the guest did not receive.
+
 <a id="429f3d06-0019"></a>
 
 ### login session budget
@@ -1285,6 +1297,23 @@ The error hook also prints `/log/installer-fail/<hostname>/<UTC-timestamp>/` to
 the console. These uploads are separate from the cycle's guest diagnostic
 folder, and remain useful when that diagnostic times out. Open the printed
 bucket directly to retrieve the snapshots and `curtin-errors.tar`.
+
+An installer that hangs without aborting never runs `error-commands`, and the
+target account may not exist yet for SSH diagnostics. A shared early-command
+therefore starts a best-effort live-installer recorder. It uploads a bounded
+snapshot every minute to `/log-upload/installer-progress/<VM-name>/latest.log`, using
+the VM identity already supplied in cloud-init metadata. Snapshots include the
+capture time and boot ID, installer progress, process names and wait channels,
+and network state. Process arguments, environments, and autoinstall user-data
+are excluded.
+
+The recorder runs for at most two hours and stops before late-commands. Each
+probe and upload is bounded; unavailable tools or failed uploads never fail the
+installation. On failure, the runner copies a snapshot from the failed step
+into the guest's cycle folder as `installer-progress.log` before attempting
+SSH. Snapshots older than the known failed-step or cycle boundary are omitted.
+The copied file is then available through the normal failure-folder link and
+cycle archive even when the target account is unavailable.
 
 <a id="429f3d06-0030"></a>
 
@@ -2704,6 +2733,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

@@ -10,17 +10,27 @@ backing those with non-trivial cross-host divergence.
 - Source of truth for action names is the `Register-SequenceAction`
   registry in
   [`test/modules/Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
-- Schema for the YAML shape is
-  [`test/schemas/actions.schema.yml`](../test/schemas/actions.schema.yml).
-- Short one-paragraph catalog (consumed by tooling) is
-  [`actions.yml`](../test/sequences/actions.yml); this file is its
-  prose-style complement.
+- Schema for a sequence file, with the `action` enum and the fields of
+  each verb, is
+  [`test/schemas/sequence.schema.yml`](../test/schemas/sequence.schema.yml).
+- Short one-paragraph catalog is
+  [`actions.yml`](../test/sequences/actions.yml), whose shape is
+  [`test/schemas/actions.schema.yml`](../test/schemas/actions.schema.yml);
+  this file is its prose-style complement.
+- [`Test.SequenceCatalogParity.Tests.ps1`](../test/modules/Test.SequenceCatalogParity.Tests.ps1)
+  fails when the registry, the two schema enums, `actions.yml` and the
+  [Action reference](#action-reference) below name different verbs.
+- Sentences a step may be written as are defined in
+  [`_phrases.yml`](../test/sequences/_phrases.yml); see
+  [Step sentences](#step-sentences).
 
 <a id="428e4df6-0002"></a>
 
 ## How a sequence step runs
 
-Every step is a YAML map with at least an `action` field plus a free-form
+Every step is a YAML map with exactly one of `action` (a verb), `snippet` (a
+named step list) or `step` (a sentence); snippets and sentences are replaced
+by action steps when the file is read. An action step carries a free-form
 `description` shown in the cycle log. The engine substitutes `${var}`
 references (sequence-level `variables`, built-ins `${vmName}`,
 `${hostType}`, `${guestKey}`, plus `${ext:area.Method(args)}` extension
@@ -172,7 +182,7 @@ log directory (`$env:YURUNA_LOG_DIR`):
 |---|---|
 | `last_failure.json` | Schema-v2 record of the failed step (`stepNumber`, `action`, `description`, `vmName`, `guestKey`, `failureClass`, `severity`, `suggestedRecoveries`, `actionVerb`, `context`). The parent runner reads it; `Send-Notification`'s `-EventData` payload is built from it. See [`test/modules/Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1) for the writer and [`test/modules/Test.Notify.psm1`](../test/modules/Test.Notify.psm1) for the consumer. |
 | `failure_screenshot_<VM>.png` | Last VM screenshot at failure time. Present for every failing step that has a host-IO backend. |
-| `failure_ocr_<VM>.txt` | Last OCR text. Written only by `waitForText` family failures. |
+| `failure_ocr_<VM>.txt` | Last OCR text. Written by `waitForText` family failures and by a failed `tapOn`, which writes the words it read, one run of adjacent words per line. |
 
 The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) enumerates every artifact in the cycle folder with `kind`, `sizeBytes`, `sha256`, and `modifiedUtc` -- a single well-known entry point for autonomous remediators.
 
@@ -184,7 +194,9 @@ The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) 
 
 Top-level keys in a sequence YAML, complementing `description:`,
 `keystrokeMechanism:` (gui|ssh, default gui), `resource:`, `variables:`,
-`component:`, and `workload:`. Full schema:
+`component:`, `workload:`, and `defaultSurface:` (screen|page, default
+screen: the surface of a [step sentence](#step-sentences) that has no `on:`).
+Full schema:
 [`test/schemas/sequence.schema.yml`](../test/schemas/sequence.schema.yml).
 
 <a id="428e4df6-0009"></a>
@@ -376,6 +388,197 @@ prompt) and pausing lets the prompt settle before the
 
 ---
 
+<a id="428e4df6-003c"></a>
+
+## Step sentences
+
+A **step sentence** is a step written as a sentence from a fixed vocabulary
+instead of an `action:` map. When the sequence file is read, each sentence is
+replaced by the action steps it stands for -- at the moment snippets are
+spliced -- so the engine, the capability gate, step windows and the status
+page all see ordinary steps. Nothing interprets a sentence at run time: it
+matches exactly one phrase of the vocabulary, or the file fails to load.
+
+```yaml
+component:
+  - snippet: firstLoginPrime
+  - step: "login ${username} with password ${ext:authentication.GetPassword(${username})}"
+    timeoutSeconds: 600
+workload:
+  - step: "type 'systemctl is-active ssh' and press Enter"
+  - step: "wait for text active"
+  - action: saveSystemDiagnostic      # action steps and sentences mix freely
+    id: example
+```
+
+<a id="428e4df6-003d"></a>
+
+### Writing a sentence step
+
+| Key | Type | Notes |
+|---|---|---|
+| `step` | string | Required. The sentence, written as a quoted YAML string. |
+| `on` | string | The surface the sentence acts on: `screen` or `page`. Default: the sequence's `defaultSurface`, else `screen`. The vocabulary table names the surfaces each sentence has. |
+| `timeoutSeconds` | integer | 1 or more. Set on every generated step whose verb takes `timeoutSeconds`; it bounds each of those steps, not the sentence as a whole. A sentence none of whose steps takes it fails to load. |
+| `description` | string | Label for the cycle log and the status page, in place of the generated one. A sentence that becomes several steps adds ` (1/2)`, ` (2/2)` to it. |
+| `descriptionLocalized` | map | Localized labels, as on an action step. Needs `description`. |
+
+A sentence step accepts no other key. It is written wherever an action step
+is in a guest sequence (a file with `resource:`): in `component` and
+`workload`, under `steps` and `stepsAfterVmRestart` of a `retry`, and in a
+snippet such a sequence uses. An orchestration sequence takes none.
+
+- **Words.** The fixed words of a sentence match without regard to case or
+  extra spaces. Sentences are English only: they are source text, like verb
+  names. What an operator reads is the description, which localizes through
+  `descriptionLocalized`.
+- **Values.** A value (`<label>` in the table below) is one bare word, a
+  string in single or double quotes, or a `${...}` reference taken whole; a
+  value that holds a space needs quotes. Inside a quoted string, write the
+  quote twice to mean it: `'it''s ready'`. `$$` stands for a literal `$`, as
+  in any step field. A backslash is an ordinary character in a sentence, but
+  a double-quoted YAML string reads its own escapes first: write `\\` there
+  for one backslash. A sentence is at most 2000 characters.
+- **Secrets.** A value in a secret position (`<password:secret>`,
+  `<text:secret>`) belongs in the file as a reference such as
+  `${ext:authentication.GetPassword(${username})}`. The generated step is
+  `sensitive`, so `inputText`, `inputTextAndEnter`, `passwdPrompt`, `webFill`
+  and `webExpect` keep the typed text out of the logs, and the label shows
+  `***` in its place. A literal there is accepted and masked in labels, but
+  it is then stored in the sequence file.
+- **Labels.** Without a `description`, the label is the sentence with its
+  words separated by one space and each secret value and each `${ext:...}`
+  expression shown as `***`. A sentence that becomes several steps numbers
+  them: `login ${username} with password *** (1/2)`. Each generated step also
+  carries `fromStep`, the masked sentence; handlers ignore it.
+- **Step numbers.** `-StartStep` and `-StopStep` count the generated steps, as
+  they do for snippets: `login` occupies two positions.
+- **Errors.** Every error is raised when the file is read, so
+  [`Test-Config.ps1`](../test/Test-Config.ps1) reports it before a cycle
+  starts. A sentence that matches no phrase names the file and the step's
+  position (for example `workload[3]`), shows the sentence with each word
+  that is not in the vocabulary as `***`, and lists the three nearest
+  sentences. A sentence whose phrase has no steps for the chosen surface
+  names the surfaces it has. A value that is not a whole number for
+  `<n:int>`, or not a key name for `<key:key>`, fails with the accepted
+  values.
+
+<a id="428e4df6-003e"></a>
+
+### Starter vocabulary
+
+| Sentence | Surface | Becomes |
+|---|---|---|
+| `login <user> with password <password:secret>` | screen | two `passwdPrompt` steps: `login:`, then `Password:` |
+| `wait for text <text>` | screen | `waitForText` with `noSegmentMatch: true` |
+| `expect text <text>` | screen, page | `waitForText` with `noSegmentMatch: true`, `webExpect` |
+| `type <text>` | screen | `inputText` |
+| `type <text> and press Enter` | screen | `inputTextAndEnter` |
+| `type secret <text:secret> and press Enter` | screen | `inputTextAndEnter`, sensitive |
+| `press <key:key>` | screen, page | `pressKey`, `webPress` |
+| `wait <n:int> seconds` | screen, page | `waitForSeconds` |
+| `click button <label>` | screen, page | `tapOn` with `match: word`, `webClick` role button |
+| `click <label>` | screen | `tapOn` |
+| `click link <label>` | page | `webClick` role link |
+| `open page <url>` | page | `webOpen` |
+| `fill <field> with <text>` | page | `webFill` role textbox |
+| `fill <field> with secret <text:secret>` | page | `webFill` role textbox, sensitive |
+| `select <option> in <field>` | page | `webSelect` role combobox |
+| `check <label>` | page | `webClick` role checkbox, `checked: true` |
+| `uncheck <label>` | page | `webClick` role checkbox, `checked: false` |
+| `expect no text <text>` | page | `webExpect` with `gone` |
+| `expect heading <text>` | page | `webExpect` role heading |
+
+- `login` waits for `login:`, types the user, waits for `Password:` and types
+  the password. It neither wakes a console nor waits for the shell: after a
+  reboot put `snippet: firstLoginPrime` before it, and a wait for the prompt
+  after it.
+- `press` takes the key names of [`pressKey`](#presskey), without quotes;
+  `wait <n:int> seconds` takes a whole number from 0 to 999999999, without
+  quotes. Neither takes a `${...}` reference.
+- `wait for text` and `expect text` read the screen as
+  [`waitForText`](#waitfortext) does with `noSegmentMatch`: the quoted words
+  must be read on one line, with the usual tolerance for confused and dropped
+  characters. To match words that stand on different lines, write the
+  `waitForText` action. OCR matching drops spaces and the characters `-`,
+  `[`, `]`, `$`, `~`, `"` and the backtick, so a text made only of those,
+  such as a bare `$` prompt, never matches.
+- **A click on the screen acts on a word.** OCR cannot tell a button from a
+  label, so `click button Next` clicks the word `Next` wherever it is read. It
+  requires the whole word (`Next` does not match `Nextcloud`) and fails when
+  the word is read twice. `click <label>` accepts the label inside a longer
+  word and clicks the first match. For `nth`, an offset, or a double or right
+  click, write the [`tapOn`](#tapon) action. Hosts that can click are listed
+  under [backends](host-io.md#backends-today).
+- **On a page a sentence names a role.** `click button Next` with `on: page`
+  clicks the one element whose role is button and whose accessible name is
+  `Next`; a link or a paragraph that reads `Next` is not a candidate. Names
+  compare whole, without case. Two matches fail the step and list both: write
+  the [`webClick`](#webclick) action with `nth`. Other roles than the ones in
+  the table take the action form as well.
+- A page step drives a browser inside the guest through SSH. A sequence
+  installs the browser once with `sshFetchAndExecute` of
+  `guest/shared/ubuntu.browser.sh` and needs working SSH before the first
+  page step. See [Page steps](#page-steps).
+- On a page, `expect text` and `expect no text` read the rendered text of
+  the page as [`webExpect`](#webexpect) does: anywhere on the page, without
+  case, and not inside field values.
+- No sentence closes a page: it ends with its sequence. To close it earlier,
+  write the [`webClose`](#webclose) action.
+
+<a id="428e4df6-003f"></a>
+
+### Phrase libraries
+
+The vocabulary is data. The framework's phrases are in
+[`test/sequences/_phrases.yml`](../test/sequences/_phrases.yml). A project adds
+its own in a `_phrases.yml` beside its sequences
+(`project/<...>/test/_phrases.yml`):
+
+```yaml
+# project/<...>/test/_phrases.yml
+phrases:
+  open-orders:
+    sentence: "open the orders list for <customer>"
+    screen:
+      - action: inputTextAndEnter
+        text: "orders --customer <customer>"
+      - action: waitForText
+        pattern: "Orders for <customer>"
+```
+
+- A phrase has an id (its key: lower-case words joined by `-`), one
+  `sentence`, and one step list for each surface it supports (`screen`,
+  `page`). A sentence is fixed words (a letter, then letters, digits or `-`)
+  and values, separated by single spaces, starting with a word, at most 12
+  in all. A value is written `<name>` for text, `<name:secret>` for a value
+  that is never shown, `<name:int>` for a whole number and `<name:key>` for a
+  [`pressKey`](#presskey) key name; the angle brackets keep it apart from
+  `${variable}` references.
+- A template step is an action step of a registered verb, with the fields
+  that verb requires. It holds none of `step`, `snippet`, `description`,
+  `descriptionLocalized` and `fromStep`. Each surface's steps use every value
+  of the sentence and no other. A field of a template step holds no text of
+  the form `<word>` other than a value of the sentence, and a secret value
+  fills only a `text` or `command` field.
+- **A project adds sentences and never redefines one.** A phrase whose id is
+  already defined, or whose sentence could match the same text as a phrase
+  already loaded, fails the load. Two sentences collide when they have as
+  many parts and no position holds two different fixed words. A sentence
+  therefore means the same thing in every project. This differs from
+  snippets, where a project name overrides a framework name.
+- The framework's library loads first; the project libraries and the
+  library in the sequence's own folder follow, sorted together by path in
+  ordinal order, so the order is the same on every file system. A sequence
+  read from outside a framework checkout, such as a project working tree
+  beside it, uses the library of the framework that reads it.
+- Every `_phrases.yml` is checked by [`Test-Config.ps1`](../test/Test-Config.ps1),
+  also when no sequence uses it.
+
+Schema: [`test/schemas/phrases.schema.yml`](../test/schemas/phrases.schema.yml).
+
+---
+
 <a id="428e4df6-000e"></a>
 
 ## Action reference
@@ -488,7 +691,7 @@ similar steps after the break.
 > snapshot-restore + Start-VM materializes at runtime. For ad-hoc dev
 > iteration on a specific step, [`Debug-TestSequence.ps1`](../test/Debug-TestSequence.ps1)
 > takes `-StartStep` / `-StopStep` and indexes into the concatenated
-> baseline chain.
+> resource chain.
 
 <a id="428e4df6-0012"></a>
 
@@ -559,6 +762,20 @@ old launcher, failed probe or unexpected answer retains the original GUI input
 before anything is typed; the first fetch on a fresh VM can therefore use the
 original form.
 
+For non-sensitive steps, the execution evidence manifest records the selected
+input format and the capability probe's reason and duration. Legacy staging
+also retains a console image and OCR sidecar after each of the first 16 input
+lines, the final verification line, and any failed send. These copies live
+beside the execution evidence and survive rolling screenshot-history cleanup.
+Each line's record includes its planned character count and SHA-256, dispatch
+timestamps and result, and the retained frame's path and hash. Input dispatch and VNC
+connection events, plus the payload state observed on failure, complete the
+transfer record. Dispatch events identify the backend that accepted a send;
+they do not acknowledge delivery inside the guest. Console
+images show what the guest displayed; planned line digests describe what the
+host intended to send and do not prove guest receipt. Missing diagnostic
+captures do not fail a step, and legacy diagnostics do not resend input.
+
 On a supported guest, the harness compresses the unchanged context and original
 command together, using raw byte lengths inside the envelope to avoid nested
 base64 expansion. The launcher caps decompression at 65,536 bytes, checks the
@@ -609,7 +826,8 @@ Type a text string.
 
 ### inputTextAndEnter
 
-Type, wait, press Enter.
+Type, wait, press Enter. `typeAndEnter` is a deprecated alias: both names run
+the same handler and take the same parameters.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -724,7 +942,9 @@ attempts fail, the deepest inner-failure label is wrapped with
 may nest. An attempt whose failed send the host can never make -- text with a
 character the input path has no key for, a key name no map defines -- ends the
 block at once with the reason `deterministic-input-fault`, since every later
-attempt would fail the same way; the inner class is `plan_invalid`.
+attempt would fail the same way; the inner class is `plan_invalid`. An attempt
+whose click may have reached the guest ends the block with the reason
+`uncertain-click-delivery`, because another attempt could click twice.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -960,6 +1180,39 @@ start the VM. Pre-existing snapshots with the same id are overwritten.
 Per-host backend and rename support: see
 [Save-VMDiskSnapshot + Rename-VM](#save-vmdisksnapshot--rename-vm).
 
+<a id="428e4df6-003a"></a>
+
+### saveGuestClockSnapshot
+
+Collect two guest clock and CPU-accounting samples using the snapshot helper
+and a proven SSH address. The required `phase` is
+`before-cpu-restart` or `after-cpu-restart`. Native ARM64 Hyper-V Linux guests
+use a ten-second SSH wall budget; other hosts skip the action. The two samples
+are collected before optional boot metadata so slow metadata reads cannot erase
+the observations. The budget includes authentication and transport cleanup.
+Missing evidence and clock warnings are advisory, so the action does not fail
+the sequence.
+
+Just after the processor restart, the guest's first SSH login can outlast that
+budget while its SSH port already answers. So `after-cpu-restart` first waits
+up to ten seconds for one login (`Wait-SshReady`, which also proves the address
+the samples use); a wait that gives up adds at most about 25 seconds, with the
+readiness helper's closing handshake, and leaves the helper's usual
+`ssh_handshake_failed` event in the cycle's event stream (`network_timeout`,
+soft, unless the guest reports an expired password); the sample still runs at
+the address proven before. The
+`guest_clock_accounting` event carries what that wait saw as `sshReadiness`
+(`ready`, `cause`, `attempts`, `waitedSeconds`), and a capture that is not
+complete names why in `reason`: `ssh-timeout`, `ssh-not-ready`, `ssh-failed`,
+or `samples-incomplete`.
+Ubuntu Server 26 places these captures before clean shutdown and after the
+existing SSH readiness or console login steps. `startVm` separately brackets
+the offline processor change with bounded host Hyper-V context.
+
+Raw text, parsed samples, and analysis are written under the guest's cycle
+artifact directory. See [guest evidence](system-diagnostic.md#423ef7f5-0014)
+for accounting rules, provenance, and preservation limits.
+
 <a id="428e4df6-001e"></a>
 
 ### saveSystemDiagnostic
@@ -1048,6 +1301,42 @@ reboot or a snapshot restore before any consumer that talks SSH.
 |---|---|---|
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
+| `installerFailurePatterns` | string or string[] | Console text that ends the wait at once; the console is read between 15-second waits. |
+| `currentPassword`, `newPassword` | string | Given together or not at all. Secrets: write a reference such as `${currentPassword}`, never the value. See below. |
+
+**Expired password.** A guest whose seed expires the account's password
+(`passwd --expire`, see [vmconfig.md](vmconfig.md#429f3d06-0018))
+answers a key login with `Password change required but no TTY available`, so
+no command can run over SSH until the password is changed. With
+`currentPassword` and `newPassword`, the first such answer ends the wait,
+the step changes the password once over SSH on a forced terminal (`ssh -tt`),
+answering the current, new and retype prompts, and then goes on waiting within
+the same `timeoutSeconds`. A change the guest refuses or never confirms, and
+an expired password after the change, fail the step at once; the
+`ssh_password_rotation` event records how the change ended, and a second
+expiry leaves the usual `ssh_handshake_failed` event with
+`credential_expired`. The step stores nothing: persist the new password with
+`callExtension` `authentication.SetPassword` after a later step has logged in,
+as the SSH start sequences of Ubuntu Server do. Without the two fields an
+expired password is waited out like any other answer.
+
+**Password in place.** With the two fields, a step that passes leaves the
+account with `newPassword`. A login that reaches a shell without an expired
+password (the step replayed on a guest provisioned already, or after its own
+rotation by a resume or a retry, where `newPassword` may expand to a new value)
+has nothing to rotate, so the step sets the password to `newPassword` over SSH
+with `sudo -n chpasswd`, writing the `user:password` line only to the remote
+command's standard input; the harness user's passwordless sudo
+([vmconfig.md](vmconfig.md#429f3d06-001a)) makes this possible. Without the
+set, the later `authentication.SetPassword` would store a password the guest
+never received. A set that fails, including a `sudo` that asks for a password,
+fails the step, so the store never runs; the `ssh_password_set` event records
+how the set ended. A step that rotated the password does not set it again.
+The verb is still replayed as an observation, because replaying it in place
+is what puts `newPassword` back after a resume, but a workload operation that
+runs it reports the effect `applied` when the step rotated or set the
+password, and `uncertain` when either failed after the guest may have taken
+the change.
 
 <a id="428e4df6-0023"></a>
 
@@ -1066,7 +1355,8 @@ Capture a screenshot for debugging.
 Wait for a button label to appear on the VM screen via OCR, then click
 at the label's center. Hyper-V uses `vmconnect` + SendInput
 (`vmconnect` must be open). UTM uses CGEvent mouse-click synthesis
-(requires Accessibility permission on macOS).
+(requires Accessibility permission on macOS). KVM sends pointer events
+through the QEMU monitor, and the guest needs an absolute pointer device.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -1074,6 +1364,63 @@ at the label's center. Hyper-V uses `vmconnect` + SendInput
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
 | `offsetX`, `offsetY` | number | Pixel offset from the center; default `0`. |
+| `match` | `contains` or `word` | How a label word is compared with a word read; default `contains`. |
+| `nth` | integer from 1 | Which match of the label to click, counted in reading order. |
+| `click` | `left`, `right`, `double` | The kind of click; default `left`. |
+
+**Matching.** Both modes compare literally and ignore case, so `[`, `]`, `*`
+and `?` in a label are ordinary characters. Under `contains` a word read
+matches when it contains the label word. Under `word` the two must be equal
+once every leading and trailing character that is not a letter or a digit is
+stripped from both: `Next.` and `(Next)` match `Next`, `Nextcloud` does not,
+and neither does `test-ubuntu` for the label `test`, because a hyphen inside a
+word stays. A word read with no letter or digit, such as `|`, is stepped over.
+`match`, `nth` and `click` are taken as written; unlike `label`, none of them
+expands `${...}`.
+
+**Several words.** A label of several words matches words read one after the
+other on the same line, each starting no further right of the previous word's
+right edge than twice the median word height of that line. Tesseract reads a
+frame as one block, so text at equal height in two columns shares a line; the
+gap keeps those columns apart.
+
+**Which match.** On each frame the labels are tried in the order written. A
+label with no match, or with fewer matches than `nth`, is passed over, and the
+first label left decides the step. Without `nth`, `contains` takes the first
+match and `word` needs exactly one: two whole-word matches fail the step at
+once, with both positions in the warning and no click, because waiting does
+not make a label unique. A step whose labels all have fewer than `nth`
+matches keeps polling. One run of the step sends at most one click.
+
+**When the label is not found.** At the timeout the step keeps the last frame
+it read as `failure_screenshot_<VM>.png` and the words read on it as
+`failure_ocr_<VM>.txt`, and `causeDetail.closestOnScreen` of the failure
+record holds one line per label with the closest words read (up to five, at
+60% or more), or says that none came close, that no words were read, that a
+label matched fewer times than `nth` asked, or that the last read failed. The
+step fails as `ocr_timeout`; a click that the host failed to send after the
+label was found fails as `host_io_blocked`.
+
+**The second look.** Words are located with Tesseract alone, whatever OCR
+providers are enabled. After a read that finds no label, the step reads a
+copy of the frame doubled in both directions and matches the labels over its
+words mapped back to the frame's pixels, so a match there is clicked at the
+coordinates of the frame as captured. The scaler is the host's own:
+ImageMagick (`magick`, else `convert`) on Linux, `sips` on macOS and
+`System.Drawing` on Windows. The copy is a temporary file removed at once. A
+host with no scaler, or a frame that is not a PNG or is larger than 4096
+pixels a side, keeps one look for the rest of the step; a failed scaler or a
+failed read of the copy warns once and does the same. None of these fails the
+step.
+
+**Checks before the first capture.** In this order: the options (a `match`,
+`nth` or `click` outside the values above, no usable label, or a label with no
+letter or digit under `match: word`), a pointer provider for the host
+(`Test-HostIOActionAvailable` for `Send-Click`) and a Tesseract install
+(`Find-Tesseract`). The first that is missing fails the step at once, as
+`plan_invalid`, and a `retry` around it stops after one attempt. A host whose
+pointer provider cannot send the requested click kind (Hyper-V and UTM send
+`left` only) fails the step the same way, with nothing sent.
 
 <a id="428e4df6-0025"></a>
 
@@ -1185,6 +1532,155 @@ patterns before pressing the key.
 | `nudgeKey` | string | Required key name; typically `Enter` for agetty. |
 | `nudgeIntervalSeconds` | integer | Required; must be at least `1`. The first periodic nudge occurs after this interval. |
 
+<a id="428e4df6-0040"></a>
+
+### Page steps
+
+The page verbs drive a web page in a browser that runs inside the guest. The
+browser is Google Chrome, headless, started in the guest through SSH. A
+sequence installs it once with `sshFetchAndExecute` of
+`guest/shared/ubuntu.browser.sh` and needs working SSH before its first page
+step. Because the browser runs in the guest, `http://localhost:8080/` in a
+step names the guest, not the host.
+
+**Reach.** A page step reaches pages on the guest itself (`localhost`) and on
+lab addresses. A page that needs external HTTPS through the lab's
+intercepting proxy is not promised to load: no proxy certificate authority is
+imported into the browser.
+
+**Lifetime.** The first `webOpen` of a guest opens its page, and no other verb
+does; any other page verb without an open page fails as a step that cannot
+run. The page ends at `webClose`, when the sequence that opened it ends, and
+before the VM is stopped, started, saved as a snapshot, restored or
+power-cycled. A sequence needs no closing step.
+
+**The locator.** `webClick`, `webFill`, `webSelect` and `webExpect` find an
+element by `role` and `name`, with `match` (`exact`, the default, or
+`contains`) and `nth`, or by `css`, which reads the top document only. Names
+compare without regard to case, with white space collapsed; there is no
+case-sensitive mode. Roles are those of the browser's accessibility tree:
+`image`, not `img`; `spinbutton` for a number field; `searchbox` for a search
+field. Two matches without `nth` fail the step before any input, and the
+failure lists both.
+
+**Ready, read and settled.** A click waits until its element is visible,
+enabled, still, inside the viewport after scrolling and not covered by
+another element; a fill waits until its field is enabled, editable, not
+read-only, has a box and takes the focus. `webExpect` with `text` reads the
+rendered text of the page, as `contains`, and not the values of fields.
+`webSelect` handles a native, single-choice `select`. `webOpen` does not read
+the HTTP status: a 404 or 500 page loads like any page. After a click, a key
+or a changed selection the step waits until the page has been quiet for
+500 ms, or until a navigation it started has loaded.
+
+**Dialogs, windows and downloads.** A JavaScript dialog is dismissed (a
+leave-page prompt is accepted only during `webOpen`), a window the page
+opened is closed, a download is refused, and in every case the step fails
+with kind `unsupported`; it never continues past one of them.
+
+**Failures.** A page step that ends on what its page showed files
+[`web_step_failed`](failure-schema.md#failure-class-web_step_failed): the
+element was not found, more than one matched, it could not take input, an
+expectation did not hold, a navigation failed, or the page opened a dialog or
+a new window, crashed or closed. A lost tunnel or socket is `network_timeout`;
+a step this guest cannot run is `plan_invalid`. Read `causeDetail.web` of the
+failure record: `kind`, `locator`, `candidates` and `effect`.
+
+<a id="428e4df6-0041"></a>
+
+### webClick
+
+Click the page element found by the locator with one left click. With
+`checked`, the element must have a checked state: a check box that is
+already in the state asked for gets no click, and after the click the state
+is read back and must equal it.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `role` | string | Accessibility role, such as `button` or `link`; with `name`. |
+| `name` | string | Accessible name; expands `${...}`. |
+| `match` | `exact` or `contains` | How the name is compared; default `exact`. |
+| `nth` | integer from 1 | Which match to click, in document order. |
+| `css` | string | A selector of the top document, instead of `role` and `name`; expands `${...}`. |
+| `timeoutSeconds` | integer from 1 | Default `vmCommunication.timeoutSeconds`. |
+| `checked` | boolean | The state to set on a check box. |
+
+<a id="428e4df6-0042"></a>
+
+### webClose
+
+Close the guest's page, its protocol connection and the SSH tunnel; the
+browser then stops in the guest and its profile is removed. With no page
+open the step succeeds and does nothing. It takes no parameter.
+
+<a id="428e4df6-0043"></a>
+
+### webExpect
+
+Wait until an element or a text is on the page, or, with `gone`, until it is
+no longer there. Give a locator or `text`, not both. More than one match is
+not an error here.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `role`, `name`, `match`, `nth`, `css` | as on `webClick` | The element to wait for. |
+| `text` | string | Rendered text anywhere on the page, compared as `contains` without case; field values do not count. Expands `${...}`. |
+| `gone` | boolean | Wait until the element or text is absent; default `false`. |
+| `sensitive` | boolean | Shows `***` in place of `text` in labels, logs and the failure record. |
+| `timeoutSeconds` | integer from 1 | Default `vmCommunication.timeoutSeconds`. |
+
+<a id="428e4df6-0044"></a>
+
+### webFill
+
+Replace the whole content of a text field with `text`, then read the value
+back. An empty `text` clears the field. The typed value never appears in a
+label, a failure detail or the failure record.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `role`, `name`, `match`, `nth`, `css` | as on `webClick` | The field to fill. |
+| `text` | string | Required. What to type; expands `${...}`. |
+| `sensitive` | boolean | Shows `***` in place of `text` in the debug log. |
+| `timeoutSeconds` | integer from 1 | Default `vmCommunication.timeoutSeconds`. |
+
+<a id="428e4df6-0045"></a>
+
+### webOpen
+
+Open a URL in the guest's page and wait for it to load. The first `webOpen`
+of a guest starts the browser and the tunnel; a later one reuses them.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `url` | string | Required. `about:blank` or an absolute `http` or `https` URL; expands `${...}`. |
+| `timeoutSeconds` | integer from 1 | Default `vmCommunication.timeoutSeconds`. |
+
+<a id="428e4df6-0046"></a>
+
+### webPress
+
+Press one key in the page. The key goes to whatever has the focus.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `key` | string | Required. `Enter`, `Tab`, `Space`, `Escape`, `Up`, `Down`, `Left`, `Right` or `F1` to `F12`; taken as written. |
+| `timeoutSeconds` | integer from 1 | Default `vmCommunication.timeoutSeconds`. |
+
+<a id="428e4df6-0047"></a>
+
+### webSelect
+
+Choose an option of a native, single-choice `select` by its label, compared
+without case and with white space collapsed. An option that is already
+selected is left as it is.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `role`, `name`, `match`, `nth`, `css` | as on `webClick` | The `select` to change; its role is `combobox`. |
+| `option` | string | Required. The label of the option; expands `${...}`. |
+| `timeoutSeconds` | integer from 1 | Default `vmCommunication.timeoutSeconds`. |
+
 ---
 
 <a id="428e4df6-0029"></a>
@@ -1203,7 +1699,7 @@ name via `Register-SequenceAction`. When the engine hits a step with
 hard step failure -- the engine warns "Unknown action" and fails the
 step.
 
-Two modules carry the contract:
+Three modules carry the contract:
 
 - **[`Test.SequenceAction.psm1`](../test/modules/Test.SequenceAction.psm1)** --
   registry primitives (`Register-`, `Get-`, `Invoke-`,
@@ -1212,6 +1708,10 @@ Two modules carry the contract:
 - **[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)** --
   the Handler bodies for built-in verbs. Adding a new verb is a local
   edit here, not a merge-conflict magnet on the engine.
+- **[`Test.WebHandler.psm1`](../test/modules/Test.WebHandler.psm1)** --
+  the Handler bodies of the page verbs, imported last by
+  `Test.SequenceHandler.psm1`, so loading the handler module alone still
+  registers the whole catalog.
 
 `Test.SequenceEngine.psm1` imports `Test.SequenceHandler.psm1` `-Global` at
 module load, so that module's `Register-SequenceAction` side effects
@@ -1289,10 +1789,11 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `HostIORequirement`  | `[string[]]` from `Send-Key`, `Send-Text`, `Send-Click`                                                                                                                                                                                                                                        | Consumed by `Test-CyclePlanCapability` to refuse cycles on hosts that can't drive the needed I/O.                                                           |
 | `HostCommandRequirement` | `[string[]]` of host command names, such as `ssh`                                                                                                                                                                                                                                              | Host commands the Handler runs, looked up with `Get-Command -CommandType Application` the way `Invoke-BoundedNativeCommand` finds what it launches. `Test-CyclePlanCapability` refuses a plan whose steps need one this host lacks, as `plan_invalid`, before any VM is built. `sshWaitReady`, `sshExec` and `sshFetchAndExecute` declare `ssh` and `ssh-keygen`. |
 | `OcrRequired`        | `[bool]`                                                                                                                                                                                                                                                                                       | `$true` when the verb needs at least one enabled OCR provider.                                                                                              |
+| `OcrEngineRequirement` | `[string[]]` of OCR provider names, such as `tesseract` | The OCR providers, named as `Register-OcrProvider` names them, that the Handler calls directly whatever providers are enabled. `Test-CyclePlanCapability` refuses a plan whose steps need one this host lacks (`missingOcrEngine`), as `plan_invalid`. `tapOn` declares `tesseract`. |
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note carried on the entry. Nothing in the engine reads it; it is there for `Get-SequenceAction` consumers (matrix dumps, docs generators).         |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` -> `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `source_integrity`, `vm_not_stopped`, `guest_run_lost`, `guest_kernel_stalled`, `guest_display_stalled`, `unknown` | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `console_flooded`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `input_lost`, `hypervisor_unresponsive`, `source_integrity`, `vm_not_stopped`, `guest_run_lost`, `guest_kernel_stalled`, `guest_display_stalled`, `web_step_failed`, `unknown` | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `retry_with_backoff`, `restart_from_snapshot`, `operator_intervention_required`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 | `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labeled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
@@ -1305,7 +1806,7 @@ list that silently goes stale the moment a verb is added -- a new wait verb woul
 lose its annotation, and a new self-capturing verb would have its frame
 overwritten, with nothing failing. Today `waitForText`, `waitForTextWithNudge`,
 `waitForAndEnter` and `passwdPrompt` set both; `sshWaitReady` sets only `UsesWaitSignals`;
-`fetchAndExecute` sets only `CapturesOwnFailureScreenshot`.
+`fetchAndExecute` and `tapOn` set only `CapturesOwnFailureScreenshot`.
 `Test.SequenceEngineFlags.Tests.ps1` pins those sets.
 
 `ReplaySafety` is a registry entry for the same reason, and it defaults the other
@@ -1396,6 +1897,18 @@ stylistic -- see [Naming collisions to watch](#naming-collisions-to-watch).
    attempt's leftovers: nothing but spend time (`observe`), re-type over them
    (`input`), or change state that outlives the step (`state-changing`). When in
    doubt, pick the less safe class; omitting it leaves the verb `unclassified`.
+9. List the verb wherever verbs are listed, in the same change: the `action`
+   enum of [`test/schemas/sequence.schema.yml`](../test/schemas/sequence.schema.yml)
+   with an `if` branch for its fields, the property-name enum of
+   [`test/schemas/actions.schema.yml`](../test/schemas/actions.schema.yml), an
+   entry in [`test/sequences/actions.yml`](../test/sequences/actions.yml), a
+   `### <verb>` section under [Action reference](#action-reference), and the
+   requirement table of
+   [test-harness.md](test-harness.md#42d38664-0013) and of
+   its translation. An alias goes in both enums and in `actions.yml`, and its
+   verb's section names it.
+   [`Test.SequenceCatalogParity.Tests.ps1`](../test/modules/Test.SequenceCatalogParity.Tests.ps1)
+   fails until all of them agree with the registry.
 
 No edit to `Test.SequenceEngine.psm1` is required for the registry path --
 the engine discovers the registration via `$global:YurunaSequenceActions`.
@@ -1545,7 +2058,7 @@ per host (and per the sequence's own `keystrokeMechanism`):
 | Host | GUI mode | SSH mode |
 |---|---|---|
 | Hyper-V | Batched PS/2 scancodes through `Msvm_Keyboard.TypeScancodes`; mouse via vmconnect + `SendInput`. | OpenSSH to the per-host harness key in `test/status/ssh/`. |
-| KVM | libvirt text chords / `virsh send-key` named keys / `virsh screenshot`; mouse input is not implemented. | Same. |
+| KVM | libvirt text chords / `virsh send-key` named keys / `virsh screenshot`; mouse through the QEMU monitor (`virsh qemu-monitor-command`). | Same. |
 | UTM | VNC first for keys and text, with AppleScript / CGEvent fallback; mouse via CGEvent. | Same. |
 
 The ssh variant of a sequence is a distinct `<name>.ssh.yml` file; the
@@ -1586,46 +2099,12 @@ I/O must qualify with `Test.SequenceEngine\` (e.g.
 `Start-VM` / `Stop-VM` / `Remove-VM` and any other contract export
 whose unqualified name collides with a platform cmdlet.
 
-
-<a id="428e4df6-003a"></a>
-
-## saveGuestClockSnapshot
-
-Collect two guest clock and CPU-accounting samples using the snapshot helper
-and a proven SSH address. The required `phase` is
-`before-cpu-restart` or `after-cpu-restart`. Native ARM64 Hyper-V Linux guests
-use a ten-second SSH wall budget; other hosts skip the action. The two samples
-are collected before optional boot metadata so slow metadata reads cannot erase
-the observations. The budget includes authentication and transport cleanup.
-Missing evidence and clock warnings are advisory, so the action does not fail
-the sequence.
-
-Just after the processor restart, the guest's first SSH login can outlast that
-budget while its SSH port already answers. So `after-cpu-restart` first waits
-up to ten seconds for one login (`Wait-SshReady`, which also proves the address
-the samples use); a wait that gives up adds at most about 25 seconds, with the
-readiness helper's closing handshake, and leaves the helper's usual
-`ssh_handshake_failed` event in the cycle's event stream (`network_timeout`,
-soft, unless the guest reports an expired password); the sample still runs at
-the address proven before. The
-`guest_clock_accounting` event carries what that wait saw as `sshReadiness`
-(`ready`, `cause`, `attempts`, `waitedSeconds`), and a capture that is not
-complete names why in `reason`: `ssh-timeout`, `ssh-not-ready`, `ssh-failed`,
-or `samples-incomplete`.
-Ubuntu Server 26 places these captures before clean shutdown and after the
-existing SSH readiness or console login steps. `startVm` separately brackets
-the offline processor change with bounded host Hyper-V context.
-
-Raw text, parsed samples, and analysis are written under the guest's cycle
-artifact directory. See [guest evidence](system-diagnostic.md#423ef7f5-0014)
-for accounting rules, provenance, and preservation limits.
-
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

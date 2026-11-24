@@ -224,7 +224,7 @@ func TestMcpToolSurfacesARouteFailure(t *testing.T) {
 	}
 }
 
-// The refresh tool's argument reader refuses what a map decode would hide --
+// The repair tool's argument reader refuses what a map decode would hide --
 // a repeated key keeps only its last value there -- and never echoes a key
 // name that is not shaped like one.
 func TestStrictStringArgsRefusesWhatAMapDecodeHides(t *testing.T) {
@@ -241,8 +241,8 @@ func TestStrictStringArgsRefusesWhatAMapDecodeHides(t *testing.T) {
 		"repeated key":         {`{"hostId":"h","requestId":"r","tier":"full","tier":"restart"}`, true, "tier is given more than once", ""},
 		"repeated optional":    {`{"hostId":"h","requestId":"r","tier":"restart","maxRung":"probe","maxRung":"reclaim"}`, true, "maxRung is given more than once", ""},
 		"unknown key":          {`{"hostId":"h","requestId":"r","tier":"restart","force":"true"}`, true, "unsupported argument force", ""},
-		"unbounded key name":   {`{"hostId":"h","requestId":"r","tier":"restart","` + longName + `":"x"}`, true, "unsupported argument " + refreshFieldNamePlaceholder, longName},
-		"markup in a key name": {`{"<b>force</b>":"x"}`, true, "unsupported argument " + refreshFieldNamePlaceholder, "<b>"},
+		"unbounded key name":   {`{"hostId":"h","requestId":"r","tier":"restart","` + longName + `":"x"}`, true, "unsupported argument " + repairFieldNamePlaceholder, longName},
+		"markup in a key name": {`{"<b>force</b>":"x"}`, true, "unsupported argument " + repairFieldNamePlaceholder, "<b>"},
 		"non-string value":     {`{"hostId":"h","requestId":"r","tier":"restart","maxRung":2}`, true, "maxRung must be a string", ""},
 		"object value":         {`{"hostId":{"a":"b"},"requestId":"r","tier":"restart"}`, true, "hostId must be a string", ""},
 		"not an object":        {`["hostId","h"]`, true, "object of strings", ""},

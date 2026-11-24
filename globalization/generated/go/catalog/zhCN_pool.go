@@ -570,8 +570,8 @@ const DatazhCNpool = `{
     },
     "的宿主机ID"
   ],
-  "pool.host_refresh_body_invalid": [
-    "刷新请求必须为JSON对象，值均为字符串，且仅包含hostId、requestId、tier和maxRung（",
+  "pool.host_repair_body_invalid": [
+    "修复请求必须为JSON对象，值均为字符串，且仅包含hostId、requestId、tier和maxRung（",
     {
       "arg": "detail",
       "type": "identifier",
@@ -579,14 +579,14 @@ const DatazhCNpool = `{
     },
     "）。"
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "正在处理刷新请求",
+    "正在处理修复请求",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -594,7 +594,7 @@ const DatazhCNpool = `{
     },
     "；请跟踪该请求，不要启动新请求。"
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "无法获取宿主机",
     {
       "arg": "hostId",
@@ -609,8 +609,8 @@ const DatazhCNpool = `{
     },
     "）。"
   ],
-  "pool.host_refresh_field_unsupported": [
-    "刷新请求包含不支持的字段",
+  "pool.host_repair_field_unsupported": [
+    "修复请求包含不支持的字段",
     {
       "arg": "field",
       "type": "identifier",
@@ -618,7 +618,7 @@ const DatazhCNpool = `{
     },
     "；远程请求一律不接受强制和硬停止选项。"
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "池聚合器已知宿主机",
     {
       "arg": "hostId",
@@ -627,15 +627,15 @@ const DatazhCNpool = `{
     },
     "，但没有其地址。"
   ],
-  "pool.host_refresh_host_id_invalid": "hostId必须是由32个十六进制字符组成的宿主机ID。",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "hostId必须是由32个十六进制字符组成的宿主机ID。",
+  "pool.host_repair_host_refused": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "拒绝了刷新（HTTP ",
+    "拒绝了修复（HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -649,14 +649,14 @@ const DatazhCNpool = `{
     },
     "）。"
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "无法启动刷新（HTTP ",
+    "无法启动修复（HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -676,7 +676,7 @@ const DatazhCNpool = `{
     },
     "重试。"
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "池聚合器未知宿主机",
     {
       "arg": "hostId",
@@ -685,7 +685,7 @@ const DatazhCNpool = `{
     },
     "。"
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "宿主机",
     {
       "arg": "hostId",
@@ -700,16 +700,16 @@ const DatazhCNpool = `{
     },
     "重试。"
   ],
-  "pool.host_refresh_mint_failed": [
+  "pool.host_repair_mint_failed": [
     "此服务无法为宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "的刷新请求签名。"
+    "的修复请求签名。"
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "宿主机",
     {
       "arg": "hostId",
@@ -724,7 +724,7 @@ const DatazhCNpool = `{
     },
     "）。"
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "宿主机",
     {
       "arg": "hostId",
@@ -749,9 +749,9 @@ const DatazhCNpool = `{
       "type": "identifier",
       "trust": "external"
     },
-    "）；请生成新的请求标识符以再次刷新。"
+    "）；请生成新的请求标识符以再次修复。"
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "请求",
     {
       "arg": "requestId",
@@ -760,10 +760,10 @@ const DatazhCNpool = `{
     },
     "已用于不同的层级或上限；请重新发送原始策略或生成新的请求标识符。"
   ],
-  "pool.host_refresh_request_id_invalid": "requestId必须是小写UUID（8-4-4-4-12），由调用方生成一次，并在每次重试时复用。",
-  "pool.host_refresh_rung_unsupported": "maxRung必须为probe、reclaim、start-if-stopped、restart-if-hung或restart-broker。",
-  "pool.host_refresh_signing_unconfigured": [
-    "远程宿主机刷新已禁用：本服务未持有刷新签名授权（",
+  "pool.host_repair_request_id_invalid": "requestId必须是小写UUID（8-4-4-4-12），由调用方生成一次，并在每次重试时复用。",
+  "pool.host_repair_rung_unsupported": "maxRung必须为probe、reclaim、start-if-stopped、restart-if-hung或restart-broker。",
+  "pool.host_repair_signing_unconfigured": [
+    "远程宿主机修复已禁用：本服务未持有修复签名授权（",
     {
       "arg": "path",
       "type": "detail",
@@ -771,15 +771,245 @@ const DatazhCNpool = `{
     },
     "）。"
   ],
-  "pool.host_refresh_tier_unsupported": "远程只能请求restart层级；full层级仅限本地使用。",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "远程只能请求restart层级；full层级仅限本地使用。",
+  "pool.host_repair_unavailable": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "未公布远程刷新能力（",
+    "未公布远程修复能力（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_action": "更新宿主机",
+  "pool.host_update_body_invalid": [
+    "更新请求必须是一个JSON对象，且仅包含hostId、requestId、scope、drainSeconds和expectCommit，每项只出现一次（",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。"
+  ],
+  "pool.host_update_busy": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "正在处理请求",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "；请跟踪该请求，不要启动新请求。"
+  ],
+  "pool.host_update_commit_invalid": "expectCommit必须为7到40位小写十六进制数字。",
+  "pool.host_update_commit_label": "预期提交",
+  "pool.host_update_completed": [
+    "请求",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已在宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "上结束（",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_credential_label": "操作员凭据",
+  "pool.host_update_credential_missing": "请输入操作员凭据。",
+  "pool.host_update_drain_invalid": "drainSeconds必须是60到21600之间的整数。",
+  "pool.host_update_drain_label": "排空时限",
+  "pool.host_update_drain_now_label": "立即结束当前周期",
+  "pool.host_update_drain_value": [
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒（",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 分钟）"
+  ],
+  "pool.host_update_field_forbidden": [
+    "更新请求包含",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "；本服务发出的请求从不结束正在运行的周期。要结束周期，请在宿主机的shell中运行Invoke-HostUpdate.ps1 -Drain now。"
+  ],
+  "pool.host_update_field_unsupported": [
+    "更新请求包含不受支持的字段",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "pool.host_update_heading": "更新宿主机",
+  "pool.host_update_host_refused": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "拒绝了更新（HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    "，",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_host_unavailable": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "无法将更新加入队列（HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    "，",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）；请使用相同的请求ID ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "重试。"
+  ],
+  "pool.host_update_intro": "此页面为下方宿主机签署一次宿主机更新并发送给它。宿主机会等待当前周期结束，然后停止运行器、将检出更新到最新并再次启动运行器；超过排空时限则放弃，不做任何更改。此页面发出的请求从不结束正在运行的周期：要结束周期，请在宿主机的shell中运行下方显示的命令。",
+  "pool.host_update_loading": "正在读取宿主机…",
+  "pool.host_update_mint_failed": [
+    "本服务无法为宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "签署更新请求。"
+  ],
+  "pool.host_update_not_offered": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "目前无法接受远程宿主机更新（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_open_diagnostics": "打开宿主机的诊断页面",
+  "pool.host_update_page_title": "更新宿主机 — Yuruna Pool Control",
+  "pool.host_update_request_conflict": [
+    "请求",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已以不同的范围、排空时限或预期提交使用过；请重新发送原始请求或发起新请求。"
+  ],
+  "pool.host_update_request_label": "请求ID",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "重新安装依赖项和设置，然后重启",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "在当前代码上重启运行器"
+    }
+  },
+  "pool.host_update_scope_invalid": "scope必须为restart或full。",
+  "pool.host_update_scope_label": "范围",
+  "pool.host_update_sending": "正在签署并发送更新…",
+  "pool.host_update_sent": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已将更新",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "加入队列；正在打开其诊断页面。"
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "远程宿主机更新已禁用：本服务未持有更新签名密钥或操作员凭据（",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "）。"
+  ],
+  "pool.host_update_submit": "发送更新",
+  "pool.host_update_unavailable": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "目前无法接受远程宿主机更新（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -993,7 +1223,7 @@ const DatazhCNpool = `{
   "pool.paused_after_cycle_and_step": "已在周期和步骤结束后暂停",
   "pool.persisted_health": "已持久化的健康状态",
   "pool.persistence_disabled": "（持久化已禁用）",
-  "pool.pid": "进程标识（pid）",
+  "pool.pid": "进程标识（PID）",
   "pool.platform": "平台",
   "pool.pool": "池",
   "pool.pool_for_host_value1": [

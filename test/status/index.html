@@ -12,7 +12,7 @@
        keeps content readable on notched devices. -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta http-equiv="Cache-Control" content="public, max-age=60, must-revalidate">
-  <title data-i18n="status.yuruna_status">Yuruna Status</title>
+  <title data-i18n="status.yuruna_status">Yuruna status</title>
   <link rel="stylesheet" href="yuruna.common.css">
   <style>
     #banner-dash-row {
@@ -28,14 +28,13 @@
     #banner-dash:hover { text-decoration: underline; }
 
     /* .section-title / .meta-btn / .no-data chrome lives in
-       yuruna.common.css (shared with performance.html). The per-id rules
-       below pin flex behavior that's unique to index.html's
-       three-section layout. */
+       yuruna.common.css; only this page uses .section-title. The per-id
+       rules below restore the muted heading type that .with-controls
+       resets and pin flex behavior for the three-section layout. */
     .section-title.with-controls #sec-cycle-title,
     .section-title.with-controls #sec-sequences-title,
     .section-title.with-controls #sec-history-title {
-      font-size: .6875rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: .07em; color: var(--fg-muted);
+      font-size: .6875rem; font-weight: 700; color: var(--fg-muted);
       flex: 1 1 auto; min-width: 0;
     }
 
@@ -173,8 +172,10 @@
       background: var(--bg-elevated); border: 1px solid var(--border); border-radius: .5rem;
       padding: .15rem 1rem;
     }
-    .meta-card .label { font-size: .625rem; color: var(--fg-faint); text-transform: uppercase; letter-spacing: .05em; margin-bottom: .1rem; }
+    .meta-card .label { font-size: .625rem; color: var(--fg-faint); margin-bottom: .1rem; }
     .meta-card .value { font-size: .6875rem; font-weight: 500; font-family: var(--font-mono); color: var(--fg-primary); word-break: break-all; }
+    /* A narrow card wraps the commit list after a ", " rather than inside an id. */
+    #cycle-commit { word-break: normal; overflow-wrap: anywhere; }
 
     .badge {
       display: inline-flex; align-items: center;
@@ -212,6 +213,8 @@
     tr:last-child td { border-bottom: none; }
     tbody tr:hover td { background: var(--bg-hover); }
     .mono { font-family: var(--font-mono); font-size: .75rem; }
+    /* Each "id [label]" commit list stays on one line; .table-wrap scrolls. */
+    .commit-cell { white-space: nowrap; }
 
     /* The footer bar itself -- surface, height, type scale and its
        narrow-viewport behavior -- is the shared page chrome in
@@ -268,7 +271,7 @@
 
   <section id="sec-cycle" style="display:none" aria-labelledby="sec-cycle-title">
     <div class="section-title with-controls">
-      <h2 id="sec-cycle-title" data-i18n="status.latest_cycle">Latest Cycle</h2>
+      <h2 id="sec-cycle-title" data-i18n="status.latest_cycle">Latest cycle</h2>
       <button id="cycle-pause-btn" class="meta-btn" type="button" disabled data-i18n="status.pause_after_cycle">Pause after cycle</button>
     </div>
     <div class="meta-grid">
@@ -291,7 +294,7 @@
 
   <section id="sec-history" style="display:none" aria-labelledby="sec-history-title">
     <div class="section-title with-controls">
-      <h2 id="sec-history-title" data-i18n="status.recent_cycles">Recent Cycles</h2>
+      <h2 id="sec-history-title" data-i18n="status.recent_cycles">Recent cycles</h2>
       <a class="section-title-link" href="performance.html" data-i18n="status.performance">Performance</a>
     </div>
     <div class="table-wrap">

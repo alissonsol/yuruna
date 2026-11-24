@@ -94,6 +94,7 @@ network:SocketReceiveQueue((network:SocketReceiveQueue)) -- subClassOf --> y:Qua
 network:SocketSendQueue((network:SocketSendQueue)) -- subClassOf --> y:Quantity[y:Quantity]
 network:StaleContent((network:StaleContent)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 network:StaticHostMapping((network:StaticHostMapping)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
+network:StoreID((network:StoreID)) -- subClassOf --> y:Identifier[y:Identifier]
 network:TCP((network:TCP)) -- subClassOf --> network:Protocol((network:Protocol))
 network:TLS((network:TLS)) -- subClassOf --> network:Protocol((network:Protocol))
 network:Throughput((network:Throughput)) -- subClassOf --> y:Quantity[y:Quantity]
@@ -122,6 +123,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

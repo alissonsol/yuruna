@@ -34,6 +34,7 @@ storage:DurableStorage((storage:DurableStorage)) -- subClassOf --> storage:Stora
 storage:EphemeralStorage((storage:EphemeralStorage)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:FileSystem((storage:FileSystem)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:FreeSpace((storage:FreeSpace)) -- subClassOf --> y:Quantity[y:Quantity]
+storage:LabVault((storage:LabVault)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:LocalStorage((storage:LocalStorage)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:Mount((storage:Mount)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 storage:MountPoint((storage:MountPoint)) -- subClassOf --> y:Identifier[y:Identifier]
@@ -51,6 +52,7 @@ storage:StashEntry((storage:StashEntry)) -- subClassOf --> y:Artifact[y:Artifact
 storage:StashService((storage:StashService)) -- subClassOf --> y:SoftwareService[y:SoftwareService]
 storage:StashStorage((storage:StashStorage)) -- subClassOf --> storage:StorageResource((storage:StorageResource))
 storage:StashUpload((storage:StashUpload)) -- subClassOf --> y:Process[y:Process]
+storage:StorageAdmissionPolicy((storage:StorageAdmissionPolicy)) -- subClassOf --> y:Policy[y:Policy]
 storage:StorageCapacity((storage:StorageCapacity)) -- subClassOf --> y:Quantity[y:Quantity]
 storage:StorageCapacityCheck((storage:StorageCapacityCheck)) -- subClassOf --> diagnostics:DiagnosticCheck[diagnostics:DiagnosticCheck]
 storage:StorageIOFailure((storage:StorageIOFailure)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
@@ -80,6 +82,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

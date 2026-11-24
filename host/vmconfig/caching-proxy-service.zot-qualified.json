@@ -4,8 +4,8 @@
     "amd64": "1f6bab0b9eee426d0785de701ff510df5c02bdb8d7287494a582634abfc5d638",
     "arm64": "b66d90c4641173c12e5af91357b23d716b345228b093bf0c73b5b9d51d6cc1ff"
   },
-  "fingerprint": "cdb3b585895ad093034f4b0ab0a94516e81908fbd1989d1dbb6639342aaa2bc4",
-  "qualifiedOn": "2026-11-15",
+  "fingerprint": "ca1c41d1608b84165b74ddfe03d08780b4c01a2a5509078344f9b3f3b1755b87",
+  "qualifiedOn": "2026-11-22",
   "qualifiedWith": "zot-linux-amd64",
   "probes": [
     {
@@ -17,7 +17,7 @@
       "mediaType": "application/vnd.docker.distribution.manifest.list.v2+json"
     },
     {
-      "image": "ghcr.io/flannel-io/flannel:v0.28.10",
+      "image": "ghcr.io/flannel-io/flannel:v0.28.11",
       "mediaType": "application/vnd.oci.image.index.v1+json"
     },
     {

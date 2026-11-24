@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42ada8e8-3ff4-49bc-88b3-4e1d20a217de
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -244,8 +244,6 @@ try {
         }
     }
     Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-    # --- REGION: https://yuruna.link/4220a755-0003
-    # Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
     $userData = New-CloudInitUserData `
         -BasePath    $baseUserData `
         -OverlayPath $overlayUserData `

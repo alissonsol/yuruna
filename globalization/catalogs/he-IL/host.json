@@ -27,6 +27,11 @@
       "sourceHash": "0a9fd378e45bb1f90c1a5e92e5710a5c4870ef2e96e4125e91419576b6c3d12d",
       "message": "⁦Enable-TestAutomation⁩: פועל עם ⁦-NoOperatorPrompt⁩ -- ללא תיבות דו-שיח להסכמה, ללא הפעלה מחדש של Dock או שומר המסך, ללא התקנת מודולים, ללא בקשת sudo וללא שאלון networkStorage. הגדרות הדורשות התערבות מפעיל מדווחות ככאלה שטרם מולאו."
     },
+    "host.enable_automation_no_prompt_mode_host": {
+      "sourceHash": "e03162f05c7c6a53381501fc887c6dd51715adfe3901b4749bb4e4cc39929536",
+      "origin": "machine",
+      "message": "Enable-TestAutomation: פועל עם -NoOperatorPrompt -- ללא הצעת חבילות, ללא התקנת מודולים, ללא בקשת סיסמה של sudo, ללא שאלון networkStorage וללא שינוי ברישום של בקר המארח. הגדרות שדורשות מפעיל מדווחות כעדיין לא מתקיימות."
+    },
     "host.enable_automation_no_prompt_unsupported": {
       "sourceHash": "08b0c0896a3a1b437befbb5ad91a5d57c19d4620c62bc16db4e8c27cec6bb628",
       "message": "⁦Enable-TestAutomation⁩: האפשרות ⁦-NoOperatorPrompt⁩ דורשת ⁦Set-MacHostConditionSet⁩ ⁦-NoGuiDisruption⁩, שאינו זמין בעותק קוד זה; דבר לא תועד או שונה. הריצו ללא ⁦-NoOperatorPrompt⁩ בהפעלה בנוכחות מפעיל."
@@ -2060,8 +2065,8 @@
       "message": "virsh net-define '{networkName}' נכשל (קוד יציאה {lASTEXITCODE})."
     },
     "host.operator_641824f231dc3781": {
-      "sourceHash": "19625b5140ddffc55cda8876488a9f3897fcf80f087651284fc549637555cce0",
-      "message": "לא ניתן היה לאחסן מפתח אימות פנימי שנוצר כעת בכספת של מארח זה (keyChanged={keyChanged}, verified={verified}); היצירה מתבצעת עם אסימון ריק: השרת המתווך לא ינפיק הוכחות בקרה, push-ingest יישאר מושבת, ולוח הבקרה לא יציג אסימון מעבדה עד שיוקצה אסימון והשרת המתווך ייווצר מחדש."
+      "sourceHash": "a230f920169d736fa6dac325b29114b02be0b73c046ac1284dcaf44d6c5b8724",
+      "message": "לא ניתן היה לאחסן מפתח אימות פנימי שנוצר כעת בכספת של מארח זה (keyChanged={keyChanged}, verified={verified}); היצירה מתבצעת עם מפתח ריק: השרת המתווך לא ינפיק הוכחות בקרה, push-ingest יישאר מושבת, ולוח הבקרה לא יציג אסימון מעבדה עד שיוקצה מפתח והשרת המתווך ייווצר מחדש."
     },
     "host.operator_641d4bde8dc788c6": {
       "sourceHash": "a5090f560206e3b6617be740cdd013f497eccefb96e36779688ed8c9adc802d4",
@@ -4243,10 +4248,6 @@
       "sourceHash": "52644e1c9180ebb8c82d03fe87e4058b17afc025a90a78b05f85136189b419ce",
       "message": "נעשה שימוש ברשת NAT של libvirt בשם 'default' ‏(⁦192.168.122⁩⁦/24⁩). ה"
     },
-    "host.operator_00de7e0959068c8c": {
-      "sourceHash": "06e1e17579bd921451294aa363436ed997dae4b9a33a81743da591d1ae129a5c",
-      "message": "⁦Send-Click⁩ על ⁦host.ubuntu.kvm⁩: לא מומש (כרגע זמין רק עבור Hyper-V). השתמשו בעומסי עבודה במצב SSH על KVM. (vm='{vMName}' התעלמות מהערכים x={x} y={y})"
-    },
     "host.operator_01b477e8e8a80cd5": {
       "sourceHash": "1be34cf59e4829142ddd6d492bcc780c34b4f9272d419a93d884b5274a5050df",
       "message": "את תהליך הרקע, מעגן באמצעות CIFS את התקן NAS של המאגר שמכיל את מאגר ההורדות, וגם"
@@ -4344,8 +4345,9 @@
       "message": "host⁦/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1⁩ פועל רק בסביבת Windows Hyper-V."
     },
     "host.operator_2679edd915af22f8": {
-      "sourceHash": "e33b5a4aed95797477faf0f2af11469f2070371b3ba92d58b8199d68c1b60299",
-      "message": "לא יבוצעו שינויים: כל הגדרת macOS אשר Enable משנה היא הגדרה קיימת, ולכן ללא תיעוד של ערכה הקודם אין מה לשחזר בבטחה."
+      "sourceHash": "67e011451be56e555b58adfba96a6dffcd31101b3a6289e222bb7e8e868aa11d",
+      "origin": "machine",
+      "message": "שום הגדרה לא תשוחזר: כל כוונון macOS ש-Enable נוגע בו הוא הגדרה קיימת מראש, ולכן בלי תיעוד של ערכה הקודם אין שום דבר שבטוח לשחזר. בקר המארח, הקבצים שלו ורשומות ה-sudoers שלו עדיין מוסרים."
     },
     "host.operator_29fdf0ffc1344091": {
       "sourceHash": "0e1b8678703bdb4d76dec7808476b58ff5436704e6fb18458896c9569e31a9f2",
@@ -4688,8 +4690,8 @@
       "message": "UTM לא ביצע את בקשת ההפעלה עבור '{vmName}' לאורך {attempts} ניסיונות; בניסיון האחרון דווח '{lastError}'. utmctl הגיע אל ⁦UTM.app⁩ -- שאילתות מצב נענו לאורך כל הזמן -- אך ההפעלה עצמה לא בוצעה מעולם, ולכן המכונה הווירטואלית לא הופעלה והדיסק שלה לא שונה. נסו שוב (utmctl start '{vmName}'); בנייה מחדש לא תפתור דבר במקרה זה."
     },
     "host.utm_start_control_hung": {
-      "sourceHash": "c9d057ba43796fb3b9a31f0907dd458da26998e8c7b115bc09ec40206fe11821",
-      "message": "ערוץ הבקרה של UTM הפסיק לבצע בקשות מחזור חיים: {attempts} בקשות הפעלה רצופות עבור '{vmName}' נותרו ללא מענה, והאחרונה דיווחה '{lastError}'. utmctl עדיין הגיע אל ⁦UTM.app⁩ לשאילתות מצב, כך שהיישום פועל אך אינו מבצע עוד start, stop או delete, וניסיון חוזר רק מוסיף עוד פסק זמן. הפעילו מחדש את ⁦UTM.app⁩ במארח זה (צאו ממנו מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRefresh.ps1⁩), ואז הפעילו את המכונה הווירטואלית שוב. המכונה הווירטואלית לא הופעלה מעולם והדיסק שלה לא שונה."
+      "sourceHash": "de05af5c948347e21b3cda7269cfebc81d2966be2234deb0b8897d06fdfde748",
+      "message": "ערוץ הבקרה של UTM הפסיק לבצע בקשות מחזור חיים: {attempts} בקשות הפעלה רצופות עבור '{vmName}' נותרו ללא מענה, והאחרונה דיווחה '{lastError}'. utmctl עדיין הגיע אל ⁦UTM.app⁩ לשאילתות מצב, כך שהיישום פועל אך אינו מבצע עוד start, stop או delete, וניסיון חוזר רק מוסיף עוד פסק זמן. הפעילו מחדש את ⁦UTM.app⁩ במארח זה (צאו ממנו מתוך הפעלת שולחן העבודה, או הריצו ⁦test/lab/Invoke-HostRepair.ps1⁩), ואז הפעילו את המכונה הווירטואלית שוב. המכונה הווירטואלית לא הופעלה מעולם והדיסק שלה לא שונה."
     },
     "host.utm_control_snapshot_action": {
       "sourceHash": "0edb078c35115edfdd56fc887938f57308ba7770305b9e5b63b3120e5b766edf",
@@ -4846,6 +4848,236 @@
     "host.kvm_journal_group_session_stale": {
       "sourceHash": "f88518214624d1392e44e5a735e816d46ae699a3a9c4536c7c2d292a9672744b",
       "message": "  החברות בקבוצה 'systemd-journal' רשומה ב-/etc/group; קבוצות המעטפת הנוכחית אינן מעודכנות. התנתקו והתחברו מחדש, ואז הפעילו את מריץ הבדיקות מההפעלה החדשה כדי שהאבחון שלו יוכל לקרוא את יומן המערכת."
+    },
+    "host.host_controller_group_missing": {
+      "sourceHash": "fc0923609515b9e0befd5e6bcd8249b0e3c5fbd632c0fc50b68a644918c4bf0c",
+      "message": "  בקר המארח: הקבוצה '{grp}' אינה קיימת, ולכן yuruna-host-controller.service לא יכול היה להתחיל (ה-SupplementaryGroups שלו נותן את שם הקבוצה). התקינו את חבילות libvirt ולאחר מכן הריצו את הסקריפט הזה שוב."
+    },
+    "host.host_controller_files_failed": {
+      "sourceHash": "e40ceba54d88ebebddcc6c2e703522df05db21b4f6502cc2cacf59d952451d41",
+      "message": "  בקר המארח: לא ניתן היה לפרוס את ה-shim או את תמונת הקוד תחת ~/.yuruna/host-repair/host-controller ({reason}), ולכן yuruna-host-controller.service לא נרשם."
+    },
+    "host.host_controller_unit_installed": {
+      "sourceHash": "90236559fd97c87048c1fb98f0086eff39e26bc5ee0386a7ace3c04777325651",
+      "message": "  yuruna-host-controller.service: הותקן"
+    },
+    "host.host_controller_unit_replaced": {
+      "sourceHash": "823d2461b21ef7fec18c09ee0161c9e9b5e49f8e3ed74ee17ba73ff1e96945cf",
+      "message": "  yuruna-host-controller.service: הוחלף"
+    },
+    "host.host_controller_no_sudo": {
+      "sourceHash": "85756436a5ebbd445f23519055ebf68cc742cd3b96c893fd34c70d8f3995f804",
+      "message": "  yuruna-host-controller.service אינו מותקן, מופעל ורץ עם היחידה של עותק העבודה הזה, ו-sudo אינו יכול לרוץ כאן ללא סיסמה, ולכן הוא רק נבדק. הריצו את הסקריפט הזה שוב ממסוף שיכול לענות לבקשת הסיסמה של sudo."
+    },
+    "host.host_controller_sudo_failed": {
+      "sourceHash": "0370752fcb4fb9ba0e20cfc00b30f2446e04837f8a2b8c254e590c86a742e270",
+      "message": "  בקר המארח: שלב בהרשאות מוגברות נכשל (ראו את האזהרה למעלה), ולכן ייתכן ש-yuruna-host-controller.service אינו רשום. הריצו את הסקריפט הזה שוב."
+    },
+    "host.host_controller_not_running": {
+      "sourceHash": "b1446d578988bec4e225d4f52073bbc132a58a91e0ed54025fc84db2a5ab44aa",
+      "message": "  בקר המארח: אף בקר לא תפס את הנעילה שלו בתוך 15 שניות. קראו את 'systemctl status yuruna-host-controller' ואת 'journalctl -u yuruna-host-controller' כדי למצוא את הסיבה."
+    },
+    "host.host_controller_running": {
+      "sourceHash": "d4e269f39d4a5420430b72ba114cc7d958c78ec6a5c4055e4b67bdec646fb656",
+      "message": "  בקר המארח: רץ מתמונה {snapshot} (yuruna-host-controller.service)"
+    },
+    "host.host_controller_not_verified": {
+      "sourceHash": "8a734040434b81281a7d0efc24e7201a8bec8f171aa16b84d6f513ea3b5e8de4",
+      "origin": "machine",
+      "message": "  בקר המארח: הבקר הפרוס אינו זה שעותק הקוד הזה פורס ({reason}); -NoOperatorPrompt משאיר את הרישום שלו כפי שהוא. הריצו את Enable-TestAutomation.ps1 בלי -NoOperatorPrompt כדי לרשום אותו מחדש."
+    },
+    "host.host_controller_update_claimed": {
+      "sourceHash": "45abf3e3c43fe0aa7d323e312d00ae6dda32cf880eac56c8f99cb4d45a14ada2",
+      "message": "עדכון המארח {requestId} מתבצע במארח הזה, ועצירת הבקר שלו עכשיו תשאיר את המריץ עצור בלי דבר שיפעיל אותו. המתינו לסיומו. כשהוא בהתאוששות, או כשאף בקר כבר לא פועל, סיימו אותו עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}. דבר לא שונה."
+    },
+    "host.host_controller_update_unknown": {
+      "sourceHash": "c7cebd24bab642b5d3b86ce53feaa8f34dde894e8ef8f2e743eac46411057cbb",
+      "origin": "machine",
+      "message": "יומן עדכוני המארח במצב {status}, ולכן אי אפשר לדעת אם מתבצע עדכון מארח במארח זה, ועצירת הבקר שלו במהלך עדכון תשאיר את המריץ עצור בלי שום דבר שיפעיל אותו. דבר לא שונה. הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן."
+    },
+    "host.host_controller_unit_removed": {
+      "sourceHash": "792d12159a602267d22ac431120d63e403bf25c21fac1ac9a9708120d2ad1811",
+      "message": "yuruna-host-controller.service נעצר, הושבת והוסר"
+    },
+    "host.host_controller_unit_not_removed": {
+      "sourceHash": "24723b4ca054ce34112b66d0fcad1bc2c75399d985b723193222c062fc4fb335",
+      "message": "yuruna-host-controller.service (לא הוסר: {detail})"
+    },
+    "host.host_update_rule_not_removed": {
+      "sourceHash": "f19421745a2211b225189e5d31f6ad5b1c12fb0131daad7dcc73ffc5bf3fed18",
+      "origin": "machine",
+      "message": "⁦/etc/sudoers.d/yuruna-host-update⁩ (לא הוסר; הסירו אותו עם: ⁦sudo rm -f /etc/sudoers.d/yuruna-host-update⁩)"
+    },
+    "host.host_controller_update_claimed_not_restarted": {
+      "sourceHash": "34626f45216b451995cce93f34100bdc32353108e7329bf88e218dde58d2e770",
+      "message": "yuruna-host-controller.service (נעצר בזמן שעדכון המארח {requestId} התבצע, ולא הופעל שוב: {detail}). היחידה וקובצי הבקר נשמרו. הפעילו אותו שוב עם: sudo systemctl start yuruna-host-controller.service, או סיימו את העדכון עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}"
+    },
+    "host.host_controller_update_unknown_not_restarted": {
+      "sourceHash": "b794f79da1bd97c3113b730eb189d2de56fab9516c4ac3633c7a9b770259399d",
+      "origin": "machine",
+      "message": "yuruna-host-controller.service (נעצר, ואז יומן עדכוני המארח היה במצב {status}, ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים; לא הופעל שוב: {detail}). היחידה וקובצי הבקר נשמרו. הפעילו אותו שוב עם: sudo systemctl start yuruna-host-controller.service, ואז הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן."
+    },
+    "host.host_controller_files_removed": {
+      "sourceHash": "4fddf88d45d66a7be0596f94242be93d29a1ff4bd5f4e823c4f8471868dc631e",
+      "message": "קובצי בקר המארח (shim, תמונות, תיקיות עבודה) הוסרו תחת {path}"
+    },
+    "host.host_controller_task_action": {
+      "sourceHash": "a3bd5b1ad51309acfa9d43f26dc7ce89f4071a704371c94b199e8938bdff7f04",
+      "origin": "machine",
+      "message": "רישום והפעלה של משימת בקר המארח"
+    },
+    "host.host_controller_task_files_failed": {
+      "sourceHash": "6408f21ec72049d20bb0cce87a42dc4a9f26d4cd687bb32b4a0d68f17a7622c3",
+      "origin": "machine",
+      "message": "  בקר המארח: לא ניתן היה לפרוס את ה-shim או את תמונת הקוד תחת ⁦%ProgramData%\\yuruna\\host-controller⁩ ({reason}), ולכן המשימה המתוזמנת Yuruna Host Controller לא נרשמה."
+    },
+    "host.host_controller_task_registered": {
+      "sourceHash": "506cf460b6e3ac7c8f18de3af1e79b0a9ae24f4af156ed231cc4729f595254a0",
+      "origin": "machine",
+      "message": "  Yuruna Host Controller (משימה מתוזמנת): נרשמה"
+    },
+    "host.host_controller_task_replaced": {
+      "sourceHash": "22349ccf04db7833e4e1138b7a241b9d7caf4aaedcbb09f463f5dce0f2d6d20c",
+      "origin": "machine",
+      "message": "  Yuruna Host Controller (משימה מתוזמנת): הוחלפה"
+    },
+    "host.host_controller_task_failed": {
+      "sourceHash": "f35debc3a934bbb6cfc27e14ab2bce2ddfd87bffd3986cf9062cc58317d49f2f",
+      "origin": "machine",
+      "message": "  בקר המארח: לא ניתן היה לרשום או להפעיל את המשימה המתוזמנת Yuruna Host Controller ({detail}). הריצו שוב את הסקריפט הזה."
+    },
+    "host.host_controller_task_not_running": {
+      "sourceHash": "afc73009c8fca35788ba730ad8d3ce382dedb435022dd56a271fe2c5c0aa61fc",
+      "origin": "machine",
+      "message": "  בקר המארח: אף בקר לא תפס את הנעילה שלו בתוך 15 שניות. קראו את shim.log ואת controller.log תחת {path} כדי לברר את הסיבה."
+    },
+    "host.host_controller_task_running": {
+      "sourceHash": "444729338ea952ca010dae692017f4111c4bb3d10bb121dd94a8496db14d995e",
+      "origin": "machine",
+      "message": "  בקר המארח: רץ מתמונה {snapshot} (משימה מתוזמנת Yuruna Host Controller)"
+    },
+    "host.host_controller_task_removed": {
+      "sourceHash": "5ec4a47a8c061793bb3e2c1cb36931d87b948c98cabe7a1b25a2995819216f20",
+      "origin": "machine",
+      "message": "המשימה המתוזמנת Yuruna Host Controller נעצרה והוסרה"
+    },
+    "host.host_controller_task_not_removed": {
+      "sourceHash": "b1c333ca1016e9e1832dfb8b1fd144a0b049a2fa004265ea6141aeeca27f8a0b",
+      "origin": "machine",
+      "message": "המשימה המתוזמנת Yuruna Host Controller (לא הוסרה: {detail})"
+    },
+    "host.host_controller_task_claimed_not_restarted": {
+      "sourceHash": "ae5f9a10b2f1ffb12c9b502b38432399d2668fd4ffb2f56297a4c7760dd72762",
+      "origin": "machine",
+      "message": "המשימה המתוזמנת Yuruna Host Controller (נעצרה בזמן שעדכון המארח {requestId} היה בתהליך, ולא הופעלה מחדש: {detail}). המשימה וקובצי הבקר נשמרו. הפעילו אותה שוב באמצעות: ⁦Start-ScheduledTask -TaskName 'Yuruna Host Controller'⁩, או סיימו את העדכון באמצעות: ⁦pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}⁩"
+    },
+    "host.host_controller_task_unknown_not_restarted": {
+      "sourceHash": "50b705691913de69424e6f4dabdb6b813229f4db3b20e1510af097373f30be8c",
+      "origin": "machine",
+      "message": "המשימה המתוזמנת Yuruna Host Controller (נעצרה, ואז יומן עדכוני המארח היה במצב {status}, ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים; לא הופעלה שוב: {detail}). המשימה וקובצי הבקר נשמרו. הפעילו אותה שוב באמצעות: ⁦Start-ScheduledTask -TaskName 'Yuruna Host Controller'⁩, ואז הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן."
+    },
+    "host.host_controller_files_kept": {
+      "sourceHash": "ad6f0ee373b23bbfe4dad66dda162c44237154bd9389e6e89984ddcd0a06e396",
+      "message": "קובצי בקר המארח תחת {path} (בקר עדיין מחזיק בנעילה שלו 30 שניות אחרי העצירה; הושארו כפי שהם)"
+    },
+    "host.host_controller_files_not_removed": {
+      "sourceHash": "addfca1cfc17e8f79937f0bfcb6b902058be5606c9c36f8c15872d6b31ba25d9",
+      "message": "קובצי בקר המארח תחת {path} (לא הוסרו: {message})"
+    },
+    "host.host_update_access_entry_installed": {
+      "sourceHash": "8508b53d926abb639fc7f8b97ca8d090a86907bd896908bb1dab5672ffe9b82c",
+      "origin": "machine",
+      "message": "  /etc/sudoers.d/yuruna-host-update-access: הותקן (הוא מאפשר לבקר המארח לכתוב ולהסיר את כלל ה-sudo הזמני של עדכון מארח מלא)"
+    },
+    "host.host_update_access_entry_replaced": {
+      "sourceHash": "97402c7ea0c83ecc6d8eebcc373b60714f73125bef86a59a04c31df1840776ed",
+      "origin": "machine",
+      "message": "  /etc/sudoers.d/yuruna-host-update-access: הוחלף (הטקסט שלו היה שונה מזה שה-checkout הזה מתקין)"
+    },
+    "host.host_update_access_entry_unchanged": {
+      "sourceHash": "0f69624f490a4c5a5d49e611838150e8365ac82366115909de05cbcb5b52c25c",
+      "origin": "machine",
+      "message": "  /etc/sudoers.d/yuruna-host-update-access: ללא שינוי"
+    },
+    "host.host_update_access_entry_failed": {
+      "sourceHash": "51b3a9d3e2ee0c99773058fbd6e00ba83d7ea5206325e400cfa699ad8a9f0b00",
+      "origin": "machine",
+      "message": "  הרשאות עדכון המארח: לא ניתן היה להתקין את /etc/sudoers.d/yuruna-host-update-access ({detail}), ולכן מארח זה מציע רק את היקף ה-restart של עדכון מארח. הריצו את הסקריפט שוב ממסוף שיכול לענות לבקשת ה-sudo."
+    },
+    "host.host_controller_files_failed_macos": {
+      "sourceHash": "bbc8f73591c55b23b1c1db799eee9ae7174e8b7701c77eced6407819bb85f2ff",
+      "origin": "machine",
+      "message": "  בקר המארח: לא ניתן היה לפרוס את ה-shim או את תמונת הקוד תחת ~/.yuruna/host-repair/host-controller ({reason}), ולכן שום הפעלה של המריץ לא יכולה להפעיל את הבקר."
+    },
+    "host.host_controller_deployed_macos": {
+      "sourceHash": "003650af12e5cfe2339740e9f3b944110dd2a5fdb472ab97c665302dec1fe346",
+      "origin": "machine",
+      "message": "  בקר המארח: ה-shim ותמונת הקוד {snapshot} נפרסו. macOS לא רושם שום משימה: הפעלה רגילה של המריץ ממסוף של הפעלת שולחן העבודה מפעילה את הבקר."
+    },
+    "host.host_controller_session_restart_pending": {
+      "sourceHash": "e288fcfc0db4bcb99c4188690ad63bda9e4394f136d788f9248c865f95581f6c",
+      "origin": "machine",
+      "message": "  בקר המארח: ההפעלה yuruna-controller שלו הריצה shim שהוחלף, והיא הסתיימה; ההפעלה הבאה של המריץ ממסוף של הפעלת שולחן העבודה תפעיל את החדש."
+    },
+    "host.host_controller_session_kept": {
+      "sourceHash": "6e9d0652098b5a17c379e6715860a7be5098c03bfa36ca85d8707ce242e80e12",
+      "origin": "machine",
+      "message": "  בקר המארח: ה-shim השתנה, אבל ההפעלה yuruna-controller שלו מריצה את עדכון המארח {requestId} והושארה פועלת. ה-shim החדש ייכנס לתוקף כשההפעלה הזו תסתיים; הריצו את הסקריפט שוב אחרי שהעדכון יסתיים."
+    },
+    "host.host_controller_session_kept_unknown": {
+      "sourceHash": "4d0274a025df37352fa72d3367a057aa1d3cd22a391e3c2e13615a334560fdde",
+      "origin": "machine",
+      "message": "  בקר המארח: ההפעלה yuruna-controller שלו עשויה עדיין להריץ shim שהוחלף, אבל יומן עדכוני המארח במצב {status}, ולכן אי אפשר לדעת אם ההפעלה הזו מריצה עדכון מארח, והיא הושארה פועלת. הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן; הוא יסיים אז את ההפעלה."
+    },
+    "host.host_controller_session_ended_claimed": {
+      "sourceHash": "d99b614712f4374b9d60c68273b6f55867f482321d3d3e977bfd01930ab213f5",
+      "origin": "machine",
+      "message": "  בקר המארח: עדכון המארח {requestId} נתפס בזמן שההפעלה yuruna-controller שלו הסתיימה, ולכן אף בקר לא ממשיך אותו כעת. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל שוב את הבקר, שממשיך את העדכון, או סיימו את העדכון עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}"
+    },
+    "host.host_controller_session_ended_unknown": {
+      "sourceHash": "757cd8a9ef664be4d2e9f9062c4d5419917bb3225c6dbd45707e80c67de61097",
+      "origin": "machine",
+      "message": "  בקר המארח: ההפעלה yuruna-controller שלו הסתיימה, אבל יומן עדכוני המארח נקרא אז במצב {status}, ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל את הבקר החדש, שממשיך כל עדכון כזה."
+    },
+    "host.host_controller_session_end_failed": {
+      "sourceHash": "eaae6f644d43dddfcad03508aeeb4a14bde40b34b06830061803d86077e25c25",
+      "origin": "machine",
+      "message": "  בקר המארח: לא ניתן היה לסיים את ההפעלה yuruna-controller שלו, ולכן היא שומרת את ה-shim שאיתו התחילה עד שתסתיים. סיימו אותה עם: tmux -L yuruna-controller kill-session -t yuruna-controller (או, תחת screen: screen -ls, ואחר כך screen -S <pid>.yuruna-controller -X quit)"
+    },
+    "host.host_controller_session_ended": {
+      "sourceHash": "f44552deae3b0702f79b961f4362cd58297958f7944ce6b7d34b52b3b081b57e",
+      "origin": "machine",
+      "message": "ההפעלה yuruna-controller של בקר המארח הסתיימה"
+    },
+    "host.host_controller_session_not_ended": {
+      "sourceHash": "a565b046f0def4ae60647de5f26f9a9ff98b4db581e645e4de03c47ec826d446",
+      "origin": "machine",
+      "message": "ההפעלה yuruna-controller של בקר המארח (לא הסתיימה; סיימו אותה עם: tmux -L yuruna-controller kill-session -t yuruna-controller, או screen -ls ואחר כך screen -S <pid>.yuruna-controller -X quit)"
+    },
+    "host.host_controller_update_claimed_session_ended": {
+      "sourceHash": "b6e843001e3570fa6bd2a538eee454457e6fa58bd4a58bd5f785dcfa87cccdeb",
+      "origin": "machine",
+      "message": "עדכון המארח {requestId} נתפס בזמן שההפעלה של בקר המארח הסתיימה, ולכן אף בקר לא ממשיך אותו כעת. קבצי הבקר ורשומת ה-sudoers נשמרו. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל שוב את הבקר, שממשיך את העדכון, או סיימו את העדכון עם: pwsh test/lab/Invoke-HostUpdate.ps1 -Release {requestId}. אחר כך הריצו את הסקריפט שוב."
+    },
+    "host.host_controller_update_unknown_session_ended": {
+      "sourceHash": "8b67ff5a8f545e0422d4a5002a376e6fc8fc066facfb5fd567a98066fe1bf945",
+      "origin": "machine",
+      "message": "יומן עדכוני המארח נקרא במצב {status} אחרי שההפעלה של בקר המארח הסתיימה, ולכן אי אפשר לשלול עדכון מארח שנתפס בינתיים. קבצי הבקר ורשומת ה-sudoers נשמרו. הפעילו את המריץ ממסוף של הפעלת שולחן העבודה כדי להפעיל שוב את הבקר, שממשיך כל עדכון כזה, ואחר כך הריצו את הסקריפט שוב כשאפשר יהיה לקרוא את היומן."
+    },
+    "host.host_update_access_entry_removed": {
+      "sourceHash": "24b32110f2d076640b4a39543b5cc891a450c8d9fbbdd50841ec9516f8075971",
+      "origin": "machine",
+      "message": "הוסר /etc/sudoers.d/yuruna-host-update-access (רשומת ההרשאות של עדכון המארח)"
+    },
+    "host.host_update_access_entry_not_removed": {
+      "sourceHash": "74cf1a88148ed9cc85be3b03b5b84ac755995e42f61b18946389f388bd17b839",
+      "origin": "machine",
+      "message": "/etc/sudoers.d/yuruna-host-update-access (לא הוסר; הסירו אותו עם: sudo rm -f /etc/sudoers.d/yuruna-host-update-access)"
+    },
+    "host.host_update_access_entry_kept": {
+      "sourceHash": "821fd52d89efe3442c280727d0d20613908871ba26a6e0bc18a414ece2367f36",
+      "origin": "machine",
+      "message": "/etc/sudoers.d/yuruna-host-update-access וכל כלל זמני /etc/sudoers.d/yuruna-host-update (נשמרו כל עוד בקר מארח עשוי עדיין לפעול; הריצו את הסקריפט שוב כשהוא יסתיים)"
     },
     "host.deep_diagnostics_requires_linux": {
       "sourceHash": "6b05aeded11bfb3fbe2143cb0f0b2eb731dff67549ebde8823b41459d32e036a",
@@ -5162,6 +5394,11 @@
     "host.service_build_plan_cache_state_invalid": {
       "sourceHash": "e41a8521d8a7909a3e3e0c4aaa094a9cac50b503278b2403197e85d8b2a608bc",
       "message": "לא ניתן לאמת את מצב caching-proxy בנתיב {path} ללא שינויו: הקובץ הראשי וקובץ הגיבוי מכילים נתונים שאינם שמישים."
+    },
+    "host.kvm_frame_size_unreadable": {
+      "sourceHash": "62d0bd9da29b9e6564e96892aeeac69a90f45d037b35330fc5cc2fb26a1eb6f0",
+      "origin": "machine",
+      "message": "Get-VMScreenshot: לא ניתן היה לקרוא את גודל המסגרת מתוך '{path}'; לכידת החלון של '{vmName}' נמחקה."
     }
   }
 }

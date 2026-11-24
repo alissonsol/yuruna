@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -291,10 +291,10 @@ Describe 'the committed-content tarball names the commit it was cut from' {
             if ($Source -eq 'status') { [IO.File]::WriteAllText($StatusFile, (@{ repoUrl = $remote } | ConvertTo-Json)) }
             if ($Source -eq 'config') { [IO.File]::WriteAllText((Join-Path $TestRoot 'test.config.yml'), "repositories:`n  frameworkUrl: '$remote'`n") }
             $ModulesDir = Join-Path $script:RepoRoot 'test/modules'
-            $RefreshSafe = $false
-            $null = $RepoRoot, $ModulesDir, $RefreshSafe # Read by the extracted production startup block.
+            $NonDestructive = $false
+            $null = $RepoRoot, $ModulesDir, $NonDestructive # Read by the extracted production startup block.
             $ast = [Management.Automation.Language.Parser]::ParseFile($script:ServicePath, [ref]$null, [ref]$null)
-            $block = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '-not $RefreshSafe -and (Test-Path $StatusFile)' }, $true)
+            $block = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '-not $NonDestructive -and (Test-Path $StatusFile)' }, $true)
             Assert-NotNull $block
             $output = @(. ([scriptblock]::Create($block.Extent.Text)) *>&1) -join "`n"
             $json = [IO.File]::ReadAllText($StatusFile)
@@ -313,10 +313,10 @@ Describe 'the committed-content tarball names the commit it was cut from' {
             $StatusFile = Join-Path $repo.Path 'status.json'
             [IO.File]::WriteAllText($StatusFile, '{"repoUrl":"https://user:PRIVATE_FIXTURE_TOKEN@example.invalid/old.git"}')
             $ModulesDir = Join-Path $script:RepoRoot 'test/modules'
-            $RefreshSafe = $false
-            $null = $RepoRoot, $ModulesDir, $RefreshSafe # Read by the extracted production startup block.
+            $NonDestructive = $false
+            $null = $RepoRoot, $ModulesDir, $NonDestructive # Read by the extracted production startup block.
             $ast = [Management.Automation.Language.Parser]::ParseFile($script:ServicePath, [ref]$null, [ref]$null)
-            $block = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '-not $RefreshSafe -and (Test-Path $StatusFile)' }, $true)
+            $block = $ast.Find({ param($node) $node -is [Management.Automation.Language.IfStatementAst] -and $node.Clauses[0].Item1.Extent.Text -eq '-not $NonDestructive -and (Test-Path $StatusFile)' }, $true)
             Assert-NotNull $block
             $output = @(. ([scriptblock]::Create($block.Extent.Text)) *>&1) -join "`n"
             $json = [IO.File]::ReadAllText($StatusFile)

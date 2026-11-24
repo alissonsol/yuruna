@@ -246,7 +246,7 @@ and such a host has no status page at all, so `/go/host` would answer "host not
 known to the pool". That is why the Extension hosts table's Host ID cell never
 offers that hop -- its menu names the row's id and opens the extension UI --
 and the Pool hosts table, whose rows all have a status page, is where a host is
-opened with the control token. `baseUrl` stays exported as the answer to "does
+opened with the control proof. `baseUrl` stays exported as the answer to "does
 this extension host have a status page".
 
 <a id="42c29d04-0008"></a>
@@ -423,7 +423,7 @@ or oversized file cannot bloat the metric label.
 
 Applies to: `FetchControlStatus` (result type `ControlStatus`) in
 `internal/hostpoll/hostpoll.go`, and the poll's reading of it in `Poller.Once`,
-`ClassifyControl` and `mergeRefresh`, `internal/poll/poll.go`
+`ClassifyControl` and `mergeRepair`, `internal/poll/poll.go`
 
 A host's answer to `GET /control/control-status` says whether it can be driven
 remotely at all, and by which internal authentication key. `TokenTag` is
@@ -432,7 +432,7 @@ the token, never the token itself. `Present` is false when the route did not
 answer usably, which is not the same as "no token": an older framework build has
 no such route, and reporting that host as uncontrollable would be a guess.
 `UtcNow` is the host's clock, so the caller can catch the skew that expires a
-freshly minted proof. `Refresh` is the host's refresh capability summary,
+freshly minted proof. `Repair` is the host's repair capability summary,
 normalized; nil when the answer did not carry one.
 
 The poll asks every host this question and keeps the two halves of the answer
@@ -441,7 +441,7 @@ failure leaves the host's prior verdict in place, while a host that answers --
 including an older build with no such route -- replaces it, so the column
 reports `unknown` rather than inheriting a stale `ready` forever. The verdict is
 classified in the probe goroutine against the poll's own clock, so the skew
-reading is not skewed by how long the poll took. The refresh capability rides
+reading is not skewed by how long the poll took. The repair capability rides
 the same answer with the opposite stickiness: a host that answered replaces it,
 and a failed or oversize read demotes it to unavailable rather than keeping it,
 because a last-known value must not stand in for a capability that authorizes a

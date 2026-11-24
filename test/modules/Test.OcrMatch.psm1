@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -728,4 +728,310 @@ function Get-OcrClosestOnScreen {
     return [string[]]$found.ToArray()
 }
 
-Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch, Get-OcrFreshWindowNearMiss, Get-OCRSimilarityScore, Get-OcrClosestOnScreen, New-OcrFallbackReuseState, Test-OCRSegmentMatch
+# --- REGION: Word-box matching for located clicks
+function Get-OcrWordCore {
+    <#
+    .SYNOPSIS
+        The text of one word without its leading and trailing characters that
+        are neither a letter nor a digit (pure).
+    .DESCRIPTION
+        'Next.', '(Next)' and '|Next' give 'Next'; '24.04.3' and 'test-ubuntu'
+        keep their inner punctuation; '...' and '|' give an empty string.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyString()][AllowNull()][string]$Text)
+    if ([string]::IsNullOrEmpty($Text)) { return '' }
+    $start = 0
+    $end = $Text.Length - 1
+    while ($start -le $end -and -not [char]::IsLetterOrDigit($Text[$start])) { $start++ }
+    while ($end -ge $start -and -not [char]::IsLetterOrDigit($Text[$end])) { $end-- }
+    if ($start -gt $end) { return '' }
+    return $Text.Substring($start, $end - $start + 1)
+}
+
+function Get-OcrLineHeight {
+    <#
+    .SYNOPSIS
+        The median box height of each line read, keyed '<block>.<par>.<line>' (pure).
+    .DESCRIPTION
+        The median, upper middle when the count is even, and at least 1. One
+        tall box on a line must not widen the gap two words may have between
+        them, which the taller of two boxes would do.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([AllowEmptyCollection()][AllowNull()][object[]]$Box)
+    $heights = @{}
+    foreach ($entry in $Box) {
+        if ($null -eq $entry) { continue }
+        $key = '{0}.{1}.{2}' -f [int]$entry.block, [int]$entry.par, [int]$entry.line
+        if (-not $heights.ContainsKey($key)) { $heights[$key] = [System.Collections.Generic.List[int]]::new() }
+        $heights[$key].Add([int]$entry.h)
+    }
+    $result = @{}
+    foreach ($key in @($heights.Keys)) {
+        $sorted = [int[]]@($heights[$key] | Sort-Object)
+        $result[$key] = [math]::Max(1, $sorted[[int][math]::Floor($sorted.Count / 2)])
+    }
+    return $result
+}
+
+function Test-OcrWordBoxAdjacent {
+    <#
+    .SYNOPSIS
+        Whether the box Next continues the phrase that the box Previous ends (pure).
+    .DESCRIPTION
+        Both boxes carry the same block, paragraph and line numbers, and Next
+        starts no further right of Previous's right edge than twice the median
+        height of that line. Tesseract reads with --psm 6, one uniform block,
+        so text at equal height in two columns shares a line number; the gap
+        test is what keeps the columns apart. Overlapping boxes are adjacent.
+    .PARAMETER LineHeight
+        The map Get-OcrLineHeight returns for the boxes of the read.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][object]$Previous,
+        [Parameter(Mandatory)][object]$Next,
+        [Parameter(Mandatory)][hashtable]$LineHeight
+    )
+    if ([int]$Previous.block -ne [int]$Next.block -or [int]$Previous.par -ne [int]$Next.par -or
+        [int]$Previous.line -ne [int]$Next.line) { return $false }
+    $key = '{0}.{1}.{2}' -f [int]$Next.block, [int]$Next.par, [int]$Next.line
+    $height = if ($LineHeight.ContainsKey($key)) { [int]$LineHeight[$key] } else { 1 }
+    return (([int]$Next.x - ([int]$Previous.x + [int]$Previous.w)) -le (2 * $height))
+}
+
+function Find-OcrWordBoxMatch {
+    <#
+    .SYNOPSIS
+        Every place a label is read among OCR word boxes, in box order (pure).
+    .DESCRIPTION
+        The label is split on white space; each token must match one box and
+        each box after the first must continue the box before it on the same
+        line (Test-OcrWordBoxAdjacent). Comparisons are literal and ignore
+        case: '[', ']', '*' and '?' in a label are ordinary characters.
+        Under contains a box matches when its text contains the token. Under
+        word the box's core equals the token's core (Get-OcrWordCore), so
+        'Next' finds 'Next.' and '(next)' but not 'Nextcloud', and a box with
+        no letter or digit is stepped over.
+        Assign the call directly: it returns one array as one pipeline object,
+        and @() around it would always count one element.
+    .PARAMETER Box
+        Word boxes as Get-TesseractWordBox returns them; $null elements are skipped.
+    .PARAMETER Label
+        The label to find.
+    .PARAMETER MatchMode
+        contains (the default) or word.
+    .OUTPUTS
+        System.Collections.Hashtable[]. Each match: @{ text; x; y; w; h;
+        centerX; centerY; block; par; line; word }, the rectangle the union of
+        the matched boxes and the identifiers those of the first box.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable[]], [object[]])]
+    param(
+        [AllowEmptyCollection()][AllowNull()][object[]]$Box,
+        [AllowEmptyString()][string]$Label,
+        [ValidateSet('contains', 'word')][string]$MatchMode = 'contains'
+    )
+    $found = [System.Collections.Generic.List[hashtable]]::new()
+    $word = $MatchMode -ceq 'word'
+    $tokens = [System.Collections.Generic.List[string]]::new()
+    foreach ($token in ($Label.Trim() -split '\s+')) {
+        $value = if ($word) { Get-OcrWordCore -Text $token } else { $token }
+        if (-not [string]::IsNullOrEmpty($value)) { $tokens.Add($value) }
+    }
+    if ($tokens.Count -eq 0 -or $null -eq $Box -or $Box.Count -eq 0) { return ,$found.ToArray() }
+
+    $usable = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $Box) {
+        if ($null -eq $entry) { continue }
+        $text = [string]$entry.text
+        if ($word) {
+            $core = Get-OcrWordCore -Text $text
+            if ($core.Length -eq 0) { continue }
+            $usable.Add(@{ Box = $entry; Text = $core })
+        } else {
+            if ([string]::IsNullOrWhiteSpace($text)) { continue }
+            $usable.Add(@{ Box = $entry; Text = $text })
+        }
+    }
+    $heights = Get-OcrLineHeight -Box $Box
+
+    for ($i = 0; $i -le $usable.Count - $tokens.Count; $i++) {
+        $hit = $true
+        for ($j = 0; $j -lt $tokens.Count; $j++) {
+            $candidate = $usable[$i + $j]
+            $same = if ($word) {
+                [string]::Equals($candidate.Text, $tokens[$j], [StringComparison]::OrdinalIgnoreCase)
+            } else {
+                $candidate.Text.IndexOf($tokens[$j], [StringComparison]::OrdinalIgnoreCase) -ge 0
+            }
+            if (-not $same -or ($j -gt 0 -and -not (Test-OcrWordBoxAdjacent -Previous $usable[$i + $j - 1].Box -Next $candidate.Box -LineHeight $heights))) {
+                $hit = $false
+                break
+            }
+        }
+        if (-not $hit) { continue }
+        $parts = [System.Collections.Generic.List[object]]::new()
+        for ($j = 0; $j -lt $tokens.Count; $j++) { $parts.Add($usable[$i + $j].Box) }
+        $minX = [int]::MaxValue; $minY = [int]::MaxValue; $maxX = [int]::MinValue; $maxY = [int]::MinValue
+        foreach ($part in $parts) {
+            $minX = [math]::Min($minX, [int]$part.x)
+            $minY = [math]::Min($minY, [int]$part.y)
+            $maxX = [math]::Max($maxX, [int]$part.x + [int]$part.w)
+            $maxY = [math]::Max($maxY, [int]$part.y + [int]$part.h)
+        }
+        $first = $parts[0]
+        $found.Add(@{
+            text    = (@($parts | ForEach-Object { [string]$_.text }) -join ' ')
+            x       = $minX
+            y       = $minY
+            w       = $maxX - $minX
+            h       = $maxY - $minY
+            centerX = [int](($minX + $maxX) / 2)
+            centerY = [int](($minY + $maxY) / 2)
+            block   = [int]$first.block
+            par     = [int]$first.par
+            line    = [int]$first.line
+            word    = [int]$first.word
+        })
+    }
+    return ,$found.ToArray()
+}
+
+function Get-OcrWordBoxLine {
+    <#
+    .SYNOPSIS
+        The phrases a label can match: runs of adjacent word boxes, in box order (pure).
+    .DESCRIPTION
+        A new segment starts at the first box and at every box that does not
+        continue the one before it (Test-OcrWordBoxAdjacent), so two columns
+        on one line read as two segments. Assign the call directly: it
+        returns one array as one pipeline object.
+    .PARAMETER Box
+        Word boxes as Get-TesseractWordBox returns them; $null elements are skipped.
+    .OUTPUTS
+        System.Collections.Hashtable[]. Each segment: @{ block; par; line;
+        segment; text; x; y; w; h; words }, segment counted from 1 within its
+        line and the rectangle the union of its boxes.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable[]], [object[]])]
+    param([AllowEmptyCollection()][AllowNull()][object[]]$Box)
+    $found = [System.Collections.Generic.List[hashtable]]::new()
+    if ($null -eq $Box -or $Box.Count -eq 0) { return ,$found.ToArray() }
+    $heights = Get-OcrLineHeight -Box $Box
+    $perLine = @{}
+    $current = $null
+    $previous = $null
+    foreach ($entry in $Box) {
+        if ($null -eq $entry -or [string]::IsNullOrWhiteSpace([string]$entry.text)) { continue }
+        if ($null -eq $current -or -not (Test-OcrWordBoxAdjacent -Previous $previous -Next $entry -LineHeight $heights)) {
+            $key = '{0}.{1}.{2}' -f [int]$entry.block, [int]$entry.par, [int]$entry.line
+            $perLine[$key] = 1 + [int]$perLine[$key]
+            $current = @{ block = [int]$entry.block; par = [int]$entry.par; line = [int]$entry.line; segment = $perLine[$key]; Boxes = [System.Collections.Generic.List[object]]::new() }
+            $found.Add($current)
+        }
+        $current.Boxes.Add($entry)
+        $previous = $entry
+    }
+    foreach ($segment in $found) {
+        $minX = [int]::MaxValue; $minY = [int]::MaxValue; $maxX = [int]::MinValue; $maxY = [int]::MinValue
+        foreach ($part in $segment.Boxes) {
+            $minX = [math]::Min($minX, [int]$part.x)
+            $minY = [math]::Min($minY, [int]$part.y)
+            $maxX = [math]::Max($maxX, [int]$part.x + [int]$part.w)
+            $maxY = [math]::Max($maxY, [int]$part.y + [int]$part.h)
+        }
+        $segment.text = @($segment.Boxes | ForEach-Object { [string]$_.text }) -join ' '
+        $segment.x = $minX
+        $segment.y = $minY
+        $segment.w = $maxX - $minX
+        $segment.h = $maxY - $minY
+        $segment.words = $segment.Boxes.Count
+        $segment.Remove('Boxes')
+    }
+    return ,$found.ToArray()
+}
+
+function Get-OcrClosestWord {
+    <#
+    .SYNOPSIS
+        The words read that come closest to a label, best first, formatted
+        "'<text>' <pct>%" (pure).
+    .DESCRIPTION
+        Candidates are every box text and, for a label of k words with k at
+        least 2, every run of k consecutive boxes on one line whose word
+        numbers rise by one from box to box, so a run never joins the last
+        word of one read to the first word of another when a caller passes
+        two reads in one array. Each candidate is kept once without regard to
+        case, scored with Get-OCRSimilarityScore and rounded to two decimals;
+        scores under MinimumScore are dropped. Ties keep the order first seen.
+        The caller writes @(Get-OcrClosestWord ...).
+    .PARAMETER Box
+        Word boxes; $null elements are skipped.
+    .PARAMETER Label
+        The label that was sought.
+    .PARAMETER Maximum
+        At most this many entries, 1 to 20.
+    .PARAMETER MinimumScore
+        The lowest score listed, 0 to 1.
+    .OUTPUTS
+        [string[]] one entry per word or run.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [AllowEmptyCollection()][AllowNull()][object[]]$Box,
+        [AllowEmptyString()][string]$Label,
+        [ValidateRange(1, 20)][int]$Maximum = 5,
+        [ValidateRange(0.0, 1.0)][double]$MinimumScore = 0.6
+    )
+    $found = [System.Collections.Generic.List[string]]::new()
+    $boxes = @($Box | Where-Object { $null -ne $_ })
+    if ($boxes.Count -eq 0) { return [string[]]$found.ToArray() }
+    $seen = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $candidates = [System.Collections.Generic.List[string]]::new()
+    foreach ($entry in $boxes) {
+        $text = [string]$entry.text
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        if ($seen.Add($text)) { $candidates.Add($text) }
+    }
+    $k = @($Label.Trim() -split '\s+' | Where-Object { $_ }).Count
+    if ($k -ge 2) {
+        for ($i = 0; $i -le $boxes.Count - $k; $i++) {
+            $run = $true
+            for ($j = 1; $j -lt $k; $j++) {
+                $a = $boxes[$i + $j - 1]
+                $b = $boxes[$i + $j]
+                if ([int]$a.block -ne [int]$b.block -or [int]$a.par -ne [int]$b.par -or [int]$a.line -ne [int]$b.line -or
+                    [int]$b.word -ne [int]$a.word + 1) {
+                    $run = $false
+                    break
+                }
+            }
+            if (-not $run) { continue }
+            $text = @($boxes[$i..($i + $k - 1)] | ForEach-Object { [string]$_.text }) -join ' '
+            if ($seen.Add($text)) { $candidates.Add($text) }
+        }
+    }
+    $scored = [System.Collections.Generic.List[object]]::new()
+    for ($i = 0; $i -lt $candidates.Count; $i++) {
+        $score = [math]::Round((Get-OCRSimilarityScore -Text $candidates[$i] -Pattern $Label), 2)
+        if ($score -ge $MinimumScore) { $scored.Add([pscustomobject]@{ Text = $candidates[$i]; Score = $score; Index = $i }) }
+    }
+    $ordered = @($scored | Sort-Object -Property @{ Expression = 'Score'; Descending = $true }, @{ Expression = 'Index'; Ascending = $true } |
+        Select-Object -First $Maximum)
+    foreach ($entry in $ordered) {
+        $text = [regex]::Replace($entry.Text, '\p{Cc}', '?')
+        if ($text.Length -gt 40) { $text = $text.Substring(0, 40) + '...' }
+        $found.Add(("'{0}' {1}%" -f $text, [int][math]::Round($entry.Score * 100)))
+    }
+    return [string[]]$found.ToArray()
+}
+
+Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch, Get-OcrFreshWindowNearMiss, Get-OCRSimilarityScore, Get-OcrClosestOnScreen, New-OcrFallbackReuseState, Test-OCRSegmentMatch, Find-OcrWordBoxMatch, Get-OcrWordBoxLine, Get-OcrClosestWord

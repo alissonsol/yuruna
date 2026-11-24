@@ -184,11 +184,12 @@ known BEFORE New-VM below, matching the runner's same forward.
 
 <a id="42010605-000e"></a>
 
-### Derive GuestKey from the sequence's baseline map
+### Derive GuestKey from the sequence's resource map
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-Source of truth is the sequence's `baseline:` field -- whichever OS
+Source of truth is the sequence's `resource:` field (normalized internally
+to `baseline`) -- whichever OS
 key(s) it lists tell us which guest VM the sequence targets. The
 filename is NOT authoritative: a typo or rename would otherwise
 silently derail the whole chain (and a project sequence like
@@ -219,7 +220,7 @@ instead of targeting one named guest, so there is nothing to exempt.
 
 `yuruna/test/Debug-TestSequence.ps1`
 
-An orchestration sequence has no `baseline:` and its steps invoke inner
+An orchestration sequence has no `resource:` and its steps invoke inner
 sequences (guest or host-action) in order. Detected here -- after the
 host driver, runtime dirs, single-instance guard and OCR setup are up,
 but before the guest-only GuestKey + VM path -- and handed to
@@ -274,7 +275,7 @@ Initialize-YurunaOneShotEntryPoint (Test.Prelude) publishes the runtime and
 log directories, takes the one-shot lease (`oneshot.pid` + `oneshot.start`,
 the same pair shape as `runner.pid`), then runs Assert-NoOtherRunner, which
 refuses beside a live Start-TestRunner, another live one-shot run, or a host
-refresh. The lease comes first, and Start-TestRunner reads the lease after it
+operation. The lease comes first, and Start-TestRunner reads the lease after it
 writes `runner.pid`, so of two starts at the same moment at least one sees the
 other. A lease whose holder exited, or whose PID now names another process, is
 removed as that exact generation and taken; one whose holder cannot be proven
@@ -513,7 +514,7 @@ exit code through `Get-OneShotCycleExitCode` (Test.RecoveryContract): 0 passed,
 1 failed, 75 failed nothing but skipped a planned guest, 78 the configuration
 gate refused, 70 the cycle left no usable outcome record. A dispatch that held
 or stopped the cycle before a verdict -- a drained or paused pool, a host
-refresh, Ctrl+C -- exits 2. A CI consumer that needs to discriminate between
+operation, Ctrl+C -- exits 2. A CI consumer that needs to discriminate between
 the preflight steps reads the Stop-WithReason banner ("STOP (exit 1) at
 <Step>"). The $Step + $Reason in the banner carry the "why".
 
@@ -891,7 +892,7 @@ Every switch here forwards, -NoConfigGate included: the inner gates each
 cycle it runs, so an operator who bypassed the startup gate for an
 in-progress edit would otherwise be stopped by that same check one layer
 down, on the very run they asked to bypass it for.
-The refresh transport parameters are this script's own and never reach the
+The handoff transport parameters are this script's own and never reach the
 inner, whose strict binding would refuse them.
 
 <a id="42010605-0035"></a>
@@ -923,13 +924,13 @@ time (resolved by Initialize-YurunaRuntimeDir above).
 
 <a id="42010605-0037"></a>
 
-### Host-refresh gate at startup
+### Runner gate at startup
 
 `yuruna/test/Start-TestRunner.ps1`
 
-A normal start refuses while a host refresh holds this host's runner: it
+A normal start refuses while a host operation holds this host's runner: it
 would race the repair, and the repair restarts the runner itself when it
-finishes. A resumed start (launched by the refresh worker) must present a
+finishes. A resumed start (launched by the repair worker) must present a
 handoff token that validates for this runtime; a refused token writes a
 failed acknowledgment the worker is waiting for, when the gate still holds
 that token.
@@ -1379,6 +1380,10 @@ duplicate snippet name, or a snippet cycle FAILs the gate here -- before a
 cycle starts -- instead of dropping steps or aborting mid-guest. Snippet
 libraries are also shape-checked directly so a broken-but-unreferenced library
 doesn't hide until first use.
+Step sentences (`step:` entries) are resolved by the same read against the `_phrases.yml`
+libraries, so an unknown or malformed sentence or a broken library FAILs the gate the same
+way. Each `_phrases.yml` is also validated directly, with every other library in force for
+its folder, even when no sequence uses it.
 
 <a id="42010605-0054"></a>
 
@@ -1881,10 +1886,10 @@ waited for](network.md#4220a755-0048).
 
 ### Repair a wedged local hypervisor and leave the runner, its services and the listener running again -
 
-`yuruna/test/lab/Invoke-HostRefresh.ps1`
+`yuruna/test/lab/Invoke-HostRepair.ps1`
 
 One bounded repair attempt, the same implementation every channel uses:
-an operator's shell, the macOS bootstrap's refresh dispatch, the status
+an operator's shell, the macOS bootstrap's repair dispatch, the status
 listener, a pool-control request and the outer runner's automatic
 trigger. It climbs a ladder of rungs (probe, reclaim, start-if-stopped,
 restart-if-hung, ...) up to the requested ceiling, running only rungs
@@ -1895,7 +1900,7 @@ reserve of time.
 Safety properties:
   * One repair per host account at a time (a held-open lifetime lock),
     one durable request journal and recovery record under
-    $HOME/.yuruna/host-refresh, outside every served directory.
+    $HOME/.yuruna/host-repair, outside every served directory.
   * Nothing prompts: no console question, no consent dialog, no
     interactive sudo. Every native call is bounded by the invocation's
     915-second budget (60 s startup, 600 s ladder, 240 s convergence,
@@ -2192,30 +2197,46 @@ and calls this same per-host script afterwards.
 
 <a id="42010605-007c"></a>
 
-### Provision the secrets remote host refresh needs: the signing authority and operator credential for p
+### Provision the secrets remote host repair needs: the signing authority and operator credential for p
 
-`yuruna/test/lab/Set-HostRefreshCredential.ps1`
+`yuruna/test/lab/Set-HostRepairCredential.ps1`
 
-Remote refresh is authorized by secrets of its own, never by the lab
+Remote repair is authorized by secrets of its own, never by the lab
 token, a lab session or the internal authentication key, all of which are
 reachable from the dashboard's enrollment path. This script creates and
 moves them, and prompts for nothing:
 
   1. -NewAuthority, on the operator's machine: creates authority.key
      (the signing authority) and operator.credential (what callers send
-     in X-Yuruna-Refresh-Credential), owner-only, under the private root's
+     in X-Yuruna-Operator-Credential), owner-only, under the private root's
      authority directory. Copy both to pool-control's
-     /etc/yuruna/host-refresh/ with owner-only permissions; never copy them
+     /etc/yuruna/host-repair/ with owner-only permissions; never copy them
      to a pool host.
   2. -ExportHostKey -HostId <id> -OutputPath <file>, on the same machine:
      derives one host's verifier key and writes it for transport.
   3. -InstallHostKey -KeyPath <file>, on that host: installs the key into
      the host's private root. A host that is also the authority machine
      can use -InstallHostKey -AuthorityDirectory <dir> instead.
-  4. -RemoveHostKey on a host withdraws it from remote refresh.
+  4. -RemoveHostKey on a host withdraws it from remote repair.
+
+Remote host update needs a key of its own, never a secret on a host:
+
+  5. -NewUpdateSigningKey, on the operator's machine: creates
+     update-signing.key (an RSA key of 3072 bits, owner-only) in the
+     authority directory and prints its public key line. Copy the key to
+     pool-control's /etc/yuruna/host-repair/update-signing.key with
+     owner-only permissions; never copy it to a pool host.
+  6. -InstallPoolControlRecord -PoolControlUrl <url> -PublicKey <line>, on
+     each host: writes the pool-control record, with the address its
+     Diagnostics page sends a press from another machine to and the public key update
+     proofs verify with. Each value it replaces is printed as
+     previous -> new before the record is written. A host that is also the
+     authority machine can use -AuthorityDirectory <dir> instead of
+     -PublicKey. -RemovePoolControlRecord withdraws the host.
 
 Without a switch, the script reports the host's key state and the
-authority state. Secrets never reach the output: only tags (non-secret
+authority state, then the pool-control record's state and whether an
+update signing key is present. Secrets never reach the output: only tags (non-secret
 names) and paths do. The host id is read from runtime/host.uuid and is
 never minted here. Exit code 0 on success, 1 on a refusal.
 

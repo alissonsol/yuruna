@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42875271-1829-42b3-b731-1d7a16616cfd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1149,7 +1149,7 @@ Describe 'the beacon keeps announcing whatever the census does' -Skip:$IsWindows
         $run.Finished | Should -BeTrue
         $run.ExitCode | Should -Be 0
         $run.Output | Should -Match 'status service is gone|runner\.operator_ff5d44dc6a9f0d66'
-        Test-Path -LiteralPath (Join-Path $homeDir '.yuruna/host-refresh/service-census.record') | Should -BeTrue
+        Test-Path -LiteralPath (Join-Path $homeDir '.yuruna/host-repair/service-census.record') | Should -BeTrue
     }
 
     It 'keeps looping, and ends only on the status-service signal, when the census cannot load' {
@@ -1161,6 +1161,6 @@ Describe 'the beacon keeps announcing whatever the census does' -Skip:$IsWindows
         $run.Finished | Should -BeTrue
         $run.ExitCode | Should -Be 0
         $run.Output | Should -Match 'status service is gone|runner\.operator_ff5d44dc6a9f0d66'
-        Test-Path -LiteralPath (Join-Path $homeDir '.yuruna/host-refresh/service-census.record') | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $homeDir '.yuruna/host-repair/service-census.record') | Should -BeFalse
     }
 }

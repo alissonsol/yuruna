@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4285f6b7-ed85-acb7-05f2-67970932d046
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -648,7 +648,7 @@
         }
     )
     'exceptions.host_ffd2efb19a40de43' = '⁦Enable-TestAutomation.ps1⁩ (host⁦/windows.hyper-v⁩) פועל רק במערכת Windows.'
-    'exceptions.host_refresh_auth_authority_incomplete' = @(
+    'exceptions.host_repair_auth_authority_incomplete' = @(
         'הקובץ '
         @{
             'arg' = 'path'
@@ -669,8 +669,8 @@
         }
         '); הפעילו עם ⁦-NewAuthority⁩ ⁦-Rotate⁩ כדי לכתוב את שניהם מחדש.'
     )
-    'exceptions.host_refresh_auth_authority_missing' = @(
-        'לא נמצאה סמכות רענון תחת '
+    'exceptions.host_repair_auth_authority_missing' = @(
+        'לא נמצאה סמכות תיקון תחת '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -678,8 +678,8 @@
         }
         '; צרו תחילה סמכות באמצעות ⁦-NewAuthority⁩.'
     )
-    'exceptions.host_refresh_auth_host_id_mismatch' = @(
-        'מפתח הרענון הונפק עבור המארח '
+    'exceptions.host_repair_auth_host_id_mismatch' = @(
+        'מפתח אימות התיקון הונפק עבור המארח '
         @{
             'arg' = 'keyHostId'
             'type' = 'identifier'
@@ -693,7 +693,7 @@
         }
         '; יצאו מפתח עבור מארח זה במקום זאת.'
     )
-    'exceptions.host_refresh_auth_host_id_unavailable' = @(
+    'exceptions.host_repair_auth_host_id_unavailable' = @(
         'למארח זה עדיין אין מזהה מארח ('
         @{
             'arg' = 'path'
@@ -702,22 +702,22 @@
         }
         ' חסר); הפעילו את המריץ פעם אחת כדי שייווצר ⁦host.uuid⁩, ואז נסו שוב.'
     )
-    'exceptions.host_refresh_auth_invalid_claim' = @(
+    'exceptions.host_repair_auth_invalid_claim' = @(
         'השדה '
         @{
             'arg' = 'field'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        ' בהוכחת הרענון אינו תקין.'
+        ' בהוכחת התיקון אינו תקין.'
     )
-    'exceptions.host_refresh_auth_key_malformed' = @(
+    'exceptions.host_repair_auth_key_malformed' = @(
         @{
             'arg' = 'path'
             'type' = 'detail'
             'trust' = 'internal'
         }
-        ' אינו קובץ מפתח רענון (נדרשת שורה אחת שמתחילה ב-'
+        ' אינו קובץ של סמכות תיקון או של מפתח אימות תיקון (נדרשת שורה אחת שמתחילה ב-'
         @{
             'arg' = 'prefix'
             'type' = 'token'
@@ -725,7 +725,7 @@
         }
         ').'
     )
-    'exceptions.host_refresh_auth_key_permissions_open' = @(
+    'exceptions.host_repair_auth_key_permissions_open' = @(
         'משתמשים אחרים יכולים לקרוא את '
         @{
             'arg' = 'path'
@@ -734,8 +734,8 @@
         }
         '; הגבילו את הגישה לבעלי הקובץ בלבד (chmod 600) ונסו שוב.'
     )
-    'exceptions.host_refresh_auth_key_unusable' = @(
-        'לא ניתן להשתמש בקובץ מפתח הרענון '
+    'exceptions.host_repair_auth_key_unusable' = @(
+        'לא ניתן להשתמש בקובץ סמכות התיקון או מפתח אימות התיקון '
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -749,7 +749,7 @@
         }
         ').'
     )
-    'exceptions.host_refresh_auth_key_write_failed' = @(
+    'exceptions.host_repair_auth_key_write_failed' = @(
         'לא ניתן היה לכתוב את '
         @{
             'arg' = 'path'
@@ -764,16 +764,16 @@
         }
         ').'
     )
-    'exceptions.host_refresh_auth_private_root_unavailable' = @(
+    'exceptions.host_repair_auth_private_root_unavailable' = @(
         'לא ניתן היה לאבטח את תיקיית השורש של המצב הפרטי ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
             'trust' = 'internal'
         }
-        '); לא נכתב מפתח רענון.'
+        '); לא נכתב סוד תיקון.'
     )
-    'exceptions.host_refresh_relaunch_parameter_unsupported' = @(
+    'exceptions.host_repair_relaunch_parameter_unsupported' = @(
         'הפרמטר '
         @{
             'arg' = 'name'
@@ -788,8 +788,8 @@
         }
         ', שאינו ניתן להעברה בהפעלה מחדש תחת קבוצת libvirt.'
     )
-    'exceptions.host_refresh_worker_argument_invalid' = @(
-        'ארגומנט תהליך העבודה של host-refresh, ששמו '
+    'exceptions.host_repair_worker_argument_invalid' = @(
+        'ארגומנט תהליך העבודה של host-repair, ששמו '
         @{
             'arg' = 'name'
             'type' = 'identifier'
@@ -804,6 +804,30 @@
             'type' = 'detail'
             'trust' = 'external'
         }
+    )
+    'exceptions.host_update_auth_public_key_invalid' = 'המפתח הציבורי של pool-control חייב להיות שורת yupk1 היחידה ש-⁦-NewUpdateSigningKey⁩ הדפיס, ובה מפתח RSA של 3072 סיביות לפחות.'
+    'exceptions.host_update_auth_signing_key_unusable' = @(
+        'לא ניתן להשתמש במפתח החתימה לעדכון מארח '
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ' ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        '); צרו מפתח באמצעות ⁦-NewUpdateSigningKey⁩.'
+    )
+    'exceptions.host_update_auth_url_invalid' = @(
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' אינה כתובת של pool-control: ספקו כתובת URL מוחלטת מסוג http או https באורך של עד 256 בתים, ללא שם משתמש, שאילתה או מקטע.'
     )
     'exceptions.host_utm_sudo_requires_noninteractive' = '⁦Invoke-UtmHostTool⁩: יש לקרוא ל-sudo עם -n כארגומנט הראשון, כדי שלעולם לא ימתין להזנת סיסמה.'
     'exceptions.host_utmctl_kill_requires_stop' = @(

@@ -362,26 +362,26 @@ func TestApplyValidatesItsRequest(t *testing.T) {
 	}
 }
 
-// A refresh belongs to a single explicitly authorized host, never to this
-// pool-wide fan-out: it is the typed per-host hostctl.Refresh method behind
+// A repair belongs to a single explicitly authorized host, never to this
+// pool-wide fan-out: it is the typed per-host hostctl.Repair method behind
 // its own credential gate, and never a hostctl.KnownAction. KnownAction
-// ("refresh") is false, so this would 400 either way -- the point of asserting
+// ("repair") is false, so this would 400 either way -- the point of asserting
 // the SPECIFIC message is to fail this test if the independent check is ever
 // deleted in favor of relying on that list, which a later action could change.
-func TestApplyRefusesRefreshOverHTTPRegardlessOfKnownAction(t *testing.T) {
+func TestApplyRefusesRepairOverHTTPRegardlessOfKnownAction(t *testing.T) {
 	h := newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
 	srv := ctlServer(t, ctlConfiguration("42aa"), agg.URL, testBearer)
 
-	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"refresh"}`)
+	resp, m := do(t, "POST", srv.URL+"/api/pool/host-control", `{"poolId":"lab","action":"repair"}`)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d (%v)", resp.StatusCode, http.StatusBadRequest, m)
 	}
 	if !strings.Contains(fmt.Sprint(m["error"]), "not available through pool-wide control") {
-		t.Errorf("error = %v, want it to name pool-wide refresh specifically", m["error"])
+		t.Errorf("error = %v, want it to name pool-wide repair specifically", m["error"])
 	}
 	if got := h.recorded(); len(got) != 0 {
-		t.Errorf("a refused refresh still drove hosts: %v", got)
+		t.Errorf("a refused repair still drove hosts: %v", got)
 	}
 }
 
@@ -391,7 +391,7 @@ func TestApplyRefusesRefreshOverHTTPRegardlessOfKnownAction(t *testing.T) {
 // validate a tool's InputSchema at call time -- so the refusal has to live in
 // the handler itself to cover both entry points, and this test drives the MCP
 // path directly rather than trusting that the HTTP-path test above implies it.
-func TestApplyRefusesRefreshOverMCPRegardlessOfKnownAction(t *testing.T) {
+func TestApplyRefusesRepairOverMCPRegardlessOfKnownAction(t *testing.T) {
 	h := newCtlHost(t, "")
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
 	srv := New(ctlConfiguration("42aa"), Options{AggregatorURL: agg.URL, AuthToken: testBearer})
@@ -400,15 +400,15 @@ func TestApplyRefusesRefreshOverMCPRegardlessOfKnownAction(t *testing.T) {
 	if !ok {
 		t.Fatal("pool_control_set_host_control not registered")
 	}
-	_, err := tool.Handler(context.Background(), json.RawMessage(`{"poolId":"lab","action":"refresh"}`))
+	_, err := tool.Handler(context.Background(), json.RawMessage(`{"poolId":"lab","action":"repair"}`))
 	if err == nil {
-		t.Fatal("expected the MCP tool to refuse action=refresh, got no error")
+		t.Fatal("expected the MCP tool to refuse action=repair, got no error")
 	}
 	if !strings.Contains(err.Error(), "not available through pool-wide control") {
-		t.Errorf("error = %v, want it to name pool-wide refresh specifically", err)
+		t.Errorf("error = %v, want it to name pool-wide repair specifically", err)
 	}
 	if got := h.recorded(); len(got) != 0 {
-		t.Errorf("a refused refresh still drove hosts: %v", got)
+		t.Errorf("a refused repair still drove hosts: %v", got)
 	}
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 424fcb83-70f8-4a61-899b-5252d0c26fea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,6 +116,15 @@
     New-YurunaTestTcpListener, Get-YurunaTestFreePort, New-YurunaTestSocketPair
     and Start-/Stop-YurunaTestHttpResponder do it once; a suite whose listener is
     the subject of its tests is listed with the reason.
+
+    The tenth rule covers the per-user state under $HOME/.yuruna: the private
+    state root, the runner gate, the service census and the host-operation
+    records. A suite that reaches it under the real home reads the live
+    host's gate, so the host's state decides its result, and resolving the
+    root can move the operator's own records. Every suite listed as reaching
+    it calls Enter-YurunaTestHome in its top-level BeforeAll and
+    Exit-YurunaTestHome in its top-level AfterAll, and no suite enters or
+    leaves a scratch home anywhere else.
 #>
 
 BeforeAll {
@@ -480,9 +489,73 @@ BeforeAll {
     $script:ListenerCopyAllowed = [ordered]@{
         'test/modules/Test.DownloadAgentService.Tests.ps1'    = 'a fake download agent answers the agent API from a plan the test changes as it runs (an ensure queue, Range requests, a first transfer cut short), which scripted replies cannot express'
         'test/modules/Test.PortOwner.Tests.ps1'               = 'the module under test probes a port with an HttpListener prefix bind, so the port it must find held is held by an HttpListener prefix'
-        'test/modules/Test.StatusServiceRefreshSafe.Tests.ps1' = 'the test proves the listener that held the port still accepts after a refused start, so it accepts on that listener itself'
+        'test/modules/Test.StatusServiceNonDestructive.Tests.ps1' = 'the test proves the listener that held the port still accepts after a refused start, so it accepts on that listener itself'
         'test/modules/Test.Transport.Tests.ps1'               = 'a fake VNC server speaks the RFB handshake and closes its end the way a stopping VM does, which is not HTTP'
         'test/modules/Test.UtmSerialConsole.Tests.ps1'        = 'a fake QEMU serial port and HMP monitor accept the connections the reader and the monitor capture open themselves, stream console bytes and prompts, and close the way a stopping VM does, which is not HTTP'
+    }
+
+    # Where a suite enters and leaves Enter-YurunaTestHome: an Enter inside a
+    # BeforeAll, or an Exit inside an AfterAll, that is a statement of the
+    # file itself counts as suite-wide; any other call is reported by line,
+    # because an Exit inside a Describe puts the real home back for every
+    # block that runs after it.
+    function Get-SuiteScratchHome {
+        param([Parameter(Mandatory)][System.Management.Automation.Language.Ast]$Ast)
+        $topLevel = @{ BeforeAll = @(); AfterAll = @() }
+        foreach ($statement in @($Ast.EndBlock.Statements)) {
+            $command = if ($statement -is [System.Management.Automation.Language.PipelineAst]) { $statement.PipelineElements[0] } else { $null }
+            if ($command -is [System.Management.Automation.Language.CommandAst] -and $command.GetCommandName() -in @('BeforeAll', 'AfterAll')) {
+                $topLevel[$command.GetCommandName()] += $command
+            }
+        }
+        $calls = @($Ast.FindAll({
+                    param($n)
+                    $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -in @('Enter-YurunaTestHome', 'Exit-YurunaTestHome')
+                }, $true))
+        $enter = @($calls | Where-Object { $_.GetCommandName() -eq 'Enter-YurunaTestHome' })
+        $exit = @($calls | Where-Object { $_.GetCommandName() -eq 'Exit-YurunaTestHome' })
+        [pscustomobject]@{
+            Enters    = $enter.Count -gt 0
+            SuiteWide = (@($enter | Where-Object { & $script:WithinBlock $_ $topLevel.BeforeAll }).Count -gt 0) -and
+                (@($exit | Where-Object { & $script:WithinBlock $_ $topLevel.AfterAll }).Count -gt 0)
+            Elsewhere = @(@($enter | Where-Object { -not (& $script:WithinBlock $_ $topLevel.BeforeAll) }) +
+                @($exit | Where-Object { -not (& $script:WithinBlock $_ $topLevel.AfterAll) }) |
+                    ForEach-Object { $_.Extent.StartLineNumber } | Sort-Object)
+        }
+    }
+
+    # Suites that reach $HOME/.yuruna -- the private state root, the runner
+    # gate, the service census, the host-operation records, or a child process
+    # that inherits HOME -- found by running every suite under a sentinel home
+    # and tracing the paths it touched. Each runs under a scratch home for its
+    # whole lifetime. A suite that starts reaching the per-user state joins
+    # this list.
+    $script:ScratchHomeSuite = @(
+        'test/modules/Test.ConfigGateCauses.Tests.ps1'
+        'test/modules/Test.GitMirrorNativeInstall.Tests.ps1'
+        'test/modules/Test.GuestMirror.Tests.ps1'
+        'test/modules/Test.HostControllerRegistration.Tests.ps1'
+        'test/modules/Test.HostRepair.Tests.ps1'
+        'test/modules/Test.HostUpdateController.Tests.ps1'
+        'test/modules/Test.HostUpdateStep.Tests.ps1'
+        'test/modules/Test.HyperVHostSeedIp.Tests.ps1'
+        'test/modules/Test.RecoveryOuterLoop.Tests.ps1'
+        'test/modules/Test.RunnerCycleOptionForwarding.Tests.ps1'
+        'test/modules/Test.RunnerCycleSplit.Tests.ps1'
+        'test/modules/Test.RunnerOutcomeRecord.Tests.ps1'
+        'test/modules/Test.RunnerOuterLoop.Tests.ps1'
+        'test/modules/Test.RunnerSelfRescue.Tests.ps1'
+        'test/modules/Test.ServiceVmIntegrity.Tests.ps1'
+        'test/modules/Test.ServiceVmReadiness.Tests.ps1'
+        'test/modules/Test.TempHousekeeping.Tests.ps1'
+        'test/modules/Test.WorkloadSession.Tests.ps1'
+    )
+
+    # Suites that enter a scratch home for less than the whole suite, each
+    # with the reason. An entry that stops applying fails the stale-entry test
+    # below.
+    $script:ScratchHomePartialAllowed = [ordered]@{
+        'test/modules/Test.Assert.Tests.ps1' = 'the helper''s own cases enter and leave a scratch home inside one test, to show what it changes and that it puts everything back'
     }
 }
 
@@ -1100,6 +1173,102 @@ $($unlisted -join "`n")
         Assert-True ($stale.Count -eq 0) @"
 these entries of the listed-listener table no longer open a listener
 themselves. Remove them, so a copy pasted back later is caught:
+$($stale -join "`n")
+"@
+    }
+}
+
+Describe 'every suite that reaches the per-user state runs under a scratch home' {
+    BeforeAll {
+        $script:ScratchHomeFound = @(foreach ($rel in $script:Suites) {
+                $use = Get-SuiteScratchHome -Ast (Get-SuiteAst -Relative $rel)
+                [pscustomobject]@{ Suite = $rel; Enters = $use.Enters; SuiteWide = $use.SuiteWide; Elsewhere = $use.Elsewhere }
+            })
+    }
+
+    It 'tells a suite-wide scratch home from one entered or left elsewhere, or never left' {
+        $suiteWide = @'
+BeforeAll {
+    $script:TestHome = Enter-YurunaTestHome
+}
+AfterAll { Exit-YurunaTestHome $script:TestHome }
+Describe 'a block' { It 'runs' { $true } }
+'@
+        $neverLeft = @'
+BeforeAll {
+    $script:TestHome = Enter-YurunaTestHome
+}
+Describe 'a block' {
+    AfterAll { Exit-YurunaTestHome $script:TestHome }
+    It 'runs' { $true }
+}
+'@
+        $elsewhere = @'
+BeforeAll { $script:Dir = 'x' }
+AfterAll { Exit-YurunaTestHome $script:TestHome }
+Describe 'a block' {
+    BeforeAll { $script:TestHome = Enter-YurunaTestHome }
+    It 'runs' { $true }
+}
+'@
+        $leftEarly = @'
+BeforeAll {
+    $script:TestHome = Enter-YurunaTestHome
+}
+AfterAll { Exit-YurunaTestHome $script:TestHome }
+Describe 'a block' {
+    AfterAll { Exit-YurunaTestHome $script:TestHome }
+    It 'runs' { $true }
+}
+'@
+        $wide = Get-SuiteScratchHome -Ast ([System.Management.Automation.Language.Parser]::ParseInput($suiteWide, [ref]$null, [ref]$null))
+        $left = Get-SuiteScratchHome -Ast ([System.Management.Automation.Language.Parser]::ParseInput($neverLeft, [ref]$null, [ref]$null))
+        $inner = Get-SuiteScratchHome -Ast ([System.Management.Automation.Language.Parser]::ParseInput($elsewhere, [ref]$null, [ref]$null))
+        $early = Get-SuiteScratchHome -Ast ([System.Management.Automation.Language.Parser]::ParseInput($leftEarly, [ref]$null, [ref]$null))
+        Assert-True ($wide.Enters -and $wide.SuiteWide -and $wide.Elsewhere.Count -eq 0) 'a top-level BeforeAll and AfterAll pair is suite-wide'
+        Assert-True ($left.Enters -and -not $left.SuiteWide) 'a home left only inside a Describe is not suite-wide'
+        Assert-True ($inner.Enters -and -not $inner.SuiteWide) 'a home entered inside a Describe is not suite-wide'
+        Assert-StringEqual '4' ($inner.Elsewhere -join ',') 'the call outside the top-level BeforeAll is reported by line'
+        Assert-True ($early.Enters -and $early.SuiteWide) 'a top-level pair is still found beside an earlier Exit'
+        Assert-StringEqual '6' ($early.Elsewhere -join ',') 'an Exit inside a Describe, which puts the real home back for the blocks after it, is reported by line'
+    }
+
+    It 'enters a scratch home for the whole suite in every listed suite' {
+        $missing = @($script:ScratchHomeSuite | Where-Object {
+                $rel = $_
+                -not @($script:ScratchHomeFound | Where-Object { $_.Suite -ceq $rel -and $_.SuiteWide }).Count
+            })
+        Assert-True ($missing.Count -eq 0) @"
+these suites reach `$HOME/.yuruna but do not call Enter-YurunaTestHome in their
+top-level BeforeAll and Exit-YurunaTestHome in their top-level AfterAll
+(test/modules/Test.Assert.psm1), so a run reads, and can move, the operator's
+own state:
+$($missing -join "`n")
+"@
+    }
+
+    It 'enters a scratch home only in a top-level BeforeAll, and leaves it in a top-level AfterAll' {
+        $partial = @($script:ScratchHomeFound | Where-Object { $_.Enters -and (-not $_.SuiteWide -or $_.Elsewhere.Count) } |
+                Where-Object { $_.Suite -cnotin @($script:ScratchHomePartialAllowed.Keys) } | ForEach-Object { '{0}:{1}' -f $_.Suite, ($_.Elsewhere -join ',') })
+        Assert-True ($partial.Count -eq 0) @"
+these suites enter a scratch home somewhere other than their top-level
+BeforeAll, or leave it somewhere other than, or never in, their top-level
+AfterAll. A home entered for part of a suite leaves the rest of it on the
+operator's own; a suite that has to is listed with its reason:
+$($partial -join "`n")
+"@
+    }
+
+    It 'lists no suite that no longer exists, or that has stopped entering a scratch home for part of its run' {
+        $stale = @($script:ScratchHomeSuite | Where-Object { $_ -cnotin $script:Suites })
+        $stale += @(@($script:ScratchHomePartialAllowed.Keys) | Where-Object {
+                $rel = $_
+                -not @($script:ScratchHomeFound | Where-Object { $_.Suite -ceq $rel -and $_.Enters -and (-not $_.SuiteWide -or $_.Elsewhere.Count) }).Count
+            })
+        Assert-True ($stale.Count -eq 0) @"
+these entries of the scratch-home tables no longer apply: the suite is gone,
+or it no longer enters a scratch home for part of its run. Remove or rename
+them, so a copy pasted back later is caught:
 $($stale -join "`n")
 "@
     }

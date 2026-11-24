@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42ea34d8-15ca-4975-b90d-c0c44c40017d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -518,6 +518,73 @@ function Get-WarmResumeBoundarySnapshotId {
     }
 }
 
+# --- REGION: Page session
+# A page is closed when the sequence that opened it ends, so a replay has a
+# page only when it opens one itself before any step that needs one. webClose
+# is not a dependent verb: it succeeds with no page open.
+$script:PageOpenVerb = 'webOpen'
+$script:PageDependentVerb = @('webClick', 'webFill', 'webSelect', 'webPress', 'webExpect')
+
+function Get-WarmResumeFirstPageVerb {
+    <#
+    .SYNOPSIS
+        The first page verb a list of steps runs, opening or dependent, looking
+        inside wrapper steps; '' when there is none.
+    .DESCRIPTION
+        Pure. Verb names compare without regard to case, as the registry looks
+        them up. stepsAfterVmRestart is not read.
+    .OUTPUTS
+        [string] the action name, or ''.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyCollection()][object[]]$Step,
+        [int]$Depth = 0
+    )
+    if ($Depth -ge 8) { return '' }
+    foreach ($item in @($Step)) {
+        if ($null -eq $item) { continue }
+        $action = [string]$item.action
+        if ($action -eq $script:PageOpenVerb -or $action -in $script:PageDependentVerb) { return $action }
+        $inner = @(@($item.steps) | Where-Object { $null -ne $_ })
+        if ($inner.Count -gt 0) {
+            $found = Get-WarmResumeFirstPageVerb -Step $inner -Depth ($Depth + 1)
+            if ($found) { return $found }
+        }
+    }
+    return ''
+}
+
+function Test-WarmResumeNeedsOpenPage {
+    <#
+    .SYNOPSIS
+        Whether a replay from a step would reach a page step before a webOpen,
+        so it would find no page.
+    .OUTPUTS
+        [bool] $false when the file cannot be read or the step is outside it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Path,
+        [int]$ResumeFromStep
+    )
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $false }
+    if (-not (Get-Command Read-SequenceFile -ErrorAction SilentlyContinue)) { return $false }
+    try {
+        $seq = Read-SequenceFile -Path $Path
+        if ($seq -isnot [System.Collections.IDictionary] -or -not $seq.Contains('steps')) { return $false }
+        $steps = @($seq['steps'])
+        if ($ResumeFromStep -lt 1 -or $ResumeFromStep -gt $steps.Count) { return $false }
+        $first = Get-WarmResumeFirstPageVerb -Step $steps[($ResumeFromStep - 1)..($steps.Count - 1)]
+        return [bool]($first -and $first -in $script:PageDependentVerb)
+    } catch {
+        Write-Verbose "Test-WarmResumeNeedsOpenPage: could not read $Path ($($_.Exception.Message)); no page step assumed."
+        return $false
+    }
+}
+
 function New-WarmResumeDeclinedEvent {
     <#
     .SYNOPSIS
@@ -527,10 +594,10 @@ function New-WarmResumeDeclinedEvent {
         Declining leaves the original failure standing, which is the right
         outcome and an invisible one: nothing else records that a recovery was
         considered. The reason is a stable token (no-restore-point,
-        restore-point-missing, safety-check-unavailable) so a remediation loop or
-        dashboard can route on it, and replayClass names what made the step
-        unsafe. Blank context fields are dropped so the typed-string schema
-        check passes.
+        restore-point-missing, safety-check-unavailable, page-session-ended) so
+        a remediation loop or dashboard can route on it, and replayClass names
+        what made the step unsafe. Blank context fields are dropped so the
+        typed-string schema check passes.
     .OUTPUTS
         [System.Collections.Specialized.OrderedDictionary] the event record.
     #>
@@ -597,9 +664,10 @@ function Resolve-WarmResumeReplayPlan {
     .OUTPUTS
         [pscustomobject] ResumeFromStep (where to restart), Rewound, BoundaryStep,
         Actions and Classes (the sequence's steps as the plan saw them),
-        DeclineReason ('' to go ahead; 'no-restore-point', 'restore-point-missing'
-        or 'safety-check-unavailable' to decline), ReplayClass (the worst class
-        of the replayed steps, set only when declining) and StepEffectSource
+        DeclineReason ('' to go ahead; 'no-restore-point', 'restore-point-missing',
+        'safety-check-unavailable' or 'page-session-ended' to decline),
+        ReplayClass (the worst class of the replayed steps, set only when
+        declining for another reason than page-session-ended) and StepEffectSource
         (the handler's proof the plan relied on to replay in place, else '').
     #>
     [CmdletBinding()]
@@ -631,15 +699,17 @@ function Resolve-WarmResumeReplayPlan {
     # names a step of the run that failed, so it holds only while that step
     # still exists in the file.
     if ([string]$Checkpoint.StepEffect -ceq 'none-proven' -and $checkpointStep -ge 1 -and $checkpointStep -le $actions.Count) {
+        # The page the failed call opened ended with it.
+        $pageDecline = if (Test-WarmResumeNeedsOpenPage -Path $sequencePath -ResumeFromStep $checkpointStep) { 'page-session-ended' } else { '' }
         return [pscustomobject]@{
             ResumeFromStep   = $checkpointStep
             Rewound          = $false
             BoundaryStep     = 0
             Actions          = $actions
             Classes          = [string[]]@()
-            DeclineReason    = ''
+            DeclineReason    = $pageDecline
             ReplayClass      = ''
-            StepEffectSource = [string]$Checkpoint.StepEffectSource
+            StepEffectSource = if ($pageDecline) { '' } else { [string]$Checkpoint.StepEffectSource }
         }
     }
     $rewind = Get-WarmResumeRewindStep -StepAction $actions -ResumeFromStep $checkpointStep
@@ -674,8 +744,11 @@ function Resolve-WarmResumeReplayPlan {
             $decline = 'safety-check-unavailable'
         }
     }
+    # A new token, not no-restore-point: that one tells the operator the step
+    # runs guest work, which is false for a console wait that page steps follow.
+    if (-not $decline -and (Test-WarmResumeNeedsOpenPage -Path $sequencePath -ResumeFromStep $step)) { $decline = 'page-session-ended' }
     $replayClass = ''
-    if ($decline) {
+    if ($decline -and $decline -cne 'page-session-ended') {
         $replayClass = 'unclassified'
         try { $replayClass = [string](Get-WarmResumeReplayClass -StepAction $actions -ResumeFromStep $checkpointStep -StepReplayClass $classes) } catch { $replayClass = 'unclassified' }
     }
@@ -696,5 +769,5 @@ Export-ModuleMember -Function `
     Read-WarmResumeCheckpoint, Get-WarmResumeDecision, New-WarmResumeEvent, New-WarmResumeDeclinedEvent, `
     Get-WarmResumeRewindStep, Get-WarmResumeStepAction, Get-WarmResumeStepReplayClass, `
     Get-WarmResumeReplayClass, Get-WarmResumeActionReplayClass, Get-WarmResumeBoundarySnapshotId, `
-    Test-WarmResumeReplayIsSafe, `
+    Test-WarmResumeReplayIsSafe, Get-WarmResumeFirstPageVerb, `
     Resolve-WarmResumeReplayPlan

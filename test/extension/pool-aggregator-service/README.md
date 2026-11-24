@@ -231,11 +231,11 @@ Every `-interval` (default 30s) it:
    cannot persist); a host that does not answer keeps the last one, since the row
    already reports it unreachable. See
    [control-routes.md](../../../docs/control-routes.md#get-controlcontrol-status).
-5f. **Reports whether each host can take a remote refresh.** The same
-   `control-status` answer carries a small `refresh` object (protocol,
+5f. **Reports whether each host can take a remote repair.** The same
+   `control-status` answer carries a small `repair` object (protocol,
    availability, ceiling rung, reason, whether the host holds a remote verifier
    key, and its request state). The aggregator clamps every field to its
-   vocabulary and publishes it as the `refresh` object of each
+   vocabulary and publishes it as the `repair` object of each
    `/api/v1/pool-status` host, next to the unchanged `control` string, stamped
    with `observedUnixMs` and `ageSeconds`. Unlike `control`, the reading is
    **never carried forward**: a host whose control-status fails to read (a
@@ -246,12 +246,12 @@ Every `-interval` (default 30s) it:
    `available` reading older than `max(2 min, 3 x -interval)` reads
    `observation_expired`. The last detail is kept for display only. `/metrics`
    exports one bounded gauge,
-   `yuruna_pool_host_refresh_available{pool,hostId,hostIdDashed,state}` (1 or 0;
+   `yuruna_pool_host_repair_available{pool,hostId,hostIdDashed,state}` (1 or 0;
    `state` is one of `idle`, `active`, `recovery_pending`, `unknown`), and
    `yuruna_pool_host_info` gains no label. This service never mints, stores or
-   forwards a refresh proof and has no refresh route or MCP tool: remote refresh
+   forwards a repair proof and has no repair route or MCP tool: remote repair
    is authorized only by pool-control's credential-gated per-host route. See
-   [pool-admin.md](../../../docs/pool-admin.md#remote-host-refresh).
+   [pool-admin.md](../../../docs/pool-admin.md#remote-host-repair).
 6. **Survives its own restart:** on startup it rehydrates the cycle counters (and
    the seen/counted dedup state) from Loki -- the durable transition record --
    over the trailing `-rehydrate-window`. The counter resumes at its prior value
@@ -500,7 +500,7 @@ unaffected (graceful degradation).
   links, and the Pool hosts table's **Control** cell, all target
   `${aggregator}`, a hidden constant variable holding this
   proxy's `/go/` base -- routing every host click through `/go/host` is what
-  hands the browser the short-lived control token the host's Pause/Continue
+  hands the browser the short-lived control proof the host's Pause/Continue
   buttons require. **A Host ID cell opens a menu, never a single destination.** Its
   first entry is that row's full id, GUID-formatted -- text to read and copy, pointing
   at `#` so it navigates nowhere; the second is the row's own action, which is why a
@@ -813,6 +813,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../../../README.md)

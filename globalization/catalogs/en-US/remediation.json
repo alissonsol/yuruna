@@ -3,6 +3,53 @@
   "domain": "remediation",
   "locale": "en-US",
   "messages": {
+    "remediation.web_account_action": {
+      "message": "This step drove a page: kind and detail in causeDetail.web of last_failure.json name what failed on the way to the page",
+      "description": "Extra recovery action that test/modules/Test.Remediation.psm1 appends when a page step failed under a class other than web_step_failed. Preserve the field names kind, detail and causeDetail.web and the file name last_failure.json.",
+      "lifecycle": "active"
+    },
+    "remediation.web_step_failed_rationale": {
+      "message": "web_step_failed on {vmName}: a page step ended on what its page showed (kind: {kind}; sought: {target}; page: {url}). It is not retried unattended: the test or the site has to change first.",
+      "description": "Rationale of the web_step_failed recovery handler in test/modules/Test.Remediation.psm1. Preserve the failure class name web_step_failed; kind is a stable token and stays untranslated; vmName, target and url are untrusted display data, and kind, target and url read '-' when the record has none.",
+      "lifecycle": "active",
+      "placeholders": {
+        "vmName": {
+          "type": "detail",
+          "trust": "external",
+          "example": "test-ubuntu-server-24"
+        },
+        "kind": {
+          "type": "token",
+          "trust": "internal",
+          "example": "not_found"
+        },
+        "target": {
+          "type": "detail",
+          "trust": "external",
+          "example": "button \"Sign in\""
+        },
+        "url": {
+          "type": "detail",
+          "trust": "external",
+          "example": "http://localhost:8080/login"
+        }
+      }
+    },
+    "remediation.web_step_failed_action_evidence": {
+      "message": "Read causeDetail.web in last_failure.json: kind says how the step ended, locator what it sought, candidates what the page offered, effect whether input reached the page",
+      "description": "Recovery guidance of the web_step_failed handler in test/modules/Test.Remediation.psm1. Preserve the field names causeDetail.web, kind, locator, candidates and effect, and the file name last_failure.json.",
+      "lifecycle": "active"
+    },
+    "remediation.web_step_failed_action_repair": {
+      "message": "Correct the step's role, name, match or nth, or wait for the state it needs first; for expectation and navigation check the site; for unsupported and page_lost remove the dialog, new window or crash from the flow",
+      "description": "Recovery guidance of the web_step_failed handler in test/modules/Test.Remediation.psm1. The kind tokens expectation, navigation, unsupported and page_lost and the step fields role, name, match and nth stay untranslated.",
+      "lifecycle": "active"
+    },
+    "remediation.web_step_failed_action_rerun": {
+      "message": "Replay with test/Debug-TestSequence.ps1 after the change; when effect is applied or uncertain, restore a known guest state first",
+      "description": "Recovery guidance of the web_step_failed handler in test/modules/Test.Remediation.psm1. Preserve the script path test/Debug-TestSequence.ps1, the field name effect and the effect tokens applied and uncertain.",
+      "lifecycle": "active"
+    },
     "remediation.guest_display_stalled_rationale": {
       "message": "guest_display_stalled on {vmName}: the guest's {driver} display driver reported {reports} page-flip timeouts while the console stopped changing. The guest may still be running; an unchanged display is not evidence that its kernel stopped.",
       "description": "Recovery guidance for a console wait ended by serial-backed guest display-driver evidence. Preserve driver names and failure codes.",
@@ -41,7 +88,7 @@
       "lifecycle": "active"
     },
     "remediation.hypervisor_unresponsive_action_restart": {
-      "message": "Restart the hypervisor control application on the host: on macOS quit UTM.app from the desktop session (or run test/lab/Invoke-HostRefresh.ps1), then confirm that `utmctl stop` on a stopped VM returns at once",
+      "message": "Restart the hypervisor control application on the host: on macOS quit UTM.app from the desktop session (or run test/lab/Invoke-HostRepair.ps1), then confirm that `utmctl stop` on a stopped VM returns at once",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
       "lifecycle": "active"
     },
@@ -51,7 +98,7 @@
       "lifecycle": "active"
     },
     "remediation.hypervisor_unresponsive_rationale": {
-      "message": "hypervisor_unresponsive: the hypervisor's control channel stopped acting on lifecycle requests while still answering state queries, so every VM start, stop and delete waits out its timeout and nothing a cycle does can recover it. Retrying repeats the same timeouts; the application that owns the channel has to be restarted on the host, which only a desktop session or a host refresh can do.{detail}",
+      "message": "hypervisor_unresponsive: the hypervisor's control channel stopped acting on lifecycle requests while still answering state queries, so every VM start, stop and delete waits out its timeout and nothing a cycle does can recover it. Retrying repeats the same timeouts; the application that owns the channel has to be restarted on the host, which only a desktop session or a host repair can do.{detail}",
       "description": "Recovery guidance from test/modules/Test.Remediation.psm1. Preserve failure codes, file paths, configuration keys and command tokens; values are untrusted display data.",
       "lifecycle": "active",
       "placeholders": {

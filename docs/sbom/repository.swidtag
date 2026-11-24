@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-repository" tagId="urn:uuid:12da3861-0343-5335-bd8c-011880422d6d" version="2026.11.16" versionScheme="alphanumeric" tagVersion="0" corpus="true">
+<SoftwareIdentity xmlns="http://standards.iso.org/iso/19770/-2/2015/schema.xsd" xmlns:sbom="urn:yuruna:sbom:1" name="yuruna-repository" tagId="urn:uuid:3b19b609-5c5c-54b2-b09f-ead50cc0958e" version="2026.11.23" versionScheme="alphanumeric" tagVersion="0" corpus="true">
   <Entity name="Alisson Sol et al." regid="yuruna.com" role="tagCreator" />
   <Meta sbom:generator="tools/Sync-Sbom.py" sbom:scope="repository" sbom:inventory-kind="declared-source" />
   <Link rel="requires" href="swid/repository-a918c6f303ac3cfdd0e8.swidtag" />
@@ -37,7 +37,7 @@
   <Link rel="requires" href="swid/repository-d36496760373c18829bb.swidtag" />
   <Link rel="requires" href="swid/repository-332c942aae4f99c9df8b.swidtag" />
   <Link rel="requires" href="swid/repository-15946024bda4ba341768.swidtag" />
-  <Link rel="requires" href="swid/repository-1b88164e7e72817e1664.swidtag" />
+  <Link rel="requires" href="swid/repository-58b9b93029c7495093c1.swidtag" />
   <Link rel="requires" href="swid/repository-005aa61133bce55cb8bf.swidtag" />
   <Link rel="requires" href="swid/repository-08a7725ec86fb430317b.swidtag" />
   <Link rel="requires" href="swid/repository-070ba5f14e1b7ce30bbc.swidtag" />

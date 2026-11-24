@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 422e4da5-c4d3-416f-8529-84b6ec995443
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,7 +109,7 @@ function Resolve-ServiceCensusRoot {
         The private state root the census lives in: {Resolved; Path; Reason}.
     .DESCRIPTION
         An explicit StateRoot is used as given once it is shown to be a plain
-        directory; the refresh worker passes the root it already verified,
+        directory; the repair worker passes the root it already verified,
         and tests pass a private one. Otherwise the root comes from
         Get-YurunaPrivateStateRoot, observe-only for readers. A writer's
         successful resolution is cached for ten minutes, because the beacon
@@ -636,7 +636,7 @@ function Get-YurunaServiceIntent {
         The newest explicit start/stop intent for one service and the desired
         state it leaves in force. Read-only.
     .DESCRIPTION
-        The refresh worker reads this before each resume so a stop an
+        The repair worker reads this before each resume so a stop an
         operator issued after the recovery capture is honored.
     .PARAMETER Key
         Service key (caching-proxy, stash, pool-control, download-agent).
@@ -1295,17 +1295,17 @@ function Set-ServiceOperationRefusalMessage {
                 script = $scriptName; key = [string]$Context.Key; detail = [string]$Context.BusyDetail }
         }
         'lock-unavailable' {
-            $where = if ($Context.StateRoot) { [string]$Context.StateRoot } else { '$HOME/.yuruna/host-refresh' }
+            $where = if ($Context.StateRoot) { [string]$Context.StateRoot } else { '$HOME/.yuruna/host-repair' }
             Format-YurunaOperatorMessage -Key 'runner.service_operation_lock_unavailable' -Arguments @{
                 script = $scriptName; key = [string]$Context.Key; reason = [string]$Context.Detail; path = $where }
         }
         'census-unreadable' {
-            $where = if ($Context.CensusPath) { [string]$Context.CensusPath } elseif ($Context.StateRoot) { [string]$Context.StateRoot } else { '$HOME/.yuruna/host-refresh' }
+            $where = if ($Context.CensusPath) { [string]$Context.CensusPath } elseif ($Context.StateRoot) { [string]$Context.StateRoot } else { '$HOME/.yuruna/host-repair' }
             Format-YurunaOperatorMessage -Key 'runner.service_census_unreadable' -Arguments @{
                 script = $scriptName; path = $where; reason = [string]$Context.Detail }
         }
         { $_ -in @('census-corrupt', 'root-unavailable') } {
-            $where = if ($Context.CensusPath) { [string]$Context.CensusPath } elseif ($Context.StateRoot) { [string]$Context.StateRoot } else { '$HOME/.yuruna/host-refresh' }
+            $where = if ($Context.CensusPath) { [string]$Context.CensusPath } elseif ($Context.StateRoot) { [string]$Context.StateRoot } else { '$HOME/.yuruna/host-repair' }
             Format-YurunaOperatorMessage -Key 'runner.service_census_unusable' -Arguments @{
                 script = $scriptName; path = $where; reason = [string]$Context.Reason }
         }
@@ -1765,7 +1765,7 @@ function Get-YurunaServiceVmIdentitySet {
     .DESCRIPTION
         The manifest roster is united with the hard-coded service VM name
         list, keeping the source of each name; a name in only one of them is
-        a roster disagreement, which refresh refuses to disrupt past.
+        a roster disagreement, which repair refuses to disrupt past.
         Manifest names are defaults, not a deployed inventory: the runtime
         marker and the newest intent both record the name actually used, and
         a captured custom name is never re-resolved by key. When the marker

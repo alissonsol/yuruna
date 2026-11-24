@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,7 +48,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OuterLog.psm1') -DisableNameCheckin
 Import-Module (Join-Path $PSScriptRoot 'Test.HostGit.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.SourceSelection.psm1') -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.FrameworkRing.psm1') -DisableNameChecking
-# The refresh gate, the cycle record and the handoff helpers the loop consults
+# The runner gate, the cycle record and the handoff helpers the loop consults
 # before every spawn live in Test.SingleInstance. Imported here as well as by the
 # Outer module set so the gate is never absent from a process that can spawn.
 Import-Module (Join-Path $PSScriptRoot 'Test.SingleInstance.psm1') -DisableNameChecking
@@ -2314,19 +2314,19 @@ function Invoke-RunnerOuterCycle {
         Waits belong to the caller, never here. This function runs where the
         operator's Ctrl+C is NOT observable, so a Start-Sleep here could not be cut
         short; the transient outcomes below report and return instead.
-        A host refresh is honored here at two of its gate sites: before the
+        A host repair is honored here at two of its gate sites: before the
         framework pull (with no state transition) and again before the
-        pre-spawn wipe. A held cycle reports refresh-gated and changes nothing;
-        an inner held at its own sites leaves runner.refresh-gated.json, which
-        turns this cycle's result into refresh-gated too. A preflight cycle --
-        the designated chain of a refresh handoff -- skips the pull, the pool
+        pre-spawn wipe. A held cycle reports gate-held and changes nothing;
+        an inner held at its own sites leaves runner.gate-held.json, which
+        turns this cycle's result into gate-held too. A preflight cycle --
+        the designated chain of a handoff -- skips the pull, the pool
         configuration sync, the failure-record and break-marker wipes and every
-        cycle-end hook, and reports refresh-preflight.
+        cycle-end hook, and reports handoff-preflight.
     .OUTPUTS
         pscustomobject with Outcome, ExitCode and CycleGeneration. Outcome is
         'completed' when the inner ran (ExitCode is then the inner's own
-        status), 'refresh-preflight' for a preflight cycle, or one of
-        'pull-error' | 'paused' | 'drain' | 'spawn-failed' | 'refresh-gated'
+        status), 'handoff-preflight' for a preflight cycle, or one of
+        'pull-error' | 'paused' | 'drain' | 'spawn-failed' | 'gate-held'
         -- the caller owns the pause and the decision to stop.
     #>
     [CmdletBinding()]
@@ -2354,16 +2354,16 @@ function Invoke-RunnerOuterCycle {
     $spaceFailure = $null
     $cycleGeneration = if ($State.ContainsKey('CycleGeneration')) { $State['CycleGeneration'] } else { $null }
 
-        # Refresh gate before the pull and before any state transition: a held
+        # Runner gate before the pull and before any state transition: a held
         # cycle must leave the runner state, the checkout and the runtime
         # files exactly as they were.
-        $refreshMode = Get-OuterRefreshCycleMode -State $State
-        if ($refreshMode -eq 'gated') {
-            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; CycleGeneration = $cycleGeneration })
+        $gateMode = Get-OuterRunnerGateCycleMode -State $State
+        if ($gateMode -eq 'gated') {
+            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'gate-held'; ExitCode = 0; CycleGeneration = $cycleGeneration })
         }
-        $preflight = ($refreshMode -eq 'preflight')
+        $preflight = ($gateMode -eq 'preflight')
         if ($preflight) {
-            $preflightLine = Format-YurunaOperatorMessage -Key 'runner.refresh_preflight_cycle' -Arguments @{ cycle = "$cycle" }
+            $preflightLine = Format-YurunaOperatorMessage -Key 'runner.handoff_preflight_cycle' -Arguments @{ cycle = "$cycle" }
             Write-Output $preflightLine
             Write-OuterLog $preflightLine
         }
@@ -2457,13 +2457,13 @@ function Invoke-RunnerOuterCycle {
         }
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_e1a14bbdcff651de' -Arguments @{ cycle = "$cycle"; zzz = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz')" })
         Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_7dcdb16b27e44240' -Arguments @{ cycle = "$cycle" })
-        # Refresh gate again before the wipe: the gate can close (or a
+        # Runner gate again before the wipe: the gate can close (or a
         # preflight token be revoked) while the pull and the configuration sync run.
-        if ((Get-OuterRefreshCycleMode -State $State) -eq 'gated') {
+        if ((Get-OuterRunnerGateCycleMode -State $State) -eq 'gated') {
             if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
-                $null = Set-RunnerState -To 'paused' -Reason "host refresh holds the runner (cycle $cycle)" -Confirm:$false
+                $null = Set-RunnerState -To 'paused' -Reason "host operation holds the runner (cycle $cycle)" -Confirm:$false
             }
-            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; CycleGeneration = $cycleGeneration })
+            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'gate-held'; ExitCode = 0; CycleGeneration = $cycleGeneration })
         }
         # Wipe last cycle's runtime files BEFORE arming the watchdog.
         # --- REGION: https://yuruna.link/42f909ad-000f
@@ -2588,21 +2588,21 @@ function Invoke-RunnerOuterCycle {
             $exitCode = 0
             $innerSpawnedAtUtc = [DateTime]::UtcNow
             try {
-                # The runner-issued cycle generation and the refresh transport
+                # The runner-issued cycle generation and the handoff transport
                 # ride the same short-lived environment as the relaunch flag:
                 # set immediately before the spawn, cleared in the finally.
                 if ($cycleGeneration) { $env:YURUNA_CYCLE_GENERATION = [string]$cycleGeneration }
                 if ($preflight) {
-                    $env:YURUNA_REFRESH_HANDOFF_TOKEN = [string]$State['RefreshPreflightTokenId']
-                    $env:YURUNA_REFRESH_PREFLIGHT = '1'
+                    $env:YURUNA_HANDOFF_TOKEN = [string]$State['HandoffPreflightTokenId']
+                    $env:YURUNA_HANDOFF_PREFLIGHT = '1'
                 } else {
-                    Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_HANDOFF_TOKEN' -ErrorAction SilentlyContinue
-                    Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_PREFLIGHT' -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_TOKEN' -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_PREFLIGHT' -ErrorAction SilentlyContinue
                 }
-                if ($State.ContainsKey('RefreshBarrierRequestId') -and $State['RefreshBarrierRequestId'] -and -not $preflight) {
-                    $env:YURUNA_REFRESH_BARRIER = [string]$State['RefreshBarrierRequestId']
+                if ($State.ContainsKey('HandoffBarrierRequestId') -and $State['HandoffBarrierRequestId'] -and -not $preflight) {
+                    $env:YURUNA_HANDOFF_BARRIER = [string]$State['HandoffBarrierRequestId']
                 } else {
-                    Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_BARRIER' -ErrorAction SilentlyContinue
+                    Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_BARRIER' -ErrorAction SilentlyContinue
                 }
                 # Announce the relaunch to the child immediately before the spawn so
                 # it inherits the flag; the finally below clears it from $env: the
@@ -2640,9 +2640,9 @@ function Invoke-RunnerOuterCycle {
             Remove-Item -LiteralPath 'Env:YURUNA_RUNNER_RELAUNCH' -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath 'Env:YURUNA_NONINTERACTIVE'  -ErrorAction SilentlyContinue
             Remove-Item -LiteralPath 'Env:YURUNA_CYCLE_GENERATION' -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_HANDOFF_TOKEN' -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_PREFLIGHT' -ErrorAction SilentlyContinue
-            Remove-Item -LiteralPath 'Env:YURUNA_REFRESH_BARRIER' -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_TOKEN' -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_PREFLIGHT' -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath 'Env:YURUNA_HANDOFF_BARRIER' -ErrorAction SilentlyContinue
             # A watchdog job that ENDED in Failed crashed mid-cycle -- the
             # inner ran some or all of the cycle unguarded. The job object
             # is about to be removed, so this is the last chance to say so.
@@ -2668,19 +2668,19 @@ function Invoke-RunnerOuterCycle {
         if ($innerSpawnFailed) {
             return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0; CycleGeneration = $cycleGeneration })
         }
-        # An inner held at one of its own refresh gate sites changed nothing
-        # and says so in runner.refresh-gated.json; this cycle is then held
+        # An inner held at one of its own runner gate sites changed nothing
+        # and says so in runner.gate-held.json; this cycle is then held
         # too, and none of the cycle-end hooks below run.
-        $gatedSidecarPath = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.refresh-gated.json'
-        $gatedSidecar = Read-OuterRefreshGatedSidecar -Path $gatedSidecarPath -SpawnedAtUtc $innerSpawnedAtUtc
+        $gatedSidecarPath = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.gate-held.json'
+        $gatedSidecar = Read-OuterGateHeldSidecar -Path $gatedSidecarPath -SpawnedAtUtc $innerSpawnedAtUtc
         if ($gatedSidecar) {
             Remove-Item -LiteralPath $gatedSidecarPath -Force -ErrorAction SilentlyContinue
-            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_cycle_held' -Arguments @{ cycle = "$cycle"; site = "$($gatedSidecar.site)" })
+            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.runner_gate_cycle_held' -Arguments @{ cycle = "$cycle"; site = "$($gatedSidecar.site)" })
             if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
-                $null = Set-RunnerState -To 'cycle-end' -Reason "host refresh held the inner at $($gatedSidecar.site)" -Confirm:$false
-                $null = Set-RunnerState -To 'idle' -Reason 'host refresh holds the runner' -Confirm:$false
+                $null = Set-RunnerState -To 'cycle-end' -Reason "host repair held the inner at $($gatedSidecar.site)" -Confirm:$false
+                $null = Set-RunnerState -To 'idle' -Reason 'host operation holds the runner' -Confirm:$false
             }
-            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'refresh-gated'; ExitCode = 0; CycleGeneration = $cycleGeneration })
+            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'gate-held'; ExitCode = 0; CycleGeneration = $cycleGeneration })
         }
         # Outer regained control. Emit BOTH to console and to runtime/
         # outer.log so a conhost wedge (documented above) can't hide
@@ -2693,10 +2693,10 @@ function Invoke-RunnerOuterCycle {
         # A preflight cycle ends here: it archives, drains, notifies and
         # classifies nothing -- it only proved the chain.
         if ($preflight) {
-            $resultLine = Format-YurunaOperatorMessage -Key 'runner.refresh_preflight_result' -Arguments @{ cycle = "$cycle"; exitCode = "$exitCode" }
+            $resultLine = Format-YurunaOperatorMessage -Key 'runner.handoff_preflight_result' -Arguments @{ cycle = "$cycle"; exitCode = "$exitCode" }
             Write-Output $resultLine
             Write-OuterLog $resultLine
-            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'refresh-preflight'; ExitCode = $exitCode; CycleGeneration = $cycleGeneration })
+            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'handoff-preflight'; ExitCode = $exitCode; CycleGeneration = $cycleGeneration })
         }
 
         $attemptFault = Get-RunnerAttemptFault -RuntimeDir $env:YURUNA_RUNTIME_DIR -AttemptGeneration ([string]$cycleGeneration) -SpawnedAtUtc $innerSpawnedAtUtc -ExitCode $exitCode
@@ -2943,14 +2943,14 @@ function Invoke-RunnerOuterCycle {
     return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'completed'; ExitCode = $exitCode; CycleGeneration = $cycleGeneration })
 }
 
-# --- REGION: Host-refresh gate at the runner's spawn and pull sites
-# While a host refresh reclaims or repairs, no runner process may spawn an
+# --- REGION: Runner gate at the runner's spawn and pull sites
+# While a host repair reclaims or repairs, no runner process may spawn an
 # inner, pull, or sweep: the gate record (Test.SingleInstance) holds every
 # site, and an unreadable gate holds them too. A handoff token opens only
 # the preflight spawn of the designated chain. These helpers keep the three
 # processes' decisions in one place.
 
-function Get-OuterRefreshCycleMode {
+function Get-OuterRunnerGateCycleMode {
     <#
     .SYNOPSIS
         preflight, open or gated for the cycle about to run.
@@ -2969,21 +2969,21 @@ function Get-OuterRefreshCycleMode {
     [CmdletBinding()]
     [OutputType([string])]
     param([Parameter(Mandatory)][hashtable]$State)
-    if (-not (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue)) { return 'gated' }
-    $token = if ($State.ContainsKey('RefreshPreflightTokenId')) { [string]$State['RefreshPreflightTokenId'] } else { '' }
-    $requested = $State.ContainsKey('RefreshPreflightRequested') -and [bool]$State['RefreshPreflightRequested']
+    if (-not (Get-Command Get-YurunaRunnerGateState -ErrorAction SilentlyContinue)) { return 'gated' }
+    $token = if ($State.ContainsKey('HandoffPreflightTokenId')) { [string]$State['HandoffPreflightTokenId'] } else { '' }
+    $requested = $State.ContainsKey('HandoffPreflightRequested') -and [bool]$State['HandoffPreflightRequested']
     if ($token) {
-        $gate = Get-YurunaRefreshGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR -TokenId $token
+        $gate = Get-YurunaRunnerGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR -TokenId $token
         if ($gate.PreflightAllowed) { return 'preflight' }
         return 'gated'
     }
     if ($requested) { return 'gated' }
-    $gate = Get-YurunaRefreshGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    $gate = Get-YurunaRunnerGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
     if ($gate.SpawnAllowed) { return 'open' }
     return 'gated'
 }
 
-function ConvertTo-OuterRefreshHandoff {
+function ConvertTo-OuterRunnerHandoff {
     <#
     .SYNOPSIS
         Normalize a handoff (from the runner's resume parameters or a repair
@@ -3014,7 +3014,7 @@ function ConvertTo-OuterRefreshHandoff {
     }
 }
 
-function Resolve-OuterRefreshDispatch {
+function Resolve-OuterRunnerGateDispatch {
     <#
     .SYNOPSIS
         Decide how the resident loop may dispatch this cycle: preflight,
@@ -3026,7 +3026,7 @@ function Resolve-OuterRefreshDispatch {
         operator's preserved controls. Otherwise the gate decides; a closed,
         recovery-pending, handoff or unreadable gate holds the dispatch.
     .PARAMETER State
-        The loop State hashtable (RefreshHandoff and RefreshBarrierRequestId
+        The loop State hashtable (RunnerHandoff and HandoffBarrierRequestId
         are updated here).
     .OUTPUTS
         [pscustomobject] @{ Mode; Gate; TokenId; RequestId; Purpose }
@@ -3036,39 +3036,39 @@ function Resolve-OuterRefreshDispatch {
     param([Parameter(Mandatory)][hashtable]$State)
     $runtime = $env:YURUNA_RUNTIME_DIR
     $unavailable = [pscustomobject]@{ State = 'unknown'; SpawnAllowed = $false; Reason = 'gate-unavailable'; RequestId = $null; Orphaned = $false }
-    $gateCommands = @('Get-YurunaRefreshGateState', 'Test-YurunaRunnerHandoffToken')
+    $gateCommands = @('Get-YurunaRunnerGateState', 'Test-YurunaRunnerHandoffToken')
     if (@($gateCommands | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue }).Count -ne $gateCommands.Count) {
         return [pscustomobject]@{ Mode = 'gated'; Gate = $unavailable; TokenId = $null; RequestId = $null; Purpose = $null }
     }
-    $handoff = if ($State.ContainsKey('RefreshHandoff')) { ConvertTo-OuterRefreshHandoff -Handoff $State['RefreshHandoff'] } else { $null }
+    $handoff = if ($State.ContainsKey('RunnerHandoff')) { ConvertTo-OuterRunnerHandoff -Handoff $State['RunnerHandoff'] } else { $null }
     if ($handoff) {
         $token = Test-YurunaRunnerHandoffToken -TokenId $handoff.TokenId -Role outer -RuntimeDir $runtime
         if ($token.Valid) {
             $requestId = if ($token.RequestId) { [string]$token.RequestId } else { $handoff.RequestId }
             return [pscustomobject]@{ Mode = 'preflight'; Gate = $null; TokenId = $handoff.TokenId; RequestId = $requestId; Purpose = [string]$token.Purpose }
         }
-        $gate = Get-YurunaRefreshGateState -RuntimeDir $runtime
+        $gate = Get-YurunaRunnerGateState -RuntimeDir $runtime
         if ($gate.SpawnAllowed) {
-            $State['RefreshHandoff'] = $null
-            $State['RefreshBarrierRequestId'] = if ($handoff.RequestId) { $handoff.RequestId } elseif ($gate.RequestId) { [string]$gate.RequestId } else { 'unknown' }
-            return [pscustomobject]@{ Mode = 'barrier'; Gate = $gate; TokenId = $null; RequestId = $State['RefreshBarrierRequestId']; Purpose = $null }
+            $State['RunnerHandoff'] = $null
+            $State['HandoffBarrierRequestId'] = if ($handoff.RequestId) { $handoff.RequestId } elseif ($gate.RequestId) { [string]$gate.RequestId } else { 'unknown' }
+            return [pscustomobject]@{ Mode = 'barrier'; Gate = $gate; TokenId = $null; RequestId = $State['HandoffBarrierRequestId']; Purpose = $null }
         }
         return [pscustomobject]@{ Mode = 'gated'; Gate = $gate; TokenId = $null; RequestId = $handoff.RequestId; Purpose = $handoff.Purpose }
     }
-    $gate = Get-YurunaRefreshGateState -RuntimeDir $runtime
+    $gate = Get-YurunaRunnerGateState -RuntimeDir $runtime
     if (-not $gate.SpawnAllowed) {
         return [pscustomobject]@{ Mode = 'gated'; Gate = $gate; TokenId = $null; RequestId = $gate.RequestId; Purpose = $null }
     }
-    if ($State.ContainsKey('RefreshBarrierRequestId') -and $State['RefreshBarrierRequestId']) {
-        return [pscustomobject]@{ Mode = 'barrier'; Gate = $gate; TokenId = $null; RequestId = [string]$State['RefreshBarrierRequestId']; Purpose = $null }
+    if ($State.ContainsKey('HandoffBarrierRequestId') -and $State['HandoffBarrierRequestId']) {
+        return [pscustomobject]@{ Mode = 'barrier'; Gate = $gate; TokenId = $null; RequestId = [string]$State['HandoffBarrierRequestId']; Purpose = $null }
     }
     return [pscustomobject]@{ Mode = 'ordinary'; Gate = $gate; TokenId = $null; RequestId = $null; Purpose = $null }
 }
 
-function Read-OuterRefreshGatedSidecar {
+function Read-OuterGateHeldSidecar {
     <#
     .SYNOPSIS
-        The inner's runner.refresh-gated.json when it was written by this
+        The inner's runner.gate-held.json when it was written by this
         process's own inner during this spawn, else $null.
     .PARAMETER Path
         The sidecar path.
@@ -3096,10 +3096,10 @@ function Read-OuterRefreshGatedSidecar {
     return $doc
 }
 
-function Import-OuterRefreshTriggerModule {
+function Import-OuterRepairTriggerModule {
     <#
     .SYNOPSIS
-        Guarded import of Test.HostRefreshTrigger for the automatic-repair
+        Guarded import of Test.HostRepairTrigger for the automatic-repair
         call sites; the loop never depends on it being present.
     .OUTPUTS
         [bool] $true when its commands resolve.
@@ -3107,13 +3107,13 @@ function Import-OuterRefreshTriggerModule {
     [CmdletBinding()]
     [OutputType([bool])]
     param()
-    if (Get-Command Invoke-HostRefreshAutoDecision -ErrorAction SilentlyContinue) { return $true }
-    $module = Join-Path $PSScriptRoot 'Test.HostRefreshTrigger.psm1'
+    if (Get-Command Invoke-HostRepairAutoDecision -ErrorAction SilentlyContinue) { return $true }
+    $module = Join-Path $PSScriptRoot 'Test.HostRepairTrigger.psm1'
     if (Test-Path -LiteralPath $module) { Import-Module $module -Global -ErrorAction SilentlyContinue }
-    return [bool](Get-Command Invoke-HostRefreshAutoDecision -ErrorAction SilentlyContinue)
+    return [bool](Get-Command Invoke-HostRepairAutoDecision -ErrorAction SilentlyContinue)
 }
 
-function Test-OuterRefreshGateOwnedHere {
+function Test-OuterRunnerGateOwnedHere {
     <#
     .SYNOPSIS
         $true when the gate's recorded owner is this outer process (PID and
@@ -3121,7 +3121,7 @@ function Test-OuterRefreshGateOwnedHere {
     .PARAMETER State
         The loop State hashtable (caches this process's start time).
     .PARAMETER Gate
-        A Get-YurunaRefreshGateState view.
+        A Get-YurunaRunnerGateState view.
     .OUTPUTS
         [bool]
     #>
@@ -3141,13 +3141,13 @@ function Test-OuterRefreshGateOwnedHere {
     return ([Math]::Abs([long]$ownerStart - [long]$State['OuterStartTimeUnixMs']) -le 2000)
 }
 
-function Send-OuterRefreshCallerAck {
+function Send-OuterRepairCallerAck {
     <#
     .SYNOPSIS
         Report this resident outer's readiness verdict to the repair's
         request record, when that helper is loaded; failures are logged.
     .PARAMETER RequestId
-        The host-refresh request.
+        The host-repair request.
     .PARAMETER Ready
         The verdict: ready ($true) or failed.
     .PARAMETER Reason
@@ -3157,25 +3157,25 @@ function Send-OuterRefreshCallerAck {
     [OutputType([void])]
     param([AllowEmptyString()][string]$RequestId, [switch]$Ready, [AllowEmptyString()][string]$Reason)
     try {
-        if (-not (Get-Command Set-HostRefreshCallerAck -ErrorAction SilentlyContinue)) {
-            foreach ($module in @('Test.HostRefreshIntent.psm1')) {
+        if (-not (Get-Command Set-HostRepairCallerAck -ErrorAction SilentlyContinue)) {
+            foreach ($module in @('Test.HostOperationJournal.psm1')) {
                 $path = Join-Path $PSScriptRoot $module
                 if (Test-Path -LiteralPath $path) { Import-Module $path -Global -ErrorAction SilentlyContinue }
             }
         }
-        if (Get-Command Set-HostRefreshCallerAck -ErrorAction SilentlyContinue) {
+        if (Get-Command Set-HostRepairCallerAck -ErrorAction SilentlyContinue) {
             $ownStart = Get-YurunaProcessStartUnixMs -ProcessId $PID
             $ack = @{
                 RequestId = $RequestId; Readiness = $(if ($Ready) { 'ready' } else { 'failed' })
                 CallerPid = $PID; CallerStartTimeUnixMs = [long]$ownStart; Confirm = $false
             }
             if (-not $Ready) { $ack.Reason = $Reason }
-            $null = Set-HostRefreshCallerAck @ack
+            $null = Set-HostRepairCallerAck @ack
         } else {
-            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_trigger_call_failed' -Arguments @{ site = 'caller-ack'; message = 'Set-HostRefreshCallerAck unavailable' })
+            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.host_repair_trigger_call_failed' -Arguments @{ site = 'caller-ack'; message = 'Set-HostRepairCallerAck unavailable' })
         }
     } catch {
-        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_trigger_call_failed' -Arguments @{ site = 'caller-ack'; message = "$($_.Exception.Message)" })
+        Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.host_repair_trigger_call_failed' -Arguments @{ site = 'caller-ack'; message = "$($_.Exception.Message)" })
     }
 }
 
@@ -3211,22 +3211,22 @@ function Complete-OuterExpiredResidentHandoff {
     if (-not (Get-Command Complete-YurunaRunnerExpiredHandoff -ErrorAction SilentlyContinue)) { return $Gate }
     $done = Complete-YurunaRunnerExpiredHandoff -Confirm:$false
     if (-not $done.Completed) { return $Gate }
-    $State['RefreshHandoff'] = $null
+    $State['RunnerHandoff'] = $null
     $requestId = if ($done.RequestId) { [string]$done.RequestId } else { [string]$Gate.RequestId }
-    $line = Format-YurunaOperatorMessage -Key 'runner.refresh_handoff_unverified' -Arguments @{ cycle = "$Cycle"; requestId = $requestId; reason = 'handoff-expired' }
+    $line = Format-YurunaOperatorMessage -Key 'runner.handoff_unverified' -Arguments @{ cycle = "$Cycle"; requestId = $requestId; reason = 'handoff-expired' }
     Write-Warning $line
     Write-OuterLog $line
-    Send-OuterRefreshCallerAck -RequestId $requestId -Reason 'handoff-expired'
-    if (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue) {
-        return (Get-YurunaRefreshGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR)
+    Send-OuterRepairCallerAck -RequestId $requestId -Reason 'handoff-expired'
+    if (Get-Command Get-YurunaRunnerGateState -ErrorAction SilentlyContinue) {
+        return (Get-YurunaRunnerGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR)
     }
     return $Gate
 }
 
-function Write-OuterRefreshGateHold {
+function Write-OuterRunnerGateHold {
     <#
     .SYNOPSIS
-        Log the refresh gate holding the loop, once per transition of
+        Log the runner gate holding the loop, once per transition of
         (request, state, orphaned), to the console and outer.log.
     .PARAMETER State
         The loop State hashtable (remembers the last logged transition).
@@ -3238,40 +3238,40 @@ function Write-OuterRefreshGateHold {
         A gate this outer owns itself -- left recovery-pending by a failed or
         expired resident-outer handoff -- is reported as orphaned too: the
         worker that closed it has exited and this outer is only waiting on
-        itself, so the operator needs the same Invoke-HostRefresh.ps1 -Resume
+        itself, so the operator needs the same Invoke-HostRepair.ps1 -Resume
         pointer a dead worker's gate gets.
     #>
     [CmdletBinding()]
     [OutputType([void])]
     param([Parameter(Mandatory)][hashtable]$State, [Parameter(Mandatory)][int]$Cycle, [AllowNull()]$Gate)
-    if (-not $Gate -and (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue)) {
-        $Gate = Get-YurunaRefreshGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
+    if (-not $Gate -and (Get-Command Get-YurunaRunnerGateState -ErrorAction SilentlyContinue)) {
+        $Gate = Get-YurunaRunnerGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
     }
     $requestId = if ($Gate) { [string]$Gate.RequestId } else { '' }
     $gateState = if ($Gate) { [string]$Gate.State } else { 'unknown' }
     $orphaned  = [bool]($Gate -and $Gate.Orphaned)
     if (-not $orphaned -and $Gate -and $gateState -in @('closed', 'recovery-pending')) {
-        $orphaned = Test-OuterRefreshGateOwnedHere -State $State -Gate $Gate
+        $orphaned = Test-OuterRunnerGateOwnedHere -State $State -Gate $Gate
     }
     $key = "$requestId|$gateState|$orphaned"
-    if ($State.ContainsKey('RefreshGateLogged') -and $State['RefreshGateLogged'] -eq $key) { return }
-    $State['RefreshGateLogged'] = $key
+    if ($State.ContainsKey('RunnerGateLogged') -and $State['RunnerGateLogged'] -eq $key) { return }
+    $State['RunnerGateLogged'] = $key
     $line = if ($gateState -eq 'unknown') {
-        Format-YurunaOperatorMessage -Key 'runner.refresh_gate_unreadable' -Arguments @{ cycle = "$Cycle"; reason = "$(if ($Gate) { $Gate.Reason } else { 'gate-unavailable' })" }
+        Format-YurunaOperatorMessage -Key 'runner.runner_gate_unreadable' -Arguments @{ cycle = "$Cycle"; reason = "$(if ($Gate) { $Gate.Reason } else { 'gate-unavailable' })" }
     } elseif ($orphaned) {
-        Format-YurunaOperatorMessage -Key 'runner.refresh_gate_orphaned' -Arguments @{ cycle = "$Cycle"; requestId = $requestId; state = $gateState }
+        Format-YurunaOperatorMessage -Key 'runner.runner_gate_orphaned' -Arguments @{ cycle = "$Cycle"; requestId = $requestId; state = $gateState }
     } else {
-        Format-YurunaOperatorMessage -Key 'runner.refresh_gate_hold' -Arguments @{ cycle = "$Cycle"; requestId = $requestId; state = $gateState }
+        Format-YurunaOperatorMessage -Key 'runner.runner_gate_hold' -Arguments @{ cycle = "$Cycle"; requestId = $requestId; state = $gateState }
     }
     Write-Warning $line
     Write-OuterLog $line
 }
 
-function Invoke-OuterRefreshResidentCompletion {
+function Invoke-OuterHandoffResidentCompletion {
     <#
     .SYNOPSIS
         After a resident-outer preflight cycle: verify the acknowledgment
-        against the cycle this outer spawned, leave the refresh gate as the
+        against the cycle this outer spawned, leave the runner gate as the
         designated outer, and report readiness to the repair's record.
     .DESCRIPTION
         The chain has already exited, so liveness is replaced by the outer's
@@ -3310,16 +3310,16 @@ function Invoke-OuterRefreshResidentCompletion {
     $verdict = if ($ready) { 'released' } else { 'recovery-pending' }
     $done = Complete-YurunaRunnerHandoff -TokenId $Handoff.TokenId -Verdict $verdict -ExpectedGeneration ([string]$token.Generation) -AsDesignatedOuter -Confirm:$false
     if ($ready -and $done.Completed) {
-        $line = Format-YurunaOperatorMessage -Key 'runner.refresh_handoff_complete' -Arguments @{ cycle = "$Cycle"; requestId = $Handoff.RequestId }
+        $line = Format-YurunaOperatorMessage -Key 'runner.handoff_complete' -Arguments @{ cycle = "$Cycle"; requestId = $Handoff.RequestId }
         Write-Information $line -InformationAction Continue
         Write-OuterLog $line
     } else {
         if ($ready -and -not $done.Completed) { $reason = "complete-$($done.Reason)" }
-        $line = Format-YurunaOperatorMessage -Key 'runner.refresh_handoff_unverified' -Arguments @{ cycle = "$Cycle"; requestId = $Handoff.RequestId; reason = $reason }
+        $line = Format-YurunaOperatorMessage -Key 'runner.handoff_unverified' -Arguments @{ cycle = "$Cycle"; requestId = $Handoff.RequestId; reason = $reason }
         Write-Warning $line
         Write-OuterLog $line
     }
-    Send-OuterRefreshCallerAck -RequestId $Handoff.RequestId -Ready:($ready -and [bool]$done.Completed) -Reason $reason
+    Send-OuterRepairCallerAck -RequestId $Handoff.RequestId -Ready:($ready -and [bool]$done.Completed) -Reason $reason
     return [pscustomobject]@{ Ready = ($ready -and [bool]$done.Completed); Completed = [bool]$done.Completed; Reason = $reason }
 }
 
@@ -3421,15 +3421,15 @@ function Invoke-OuterCycleDispatch {
         required: a child that exits cleanly without leaving one that names this
         cycle's generation is scored 'outcome-unrecorded', never as a pass.
 
-        The host-refresh gate is consulted before anything is spawned. A held
-        dispatch returns refresh-gated without a child. A pending handoff whose
+        The runner gate is consulted before anything is spawned. A held
+        dispatch returns gate-held without a child. A pending handoff whose
         token validates spawns the preflight chain with the token in the
         child's environment; the first ordinary cycle after a handoff carries
         the barrier request instead. The spawned cycle process is recorded in
-        runner.cycle.json while it runs, so a refresh identifies it from this
+        runner.cycle.json while it runs, so a host operation identifies it from this
         record rather than from a command line.
     .OUTPUTS
-        pscustomobject with Outcome, ExitCode, CycleGeneration, Refresh (the
+        pscustomobject with Outcome, ExitCode, CycleGeneration, GateMode (the
         dispatch mode), Cycle ({ Pid; StartTimeUnixMs } of the spawned cycle
         process, or $null), Gate (the gate view that held a dispatch) and
         Handoff (@{ TokenId; RequestId; Purpose } as the gate validated it
@@ -3444,7 +3444,7 @@ function Invoke-OuterCycleDispatch {
         [Parameter(Mandatory)][int]$Cycle
     )
     $cycleGeneration = if ($State.ContainsKey('CycleGeneration')) { $State['CycleGeneration'] } else { $null }
-    $dispatch = Resolve-OuterRefreshDispatch -State $State
+    $dispatch = Resolve-OuterRunnerGateDispatch -State $State
     # The handoff as the gate validated it: its purpose, not the one the
     # caller's handoff record claims, decides who completes it.
     $validated = if ($dispatch.Mode -eq 'preflight') {
@@ -3452,20 +3452,20 @@ function Invoke-OuterCycleDispatch {
     } else { $null }
     if ($dispatch.Mode -eq 'gated') {
         return [pscustomobject]@{
-            Outcome = 'refresh-gated'; ExitCode = 0; CycleGeneration = $cycleGeneration
-            Refresh = 'gated'; Cycle = $null; Gate = $dispatch.Gate; Handoff = $null
+            Outcome = 'gate-held'; ExitCode = 0; CycleGeneration = $cycleGeneration
+            GateMode = 'gated'; Cycle = $null; Gate = $dispatch.Gate; Handoff = $null
         }
     }
     $cycleScript = if ($State.ContainsKey('CycleScript')) { [string]$State.CycleScript } else { '' }
     if (-not $cycleScript -or -not (Test-Path -LiteralPath $cycleScript)) {
         # In-process fallback: same code path, no reload benefit. Unit tests drive
         # this shape, and it keeps the loop working if the script is ever missing.
-        # The refresh fields a cycle process would read from its environment are
+        # The handoff fields a cycle process would read from its environment are
         # threaded into State instead, and reset every dispatch.
-        $State['RefreshPreflightRequested'] = ($dispatch.Mode -eq 'preflight')
-        $State['RefreshPreflightTokenId']   = if ($dispatch.Mode -eq 'preflight') { $dispatch.TokenId } else { $null }
-        $State['RefreshPreflightPurpose']   = if ($dispatch.Mode -eq 'preflight') { $dispatch.Purpose } else { $null }
-        $State['RefreshPreflightRequestId'] = if ($dispatch.Mode -eq 'preflight') { $dispatch.RequestId } else { $null }
+        $State['HandoffPreflightRequested'] = ($dispatch.Mode -eq 'preflight')
+        $State['HandoffPreflightTokenId']   = if ($dispatch.Mode -eq 'preflight') { $dispatch.TokenId } else { $null }
+        $State['HandoffPreflightPurpose']   = if ($dispatch.Mode -eq 'preflight') { $dispatch.Purpose } else { $null }
+        $State['HandoffPreflightRequestId'] = if ($dispatch.Mode -eq 'preflight') { $dispatch.RequestId } else { $null }
         # The cycle's own return value is the verdict; its recorded result is the fallback for a
         # path that returned nothing. Capturing it also keeps it out of this function's output,
         # where it would turn the single result into an array.
@@ -3476,7 +3476,7 @@ function Invoke-OuterCycleDispatch {
             Outcome = $inProcessResult.Outcome; ExitCode = $inProcessResult.ExitCode; CycleGeneration = $cycleGeneration
             RecordFailureClass = $inProcessResult.FailureClass; RecordDetail = $inProcessResult.Detail
             RecordPoolTestCycle = $(if ($inProcessResult.PSObject.Properties['PoolTestCycle']) { $inProcessResult.PoolTestCycle } else { $null })
-            Refresh = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated; FromRecord = $true
+            GateMode = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated; FromRecord = $true
         }
     }
 
@@ -3506,26 +3506,26 @@ function Invoke-OuterCycleDispatch {
     # A daylight-saving change moves Get-Date by an hour; how long the cycle ran
     # decides whether it aborted early, so that is read from a monotonic clock.
     $spawnWatch = [Diagnostics.Stopwatch]::StartNew()
-    $refreshEnvironment = @{}
+    $handoffEnvironment = @{}
     if ($dispatch.Mode -eq 'preflight') {
-        $refreshEnvironment['YURUNA_REFRESH_HANDOFF_TOKEN'] = [string]$dispatch.TokenId
-        $refreshEnvironment['YURUNA_REFRESH_PREFLIGHT'] = '1'
+        $handoffEnvironment['YURUNA_HANDOFF_TOKEN'] = [string]$dispatch.TokenId
+        $handoffEnvironment['YURUNA_HANDOFF_PREFLIGHT'] = '1'
     } elseif ($dispatch.Mode -eq 'barrier') {
-        $refreshEnvironment['YURUNA_REFRESH_BARRIER'] = [string]$dispatch.RequestId
+        $handoffEnvironment['YURUNA_HANDOFF_BARRIER'] = [string]$dispatch.RequestId
     }
     try {
-        # The refresh transport lives in the environment for exactly the spawn:
+        # The handoff transport lives in the environment for exactly the spawn:
         # set just before, cleared in the finally that also covers the wait, so
         # a later dispatch never inherits a token or barrier meant for this one.
-        foreach ($name in @('YURUNA_REFRESH_HANDOFF_TOKEN', 'YURUNA_REFRESH_PREFLIGHT', 'YURUNA_REFRESH_BARRIER')) {
-            if ($refreshEnvironment.ContainsKey($name)) { Set-Item -Path "Env:$name" -Value $refreshEnvironment[$name] }
+        foreach ($name in @('YURUNA_HANDOFF_TOKEN', 'YURUNA_HANDOFF_PREFLIGHT', 'YURUNA_HANDOFF_BARRIER')) {
+            if ($handoffEnvironment.ContainsKey($name)) { Set-Item -Path "Env:$name" -Value $handoffEnvironment[$name] }
             else { Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue }
         }
         try {
             $proc = Start-Process -FilePath $State.PwshExe -ArgumentList $argList -NoNewWindow -PassThru -ErrorAction Stop
         } catch {
             Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_961568a3cc6a695a' -Arguments @{ cycle = "$Cycle"; message = "$($_.Exception.Message)" })
-            return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0; CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated }
+            return [pscustomobject]@{ Outcome = 'spawn-failed'; ExitCode = 0; CycleGeneration = $cycleGeneration; GateMode = $dispatch.Mode; Cycle = $null; Gate = $null; Handoff = $validated }
         }
         # On Windows, Start-Process -PassThru returns a Process looked up by id
         # that holds no handle, and once the child has exited its ExitCode can
@@ -3580,7 +3580,7 @@ function Invoke-OuterCycleDispatch {
                 Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_2ca94152d51378a0' -Arguments @{ cycle = "$Cycle"; id = "$($proc.Id)" })
                 Stop-YurunaProcessTree -ProcessId $proc.Id -Confirm:$false
                 try { $null = $proc.WaitForExit(15000) } catch { $null = $_ }
-                return [pscustomobject]@{ Outcome = 'shutdown'; ExitCode = 0; CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated }
+                return [pscustomobject]@{ Outcome = 'shutdown'; ExitCode = 0; CycleGeneration = $cycleGeneration; GateMode = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated }
             }
             if (Test-OuterCycleHeld -RuntimeDir $env:YURUNA_RUNTIME_DIR) {
                 if (-not $heldWatch.IsRunning) { $heldWatch.Start() }
@@ -3649,7 +3649,7 @@ function Invoke-OuterCycleDispatch {
                     return [pscustomobject]@{
                         Outcome = 'outcome-unrecorded'; ExitCode = $stallExit
                         OutcomeReason = 'resident-watchdog'; OutcomeDetail = $stallReason; RecordFailureClass = $stallClass
-                        CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
+                        CycleGeneration = $cycleGeneration; GateMode = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
                     }
                 }
             }
@@ -3675,13 +3675,13 @@ function Invoke-OuterCycleDispatch {
                 return [pscustomobject]@{
                     Outcome = 'outcome-unrecorded'; ExitCode = $ceilingExit
                     OutcomeReason = 'cycle-ceiling'; OutcomeDetail = $ceilingReason
-                    CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
+                    CycleGeneration = $cycleGeneration; GateMode = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
                 }
             }
             $null = $proc.WaitForExit(1000)
         }
     } finally {
-        foreach ($name in @('YURUNA_REFRESH_HANDOFF_TOKEN', 'YURUNA_REFRESH_PREFLIGHT', 'YURUNA_REFRESH_BARRIER')) {
+        foreach ($name in @('YURUNA_HANDOFF_TOKEN', 'YURUNA_HANDOFF_PREFLIGHT', 'YURUNA_HANDOFF_BARRIER')) {
             Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
         }
         if ($proc -and (Get-Command Clear-YurunaRunnerCycleRecord -ErrorAction SilentlyContinue) -and
@@ -3712,7 +3712,7 @@ function Invoke-OuterCycleDispatch {
             Outcome = $record.Outcome; ExitCode = $record.ExitCode; CycleGeneration = $reportedGeneration
             RecordFailureClass = $record.FailureClass; RecordDetail = $record.RecordDetail
             RecordPoolTestCycle = $record.PoolTestCycle
-            Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated; FromRecord = $true
+            GateMode = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated; FromRecord = $true
         }
     }
     Write-Verbose "[outer cycle $Cycle] cycle outcome record rejected ($($record.Reason)): $($record.Detail)"
@@ -3720,7 +3720,7 @@ function Invoke-OuterCycleDispatch {
     if (Test-YurunaCycleAborted -ReportedOutcome $false -ChildExit $childExit -RanForSeconds $ranForSeconds) {
         Write-Warning ((Format-YurunaOperatorMessage -Key 'runner.operator_9120a71c591dce9f' -Arguments @{ cycle = "$Cycle"; childExit = "$childExit"; ranForSeconds = "${ranForSeconds}" }))
         Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_28086350fb4a3aee' -Arguments @{ cycle = "$Cycle"; childExit = "$childExit"; ranForSeconds = "${ranForSeconds}" })
-        return [pscustomobject]@{ Outcome = 'cycle-aborted'; ExitCode = $childExit; CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated }
+        return [pscustomobject]@{ Outcome = 'cycle-aborted'; ExitCode = $childExit; CycleGeneration = $cycleGeneration; GateMode = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated }
     }
     # Everything else that reaches here ran long enough to have been a real cycle
     # and left nothing that can be believed. It is an infrastructure fault of its
@@ -3736,7 +3736,7 @@ function Invoke-OuterCycleDispatch {
     return [pscustomobject]@{
         Outcome = 'outcome-unrecorded'; ExitCode = $unrecordedExit
         OutcomeReason = $record.Reason; OutcomeDetail = $record.Detail
-        CycleGeneration = $cycleGeneration; Refresh = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
+        CycleGeneration = $cycleGeneration; GateMode = $dispatch.Mode; Cycle = $cycleIdentity; Gate = $null; Handoff = $validated
     }
 }
 
@@ -3778,16 +3778,16 @@ function Invoke-RunnerOuterLoop {
         unit tests drive and a usable fallback if the script is missing.
         ShutdownState is a hashtable (reference-shared with the caller's Ctrl+C
         handler) whose ['Requested'] key flipping ends the loop.
-        Optional refresh keys: RefreshHandoff (a handoff the next dispatch
-        runs as a preflight chain), RefreshBarrierRequestId (carried by the
-        first ordinary cycle after a handoff), RefreshGateHoldSeconds (the
-        hold between dispatches while a host refresh holds the runner,
+        Optional repair keys: RunnerHandoff (a handoff the next dispatch
+        runs as a preflight chain), HandoffBarrierRequestId (carried by the
+        first ordinary cycle after a handoff), RunnerGateHoldSeconds (the
+        hold between dispatches while a host operation holds the runner,
         default 15).
 
         Every cycle gets an outer-issued generation, <RunnerInstanceId>:<cycle>,
         which the per-cycle process hands to the inner so per-cycle evidence can
-        be matched to the cycle that produced it. The automatic host-refresh
-        decision runs after each dispatch through Test.HostRefreshTrigger when
+        be matched to the cycle that produced it. The automatic host-repair
+        decision runs after each dispatch through Test.HostRepairTrigger when
         that module is present; its failures are logged and never change what
         the loop does.
     #>
@@ -3815,20 +3815,20 @@ function Invoke-RunnerOuterLoop {
     if (-not ($State.ContainsKey('RunnerInstanceId') -and [string]$State['RunnerInstanceId'] -match '^[0-9a-f]{32}$')) {
         $State['RunnerInstanceId'] = [guid]::NewGuid().ToString('N')
     }
-    $gateHoldSeconds = if ($State.ContainsKey('RefreshGateHoldSeconds') -and [int]$State['RefreshGateHoldSeconds'] -gt 0) { [int]$State['RefreshGateHoldSeconds'] } else { 15 }
+    $gateHoldSeconds = if ($State.ContainsKey('RunnerGateHoldSeconds') -and [int]$State['RunnerGateHoldSeconds'] -gt 0) { [int]$State['RunnerGateHoldSeconds'] } else { 15 }
     $networkRetryBase = if ($State.ContainsKey('OuterNetworkGateRetrySeconds') -and [int]$State.OuterNetworkGateRetrySeconds -gt 0) { [int]$State.OuterNetworkGateRetrySeconds } else { 120 }
     $networkRetryCap = if ($State.ContainsKey('OuterNetworkGateRetryMaxSeconds') -and [int]$State.OuterNetworkGateRetryMaxSeconds -gt 0) { [int]$State.OuterNetworkGateRetryMaxSeconds } else { 900 }
     $networkPollSeconds = if ($State.ContainsKey('OuterNetworkGateRecoveryPollSeconds') -and [int]$State.OuterNetworkGateRecoveryPollSeconds -gt 0) { [math]::Min(30, [int]$State.OuterNetworkGateRecoveryPollSeconds) } else { 30 }
     $networkRetrySeconds = 0
-    # Wraps each automatic-refresh call: a trigger failure is logged, and the
+    # Wraps each automatic-repair call: a trigger failure is logged, and the
     # loop carries on exactly as if the trigger were absent.
     $invokeTrigger = {
         param([string]$Site, [scriptblock]$Call)
         try {
-            if (-not (Import-OuterRefreshTriggerModule)) { return $null }
+            if (-not (Import-OuterRepairTriggerModule)) { return $null }
             return (& $Call)
         } catch {
-            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_trigger_call_failed' -Arguments @{ site = $Site; message = "$($_.Exception.Message)" })
+            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.host_repair_trigger_call_failed' -Arguments @{ site = $Site; message = "$($_.Exception.Message)" })
             return $null
         }
     }
@@ -3875,48 +3875,48 @@ function Invoke-RunnerOuterLoop {
             }
         }
 
-        # A preserved guest must survive automatic refresh, recovery, and the
+        # A preserved guest must survive automatic repair, recovery, and the
         # next cycle's stale-VM sweep even when repository revisions change.
         if ((Wait-DiagnosticVmPreservation -ShutdownState $State.ShutdownState -ConfigPath $State.ConfigPath `
             -HoldOnFailure:($outcome -eq 'completed' -and $exitCode -ne 0 -and $exitCode -ne (Get-DegradedCycleExitCode))) -eq 'shutdown') { break }
 
-        # Evidence accounting for the automatic refresh decision: every outcome
+        # Evidence accounting for the automatic repair decision: every outcome
         # consumes this cycle's evidence sidecar; only a completed one counts.
-        $refreshAccounting = & $invokeTrigger 'evidence' {
-            Update-HostRefreshAutoEvidence -RuntimeDir $env:YURUNA_RUNTIME_DIR -Generation $State['CycleGeneration'] -Outcome $outcome -Confirm:$false
+        $repairAccounting = & $invokeTrigger 'evidence' {
+            Update-HostRepairAutoEvidence -RuntimeDir $env:YURUNA_RUNTIME_DIR -Generation $State['CycleGeneration'] -Outcome $outcome -Confirm:$false
         }
 
         if ($outcome -eq 'drain') {
             Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.operator_5e1b22dd0ff54c65' -Arguments @{ cycle = "$cycle" })
             $null = & $invokeTrigger 'pool-drain' {
-                Stop-HostRefreshAutoQueuedRequest -Reason pool-drain -Cycle $cycle -Confirm:$false
+                Stop-HostRepairAutoQueuedRequest -Reason pool-drain -Cycle $cycle -Confirm:$false
             }
             $State.ShutdownState['Requested'] = $true
             break
         }
 
-        # --- REGION: Host-refresh outcomes
+        # --- REGION: Host-repair outcomes
         # A held cycle is neither a pass nor a failure: no fault state, no
         # crash gating, no streak and no failure pause -- only a short,
         # interruptible hold, logged once per change of what holds it.
-        if ($outcome -eq 'refresh-gated') {
+        if ($outcome -eq 'gate-held') {
             $auto = & $invokeTrigger 'decision-gated' {
-                Invoke-HostRefreshAutoDecision -State $State -Cycle $cycle -Branch gated -Accounting $refreshAccounting -Confirm:$false
+                Invoke-HostRepairAutoDecision -State $State -Cycle $cycle -Branch gated -Accounting $repairAccounting -Confirm:$false
             }
             if ($auto -and $auto.Handoff) {
-                $State['RefreshHandoff'] = $auto.Handoff
+                $State['RunnerHandoff'] = $auto.Handoff
                 continue
             }
             $holdGate = Complete-OuterExpiredResidentHandoff -State $State -Cycle $cycle -Gate $cycleResult.Gate
-            Write-OuterRefreshGateHold -State $State -Cycle $cycle -Gate $holdGate
+            Write-OuterRunnerGateHold -State $State -Cycle $cycle -Gate $holdGate
             $null = Wait-OuterInterruptible -Seconds $gateHoldSeconds -ShutdownState $State.ShutdownState
             continue
         }
-        if ($State.ContainsKey('RefreshGateLogged') -and $State['RefreshGateLogged']) {
-            $releasedLine = Format-YurunaOperatorMessage -Key 'runner.refresh_gate_released' -Arguments @{ cycle = "$cycle" }
+        if ($State.ContainsKey('RunnerGateLogged') -and $State['RunnerGateLogged']) {
+            $releasedLine = Format-YurunaOperatorMessage -Key 'runner.runner_gate_released' -Arguments @{ cycle = "$cycle" }
             Write-Output $releasedLine
             Write-OuterLog $releasedLine
-            $State['RefreshGateLogged'] = $null
+            $State['RunnerGateLogged'] = $null
         }
         # The preflight chain of a handoff exited. A resident outer verifies
         # the acknowledgment against the cycle it spawned and leaves the gate
@@ -3924,31 +3924,31 @@ function Invoke-RunnerOuterLoop {
         # arms the barrier for the next, ordinary, cycle; a failed preflight
         # keeps the handoff pending and holds, so no inner starts into the
         # same fault.
-        if ($outcome -eq 'refresh-preflight') {
+        if ($outcome -eq 'handoff-preflight') {
             # The handoff as the gate validated it at dispatch; the caller's
             # handoff record may lack its purpose.
             $handoff = if ($cycleResult.PSObject.Properties['Handoff']) { $cycleResult.Handoff } else { $null }
             $preflightOk = ($exitCode -eq 0)
             if ($handoff -and $handoff.Purpose -eq 'resident-outer') {
-                $completion = Invoke-OuterRefreshResidentCompletion -Handoff $handoff -Cycle $cycle -ExitCode $exitCode -CycleIdentity $cycleResult.Cycle
+                $completion = Invoke-OuterHandoffResidentCompletion -Handoff $handoff -Cycle $cycle -ExitCode $exitCode -CycleIdentity $cycleResult.Cycle
                 $preflightOk = [bool]$completion.Ready
             }
             if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
-                $null = Set-RunnerState -To 'cycle-end' -Reason "refresh preflight exited $exitCode" -Confirm:$false
-                $null = Set-RunnerState -To 'idle'      -Reason 'refresh preflight complete' -Confirm:$false
+                $null = Set-RunnerState -To 'cycle-end' -Reason "handoff preflight exited $exitCode" -Confirm:$false
+                $null = Set-RunnerState -To 'idle'      -Reason 'handoff preflight complete' -Confirm:$false
             }
             if ($preflightOk) {
-                $State['RefreshHandoff'] = $null
-                $State['RefreshBarrierRequestId'] = if ($handoff -and $handoff.RequestId) { $handoff.RequestId } else { 'unknown' }
+                $State['RunnerHandoff'] = $null
+                $State['HandoffBarrierRequestId'] = if ($handoff -and $handoff.RequestId) { $handoff.RequestId } else { 'unknown' }
                 continue
             }
-            Write-OuterRefreshGateHold -State $State -Cycle $cycle -Gate $null
+            Write-OuterRunnerGateHold -State $State -Cycle $cycle -Gate $null
             $null = Wait-OuterInterruptible -Seconds $gateHoldSeconds -ShutdownState $State.ShutdownState
             continue
         }
         # The barrier belongs to the first ordinary cycle only.
-        if ($outcome -eq 'completed' -and $State.ContainsKey('RefreshBarrierRequestId') -and $State['RefreshBarrierRequestId']) {
-            $State['RefreshBarrierRequestId'] = $null
+        if ($outcome -eq 'completed' -and $State.ContainsKey('HandoffBarrierRequestId') -and $State['HandoffBarrierRequestId']) {
+            $State['HandoffBarrierRequestId'] = $null
         }
         # See https://yuruna.link/4213a0b3-0117
         if ($outcome -in @('pull-error','paused','spawn-failed','cycle-aborted')) {
@@ -4015,7 +4015,7 @@ function Invoke-RunnerOuterLoop {
         }
         # A cycle that failed nothing but skipped a planned guest: no fault and
         # no failure pause, and none of a pass's effects either -- no repair
-        # budget re-armed and no success for the automatic refresh decision,
+        # budget re-armed and no success for the automatic repair decision,
         # because the skipped guest proves nothing.
         if ($outcome -eq 'completed' -and $exitCode -eq (Get-DegradedCycleExitCode)) {
             $networkRetrySeconds = 0
@@ -4058,9 +4058,9 @@ function Invoke-RunnerOuterLoop {
             }
             if ($outcome -eq 'completed') {
                 $auto = & $invokeTrigger 'decision-success' {
-                    Invoke-HostRefreshAutoDecision -State $State -Cycle $cycle -Branch success -Accounting $refreshAccounting -Confirm:$false
+                    Invoke-HostRepairAutoDecision -State $State -Cycle $cycle -Branch success -Accounting $repairAccounting -Confirm:$false
                 }
-                if ($auto -and $auto.Handoff) { $State['RefreshHandoff'] = $auto.Handoff }
+                if ($auto -and $auto.Handoff) { $State['RunnerHandoff'] = $auto.Handoff }
             }
             continue
         }
@@ -4154,25 +4154,25 @@ function Invoke-RunnerOuterLoop {
                 -FrameworkCommitSha $faultCommitSha -ExitCode $exitCode -AttemptEvidence $attemptFault.Evidence -Confirm:$false
         }
 
-        # Automatic host refresh, after the streak and crash accounting and
+        # Automatic host repair, after the streak and crash accounting and
         # before the failure pause. A handoff continues straight to the
         # preflight dispatch; a repaired host skips the pause.
         if ($outcome -eq 'completed') {
             $auto = & $invokeTrigger 'decision-failure' {
-                Invoke-HostRefreshAutoDecision -State $State -Cycle $cycle -Branch failure -Accounting $refreshAccounting -Confirm:$false
+                Invoke-HostRepairAutoDecision -State $State -Cycle $cycle -Branch failure -Accounting $repairAccounting -Confirm:$false
             }
             if ($auto -and $auto.Handoff) {
-                $State['RefreshHandoff'] = $auto.Handoff
+                $State['RunnerHandoff'] = $auto.Handoff
                 if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
-                    $null = Set-RunnerState -To 'idle' -Reason 'host refresh handoff pending' -Confirm:$false
+                    $null = Set-RunnerState -To 'idle' -Reason 'handoff pending' -Confirm:$false
                 }
                 continue
             }
             if ($auto -and $auto.SkipFailurePause) {
                 if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
-                    $null = Set-RunnerState -To 'idle' -Reason 'automatic host refresh repaired the host' -Confirm:$false
+                    $null = Set-RunnerState -To 'idle' -Reason 'automatic host repair repaired the host' -Confirm:$false
                 }
-                $skipLine = Format-YurunaOperatorMessage -Key 'runner.host_refresh_auto_pause_skipped' -Arguments @{ cycle = "$cycle" }
+                $skipLine = Format-YurunaOperatorMessage -Key 'runner.host_repair_auto_pause_skipped' -Arguments @{ cycle = "$cycle" }
                 Write-Information $skipLine -InformationAction Continue
                 Write-OuterLog $skipLine
                 continue
@@ -4181,8 +4181,8 @@ function Invoke-RunnerOuterLoop {
 
         # Re-ensure the status service before pausing after a watchdog stop.
         # See https://yuruna.link/42e220c4-0008
-        $refreshAllowsEnsure = (-not (Get-Command Test-YurunaRefreshSpawnAllowed -ErrorAction SilentlyContinue)) -or
-            (Test-YurunaRefreshSpawnAllowed -RuntimeDir $env:YURUNA_RUNTIME_DIR)
+        $gateAllowsEnsure = (-not (Get-Command Test-YurunaRunnerSpawnAllowed -ErrorAction SilentlyContinue)) -or
+            (Test-YurunaRunnerSpawnAllowed -RuntimeDir $env:YURUNA_RUNTIME_DIR)
         # A held gate normally holds this ensure too: a live worker may be
         # mid-repair, deliberately stopping or restarting the listener. An
         # orphaned gate -- owner provably dead or recycled, no live handoff
@@ -4190,18 +4190,18 @@ function Invoke-RunnerOuterLoop {
         # off the dashboard carrying the unresolved request's resume
         # controls, leaving a remote operator no way to see or relaunch it.
         # The hold on cycle dispatch stands either way.
-        if (-not $refreshAllowsEnsure -and (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue)) {
-            $ensureGate = Get-YurunaRefreshGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
+        if (-not $gateAllowsEnsure -and (Get-Command Get-YurunaRunnerGateState -ErrorAction SilentlyContinue)) {
+            $ensureGate = Get-YurunaRunnerGateState -RuntimeDir $env:YURUNA_RUNTIME_DIR
             if ($ensureGate.Orphaned) {
-                $refreshAllowsEnsure = $true
-                Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_status_ensure_orphaned' -Arguments @{ cycle = "$cycle"; requestId = "$($ensureGate.RequestId)"; state = "$($ensureGate.State)" })
+                $gateAllowsEnsure = $true
+                Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.runner_gate_status_ensure_orphaned' -Arguments @{ cycle = "$cycle"; requestId = "$($ensureGate.RequestId)"; state = "$($ensureGate.State)" })
             }
         }
-        if (-not $refreshAllowsEnsure) {
-            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.refresh_status_ensure_skipped' -Arguments @{ cycle = "$cycle" })
+        if (-not $gateAllowsEnsure) {
+            Write-OuterLog (Format-YurunaOperatorMessage -Key 'runner.runner_gate_status_ensure_skipped' -Arguments @{ cycle = "$cycle" })
         }
         try {
-            if ($refreshAllowsEnsure -and -not (Test-OuterNoStatusServiceForwarded -ArgList $State.ArgList) -and
+            if ($gateAllowsEnsure -and -not (Test-OuterNoStatusServiceForwarded -ArgList $State.ArgList) -and
                 (Get-Command Resolve-StatusServiceStart -ErrorAction SilentlyContinue) -and
                 (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
                 $ensureStartScript = Join-Path $State.RepoRoot 'test/service/Start-StatusService.ps1'
@@ -4745,4 +4745,4 @@ Export-ModuleMember -Function Test-YurunaCycleAborted, `
     Get-RunnerPreambleStallStreak, Test-RunnerConfigGateNetworkOnly, Test-OuterRepositoryAccess, `
     Get-LastOuterPullFailure, Publish-OuterRecoveryResult, Invoke-OuterRecovery, Set-OuterRecoveryDecision, Write-OuterRecoveryApplied, `
     Import-OuterPoolStorageModuleSet, `
-    Get-OuterRefreshCycleMode, Resolve-OuterRefreshDispatch, ConvertTo-OuterRefreshHandoff
+    Get-OuterRunnerGateCycleMode, Resolve-OuterRunnerGateDispatch, ConvertTo-OuterRunnerHandoff

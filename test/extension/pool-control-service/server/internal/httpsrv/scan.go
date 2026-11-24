@@ -245,7 +245,7 @@ func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[s
 			Hostname:   hostname,
 			Type:       h.HostType,
 			Control:    "unknown",
-			Refresh:    pool.UnobservedRefresh(),
+			Repair:     pool.UnobservedRepair(),
 			Discovered: true,
 			Address:    h.Address,
 			BaseURL:    h.BaseURL,

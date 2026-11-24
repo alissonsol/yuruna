@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f8c915-1577-4dd3-8cb2-c71d9cbe26ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@
     amortized across the pool even at the 59 s cap, where a fixed [0,100) ms
     jitter was ~0.17% of the delay and barely decorrelated anything.
 #>
+
 
 function Get-PollDelay {
     <#

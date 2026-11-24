@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -750,6 +750,19 @@ function Save-VMDiskSnapshot {
         Save a snapshot on every disk of the stopped UTM bundle as the
         persisted VM named $Id, through the shared transactional save
         (Invoke-YurunaDiskSnapshotSave).
+    .DESCRIPTION
+        UTM owns its QEMU process and does not expose a stable QMP/CLI
+        snapshot verb, so this contract drops to qemu-img with the VM
+        offline. The .utm bundle lives at $HOME/yuruna/guest.nosync/<vm>.utm
+        and disks are *.qcow2 under <bundle>/Data/. For multi-disk VMs the
+        same Id is written into every qcow2 -- Restore-VMDiskSnapshot
+        reverts the same set as a group so the disks stay coherent.
+
+        Before the snapshot, Rename-VM renames the VM to $Id by on-disk
+        surgery (bundle dir + config.plist + UTM Registry) so the snapshot
+        survives the next cycle's Remove-TestVMFiles sweep. A failed rename
+        or snapshot is rolled back by the shared save
+        (Invoke-YurunaDiskSnapshotSave), which renames the VMs back.
     .PARAMETER VMName
         The bundle name.
     .PARAMETER Id
@@ -942,25 +955,6 @@ function Test-VMDiskSnapshot {
     return ($state -eq 'present')
 }
 
-<#
-.SYNOPSIS
-    Save a disk-only snapshot of each qcow2 disk in the UTM bundle,
-    taken after the VM is renamed to its persisted name so it survives
-    test-cycle cleanup.
-.DESCRIPTION
-    UTM owns its QEMU process and does not expose a stable QMP/CLI
-    snapshot verb, so this contract drops to qemu-img with the VM
-    offline. The .utm bundle lives at $HOME/yuruna/guest.nosync/<vm>.utm
-    and disks are *.qcow2 under <bundle>/Data/. For multi-disk VMs the
-    same Id is written into every qcow2 -- Restore-VMDiskSnapshot
-    reverts the same set as a group so the disks stay coherent.
-
-    Before the snapshot, Rename-VM renames the VM to $Id by on-disk
-    surgery (bundle dir + config.plist + UTM Registry) so the snapshot
-    survives the next cycle's Remove-TestVMFiles sweep. A failed rename
-    or snapshot is rolled back by the shared save
-    (Invoke-YurunaDiskSnapshotSave), which renames the VMs back.
-#>
 function Get-UtmBundleDisk {
     <#
     .SYNOPSIS

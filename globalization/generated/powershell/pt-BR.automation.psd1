@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421267e3-f5fa-3558-ead4-2600d7d08c6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5279,6 +5279,50 @@
         ') para: '
         @{
             'arg' = 'sourceContext'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+    )
+    'automation.private_state_migration_conflict' = @(
+        'Tanto '
+        @{
+            'arg' = 'legacy'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' quanto '
+        @{
+            'arg' = 'current'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' existem, então a raiz de estado privada é recusada e nada foi mesclado, movido ou criado. Mantenha o diretório que guarda o estado deste hospedeiro, mova o outro para outro lugar e execute novamente.'
+    )
+    'automation.private_state_migration_lock_held' = @(
+        'A raiz de estado privada anterior '
+        @{
+            'arg' = 'legacy'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' não foi movida: '
+        @{
+            'arg' = 'lockFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' está retido por outro processo, como um runner, um ouvinte de status ou um controlador de hospedeiro antigo. Pare esse processo e inicie novamente.'
+    )
+    'automation.private_state_moved' = @(
+        'Estado privado do hospedeiro movido: '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'current'
             'type' = 'detail'
             'trust' = 'external'
         }

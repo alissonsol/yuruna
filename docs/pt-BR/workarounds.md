@@ -320,6 +320,10 @@ enquanto o convidado continua imprimindo; veja
 [control-routes.md](../control-routes.md#pause-and-resume-the-flag-file-back-channel).
 O harness responde a isso sozinho quando a etapa define
 `blindAfterSeconds`.
+As sequências de início por SSH não leem o console, portanto digitam `yes` +
+Enter às cegas, cerca de 150 segundos depois que a VM inicia e de novo cerca
+de 150 segundos depois, para um boot lento; um `yes` que chega depois da
+confirmação cai na tela de log do instalador e não faz nada.
 
 **Problemas de boot** -- procure pistas em
 `/var/log/installer/installer-journal.txt`. Se o instalador em modo texto
@@ -401,6 +405,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.11.16
+Última revisão: 2026.11.23
 
 Voltar para [Yuruna](../../README.md)

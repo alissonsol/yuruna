@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1106,32 +1106,6 @@ function Get-PrometheusValue {
     return $rows[0].Value
 }
 
-<#
-.SYNOPSIS
-    The image sets the cache holds incompletely, from its published readings.
-.DESCRIPTION
-    Residency is the only reading that can show a COLD cache. The manifest
-    timings walk a tag the cache keeps resident, so they stay fast while an
-    image a guest is about to pull is still being copied from upstream -- the
-    state in which a provisioning run spends its whole step budget and then
-    reports a bare timeout.
-
-    Nothing is reported until a warm run has recorded residency. The exporter
-    publishes that as its own gauge and says why: with it at 0 the counts are
-    ABSENT, not zero, and reading them anyway reports a cache that has simply
-    not warmed yet as one missing every image a guest needs.
-
-    A missing image the cache REFUSED (answered with an HTTP error) is counted
-    apart from one it still has to copy. A refusal is not a slow copy: every
-    guest asking for that image gets the same answer, so describing it as a
-    wait would send the reader after latency. The count comes from the per-image
-    warm rows (state "failed"), which every exporter publishes; which statuses
-    were answered comes from a series only a newer exporter adds, so Statuses
-    can be empty while Refused is not.
-.OUTPUTS
-    [object[]] one @{ Set; Held; Total; Refused; Statuses; Copying } per set
-    held short. Copying is the missing count less the refused one.
-#>
 function Get-ZotSelfTestProblem {
     <#
     .SYNOPSIS
@@ -1186,6 +1160,32 @@ function Get-ZotSelfTestProblem {
 }
 
 function Get-RegistryResidencyShortfall {
+    <#
+    .SYNOPSIS
+        The image sets the cache holds incompletely, from its published readings.
+    .DESCRIPTION
+        Residency is the only reading that can show a COLD cache. The manifest
+        timings walk a tag the cache keeps resident, so they stay fast while an
+        image a guest is about to pull is still being copied from upstream -- the
+        state in which a provisioning run spends its whole step budget and then
+        reports a bare timeout.
+
+        Nothing is reported until a warm run has recorded residency. The exporter
+        publishes that as its own gauge and says why: with it at 0 the counts are
+        ABSENT, not zero, and reading them anyway reports a cache that has simply
+        not warmed yet as one missing every image a guest needs.
+
+        A missing image the cache REFUSED (answered with an HTTP error) is counted
+        apart from one it still has to copy. A refusal is not a slow copy: every
+        guest asking for that image gets the same answer, so describing it as a
+        wait would send the reader after latency. The count comes from the per-image
+        warm rows (state "failed"), which every exporter publishes; which statuses
+        were answered comes from a series only a newer exporter adds, so Statuses
+        can be empty while Refused is not.
+    .OUTPUTS
+        [object[]] one @{ Set; Held; Total; Refused; Statuses; Copying } per set
+        held short. Copying is the missing count less the refused one.
+    #>
     [CmdletBinding()]
     [OutputType([object[]])]
     param([Parameter(Mandatory)][hashtable]$Reading)

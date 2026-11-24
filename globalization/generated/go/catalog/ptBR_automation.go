@@ -5273,6 +5273,50 @@ const DataptBRautomation = `{
       "trust": "external"
     }
   ],
+  "automation.private_state_migration_conflict": [
+    "Tanto ",
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    " quanto ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    },
+    " existem, então a raiz de estado privada é recusada e nada foi mesclado, movido ou criado. Mantenha o diretório que guarda o estado deste hospedeiro, mova o outro para outro lugar e execute novamente."
+  ],
+  "automation.private_state_migration_lock_held": [
+    "A raiz de estado privada anterior ",
+    {
+      "arg": "legacy",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não foi movida: ",
+    {
+      "arg": "lockFile",
+      "type": "detail",
+      "trust": "external"
+    },
+    " está retido por outro processo, como um runner, um ouvinte de status ou um controlador de hospedeiro antigo. Pare esse processo e inicie novamente."
+  ],
+  "automation.private_state_moved": [
+    "Estado privado do hospedeiro movido: ",
+    {
+      "arg": "previous",
+      "type": "detail",
+      "trust": "external"
+    },
+    " -> ",
+    {
+      "arg": "current",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
   "automation.retry_already_applied": [
     {
       "arg": "label",

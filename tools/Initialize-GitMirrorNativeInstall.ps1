@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42ade151-5e4e-4637-bbf8-67abbffea511
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -385,7 +385,7 @@ if ($Action -eq 'VerifyCleanStop') {
     $launch = Read-YurunaRunnerLaunchRecord -RuntimeDir $RuntimeDir
     if (-not $launch.Valid -or (Test-NativeRunnerAlive $launch) -or -not $launch.Record.cleanExit -or
         $launch.Record.runner.pid -ne $before.pid -or $launch.Record.runner.startTimeUnixMs -ne $before.startTimeUnixMs) {
-        throw 'Refresh revived or rewrote the intentionally stopped runner.'
+        throw 'Repair revived or rewrote the intentionally stopped runner.'
     }
     $before.cleanExitPreserved=$true
     Write-NativeInstallObservation -Name clean-stop.json -Value $before
@@ -543,10 +543,10 @@ if ($IsMacOS) {
     Import-Module (Join-Path $candidateRoot 'test/modules/Test.HostCondition.Mac.psm1') -DisableNameChecking
     $observation.sessionKind = Get-MacSessionKind -TimeoutSeconds 5
 }
-$refreshState = Join-Path $RuntimeDir 'host-refresh.state.json'
-if (Test-Path -LiteralPath $refreshState) {
-    $refresh = Get-Content -LiteralPath $refreshState -Raw | ConvertFrom-Json -AsHashtable
-    $observation.refreshVerdict = [string]$refresh.verdict
+$repairState = Join-Path $RuntimeDir 'host-repair.state.json'
+if (Test-Path -LiteralPath $repairState) {
+    $repair = Get-Content -LiteralPath $repairState -Raw | ConvertFrom-Json -AsHashtable
+    $observation.repairVerdict = [string]$repair.verdict
 }
 $observationPath = Join-Path $StatePath $(if ($ExpectStopped) { 'stopped.json' } else { 'observed.json' })
 [IO.File]::WriteAllText($observationPath, ($observation | ConvertTo-Json -Depth 8) + "`n")

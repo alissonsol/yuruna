@@ -4,7 +4,7 @@
   "terms": [
     {
       "sourceTerm": "host",
-      "meaning": "The physical machine that runs Yuruna host automation, provisions guests, and exposes host-side services.",
+      "meaning": "A computing node -- usually a physical machine, possibly a VM (a nested host) -- that runs Yuruna host automation, provisions guests, and exposes host-side services.",
       "sourceHeadings": [
         "Defining fetch-and-execute host environment variables",
         "Defining the VM core-count policy"
@@ -27,7 +27,7 @@
     },
     {
       "sourceTerm": "pool",
-      "meaning": "The multi-host coordination scope in which consumers join cycles and shared services serve participating hosts.",
+      "meaning": "A named group of test hosts sharing a configuration and reporting label; each member runs its own complete plan.",
       "sourceHeadings": [
         "Defining the cycle.events.ndjson record shape",
         "Defining the runner-state enum"
@@ -107,7 +107,7 @@
     },
     {
       "sourceTerm": "drain",
-      "meaning": "To consume a child process's standard input completely before that process returns its response.",
+      "meaning": "To let pending work run out before stopping or answering. A pool drain lets current cycles finish while no further cycle starts; the pool-storage drain copies a host's not-yet-archived cycle folders to pool storage; a host update's drain phase waits for the running cycle to end before the runner stops; a child process drains its standard input by consuming it completely before returning its response.",
       "sourceHeadings": [
         "Defining the tofu external hook shell choice"
       ],
@@ -118,7 +118,7 @@
     },
     {
       "sourceTerm": "cache",
-      "meaning": "The local container-registry mirror used as an optimization for image pulls; when configured it is part of the pull path.",
+      "meaning": "Stored data kept for reuse; in Yuruna most often the caching-proxy service on its cache VM.",
       "sourceHeadings": [
         "Defining containerd hosts.toml cache mirror"
       ],
@@ -173,7 +173,7 @@
     },
     {
       "sourceTerm": "Baseline",
-      "meaning": "Ideal requirements: permitted outcomes and required outcomes, stated independently of explicit settings and observations.",
+      "meaning": "Intended requirements: permitted outcomes and required outcomes, stated independently of explicit settings and observations.",
       "sourceHeadings": [
         "Defining Baseline, Configuration, Implementation, and Telemetry"
       ],
@@ -184,7 +184,7 @@
     },
     {
       "sourceTerm": "Configuration",
-      "meaning": "Explicit settings recorded in code, files, and tools; distinct from ideal requirements and actual running behavior.",
+      "meaning": "Explicit settings recorded in code, files, and tools; distinct from intended requirements and actual running behavior.",
       "sourceHeadings": [
         "Defining Baseline, Configuration, Implementation, and Telemetry"
       ],

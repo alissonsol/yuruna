@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421d4450-b529-4d80-a244-126649692f4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,7 @@ try {
     # install under the shared retry. The module itself is loaded, because the
     # retry reads the module's own defaults and pattern, so the contract runs
     # the production code rather than stand-ins for it.
+    Import-Module (Join-Path $root 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $root 'automation/Yuruna.Retry.psm1') -Force -DisableNameChecking
     function Format-YurunaOperatorMessage { param($Key, $Arguments) $Key }
     function New-YurunaResultManifest { param($Success) @{ Success = $Success } }
@@ -93,7 +94,16 @@ try {
         Assert-Contract ($LASTEXITCODE -eq 0) 'Tofu init failed'
         & $Tofu apply -auto-approve -input=false *> (Join-Path $temp 'apply.log')
         Assert-Contract ($LASTEXITCODE -eq 0) 'Tofu apply failed'
-        $outputs = (& $Tofu output -json) | ConvertFrom-Json -AsHashtable
+        # A headless Windows PowerShell child can default to an OEM console
+        # encoding. Decode the interpreter's UTF-8 JSON independently of it.
+        $consoleEncoding = [Console]::OutputEncoding
+        $outputResult = Invoke-BoundedNativeCommand -FilePath $Tofu -ArgumentList @('output', '-json') `
+            -WorkingDirectory $workFolder -TimeoutSeconds 30 -StreamEncoding ([Text.UTF8Encoding]::new($false))
+        Assert-Contract ($outputResult.Started -and $outputResult.ExitCode -eq 0 -and
+            -not $outputResult.TimedOut -and -not $outputResult.DrainTimedOut -and
+            -not $outputResult.OutputTruncated -and -not $outputResult.CleanupPending) 'Tofu output failed'
+        Assert-Contract ([Console]::OutputEncoding.CodePage -eq $consoleEncoding.CodePage) 'Tofu capture changed the console encoding'
+        $outputs = $outputResult.Stdout | ConvertFrom-Json -AsHashtable
         foreach ($key in $values.Keys) { Assert-Contract ($outputs[$key].value -ceq $values[$key]) "Tofu interpretation: $key" }
     } finally { Pop-Location }
     Write-Output "Automation contracts: $count assertions passed."

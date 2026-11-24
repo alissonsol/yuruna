@@ -436,9 +436,9 @@ changes, divergent commits, detached HEAD), the script moves the existing
 checkout aside as a timestamped `<dir>.backup.<stamp>` and re-clones
 fresh rather than leaving a half-updated state. The final-summary block
 surfaces the backup path loudly so the operator can
-salvage local edits before deleting it. The `test/status` runtime state
-was already captured to TEMP by the preservation block above, so cycle
-history survives this path.
+salvage local edits before deleting it. Once the fresh clone is in place,
+the `test/status` runtime state is moved into it from the backup (see
+below), so cycle history survives this path.
 
 <a id="429fb30b-0011"></a>
 
@@ -480,20 +480,27 @@ must not lose the dashboard's history, per-cycle log transcripts, or
 the runtime-dir state (`status.json` with `history[]`,
 `runner.gating.json`, `runner.quarantine.json`, `runner.pid`, control
 flags). None of those are tracked by git -- per `.gitignore` every subdir
-under `test/status/` is gitignored as runtime state. The
-clone/update/renormalize block leaves untracked files alone
+under `test/status/` is gitignored as runtime state -- so the fetch,
+checkout, pull and renormalize steps leave them in place
 (`git rm -r --cached . && git reset --hard HEAD` only touches tracked
-files), but the installer backstops that contract with an explicit
-snapshot-and-restore so a
-future regression in the renormalize logic, or a manual delete of
-`$YurunaDir` between attempts, cannot silently wipe weeks of cycle
-history.
+files), and an update in place copies nothing.
+
+Only a re-clone starts without them. When `git pull --ff-only` cannot
+fast-forward, the installer moves the checkout aside to
+`<dir>.backup.<stamp>`, clones fresh, and moves each state subdir from
+the moved checkout into the new one. The backup sits beside the clone,
+so each move is a rename on the same disk: it needs no free space and
+finishes at once, however large the cycle history is. git ignores the
+state subdirs, so the fresh clone has none of them; one that is there
+anyway is left alone rather than nested inside. A subdir that does not
+move is reported as an install issue and is still in the backup. A clone
+that cannot finish puts the moved checkout back, with its state inside.
 
 All harness runtime state lives under `test/status/<sub>/`:
 `runtime/`, `perf/`, `log/`,
-`extension/`, `captures/`, `ssh/`. The installer preserves every subdir
+`extension/`, `captures/`, `ssh/`. A re-clone carries every subdir,
 so cycle history, perf JSONL, vault state, training/sequence captures,
-and the generated SSH key pair all survive a clone/update.
+and the generated SSH key pair all survive it.
 
 <a id="429fb30b-0013"></a>
 
@@ -794,9 +801,17 @@ therefore detect failure while the operator has time to read its explanation.
 **Outcome record.** Every installer (all three hosts) ends by writing one JSON
 record of how the run went, so automation (a nested host, a provisioning
 script) reads the outcome instead of parsing the closing summary: `outcome`
-(`succeeded`, `succeeded-with-issues`, `restart-required` on Windows, or
-`failed`), `exitCode`, the last `step` (macOS, Ubuntu), every deferred issue in
-`issues`, the installed `version` and the `log` path. It is written to
+(`succeeded`, `succeeded-with-issues`, `restart-required` on Windows for a run
+that succeeded with a restart pending, or `failed`), `exitCode`, the last `step`,
+every deferred issue in `issues`, the installed `version` and the `log` path. It
+also names the host update's `requestId` and `attempt`, whether the run was
+`unattended`, the `reason` token of an unattended failure (on macOS also `clt_missing` for
+missing Command Line Tools), a PowerShell upgrade (`pwshUpgrade`), `restartRequired` and,
+on macOS and Ubuntu, `remarks`: tokens a host update reports as its own remarks, always
+empty on Ubuntu and on macOS `brew_update_failed` and `utm_upgrade_deferred`, each beside
+its issue. An
+unattended run writes it on every path, including a refusal before the first change. It is
+written to
 `~/.local/state/yuruna/install-result.json` on macOS and Ubuntu
 (`$XDG_STATE_HOME` when set) or `%LOCALAPPDATA%\yuruna\install-result.json`
 on Windows (the elevated account), with a copy beside the run's log as
@@ -1065,7 +1080,7 @@ contention while brew/cask post-install runs its own sudo -- would
 otherwise kill the subshell.
 
 A single `EXIT` trap (`yuruna_install_cleanup`) releases the sudo
-keepalive AND any test/status temp backup on every exit path: normal
+keepalive AND removes the run's temporary paths on every exit path: normal
 completion, Ctrl+C, `set -e` abort.
 
 <a id="429fb30b-002c"></a>
@@ -1406,6 +1421,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

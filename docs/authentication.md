@@ -200,18 +200,28 @@ The test harness keeps a separate, lightweight credential store at
 `test/status/extension/authentication/vault.yml`. **This file is
 plaintext YAML by design.** It is NOT a production secrets vault.
 
-What lands in it: per-cycle passwords for the throwaway guest OS
-accounts the harness creates (`yauser1`, `yuuser24`, `yt2sqluser`, etc.)
-on test VMs wiped and rebuilt every cycle. The accounts
-exist only inside the test VM; the harness rotates the password on
-first contact via `Set-Password`, stores both `password` and
-`previousPassword` so a half-applied rotation can recover, and never
-exports the value off the local machine.
+What lands in it:
+
+- per-cycle passwords for the throwaway guest OS accounts the harness
+  creates (`yauser1`, `yuuser24`, `yt2sqluser`, etc.) on test VMs wiped
+  and rebuilt every cycle. The accounts exist only inside the test VM;
+  the harness rotates the password on first contact via `Set-Password`
+  and never exports the value off the local machine;
+- the administrator passwords of the service VMs
+  (`caching-proxy-service-admin`, `pool-control-service-admin`,
+  `stash-admin`, `download-agent-service-admin`, and the cache VM's
+  Grafana administrator) and the password of the storage account
+  (`networkUser`);
+- the internal authentication key (`internal-auth-key`);
+- the optional `dockerhub-token` and `github-mirror-token`, and the proxy
+  owner's `github-mirror-signing-key`.
+
+Every write keeps the value it replaces as `previousPassword`, so a
+half-applied rotation can recover.
 
 What never lands in it: cloud-provider credentials (`aws configure` /
 `az login` / `gcloud auth ...` keep their own files, see sections
-above), API keys, registry tokens, SSH host keys (those live under
-`test/status/ssh/`), or any operator personal credential.
+above) and SSH host keys (those live under `test/status/ssh/`).
 
 Trust boundary:
 
@@ -279,6 +289,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,9 @@ $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChil
 $hostFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', 'modules', 'Yuruna.Host.psm1'
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+# The private state root and the runner gate resolve under $HOME; a scratch
+# home keeps this suite and every process it starts off the operator's own.
+$script:TestHome = Enter-YurunaTestHome
 
 # Parse once; each test reads the function bodies out of the AST so that
 # comments and strings can never be mistaken for calls.
@@ -94,6 +97,8 @@ function Get-GuestNewVmScriptPath {
 }
 
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'hyper-v-guest-seed-host-ip' {
 

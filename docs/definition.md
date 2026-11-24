@@ -1074,7 +1074,7 @@ Source:
 ### Defining the VM core-count policy
 
 Every `New-VM.ps1` script in this repo assigns vCPUs to its guest from
-the host's capacity. The baseline policy is:
+the host's capacity. The default rule is:
 
 ```
 vmCores = max(4, floor(hostCores / 2))
@@ -1106,14 +1106,14 @@ loops, helm install timeouts).
 
 **Why the clamp on small KVM hosts.** On Ubuntu KVM, `nproc` counts
 hardware threads, so a 4-thread host (2 physical cores) evaluates the
-baseline to `max(4, 2) = 4` -- every guest gets the whole machine. With
+default rule to `max(4, 2) = 4` -- every guest gets the whole machine. With
 more than one guest up (plus the runner and OCR polling on the same
 host), the oversubscription can deschedule a guest's vCPUs for seconds
 at a time; an OS installer then appears frozen on the console until
 the sequence step times out. The clamp keeps at least one thread for
 the host and accepts a 2-vCPU guest as the honest small-host sizing --
 2 vCPUs that actually run beat 4 that contend 3-to-1. On hosts with 8+
-threads the clamp evaluates identically to the baseline.
+threads the clamp evaluates identically to the default rule.
 
 **Failure mode.** If the host has fewer than 4 cores total, `New-VM.ps1`
 exits non-zero rather than silently provisioning an
@@ -1121,9 +1121,9 @@ under-sized guest that will time out later in the cycle. The operator
 must either run on a larger host or edit the specific guest's
 `New-VM.ps1` to override the policy.
 
-**Infra guests keep the baseline.** The infra-service VMs
+**Infra guests keep the default rule.** The infra-service VMs
 (caching-proxy-service, stash-service, download-agent-service,
-pool-control-service) stay on the baseline policy: they normally run on
+pool-control-service) stay on the default rule: they normally run on
 dedicated hosts where taking half the threads is the point, and their
 sizing is coupled to service budgets (Squid `cache_mem`, SCP receive)
 rather than to test-cycle co-tenancy. ARM64 Hyper-V caps the shared Linux
@@ -1193,7 +1193,7 @@ for the zot registry cache, and swap is masked, so an OOM is unrecoverable.
 Tune VM RAM, `cache_mem`, and zot together -- see
 [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
 
-**The extension services share one 2 GB baseline**, a working-set fit
+**The extension services share one 2 GB default allocation**, a working-set fit
 rather than a budget. None of the three holds a large resident set: the
 stash streams an SCP receive to disk next to a SQLite metadata writer,
 the download-agent streams artifacts through to the pool share instead
@@ -1204,10 +1204,10 @@ at once -- a standalone host runs the caching-proxy-service and stash, plus
 the download-agent when it opts in -- is their **sum**, committed whether or
 not the guests touch it. Every GB left in them subtracts directly from
 what the test guests on the same machine can start with. The
-caching-proxy-service is the one that cannot join the baseline, for the
+caching-proxy-service is the one that cannot join the default allocation, for the
 `cache_mem` reason above.
 
-What sets the baseline is not steady state but first boot: each guest is
+What sets the default allocation is not steady state but first boot: each guest is
 an Ubuntu Server cloud image whose bring-up script installs `golang-go`
 and compiles the service in-guest, with no swap configured. The stash is
 the largest of the three builds -- its pure-Go SQLite driver is the
@@ -1464,7 +1464,7 @@ Round trip:
    dot-sources the script named by `YURUNA_HOST_DIAGNOSTIC_SCRIPT`) under a
    time limit, captures stdout and stderr, and
    writes the report and a state record to the host's private
-   `host-diagnostic/` directory under `$HOME/.yuruna/host-refresh/`. The
+   `host-diagnostic/` directory under `$HOME/.yuruna/host-repair/`. The
    stored report is at most 4 MiB of UTF-8, the most the route serves;
    a longer one is cut between characters and ends with a truncation
    notice.
@@ -1486,7 +1486,7 @@ for its `-logLevel` handling. A child process keeps those
 side-effects isolated.
 
 **Why a private result file.** The latest report is always
-`$HOME/.yuruna/host-refresh/host-diagnostic/result.txt` -- one canonical
+`$HOME/.yuruna/host-repair/host-diagnostic/result.txt` -- one canonical
 "most recent host diagnostic" an operator can read from the shell
 without timestamped clutter. That directory is outside every tree the
 status service serves; reading the report through the server takes the
@@ -1507,6 +1507,15 @@ operator reads at the top right of every page, so the affordance
 is styled (`a.hm-name`) to read as plain text at rest,
 underlining only on hover.
 
+**Host operations below the report.** The bottom of the page holds the
+host's **Update host** section
+([POST /control/host-update](control-routes.md#post-controlhost-update))
+and, while the host advertises a repair it can run, its **Repair host**
+section
+([POST /control/host-repair](control-routes.md#post-controlhost-repair)).
+Each has its own live region, so its progress never overwrites the report.
+The Config page keeps **Save and start cycle**.
+
 <a id="42fa6f45-001f"></a>
 
 ### Defining the status-page caching-proxy-service banner
@@ -1518,7 +1527,7 @@ at the same framework commit; restart the service to refresh the reading
 after bringing the cache up or down. The file contains trusted
 server-generated HTML -- possibly an `<a href>` to the cache's dashboard
 landing page -- and the dashboard applies that href to the "Latest
-Cycle" Dashboards link via `setAttribute` (not `innerHTML`, so the
+cycle" Dashboards link via `setAttribute` (not `innerHTML`, so the
 fetched markup is never injected). The dashboard re-fetches the
 file on every `loadStatus()` poll so a page left open sees an updated
 reading within one poll interval, even across cycles.
@@ -1640,7 +1649,7 @@ Page-specific behavior:
   pending`, so one failure surfaces even if the other two passed. The
   combined pill carries the earliest-start / latest-finish timestamps
   so the duration reading stays meaningful.
-- **Sequence cards (Latest Cycle).** When `status.json` carries
+- **Sequence cards (Latest cycle).** When `status.json` carries
   `sequences[]`, the "Test sequences" section renders one card per
   entry, in runner-list order, nesting the guest(s) that sequence
   drives. The card header shows the sequence name plus ONE aggregate
@@ -1665,17 +1674,17 @@ Page-specific behavior:
   to build the per-cycle log URL); later entries are project repositories
   and additional layers. The runner records a browser-routable
   `repoUrl` for the project entry: a `repositories.projectUrl` that is
-  a local clone path or an ssh remote (both valid clone sources) is
+  a local clone path or an SSH remote (both valid clone sources) is
   resolved to its underlying web remote at cycle start
   (`Resolve-GitRepositoryWebUrl`, `Test.HostGit.psm1`), falling back
   to the raw value -- rendered as plain text -- when nothing resolves.
-- **Recent Cycles sequence buttons.** The "Sequences" column renders
+- **Recent cycles sequence buttons.** The "Sequences" column renders
   one badge per entry in the row's `sequenceSummary`
   (`[{ name, status, folderUrl }]`), each wrapped in an `<a href>` to
   that sequence's results folder -- the driven guest's per-VM folder
   for a 1:1 sequence, or the cycle folder when a sequence fans out to
   more than one guest. `status` is the worst of the sequence's guests,
-  matching the Latest Cycle sequence-card badge. Rows without `sequenceSummary` -- older
+  matching the Latest cycle sequence-card badge. Rows without `sequenceSummary` -- older
   rows, and the legacy `guestSequence` path, which has no sequences --
   carry only `guestSummary`, so the renderer falls back to one badge
   per guest: `guestSummary[k]` is either a bare string ("pass"/"fail",
@@ -1697,7 +1706,7 @@ Page-specific behavior:
   reported them, and an unavailable `status.json` hides the line. The
   values are rendered as text, never as markup. A report, not a gate.
 - **`#cycle-timestamp`, `#cycle-started`, `#cycle-commit`,
-  `#cycle-images-refresh`.** The four "Latest Cycle" meta-cards
+  `#cycle-images-refresh`.** The four "Latest cycle" meta-cards
   (`#cycle-timestamp` holds the UTC cycle identifier shown under the
   "Cycle start (UTC)" label). The static `#sec-cycle-title` label sits
   to the LEFT in the section header; the dashboards link sits in the
@@ -1794,12 +1803,12 @@ Page-specific behavior:
   from a stopped state is non-destructive so no prompt fires. POSTs
   to `/control/test-config` first (atomic file replace) and then to
   `/control/start-cycle`, which queues a detached worker and answers
-  `202`. The worker, holding the host's repair lock, clears the pause
+  `202`. The worker, holding the host's lifetime host-operation lock, clears the pause
   flags, runs `Remove-TestVMFiles.ps1`, and then either signals the
   inner runner to break its delay OR starts a fresh runner if none is
   alive; the page follows its progress in
   `runtime/start-cycle.state.json` every three seconds. While a host
-  refresh holds the host the request is refused and nothing is
+  operation holds the host the request is refused and nothing is
   changed. 6-second dwell on the final "Cycle restarted / Runner
   started" message before navigating to the status page so the
   operator can read it before the dashboard takes over.
@@ -1983,7 +1992,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `cycle-events.pending.json` | `<runtimeDir>` | `Add-PendingCycleEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1), for events raised while no cycle is open (boot recovery, runner faults, an orchestration cycle's leftover-VM record) | emptied by `Send-PendingCycleEvent` once the next cycle's stream holds the events | Events waiting for a cycle stream, oldest first, each with its own `timestamp` and an `eventId`; at most 200 events and 512 KiB, the oldest dropped and counted past either bound; an event larger than 512 KiB on its own is the only one dropped. Changed only under the held-open `cycle-events.pending.json.lock`. Not served. |
 | `recovery.health.json` | `<runtimeDir>` | `Set-RecoveryLedgerHealth` in [Test.RecoveryLedger.psm1](../test/modules/Test.RecoveryLedger.psm1) when the recovery ledger cannot be read or written | removed once a ledger line is written again | Why automatic recovery is disabled (`ledger-unreadable` or `ledger-unwritable`); `/control/runner-status` reports it as `recoveryDisabled`, the status page shows it, and the pool notifier queues one `pool.alert` notice per episode. |
 | `server.lease.json` | `<runtimeDir>` | the status service's listener loop (`Update-StatusServiceLease` in [Test.StatusControlRoute.psm1](../test/modules/Test.StatusControlRoute.psm1)), renewed while idle and stamped with each request | replaced by the next listener; a lease naming another process is ignored | The listener's liveness: `idle` or `busy`, the route being served and since when. A start whose probe times out leaves a listener the lease shows serving, and the host-address beacon replaces one whose lease reads wedged (`Get-StatusServiceLeaseVerdict`). Not served. |
-| `status-replace.out`, `status-replace.err` | `<runtimeDir>` | the host-address beacon, from the `Start-StatusService.ps1 -RefreshSafe -ReplaceWedged` run that replaced a wedged listener | replaced by the next replacement | That start's console output, for the operator who wants to know why a listener was replaced. Not served. |
+| `status-replace.out`, `status-replace.err` | `<runtimeDir>` | the host-address beacon, from the `Start-StatusService.ps1 -NonDestructive -ReplaceWedged` run that replaced a wedged listener | replaced by the next replacement | That start's console output, for the operator who wants to know why a listener was replaced. Not served. |
 | `runner.watchdog-kill.json` | `<runtimeDir>` | [Test.RunnerWatchdog.psm1](../test/modules/Test.RunnerWatchdog.psm1) before terminating a matching stale inner; `Write-OuterStopRecord` in [Test.RunnerOuterLoop.psm1](../test/modules/Test.RunnerOuterLoop.psm1), in the same shape, for a cycle the resident stopped | cleared before the next spawn | Attempt-bound evidence that termination was initiated by the watchdog; a non-zero gate exit alone is not a stall. |
 | `.test.config.snapshot.json` | `<runtimeDir>` | `Publish-TestConfigSnapshot` in [Test.Config.psm1](../test/modules/Test.Config.psm1), auto-fired by every `Read-TestConfig` parse | overwritten on next parse | Cross-process parsed-config snapshot (envelope: sourcePath, sourceMtime, sourceHash, publishedAt, publisherPid, config). `Read-TestConfigOrSnapshot` validates the envelope's mtime+hash against the live YAML and uses the snapshot when both still match, avoiding a redundant YAML parse in the inner. |
 | `.caching-proxy-service.env.json` | `<runtimeDir>` | no longer written | removed by [test/service/Start-CachingProxyServiceVM.ps1](../test/service/Start-CachingProxyServiceVM.ps1) | Older versions kept the cleared `*_proxy` values here for a restore that was never built. A proxy URL can carry credentials, so the cleared names are logged and the values are not kept. |
@@ -2149,7 +2158,7 @@ this timestamp `cycleId`, which is how a reader dates an archived cycle.
 `stepNumber`, `totalSteps`, `cycleNumber`, `pid` are `int`. `ok` is
 `bool`. `durationMs` is `int-or-null`. `suggestedRecoveries` is an
 array. `failureClass` and `severity` are matched against the canonical
-enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
+enums of [Test.FailureTaxonomy.psm1](../test/modules/Test.FailureTaxonomy.psm1) (`Get-FailureClassEnum`, `Get-SeverityEnum`):
 
 * **failureClass**: ocr_timeout, console_flooded, network_timeout,
   credential_expired, host_io_blocked, pattern_matched_failure, retry_exhausted,
@@ -2159,7 +2168,7 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
   host_network_degraded, ip_not_discovered, payload_unavailable,
   pool_storage_full, dhcp_identity_unbounded, lab_dependency_down, input_lost,
   hypervisor_unresponsive, source_integrity, vm_not_stopped, guest_run_lost,
-  guest_kernel_stalled, guest_display_stalled, unknown.
+  guest_kernel_stalled, guest_display_stalled, web_step_failed, unknown.
 * **severity**: hard, soft, unknown.
 
 `actionVerb`, `action`, `description`, `sequencePath`, `vmName`,
@@ -2198,6 +2207,10 @@ typed fields.
 | `snapshot_manifest_missing` | snapshot handlers | Manifest sidecar absent -- legacy snapshot; warn-only. |
 | `snapshot_manifest_mismatch` | snapshot handlers | Manifest present but `vmName`/`snapshotId`/`hostType` disagree -- hard refuse. Carries `violations[]`. |
 | `ssh_handshake_failed` | [Test.Ssh.Wait-SshReady](../test/modules/Test.Ssh.psm1) | All probes exhausted; carries `target`, `user`, `privateKey`, `attempts`, `lastError`. |
+| `ssh_password_rotation` | [Test.Ssh.Invoke-GuestSshPasswordRotation](../test/modules/Test.Ssh.psm1) | An `sshWaitReady` step changed, or failed to change, an expired guest password over SSH; carries `vmName`, `guestKey`, `user`, `target`, `ok`, `code`, `answered` (prompts answered, 0 to 3), `durationMs` and `detail` (the guest's text with both passwords removed), and `failureClass` `credential_expired` with `severity` `hard` when `ok` is false. |
+| `ssh_password_set` | [Test.Ssh.Set-GuestSshPassword](../test/modules/Test.Ssh.psm1) | An `sshWaitReady` step with `newPassword` reached a shell without an expired password and set the password over SSH with `sudo -n chpasswd`, or failed to; carries `vmName`, `guestKey`, `user`, `target`, `ok`, `code`, `exitCode`, `durationMs` and `detail` (the guest's text with the password removed), and `failureClass` `provisioning_failure` with `severity` `hard` when `ok` is false. |
+| `web_session_opened` | [Test.WebSession.Open-GuestWebSession](../test/modules/Test.WebSession.psm1) | A web session opened: the browser started in the guest and its tunnel answered; carries `vmName`, `guestKey`, `generation`, `browser` (the product and version the browser reports, such as `Chrome/157.0.8103.78`), `localPort`, `remotePort`, `durationMs`. |
+| `web_session_closed` | [Test.WebSession.Close-GuestWebSession](../test/modules/Test.WebSession.psm1) | A web session ended; carries `vmName`, `guestKey`, `generation`, `reason`, `forced`, `durationMs`. |
 | `ocr_provider_unavailable` | [Test.OcrEngine](../test/modules/Test.OcrEngine.psm1) | A requested OCR provider isn't available on this platform; carries `provider`. |
 | `ocr_provider_failed` | [Test.OcrEngine](../test/modules/Test.OcrEngine.psm1) | Provider call threw mid-OCR; carries `provider`, `imagePath`, `error`. |
 | `vnc_reconnect_failed` | [Test.VncProvider.Repair-VncConnection](../test/modules/Test.VncProvider.psm1) | VNC re-handshake threw; carries `vmName`, `hostType`, `error`. |
@@ -2456,7 +2469,7 @@ schema-validated `runner_state_transition` NDJSON event.
 | `idle`         | Runner alive and ready for the next cycle.                         |
 | `cycle-start`  | A new cycle is starting; pre-spawn work in flight.                 |
 | `in-cycle`     | Inner runner is executing steps.                                   |
-| `cycle-end`    | The outer is closing an attempt after exit 0, a completed degraded cycle (75), an inner-side refresh hold, or refresh preflight.                    |
+| `cycle-end`    | The outer is closing an attempt after exit 0, a completed degraded cycle (75), an inner-side runner-gate hold, or handoff preflight.                |
 | `fault`        | The outer is handling a failed or unrecorded cycle attempt.                      |
 | `paused`       | Failure-pause loop waiting for new commit / cap elapsed.           |
 
@@ -2638,8 +2651,8 @@ have: a **configuration mismatch**, **diagnostic observation**, **outdated
 configuration**, or **unexpected transition** as appropriate. Operational
 incidents keep their existing meaning and workflow.
 
-Version 2026/10 of the [Yuruna ontology](ontology/README.md) models this
-vocabulary as the four assessment views and nine assessment conditions, with
+The [Yuruna ontology](ontology/README.md) models this vocabulary (since version
+2026/10) as the four assessment views and nine assessment conditions, with
 their provenance recorded in the ontology file. It does not add security-set comparisons, proof agents, or
 new detectors.
 
@@ -2649,6 +2662,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

@@ -396,8 +396,8 @@ function fire(el, type) {
 async function checkTimerQueue() {
   const timers = createTimerQueue();
   const callbacks = [];
-  const cancelled = timers.setTimeout(() => callbacks.push('cancelled'));
-  timers.clearTimeout(cancelled);
+  const canceled = timers.setTimeout(() => callbacks.push('canceled'));
+  timers.clearTimeout(canceled);
   setImmediate(() => timers.setTimeout(() => {
     callbacks.push('outer');
     Promise.resolve().then(() => timers.setTimeout(() => callbacks.push('nested')));

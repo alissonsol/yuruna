@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,6 +51,7 @@ function Add-SequenceFailureSlot {
 
 Add-SequenceFailureSlot -Name 'LastFailureLabel' -Lifetime sequence -Default $null
 Add-SequenceFailureSlot -Name 'LastFailureDescription' -Lifetime sequence -Default $null
+Add-SequenceFailureSlot -Name 'LastFailureFromStep' -Lifetime sequence -Default ''
 Add-SequenceFailureSlot -Name 'LastFailedAction' -Lifetime sequence -Default $null
 Add-SequenceFailureSlot -Name 'LastFailedStepNumber' -Lifetime sequence -Default 0
 # When the failing step began. The failure record judges the per-VM screen
@@ -203,8 +204,9 @@ Add-SequenceFailureSlot -Name 'StepInputLost' -Lifetime step -Default $null
 # failed: @{ action; stepInvocationId; kind; reason; transport; detail;
 # delivered; total }, else $null. kind 'deterministic' -- text the input
 # path has no key for, a key name no map defines, an action the host never
-# registered -- fails the same way on every retry, so the step is filed as
-# plan_invalid instead of the input verbs' retryable host_io_blocked.
+# registered, a KVM click with no usable frame size, a KVM guest with no
+# absolute pointer device -- fails the same way on every retry, so the step is
+# filed as plan_invalid instead of the input verbs' retryable host_io_blocked.
 Add-SequenceFailureSlot -Name 'StepHostInputFault' -Lifetime step -Default $null
 # Set by a GUI fetch whose guest launcher refused the typed envelope, from the
 # launcher's own record: the YFE code, the length and SHA-256 it received and
@@ -247,8 +249,22 @@ Add-SequenceFailureSlot -Name 'StepFailurePhase' -Lifetime step -Default $null
 # A handler's proof that the current attempted step did nothing to the
 # guest: @{ effect = 'none-proven'; source; stepInvocationId }, else $null.
 # Set through Set-StepEffectNoneProven by the handlers that hold such
-# evidence; read only for the step that published it.
+# evidence, and through Set-StepWebFailure for a page step that ended before
+# it handed the browser anything; read only for the step that published it.
 Add-SequenceFailureSlot -Name 'StepEffect' -Lifetime step -Default $null
+# Steps of a verb registered as 'observe' whose handler changed the guest
+# anyway, by step number: [ordered]@{ '<stepNum>' = 'applied' | 'uncertain' },
+# else $null. sshWaitReady stays 'observe' because replaying it in place is
+# what puts the step's password back after a resume, yet a rotation or a set
+# it ran did change the account. Set through Set-StepGuestChange; a session
+# operation reads it to state its effect.
+Add-SequenceFailureSlot -Name 'StepGuestChange' -Lifetime sequence -Default $null
+# How a page step ended, in its own words: [ordered]@{ stepInvocationId;
+# verb; kind; failureClass; effect; locator; candidates; matchCount; url;
+# title; detail; waitedSeconds }, else $null. Written only by
+# Set-StepWebFailure; the class of a page step is taken from this account
+# (Get-StepWebFailureClass), never from the verb's registered class.
+Add-SequenceFailureSlot -Name 'StepWebFailure' -Lifetime step -Default $null
 # The deploy result a guest entry point reported on its YURUNA_RESULT line,
 # read by the ssh verbs: @{ failureClass (canonical); deployFailureClass;
 # errorMessage }, else $null. The guest said why its deploy failed, which
@@ -405,6 +421,184 @@ function Save-WaitFailureEvidence {
     }
 }
 
+# --- REGION: Page step account
+# The one place a page failure kind is paired with a class, so a handler names
+# what it saw and cannot pick another class.
+$script:WebFailureKind = [ordered]@{
+    'not_found'           = 'web_step_failed'
+    'ambiguous'           = 'web_step_failed'
+    'not_actionable'      = 'web_step_failed'
+    'expectation'         = 'web_step_failed'
+    'navigation'          = 'web_step_failed'
+    'unsupported'         = 'web_step_failed'
+    'page_lost'           = 'web_step_failed'
+    'transport'           = 'network_timeout'
+    'address_unresolved'  = 'ip_not_discovered'
+    'browser_unavailable' = 'plan_invalid'
+    'protocol'            = 'plan_invalid'
+    'invalid_step'        = 'plan_invalid'
+}
+
+function Get-WebFailureKind {
+    <#
+    .SYNOPSIS
+        The page failure kinds, each with the failure class it files, as a copy.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param()
+    $copy = [ordered]@{}
+    foreach ($kind in $script:WebFailureKind.Keys) { $copy[$kind] = $script:WebFailureKind[$kind] }
+    return $copy
+}
+
+function Set-StepWebFailure {
+    <#
+    .SYNOPSIS
+        Record how a page step ended: the kind, what the step sought, what the
+        page offered and whether the step changed the page.
+    .DESCRIPTION
+        The only writer of the StepWebFailure slot. Every text is bounded and
+        flattened to one line. No parameter takes a typed value, so a fill's text
+        cannot reach the record, and the sought text of a sensitive step reads
+        ***. A URL keeps its scheme, host, port and path only. A step that never
+        dispatched anything to the browser also publishes the none-proven effect
+        the record builder reads.
+    .PARAMETER Kind
+        One of the kinds of Get-WebFailureKind; the kind decides the class.
+    .PARAMETER Dispatched
+        The step handed the browser something that can change the page.
+    .PARAMETER Acknowledged
+        The browser confirmed what was dispatched.
+    .PARAMETER Locator
+        What the step sought: role, name, match, css, text and nth.
+    .PARAMETER Candidates
+        What the page offered instead, each a dictionary with role and name.
+    .PARAMETER MatchCount
+        How many elements matched; below 0 means the number of candidates.
+    .PARAMETER State
+        The failure-state store; the shared one when omitted.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes one slot of the in-memory failure state; nothing outside the process changes.')]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][ValidateScript({ $script:WebFailureKind.Contains($_) })][string]$Kind,
+        [bool]$Dispatched = $false,
+        [bool]$Acknowledged = $false,
+        [AllowNull()][System.Collections.IDictionary]$Locator,
+        [AllowNull()][AllowEmptyCollection()][object[]]$Candidates = @(),
+        [int]$MatchCount = -1,
+        [AllowNull()][AllowEmptyString()][string]$Url = '',
+        [AllowNull()][AllowEmptyString()][string]$Title = '',
+        [AllowNull()][AllowEmptyString()][string]$Detail = '',
+        [int]$WaitedSeconds = 0,
+        [System.Collections.IDictionary]$State = (Get-SequenceFailureState)
+    )
+    $bounded = {
+        param($Value, [int]$Limit)
+        $text = ([string]$Value -replace '[\r\n\t]+', ' ').Trim()
+        if ($text.Length -gt $Limit) { $text = $text.Substring(0, $Limit) }
+        return $text
+    }
+    $step = $Context['Step']
+    $sensitive = ($step -is [System.Collections.IDictionary]) -and [bool]$step['sensitive']
+    $verb = if ($step -is [System.Collections.IDictionary]) { [string]$step['action'] } else { '' }
+
+    $locatorRecord = $null
+    if ($null -ne $Locator) {
+        $locatorRecord = [ordered]@{}
+        foreach ($field in @(@('role', 40), @('name', 200), @('match', 20), @('css', 200), @('text', 200))) {
+            $value = & $bounded $Locator[$field[0]] $field[1]
+            if ($value) {
+                if ($field[0] -eq 'text' -and $sensitive) { $value = '***' }
+                $locatorRecord[$field[0]] = $value
+            }
+        }
+        $nth = 0
+        if ($null -ne $Locator['nth'] -and [int]::TryParse([string]$Locator['nth'], [ref]$nth)) {
+            $locatorRecord['nth'] = [int]$nth
+        }
+    }
+
+    $candidateRecords = [System.Collections.Generic.List[object]]::new()
+    foreach ($candidate in @($Candidates)) {
+        if ($candidateRecords.Count -ge 10) { break }
+        if ($candidate -isnot [System.Collections.IDictionary]) { continue }
+        $candidateRecords.Add([ordered]@{
+            role = & $bounded $candidate['role'] 40
+            name = & $bounded $candidate['name'] 120
+        })
+    }
+    $count = if ($MatchCount -ge 0) { $MatchCount } else { @($Candidates | Where-Object { $null -ne $_ }).Count }
+
+    $urlText = ''
+    $parsed = $null
+    $flatUrl = & $bounded $Url 4096
+    if ($flatUrl -and [System.Uri]::TryCreate($flatUrl, [System.UriKind]::Absolute, [ref]$parsed)) {
+        if ($parsed.Scheme -eq 'http' -or $parsed.Scheme -eq 'https') {
+            $authority = if ($parsed.IsDefaultPort) { $parsed.Host } else { '{0}:{1}' -f $parsed.Host, $parsed.Port }
+            if ($parsed.HostNameType -eq [System.UriHostNameType]::IPv6) {
+                $authority = if ($parsed.IsDefaultPort) { "[$($parsed.Host)]" } else { '[{0}]:{1}' -f $parsed.Host, $parsed.Port }
+            }
+            $urlText = '{0}://{1}{2}' -f $parsed.Scheme, $authority, $parsed.AbsolutePath
+            if ($urlText.Length -gt 300) { $urlText = $urlText.Substring(0, 300) }
+        } else {
+            $urlText = "$($parsed.Scheme):"
+        }
+    }
+
+    $effect = if (-not $Dispatched) { 'none-proven' } elseif ($Acknowledged) { 'applied' } else { 'uncertain' }
+    $stepInvocationId = [string]$Context['StepInvocationId']
+    $State.StepWebFailure = [ordered]@{
+        stepInvocationId = $stepInvocationId
+        verb             = $verb
+        kind             = $Kind
+        failureClass     = [string]$script:WebFailureKind[$Kind]
+        effect           = $effect
+        locator          = $locatorRecord
+        candidates       = [object[]]$candidateRecords.ToArray()
+        matchCount       = [int]$count
+        url              = $urlText
+        title            = & $bounded $Title 120
+        detail           = & $bounded $Detail 300
+        waitedSeconds    = [int][Math]::Max(0, $WaitedSeconds)
+    }
+    if ($effect -eq 'none-proven') {
+        $State.StepEffect = [ordered]@{ effect = 'none-proven'; source = 'web-not-dispatched'; stepInvocationId = $stepInvocationId }
+    }
+}
+
+function Get-StepWebFailureClass {
+    <#
+    .SYNOPSIS
+        The class and recoveries of a page step's own account, or $null.
+    .DESCRIPTION
+        Answers only for the step that wrote the account, so a wrapper around a
+        failed page step keeps its own class. The record builder and the retry
+        handler both ask here, so they cannot disagree.
+    .OUTPUTS
+        [pscustomobject] @{ FailureClass; SuggestedRecoveries }, or $null.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowNull()][AllowEmptyString()][string]$StepInvocationId,
+        [System.Collections.IDictionary]$State = (Get-SequenceFailureState)
+    )
+    if (-not $StepInvocationId) { return $null }
+    $account = $State.StepWebFailure
+    if ($account -isnot [System.Collections.IDictionary] -or [string]$account['stepInvocationId'] -cne $StepInvocationId) { return $null }
+    $failureClass = [string]$account['failureClass']
+    [string[]]$recoveries = switch ($failureClass) {
+        'network_timeout'   { @('reconnect', 'retry_with_backoff') }
+        'ip_not_discovered' { @('retry_with_backoff') }
+        default             { @('pause_and_inspect') }
+    }
+    return [pscustomobject]@{ FailureClass = $failureClass; SuggestedRecoveries = $recoveries }
+}
+
 function Get-InstallerFailureCause {
     <#
     .SYNOPSIS
@@ -488,6 +682,29 @@ function Test-StepHostInputFaultDeterministic {
     $fault = $fail.StepHostInputFault
     return ($fault -is [System.Collections.IDictionary] -and [string]$fault.kind -ceq 'deterministic' -and
         [string]$fault.stepInvocationId -ceq [string]$fail.LastFailedStepInvocationId)
+}
+
+function Test-StepHostClickDeliveryUncertain {
+    <#
+    .SYNOPSIS
+        Whether the last failed step's own click may have reached the guest.
+    .DESCRIPTION
+        A click whose press went unanswered, or of which some button events
+        were acknowledged, may have acted in the guest; another attempt would
+        click twice. A click that sent nothing is not counted, nor is a fault
+        left by another step or by a send that is not a click.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        # The failure-state store; the shared one when omitted.
+        [System.Collections.IDictionary]$State = (Get-SequenceFailureState)
+    )
+    $fault = $State.StepHostInputFault
+    if ($fault -isnot [System.Collections.IDictionary]) { return $false }
+    if ([string]$fault.stepInvocationId -cne [string]$State.LastFailedStepInvocationId) { return $false }
+    if ([string]$fault.action -cne 'Send-Click') { return $false }
+    return ([string]$fault.reason -ceq 'delivery-unknown' -or [int]$fault.delivered -gt 0)
 }
 
 function Get-LoginEchoEvidence {
@@ -819,6 +1036,20 @@ function New-SequenceFailureRecord {
         delivered = [int]$fail.StepHostInputFault.delivered
         total     = [int]$fail.StepHostInputFault.total
     } } else { $null }
+    # A page step's own account, shown for the originating step as the kernel
+    # reading is, so an exhausted retry keeps its leaf's account. Its class is
+    # taken only for the step that gave the account, so a wrapper keeps its own.
+    $webFailure = $null
+    if ($originatingStepInvocationId -and $fail.StepWebFailure -is [System.Collections.IDictionary] -and
+        [string]$fail.StepWebFailure['stepInvocationId'] -ceq $originatingStepInvocationId) {
+        $webFailure = [ordered]@{}
+        foreach ($field in 'verb', 'kind', 'effect', 'locator', 'candidates', 'matchCount',
+                'url', 'title', 'detail', 'waitedSeconds') {
+            $webFailure[$field] = $fail.StepWebFailure[$field]
+        }
+    }
+    $webFailureClass = Get-StepWebFailureClass -State $fail `
+        -StepInvocationId ([string]$fail.LastFailedStepInvocationId)
     $aptIndexMismatch = if ($fail.StepAptIndexMismatch -is [System.Collections.IDictionary]) { [ordered]@{
         kind               = [string]$fail.StepAptIndexMismatch.kind
         url                = [string]$fail.StepAptIndexMismatch.url
@@ -942,6 +1173,11 @@ function New-SequenceFailureRecord {
             $failureClass = [string]$fail.StepDeployResult['failureClass']
             [string[]]$suggested = if ($failureClass -ceq 'network_timeout') { @('retry_with_backoff','pause_and_inspect') } else { @('pause_and_inspect') }
         }
+        # A page step named how it ended; the kind decides the class.
+        elseif ($webFailureClass) {
+            $failureClass = $webFailureClass.FailureClass
+            [string[]]$suggested = $webFailureClass.SuggestedRecoveries
+        }
         # A send the host can never make -- text its input path has no key for,
         # a key name no map defines -- fails the same way on every attempt, so
         # the retryable host_io_blocked would only repeat it. The step asks for
@@ -1028,6 +1264,15 @@ function New-SequenceFailureRecord {
             $waitEntry = Get-SequenceAction -Name 'waitForText'
             $failureClass = 'ocr_timeout'
             [string[]]$suggested = if ($waitEntry -and $null -ne $waitEntry.SuggestedRecoveries) { @($waitEntry.SuggestedRecoveries) } else { @('pause_and_inspect') }
+        }
+        # A step that found what it waited for and then failed to send its
+        # input failed in the input path, not on the screen. Only tapOn
+        # reaches this: no other verb registered as ocr_timeout sets the
+        # phase input. A deterministic fault took the plan_invalid rule above.
+        elseif ([string]$fail.StepFailurePhase -ceq 'input' -and $hostInputFault -and $failureClass -ceq 'ocr_timeout') {
+            $inputEntry = Get-SequenceAction -Name 'inputText'
+            $failureClass = 'host_io_blocked'
+            [string[]]$suggested = if ($inputEntry -and $null -ne $inputEntry.SuggestedRecoveries) { @($inputEntry.SuggestedRecoveries) } else { @('retry_immediately') }
         }
         $label = $fail.LastFailureLabel
         $desc  = $fail.LastFailureDescription
@@ -1193,6 +1438,7 @@ function New-SequenceFailureRecord {
             context             = [ordered]@{
                 hostType              = $HostType
                 stepFailurePhase      = [string]$fail.StepFailurePhase
+                fromStep              = [string]$fail.LastFailureFromStep
                 matchedFailurePattern = $matchedFailPattern
                 sequencePath          = $SequencePath
                 cycleFolder           = $cycleIdentity
@@ -1294,6 +1540,9 @@ function New-SequenceFailureRecord {
                     # moved between. $null when no record or window existed;
                     # an empty list is a host that held its address.
                     hostAddressChanges     = $hostAddressChanges
+                    # How a page step ended, in its own account. $null for any
+                    # other step.
+                    web                    = $webFailure
                 }
             }
         }
@@ -1358,6 +1607,7 @@ function New-SequenceFailureRecord {
         causeHostInputFault     = if ($hostInputFault) { $hostInputFault.reason } else { '' }
         causeGuestKernelFault   = $guestKernelFaultKinds -join ','
         causeHostAddressChange  = $hostAddressChangeSummary
+        causeWeb                = if ($webFailure) { [string]$webFailure.kind } else { '' }
         guestKernelFault        = $guestKernelFault
         progressAdvisory         = $progressAdvisory
         guestProcessorWindow    = if ($guestLivelock) { $guestLivelock.processorWindow } else { $null }
@@ -1381,6 +1631,12 @@ function New-SequenceFailureRecord {
     if (-not $failOcrName) {
         $file.context.Remove('failureOcrPath')
         $eventRecord.Remove('failureOcrPath')
+    }
+
+    if ((Get-Command Test-SequenceSecretFilterEnabled -ErrorAction SilentlyContinue) -and
+        (Test-SequenceSecretFilterEnabled)) {
+        $file = Protect-SequenceSecretObject -InputObject $file -OcrTolerant
+        $eventRecord = Protect-SequenceSecretObject -InputObject $eventRecord -OcrTolerant
     }
 
     return @{ File = $file; Event = $eventRecord }
@@ -1551,4 +1807,6 @@ function New-InfraFailureRecord {
 }
 
 Export-ModuleMember -Function Get-SequenceFailureState, Get-GuestProgressAdvisory, Get-GuestKernelFaultKind, Get-InstallerFailureCause, Get-LoginEchoEvidence, New-SequenceFailureRecord, New-InfraFailureRecord, Test-StepHostInputFaultDeterministic, `
-    Get-SequenceFailureSlot, Reset-SequenceFailureSlot, Save-WaitFailureEvidence, Get-GuestProcessorWindowSummary
+    Test-StepHostClickDeliveryUncertain, `
+    Get-SequenceFailureSlot, Reset-SequenceFailureSlot, Save-WaitFailureEvidence, Get-GuestProcessorWindowSummary, `
+    Get-WebFailureKind, Set-StepWebFailure, Get-StepWebFailureClass

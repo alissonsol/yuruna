@@ -37,17 +37,27 @@ const (
 	// keeps its bearer route working until it is rebuilt.
 	LegacyAuthTokenFile = "/etc/yuruna/lab-auth.token"
 
-	// DefaultRefreshAuthorityFile holds the host refresh signing authority
-	// (one "yhra1." line, owner-only). Without it this service cannot mint a
-	// refresh proof, and remote refresh stays disabled.
-	DefaultRefreshAuthorityFile = "/etc/yuruna/host-refresh/authority.key"
+	// DefaultRepairAuthorityFile holds the host repair signing authority
+	// (one "yrpa1." line, owner-only). Without it this service cannot mint a
+	// repair proof, and remote repair stays disabled.
+	DefaultRepairAuthorityFile = "/etc/yuruna/host-repair/authority.key"
 
-	// DefaultRefreshCredentialFile holds the operator refresh credential (one
-	// "yhrc1." line, owner-only) that the per-host refresh route and its MCP
-	// tool require in the X-Yuruna-Refresh-Credential header.
-	DefaultRefreshCredentialFile = "/etc/yuruna/host-refresh/operator.credential"
+	// DefaultOperatorCredentialFile holds the operator credential (one
+	// "yoc1." line, owner-only) that the per-host repair route and its MCP
+	// tool require in the X-Yuruna-Operator-Credential header.
+	DefaultOperatorCredentialFile = "/etc/yuruna/host-repair/operator.credential"
 
-	// MaxRefreshRequestBytes caps the per-host refresh request body, which
+	// MaxRepairRequestBytes caps the per-host repair request body, which
 	// carries four short strings.
-	MaxRefreshRequestBytes = 4096
+	MaxRepairRequestBytes = 4096
+
+	// DefaultUpdateSigningKeyFile holds the host update signing key (one
+	// PKCS#8 RSA PEM block, owner-only), beside the repair authority. Without
+	// it this service cannot sign a yup1 proof, and remote host update stays
+	// disabled.
+	DefaultUpdateSigningKeyFile = "/etc/yuruna/host-repair/update-signing.key"
+
+	// MaxUpdateRequestBytes caps the per-host update request body, which
+	// carries four short strings and one integer.
+	MaxUpdateRequestBytes = 4096
 )

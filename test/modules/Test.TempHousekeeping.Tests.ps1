@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42b8c3e5-1f7a-4d96-a2c8-6e0b9d4f1a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,9 @@
 BeforeAll {
     $here = Split-Path -Parent $PSCommandPath
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+    # The installer fragments these cases run check $HOME/.yuruna before they
+    # write; a scratch home keeps them off the operator's own.
+    $script:TestHome = Enter-YurunaTestHome
     $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.Common.psm1') -Force -Global -DisableNameChecking
     Import-Module (Join-Path $script:RepoRoot 'automation/Yuruna.LogLevel.psm1') -Force -Global -DisableNameChecking
@@ -93,6 +96,8 @@ BeforeAll {
         [IO.File]::WriteAllText((Join-Path $dir 'status'), "Name:`t$Command`nState:`tS (sleeping)`nTgid:`t$tgid`nPid:`t$ProcessId`n")
     }
 }
+
+AfterAll { Exit-YurunaTestHome $script:TestHome }
 
 Describe 'Get-YurunaRuntimeIpcEntry' {
     It 'reads <Name> as <Kind> owned by <ProcessId>' -TestCases @(
@@ -457,7 +462,6 @@ exit 5
     It 'registers every mktemp, or names why one needs no registration' {
         $exempt = @{
             '_yuruna_logfifo='     = 'the log FIFO is unlinked as soon as it is opened'
-            'YURUNA_STATUS_BACKUP=' = 'removed by name in yuruna_install_cleanup and restore_test_status'
             'probe="$(mktemp -d)"' = 'removed on the next line, with nothing between that can exit'
             'TRAVERSE_PROBE='      = 'under $HOME, not the temp folder, and removed after the probe'
             'out="$(mktemp '       = 'yuruna_utmctl_status runs in a command substitution; it removes the file on both of its paths'

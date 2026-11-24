@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,6 +61,17 @@ if (-not (Get-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -ErrorActi
     Set-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -Value @{} -WhatIf:$false -Confirm:$false
 }
 $script:ProvenGuestAddress = Get-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -ValueOnly
+
+# Pin file path -> its last write time when a login authenticated against it.
+# Global for the same reason as the overrides above: a -Force re-import must
+# not turn a pin a login already confirmed back into an unconfirmed one.
+if (-not (Get-Variable -Name 'YurunaConfirmedHostKeyPin' -Scope Global -ErrorAction SilentlyContinue)) {
+    Set-Variable -Name 'YurunaConfirmedHostKeyPin' -Scope Global -Value @{} -WhatIf:$false -Confirm:$false
+}
+$script:ConfirmedHostKeyPin = Get-Variable -Name 'YurunaConfirmedHostKeyPin' -Scope Global -ValueOnly
+# How many unconfirmed pins one readiness scope may forget. A guest whose key
+# keeps changing is not a guest finishing its install, and must still fail.
+$script:UnconfirmedPinResetLimit = 3
 
 function Set-ProvenGuestAddress {
 <#
@@ -160,7 +171,12 @@ authentication fail later with a misleading transport error.
         # OpenSSH checks ownership as well as access rules. A copied or
         # restored key can retain another account as owner even after its DACL
         # is rebuilt, so make both decisions from the same stable SID.
-        $acl.SetOwner($currentSid)
+        # Rewriting an already-correct owner needlessly requests WRITE_OWNER.
+        $existingOwner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier])
+        $repairOwner = $null -eq $existingOwner -or $existingOwner.Value -ne $currentSid.Value
+        if ($repairOwner) {
+            $acl.SetOwner($currentSid)
+        }
         $allow = [System.Security.AccessControl.FileSystemAccessRule]::new(
             $currentSid,
             [System.Security.AccessControl.FileSystemRights]::FullControl,
@@ -168,7 +184,17 @@ authentication fail later with a misleading transport error.
         $acl.AddAccessRule($allow)
 
         if (-not $PSCmdlet.ShouldProcess($Path, (Format-YurunaOperatorMessage -Key 'runner.operator_5d665dd5ea6989aa'))) { return }
-        Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+        if ($repairOwner) {
+            # Preserve the provider's privilege handling for ownership restoration.
+            Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+        } else {
+            # FileSystemProvider.SetSecurityDescriptor's privilege fallback compares
+            # audit protection with DACL protection, so a protected key can still
+            # require SeSecurityPrivilege. Persist only modified sections, never SACL:
+            # https://github.com/PowerShell/PowerShell/blob/master/src/System.Management.Automation/namespaces/FileSystemSecurity.cs
+            $keyFile = [System.IO.FileInfo]::new((Convert-Path -LiteralPath $Path -ErrorAction Stop))
+            [System.IO.FileSystemAclExtensions]::SetAccessControl($keyFile, $acl)
+        }
 
         $written = Get-Acl -LiteralPath $Path -ErrorAction Stop
         if (-not $written.AreAccessRulesProtected) {
@@ -416,6 +442,36 @@ Guest name.
     if (-not $pin -or -not (Test-Path -LiteralPath $pin)) { return }
     if (-not $PSCmdlet.ShouldProcess($pin, 'Remove pinned SSH host key')) { return }
     Remove-Item -LiteralPath $pin -Force -ErrorAction SilentlyContinue
+}
+
+function Get-GuestHostKeyPinWriteTime {
+    # Private: the pin file's last write time (UTC), or $null when there is none.
+    [OutputType([Nullable[datetime]])]
+    param([AllowEmptyString()][string]$Pin)
+    if (-not $Pin -or -not (Test-Path -LiteralPath $Pin -PathType Leaf)) { return $null }
+    return [IO.File]::GetLastWriteTimeUtc($Pin)
+}
+
+function Confirm-GuestHostKeyPin {
+    # Private: records that a login authenticated against the guest's pin as it
+    # is now, so a later key change is never mistaken for an unconfirmed pin.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes one in-memory record; nothing outside the process changes.')]
+    param([string]$VMName)
+    $pin = Get-GuestHostKeyPinPath -VMName $VMName
+    $written = Get-GuestHostKeyPinWriteTime -Pin $pin
+    if ($null -ne $written) { $script:ConfirmedHostKeyPin[$pin] = $written }
+}
+
+function Test-GuestHostKeyPinUnconfirmed {
+    # Private: $true when the guest's pin was written at or after SinceUtc and
+    # no login has authenticated against it since it was written.
+    [OutputType([bool])]
+    param([string]$VMName, [datetime]$SinceUtc)
+    $pin = Get-GuestHostKeyPinPath -VMName $VMName
+    $written = Get-GuestHostKeyPinWriteTime -Pin $pin
+    if ($null -eq $written -or $written -lt $SinceUtc) { return $false }
+    return -not ($script:ConfirmedHostKeyPin.ContainsKey($pin) -and $script:ConfirmedHostKeyPin[$pin] -eq $written)
 }
 
 function Move-GuestHostKeyPin {
@@ -1023,6 +1079,25 @@ Optional diagnostic phase carried on a failure event.
 Optional caller step identity carried on a failure event.
 .PARAMETER SequenceInvocationId
 Optional caller sequence identity carried on a failure event.
+.PARAMETER OnExpiredLogin
+What a probe answered with an expired password does to the wait. 'Wait', the
+default, keeps polling until the budget is spent, as for any other answer.
+'Return' ends the wait at once and returns $false with cause password_expired
+in Get-LastSshReadiness, and reports nothing: the caller is about to repair
+the account, so the expiry is not yet a failure. 'Fail' ends the wait at once
+and reports the failure as a timeout would, with the event and the
+diagnostics. Waiting longer never clears an expired password.
+.PARAMETER HostKeyPinScope
+@{ SinceUtc = <datetime>; Resets = <int> }: the span within which a host key
+pin no login has confirmed may be forgotten, and how many this span already
+forgot. A caller that waits in several calls passes one table to all of them;
+omitted, the span is this call. A fresh guest's live installer runs its own
+sshd and answers before the installed system does, and accept-new pins the key
+at the handshake, before authentication, so the first key pinned can be the
+installer's. A pin written in the span that no login ever authenticated
+against is therefore forgotten when the guest presents another key, and the
+wait goes on, at most three times per span. A pin from before the span, or one
+a login has authenticated against, keeps failing as host_key_changed.
 .OUTPUTS
 System.Boolean. $true if SSH became ready, $false on timeout.
 #>
@@ -1036,8 +1111,11 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         [switch]$AdvisoryOnly,
         [string]$Phase,
         [string]$StepInvocationId,
-        [string]$SequenceInvocationId
+        [string]$SequenceInvocationId,
+        [ValidateSet('Wait', 'Return', 'Fail')][string]$OnExpiredLogin = 'Wait',
+        [hashtable]$HostKeyPinScope
     )
+    if ($null -eq $HostKeyPinScope) { $HostKeyPinScope = @{ SinceUtc = [DateTime]::UtcNow; Resets = 0 } }
     $user = Get-GuestSshUser -GuestKey $GuestKey
     $key  = Get-YurunaSshPrivateKeyPath
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -1119,6 +1197,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
                 # to resolve the same guest again, and this is the one moment in
                 # that pair where the answer is known rather than reported.
                 Set-ProvenGuestAddress -VMName $VMName -Address $target
+                Confirm-GuestHostKeyPin -VMName $VMName
                 $script:LastSshReadiness = @{ vmName=$VMName; cause='ready'; target=[string]$target; attempts=$attempts
                     ipDiscovered=$ipEverDiscovered; ipAnswered=$true; lastError=''; evidenceSource='handshake'
                     vmState=[string]$vmState; timeoutSeconds=$TimeoutSeconds; atUtc=[DateTime]::UtcNow.ToString('o') }
@@ -1133,6 +1212,23 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             if (Test-SshEndpointAnswered -ProbeOutput $lastError) {
                 $ipEverAnswered = $true
                 $lastAnsweredError = $lastError
+            }
+            $probeCause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $lastError -IpAnswered $ipEverAnswered
+            # An expired password is reported only after the key authenticated,
+            # so it confirms the pin as firmly as a shell does.
+            if ($probeCause -eq 'password_expired') { Confirm-GuestHostKeyPin -VMName $VMName }
+            if ($OnExpiredLogin -ne 'Wait' -and $probeCause -eq 'password_expired') {
+                break
+            }
+            # See HostKeyPinScope: a pin no login confirmed is worth no more than
+            # the key the guest presents now.
+            if ($probeCause -eq 'host_key_changed' -and [int]$HostKeyPinScope.Resets -lt $script:UnconfirmedPinResetLimit -and
+                (Test-GuestHostKeyPinUnconfirmed -VMName $VMName -SinceUtc ([datetime]$HostKeyPinScope.SinceUtc))) {
+                $HostKeyPinScope.Resets = [int]$HostKeyPinScope.Resets + 1
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.ssh_host_key_pin_unconfirmed_reset' -Arguments @{
+                        vmName = "$VMName"; address = "$target"; pin = "$(Get-GuestHostKeyPinPath -VMName $VMName)"
+                        count = [int]$HostKeyPinScope.Resets; limit = [int]$script:UnconfirmedPinResetLimit })
+                Reset-GuestHostKeyPin -VMName $VMName -Confirm:$false
             }
         }
         # Poll before the next attempt, but never sleep past the deadline:
@@ -1156,6 +1252,10 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     $script:LastSshReadiness = @{ vmName=$VMName; cause=[string]$cause; target=[string]$lastTarget; attempts=$attempts
         ipDiscovered=$ipEverDiscovered; ipAnswered=$ipEverAnswered; lastError=[string]$lastError; evidenceSource=[string]$evidence.source
         vmState=[string]$vmState; timeoutSeconds=$TimeoutSeconds; atUtc=[DateTime]::UtcNow.ToString('o') }
+    if ($cause -eq 'password_expired' -and $OnExpiredLogin -eq 'Return') {
+        Write-Verbose "SSH reached $user@$lastTarget after ${attempts} attempt(s); the account's password has expired, so the wait returns to its caller."
+        return $false
+    }
     Write-Verbose "SSH did not become ready within ${TimeoutSeconds}s (${attempts} attempts): $user@$lastTarget"
     Write-Verbose "  cause         : $cause (ipDiscovered=$ipEverDiscovered, ipAnswered=$ipEverAnswered)"
     Write-Verbose "  last ssh error: $lastError"
@@ -1277,6 +1377,490 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         Send-CycleEventSafely -EventRecord $eventRecord
     }
     return $false
+}
+
+function Start-GuestSshRotationClient {
+    # Private: starts the ssh client Invoke-GuestSshPasswordRotation and
+    # Set-GuestSshPassword write passwords to, with all three streams
+    # redirected; $null when this host has no ssh client. Kept apart so a suite
+    # can stand a scripted client in for ssh.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Starts an ssh child process that its caller ends on every way out.')]
+    [CmdletBinding()]
+    [OutputType([System.Diagnostics.Process])]
+    param([Parameter(Mandatory)][string[]]$ArgumentList)
+    $sshCommand = Get-Command -Name ssh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $sshCommand) { return $null }
+    $startInfo = [System.Diagnostics.ProcessStartInfo]::new($sshCommand.Source)
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    # No byte-order mark: the first bytes the guest reads are a password.
+    $startInfo.StandardInputEncoding = [System.Text.UTF8Encoding]::new($false)
+    $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+    foreach ($argument in $ArgumentList) { $startInfo.ArgumentList.Add([string]$argument) }
+    return [System.Diagnostics.Process]::Start($startInfo)
+}
+
+function Invoke-GuestSshPasswordRotation {
+<#
+.SYNOPSIS
+Change a guest account's expired password over SSH by answering the password
+prompts on a forced terminal.
+.DESCRIPTION
+A key login to an account whose password has expired gets no shell: sshd runs
+the password change first and needs a terminal to ask on, so a non-interactive
+command fails with "Password change required but no TTY available". This opens
+the guest's ordinary SSH connection (the harness key, the pinned host key) with
+-tt, reads what the guest prints, and answers each prompt in turn: the current
+password, the new one, the new one again. Ubuntu releases word them differently
+("Current password:", "(current) UNIX password:", "New password:", "Enter new
+UNIX password:", "Retype new password:", "Retype password:"), so they are
+matched by pattern, ignoring case.
+
+The change succeeded when the guest says so (passwd's "password updated
+successfully"), or when the remote command, which sshd runs only after the
+change went through, prints its marker. A session that ends after the third
+answer without either is judged by one non-interactive probe: any answer there
+other than an expired password means the change landed. A refusal from PAM, a
+prompt asked again, and a prompt out of order end the attempt without another
+answer, because answering again would type a password into whatever the guest
+asked next.
+
+Neither password is written anywhere except the client's standard input: not to
+output, a log line, an event or an exception. The guest's own text kept in
+Detail has both removed. TimeoutSeconds bounds the whole call, the probe
+included, and the ssh client is ended with its process tree on every way out.
+.PARAMETER VMName
+Hostname or IP the VM is reachable by from this host.
+.PARAMETER GuestKey
+Guest identifier; determines the SSH login user unless Username is given.
+.PARAMETER Username
+Login user to force, bypassing the Get-GuestSshUser lookup.
+.PARAMETER CurrentPassword
+The account's password now, answered at the current-password prompt.
+.PARAMETER NewPassword
+The password to set, answered at the new and retype prompts.
+.PARAMETER TimeoutSeconds
+Wall-clock bound of the whole rotation. 0 means the caller's budget is already
+spent: nothing is attempted, and the call reports and records a timeout.
+.OUTPUTS
+System.Collections.Hashtable: Ok, Code, Detail, Answered (prompts answered,
+0 to 3) and Target (user@address). Code is '' on success, else one of
+ssh-missing, launch-failed, timeout, refused, unexpected-prompt,
+session-ended, not-expired, still-expired, unconfirmed.
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
+        Justification = 'The vault keeps guest passwords as plain text by design, and these are typed into the guest''s password prompts.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'A guest account name and its vault passwords; PSCredential has no place for the second password.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Runs as a sequence step the engine already gates; the step is the confirmation.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [string]$Username = '',
+        [Parameter(Mandatory)][string]$CurrentPassword,
+        [Parameter(Mandatory)][string]$NewPassword,
+        [ValidateRange(0, 3600)][int]$TimeoutSeconds = 120
+    )
+    $result = @{ Ok = $false; Code = ''; Detail = ''; Answered = 0; Target = '' }
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $deadline = New-YurunaDeadline -TotalMilliseconds ([long]$TimeoutSeconds * 1000)
+    $secrets = @($CurrentPassword, $NewPassword | Where-Object { -not [string]::IsNullOrEmpty($_) } | Sort-Object -Property Length -Descending)
+    $scrub = {
+        param([string]$Text)
+        $clean = [string]$Text
+        foreach ($secret in $secrets) { $clean = $clean.Replace($secret, '***', [StringComparison]::Ordinal) }
+        return $clean
+    }
+    $loginUser = if ($Username) { $Username } else { Get-GuestSshUser -GuestKey $GuestKey }
+    $address = [string](Get-GuestAddress -VMName $VMName)
+    $result.Target = "$loginUser@$address"
+
+    # Recorded once on every way out, the way Wait-SshReady records a failed
+    # wait, so the event stream shows each rotation and its outcome.
+    $report = {
+        $result.Detail = & $scrub $result.Detail
+        if ($result.Detail.Length -gt 2000) { $result.Detail = $result.Detail.Substring($result.Detail.Length - 2000) }
+        if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+            $eventRecord = @{
+                timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                event      = 'ssh_password_rotation'
+                vmName     = [string]$VMName
+                guestKey   = [string]$GuestKey
+                user       = [string]$loginUser
+                target     = [string]$result.Target
+                ok         = [bool]$result.Ok
+                code       = [string]$result.Code
+                answered   = [int]$result.Answered
+                durationMs = [int]$clock.ElapsedMilliseconds
+                detail     = [string]$result.Detail
+            }
+            if (-not $result.Ok) {
+                $eventRecord.failureClass = 'credential_expired'
+                $eventRecord.severity = 'hard'
+            }
+            $null = Send-CycleEventSafely -EventRecord $eventRecord
+        }
+        return $result
+    }
+
+    if ($TimeoutSeconds -eq 0) {
+        $result.Code = 'timeout'
+        return (& $report)
+    }
+    $keyPath = Get-YurunaSshPrivateKeyPath
+    $hostKeyOptions = @(Get-YurunaSshHostKeyOption -VMName $VMName)
+    # The remote command runs only once the change went through, so its marker
+    # is the guest's own word that the new password is in place.
+    $marker = 'yuruna-ssh-rotated'
+    # ControlMaster=no and ControlPath=none keep a connection-sharing setting of
+    # the user's ssh configuration from answering with a session that never
+    # asked for the change.
+    $sshArguments = @('-tt', '-i', $keyPath, '-o', 'BatchMode=yes') + $hostKeyOptions + @(
+        '-o', 'ConnectTimeout=10',
+        '-o', 'ServerAliveInterval=15',
+        '-o', 'ServerAliveCountMax=4',
+        '-o', 'LogLevel=ERROR',
+        '-o', 'ControlMaster=no',
+        '-o', 'ControlPath=none',
+        $result.Target, "echo $marker")
+
+    $currentPrompt = '(?i)(?:\(current\)\s*(?:unix\s+)?|current\s+(?:unix\s+)?)password:'
+    $retypePrompt = '(?i)(?:retype|re-enter|repeat)\s+(?:new\s+)?(?:unix\s+)?password:'
+    $newPrompt = '(?i)(?<!retype\s)(?<!re-enter\s)(?<!repeat\s)new\s+(?:unix\s+)?password:'
+    $refusal = '(?i)authentication token manipulation error|passwords do not match|bad password|password unchanged|' +
+        'exhausted maximum number of retries|sorry, try again|you must choose a longer password|authentication failure|pam_chauthtok'
+    $updated = '(?i)password updated successfully|authentication tokens updated successfully'
+    # The answer each stage gives, and the prompt that asks for it.
+    $stages = @(
+        @{ Prompt = 'current'; Answer = $CurrentPassword }
+        @{ Prompt = 'new'; Answer = $NewPassword }
+        @{ Prompt = 'retype'; Answer = $NewPassword }
+    )
+
+    $proc = $null
+    $pending = [System.Text.StringBuilder]::new()
+    $transcript = ''
+    $errTask = $null
+    $outcome = ''
+    try {
+        try {
+            $proc = Start-GuestSshRotationClient -ArgumentList $sshArguments
+        } catch {
+            $result.Code = 'launch-failed'
+            $result.Detail = [string]$_.Exception.Message
+            return (& $report)
+        }
+        if (-not $proc) {
+            $result.Code = 'ssh-missing'
+            return (& $report)
+        }
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        $buffer = [char[]]::new(4096)
+        $readTask = $proc.StandardOutput.ReadAsync($buffer, 0, $buffer.Length)
+        $stage = 0
+        while (-not $outcome) {
+            if ($null -ne $readTask -and $readTask.IsCompleted) {
+                $count = 0
+                try {
+                    $count = [int]$readTask.Result
+                } catch {
+                    Write-Verbose "Invoke-GuestSshPasswordRotation: reading the ssh client's output failed: $($_.Exception.GetBaseException().Message)"
+                }
+                if ($count -le 0) {
+                    $readTask = $null
+                    continue
+                }
+                $chunk = [string]::new($buffer, 0, $count)
+                $readTask = $proc.StandardOutput.ReadAsync($buffer, 0, $buffer.Length)
+                [void]$pending.Append($chunk)
+                if ($pending.Length -gt 65536) { [void]$pending.Remove(0, $pending.Length - 65536) }
+                $transcript += $chunk
+                if ($transcript.Length -gt 4000) { $transcript = $transcript.Substring($transcript.Length - 4000) }
+                # Judged on the scrubbed text: a guest that echoes an answer must
+                # not have that echo read as a prompt or as the marker.
+                $text = & $scrub $pending.ToString()
+                $prompt = if ($text -match $retypePrompt) { 'retype' } elseif ($text -match $currentPrompt) { 'current' } elseif ($text -match $newPrompt) { 'new' } else { '' }
+                if ($stage -ge $stages.Count) {
+                    if ($text -match $refusal) { $outcome = 'refused' }
+                    elseif ($text.Contains($marker) -or $text -match $updated) { $outcome = 'ok' }
+                    elseif ($prompt) { $outcome = 'refused' }
+                    continue
+                }
+                if ($text -match $refusal) { $outcome = 'refused'; continue }
+                if ($text.Contains($marker)) { $outcome = if ($stage -eq 0) { 'not-expired' } else { 'unconfirmed' }; continue }
+                if (-not $prompt) { continue }
+                if ($prompt -ne $stages[$stage].Prompt) { $outcome = 'unexpected-prompt'; continue }
+                try {
+                    $proc.StandardInput.Write([string]$stages[$stage].Answer)
+                    $proc.StandardInput.Write("`n")
+                    $proc.StandardInput.Flush()
+                } catch {
+                    Write-Verbose "Invoke-GuestSshPasswordRotation: the ssh client stopped reading its input: $($_.Exception.GetBaseException().GetType().Name)"
+                    $outcome = 'session-ended'
+                    continue
+                }
+                $stage++
+                $result.Answered = $stage
+                [void]$pending.Clear()
+                continue
+            }
+            if ($null -eq $readTask) {
+                $outcome = if ($stage -ge $stages.Count) { 'probe' } else { 'session-ended' }
+                continue
+            }
+            $leftMs = Get-YurunaDeadlineRemainingMs -Deadline $deadline
+            if ($leftMs -le 0) { $outcome = 'timeout'; continue }
+            try {
+                [void]$readTask.Wait([int][Math]::Min(200, $leftMs))
+            } catch {
+                Write-Verbose "Invoke-GuestSshPasswordRotation: waiting for the ssh client's output failed: $($_.Exception.GetBaseException().Message)"
+            }
+        }
+    } finally {
+        if ($proc) {
+            try { $proc.StandardInput.Close() } catch { Write-Verbose "Invoke-GuestSshPasswordRotation: closing the ssh client's input failed: $($_.Exception.GetBaseException().GetType().Name)" }
+            try {
+                $graceMs = [int][Math]::Max(0, [Math]::Min(2000, (Get-YurunaDeadlineRemainingMs -Deadline $deadline)))
+                if (-not $proc.WaitForExit($graceMs)) {
+                    try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSshPasswordRotation: ending ssh process $($proc.Id) failed: $($_.Exception.Message)" }
+                    [void]$proc.WaitForExit(2000)
+                }
+            } catch {
+                Write-Verbose "Invoke-GuestSshPasswordRotation: waiting for the ssh client to exit failed: $($_.Exception.Message)"
+            }
+            $errText = ''
+            try {
+                if ($errTask -and $errTask.Wait(1000)) { $errText = [string]$errTask.Result }
+            } catch {
+                Write-Verbose "Invoke-GuestSshPasswordRotation: the ssh client's error stream is unreadable: $($_.Exception.GetBaseException().Message)"
+            }
+            $transcript = ((@($transcript, $errText) | Where-Object { $_ }) -join "`n") -replace "`r", ''
+            try { $proc.Dispose() } catch { Write-Verbose "Invoke-GuestSshPasswordRotation: disposing the ssh client failed: $($_.Exception.Message)" }
+        }
+    }
+    $result.Detail = $transcript.Trim()
+
+    if ($outcome -eq 'probe') {
+        # The session ended after the last answer without saying how the change
+        # went. One non-interactive login settles it: an expired password is the
+        # only answer that means the change did not land.
+        $probeArguments = @('-i', $keyPath, '-o', 'BatchMode=yes') + $hostKeyOptions +
+            @('-o', 'ConnectTimeout=5', '-o', 'ServerAliveInterval=3', '-o', 'ServerAliveCountMax=2',
+                '-o', 'LogLevel=ERROR', $result.Target, 'echo yuruna-ssh-ready')
+        $probeMs = [long][Math]::Min(15000, (Get-YurunaDeadlineRemainingMs -Deadline $deadline))
+        $outcome = 'unconfirmed'
+        if ($probeMs -gt 0) {
+            $probe = Invoke-BoundedNativeCommand -FilePath 'ssh' -ArgumentList $probeArguments -TimeoutSeconds 15 -Deadline (New-YurunaDeadline -TotalMilliseconds $probeMs)
+            if (Test-BoundedNativeResultComplete -Result $probe) {
+                $probeText = ([string]$probe.StdOut + [string]$probe.StdErr).Trim()
+                $probeCause = Get-SshReadinessFailureCause -IpDiscovered $true -LastError $probeText -IpAnswered $true
+                $outcome = if ($probeCause -eq 'password_expired') { 'still-expired' } else { 'ok' }
+                if ($probeText) { $result.Detail = ("$($result.Detail)`nprobe: $probeText").Trim() }
+            }
+        }
+    }
+    if ($outcome -eq 'ok') {
+        $result.Ok = $true
+        $result.Code = ''
+    } else {
+        $result.Code = $outcome
+    }
+    return (& $report)
+}
+
+function Set-GuestSshPassword {
+<#
+.SYNOPSIS
+Set a guest account's password over SSH with sudo chpasswd, the password given
+only on the remote command's standard input.
+.DESCRIPTION
+An sshWaitReady step that carries a new password promises that the account has
+it when the step passes, and a later step stores it in the vault. A login that
+is not expired (the step replayed on a guest provisioned already, or after its
+own rotation) leaves nothing to rotate, so without this set the vault would
+commit a password the guest never received.
+
+The guest's ordinary SSH connection (the harness key, the pinned host key) runs
+`sudo -n chpasswd` with no terminal, so nothing echoes the input, and the
+`user:password` line is written to the ssh client's standard input. The
+password is never on a command line, local or remote, and never in output, a
+log line, an event or an exception: the guest's own text kept in Detail has it
+removed. `-n` makes sudo refuse rather than ask when the account lacks
+passwordless sudo. The set succeeded when chpasswd exits 0 (the marker the
+remote command prints only then) and nothing the guest printed names a failure.
+TimeoutSeconds bounds the whole call, and the ssh client is ended with its
+process tree on every way out.
+.PARAMETER VMName
+Hostname or IP the VM is reachable by from this host.
+.PARAMETER GuestKey
+Guest identifier; determines the SSH login user unless Username is given.
+.PARAMETER Username
+Login user to force, bypassing the Get-GuestSshUser lookup. The password set
+is this account's.
+.PARAMETER NewPassword
+The password to set.
+.PARAMETER TimeoutSeconds
+Wall-clock bound of the whole call. 0 means the caller's budget is already
+spent: nothing is attempted, and the call reports and records a timeout.
+.OUTPUTS
+System.Collections.Hashtable: Ok, Code, Detail, ExitCode, Target
+(user@address) and Dispatched ($true once the ssh client started, after which
+the guest may have received the password). Code is '' on success, else one of
+ssh-missing, launch-failed, invalid-password, timeout, ssh-failed,
+sudo-refused, chpasswd-failed.
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', '',
+        Justification = 'The vault keeps guest passwords as plain text by design, and this one is written to the guest''s chpasswd.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingUsernameAndPasswordParams', '',
+        Justification = 'A guest account name and its vault password, written as one chpasswd line.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Runs as a sequence step the engine already gates; the step is the confirmation.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [string]$Username = '',
+        [Parameter(Mandatory)][string]$NewPassword,
+        [ValidateRange(0, 3600)][int]$TimeoutSeconds = 60
+    )
+    $result = @{ Ok = $false; Code = ''; Detail = ''; ExitCode = -1; Target = ''; Dispatched = $false }
+    $clock = [System.Diagnostics.Stopwatch]::StartNew()
+    $deadline = New-YurunaDeadline -TotalMilliseconds ([long]$TimeoutSeconds * 1000)
+    $loginUser = if ($Username) { $Username } else { Get-GuestSshUser -GuestKey $GuestKey }
+    $address = [string](Get-GuestAddress -VMName $VMName)
+    $result.Target = "$loginUser@$address"
+
+    # Recorded once on every way out, like the rotation, so the event stream
+    # shows each set and its outcome.
+    $report = {
+        if (-not [string]::IsNullOrEmpty($NewPassword)) { $result.Detail = ([string]$result.Detail).Replace($NewPassword, '***', [StringComparison]::Ordinal) }
+        if ($result.Detail.Length -gt 2000) { $result.Detail = $result.Detail.Substring($result.Detail.Length - 2000) }
+        if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+            $eventRecord = @{
+                timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", [Globalization.CultureInfo]::InvariantCulture)
+                event      = 'ssh_password_set'
+                vmName     = [string]$VMName
+                guestKey   = [string]$GuestKey
+                user       = [string]$loginUser
+                target     = [string]$result.Target
+                ok         = [bool]$result.Ok
+                code       = [string]$result.Code
+                exitCode   = [int]$result.ExitCode
+                durationMs = [int]$clock.ElapsedMilliseconds
+                detail     = [string]$result.Detail
+            }
+            if (-not $result.Ok) {
+                $eventRecord.failureClass = 'provisioning_failure'
+                $eventRecord.severity = 'hard'
+            }
+            $null = Send-CycleEventSafely -EventRecord $eventRecord
+        }
+        return $result
+    }
+
+    # chpasswd reads one account per line, so a line break would set a
+    # truncated password and hand the rest to it as another account.
+    if ($NewPassword -match '[\r\n]') {
+        $result.Code = 'invalid-password'
+        return (& $report)
+    }
+    if ($TimeoutSeconds -eq 0) {
+        $result.Code = 'timeout'
+        return (& $report)
+    }
+    $keyPath = Get-YurunaSshPrivateKeyPath
+    # The marker runs only when chpasswd exits 0. -T asks for no terminal, so
+    # the guest never echoes the input back. ControlMaster=no and
+    # ControlPath=none keep a shared connection from the user's ssh
+    # configuration out of it.
+    $marker = 'yuruna-ssh-password-set'
+    $sshArguments = @('-T', '-i', $keyPath, '-o', 'BatchMode=yes') + @(Get-YurunaSshHostKeyOption -VMName $VMName) + @(
+        '-o', 'ConnectTimeout=10',
+        '-o', 'ServerAliveInterval=15',
+        '-o', 'ServerAliveCountMax=4',
+        '-o', 'LogLevel=ERROR',
+        '-o', 'ControlMaster=no',
+        '-o', 'ControlPath=none',
+        $result.Target, "sudo -n chpasswd && echo $marker")
+
+    $proc = $null
+    $outText = ''
+    $errText = ''
+    $exited = $false
+    try {
+        try {
+            $proc = Start-GuestSshRotationClient -ArgumentList $sshArguments
+        } catch {
+            $result.Code = 'launch-failed'
+            $result.Detail = [string]$_.Exception.Message
+            return (& $report)
+        }
+        if (-not $proc) {
+            $result.Code = 'ssh-missing'
+            return (& $report)
+        }
+        # From here the guest may receive the password, so a failure no
+        # longer proves the account unchanged.
+        $result.Dispatched = $true
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
+        try {
+            $proc.StandardInput.Write("${loginUser}:$NewPassword")
+            $proc.StandardInput.Write("`n")
+            $proc.StandardInput.Flush()
+            $proc.StandardInput.Close()
+        } catch {
+            # A client that ended before reading its input says why through its
+            # exit status and error stream, which are judged below.
+            Write-Verbose "Set-GuestSshPassword: the ssh client stopped reading its input: $($_.Exception.GetBaseException().GetType().Name)"
+        }
+        $exited = $proc.WaitForExit([int][Math]::Max(0, (Get-YurunaDeadlineRemainingMs -Deadline $deadline)))
+        if ($exited) {
+            # The exit can precede the end of both pipes by a moment.
+            try {
+                if ($outTask.Wait(2000)) { $outText = [string]$outTask.Result }
+                if ($errTask.Wait(2000)) { $errText = [string]$errTask.Result }
+            } catch {
+                Write-Verbose "Set-GuestSshPassword: reading the ssh client's output failed: $($_.Exception.GetBaseException().Message)"
+            }
+            $result.ExitCode = [int]$proc.ExitCode
+        }
+    } finally {
+        if ($proc) {
+            if (-not $exited) {
+                try { $proc.Kill($true) } catch { Write-Verbose "Set-GuestSshPassword: ending ssh process $($proc.Id) failed: $($_.Exception.Message)" }
+                try { [void]$proc.WaitForExit(2000) } catch { Write-Verbose "Set-GuestSshPassword: waiting for the ssh client to exit failed: $($_.Exception.Message)" }
+            }
+            try { $proc.Dispose() } catch { Write-Verbose "Set-GuestSshPassword: disposing the ssh client failed: $($_.Exception.Message)" }
+        }
+    }
+    $text = ((@($outText, $errText) | Where-Object { $_ }) -join "`n") -replace "`r", ''
+    $result.Detail = $text.Trim()
+    $failureText = ($text.Replace($marker, '', [StringComparison]::Ordinal))
+    if (-not $exited) {
+        $result.Code = 'timeout'
+    } elseif ($result.ExitCode -eq 255) {
+        # ssh's own status: the session failed before the remote command could
+        # report one.
+        $result.Code = 'ssh-failed'
+    } elseif ($result.ExitCode -ne 0 -and $text -match '(?i)\bsudo:') {
+        $result.Code = 'sudo-refused'
+    } elseif ($result.ExitCode -eq 0 -and $text.Contains($marker) -and
+        $failureText -notmatch '(?i)\bsudo:|chpasswd:|failure|failed|error|unable|cannot') {
+        $result.Ok = $true
+    } else {
+        $result.Code = 'chpasswd-failed'
+    }
+    return (& $report)
 }
 
 function Test-SshTransportLoss {
@@ -1895,6 +2479,463 @@ with a different owner, that is likewise invisible in the exit status.
         runLost         = $false
         detachToken     = ''
         linesConsumed   = 0
+    }
+}
+
+function Start-GuestSshTunnel {
+<#
+.SYNOPSIS
+Start an ssh client that runs a guest command and forwards a free loopback port
+to a port of the guest.
+.DESCRIPTION
+The client is kept, not awaited: Invoke-BoundedNativeCommand waits for its child
+to exit, and a tunnel must outlive the call. Its standard input stays open and
+is the tie to its owner. Closing it (Stop-GuestSshTunnel) is the orderly end, and
+an owner that dies closes it too, so the remote command reads the end of its
+input and releases what it holds. For that reason there is no -N and no -n.
+
+Returns only after the remote command printed a line that matches ReadyPattern
+and, with ProbePath, the forwarded endpoint answered 200; otherwise it returns
+a code and leaves no ssh child. The option list repeats the one Invoke-GuestSsh
+builds; a change to either belongs in both. The function keeps no module state:
+a forced re-import of this module must not lose a tunnel whose process lives on,
+so the caller holds the returned table.
+.PARAMETER RemotePort
+The guest's loopback port the forward reaches.
+.PARAMETER RemoteCommand
+The command ssh runs in the guest; it must read its input to the end.
+.PARAMETER ReadyPattern
+A regular expression for the line the remote command prints once it holds.
+.PARAMETER ProbePath
+An HTTP path asked through the forward until it answers 200; empty skips it.
+.PARAMETER Deadline
+A deadline from New-YurunaDeadline that bounds the startup together with
+StartupTimeoutSeconds; a suite passes one built on a scripted clock.
+.PARAMETER Sleep
+Injected sleeper for the probe interval; see Wait-YurunaDeadlineInterval.
+.OUTPUTS
+System.Collections.Hashtable: Ok, Code, Detail, Attempts, Attached,
+OutputLines and Tunnel (the table Stop-GuestSshTunnel takes, or $null).
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Starts an ssh child process that the caller ends with Stop-GuestSshTunnel.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][ValidateRange(1, 65535)][int]$RemotePort,
+        [Parameter(Mandatory)][string]$RemoteCommand,
+        [Parameter(Mandatory)][string]$ReadyPattern,
+        [string]$ProbePath = '',
+        [string]$Address = '',
+        [string]$User = '',
+        [string]$PrivateKeyPath = '',
+        [ValidateRange(1, 600)][int]$StartupTimeoutSeconds = 30,
+        [ValidateNotNull()][psobject]$Deadline,
+        [scriptblock]$Sleep
+    )
+    $result = @{
+        Ok          = $false
+        Code        = ''
+        Detail      = ''
+        Attempts    = 0
+        Attached    = $false
+        OutputLines = [System.Collections.Generic.List[string]]::new()
+        Tunnel      = $null
+    }
+    $limitDetail = { param([string]$Text) if ($Text.Length -gt 2000) { $Text.Substring(0, 2000) } else { $Text } }
+
+    $loginUser = if ($User) { $User } else { Get-GuestSshUser -GuestKey $GuestKey }
+    $keyPath = if ($PrivateKeyPath) { $PrivateKeyPath } else { Get-YurunaSshPrivateKeyPath }
+    # The proven address comes before discovery: the launcher call that precedes a
+    # tunnel has just authenticated there, so the tunnel dials the same guest.
+    $dialAddress = $Address
+    if (-not $dialAddress) { $dialAddress = [string](Get-ProvenGuestAddress -VMName $VMName) }
+    if (-not $dialAddress) {
+        $discovered = [string](Get-GuestAddress -VMName $VMName)
+        if ($discovered -and -not ($discovered -eq $VMName -and -not (Test-IpAddress $discovered))) {
+            $dialAddress = $discovered
+        }
+    }
+    if (-not $dialAddress) {
+        $result.Code = 'address-unresolved'
+        $result.Detail = "no address is known for $VMName"
+        return $result
+    }
+    $sshCommand = Get-Command -Name ssh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $sshCommand) {
+        $result.Code = 'ssh-missing'
+        $result.Detail = 'no ssh client on PATH'
+        return $result
+    }
+    $startupMs = [long]$StartupTimeoutSeconds * 1000
+    $startupDeadline = if ($PSBoundParameters.ContainsKey('Deadline')) {
+        New-YurunaDeadline -Parent $Deadline -TotalMilliseconds $startupMs
+    } else {
+        New-YurunaDeadline -TotalMilliseconds $startupMs
+    }
+    $hostKeyOptions = @(Get-YurunaSshHostKeyOption -VMName $VMName)
+
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        $result.Attempts = $attempt
+        $result.Attached = $false
+        $outputLines = [System.Collections.Generic.List[string]]::new()
+        $result.OutputLines = $outputLines
+        # A free port now may be taken before ssh binds it; ExitOnForwardFailure
+        # turns that race into exit 255, and the next attempt takes another port.
+        $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+        $listener.Start()
+        try {
+            $localPort = ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+        } finally {
+            $listener.Stop()
+        }
+        # ControlMaster=no and ControlPath=none keep a connection-sharing setting of
+        # the user's ssh configuration from binding the forward in a master process
+        # that outlives this client.
+        $sshArguments = @('-i', $keyPath, '-o', 'BatchMode=yes') + $hostKeyOptions + @(
+            '-o', 'ConnectTimeout=10',
+            '-o', 'ServerAliveInterval=15',
+            '-o', 'ServerAliveCountMax=4',
+            '-o', 'TCPKeepAlive=yes',
+            '-o', 'LogLevel=ERROR',
+            '-o', 'ExitOnForwardFailure=yes',
+            '-o', 'ControlMaster=no',
+            '-o', 'ControlPath=none',
+            '-T',
+            '-L', "127.0.0.1:${localPort}:127.0.0.1:$RemotePort",
+            "$loginUser@$dialAddress",
+            $RemoteCommand)
+        if ($IsWindows) {
+            # The same conservative estimate Invoke-GuestSsh applies below
+            # CreateProcessW's command-line limit.
+            $nativeChars = 4
+            foreach ($argument in $sshArguments) { $nativeChars += ([string]$argument).Length + 3 }
+            if ($nativeChars -gt 30000) {
+                $result.Code = 'command-too-long'
+                $result.Detail = "the ssh command line would hold $nativeChars characters"
+                return $result
+            }
+        }
+        $startInfo = [System.Diagnostics.ProcessStartInfo]::new($sshCommand.Source)
+        $startInfo.UseShellExecute = $false
+        $startInfo.CreateNoWindow = $true
+        $startInfo.RedirectStandardInput = $true
+        $startInfo.RedirectStandardOutput = $true
+        $startInfo.RedirectStandardError = $true
+        $startInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        $startInfo.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+        foreach ($argument in $sshArguments) { $startInfo.ArgumentList.Add([string]$argument) }
+        try {
+            $proc = [System.Diagnostics.Process]::Start($startInfo)
+        } catch {
+            $result.Code = 'launch-failed'
+            $result.Detail = & $limitDetail ([string]$_.Exception.Message)
+            return $result
+        }
+        $startTicks = [long]0
+        try {
+            $startTicks = [long]$proc.StartTime.ToUniversalTime().Ticks
+        } catch {
+            Write-Verbose "Start-GuestSshTunnel: the start time of ssh process $($proc.Id) is unreadable: $($_.Exception.Message)"
+        }
+        $tunnel = @{
+            VMName        = $VMName
+            User          = $loginUser
+            Address       = $dialAddress
+            LocalPort     = [int]$localPort
+            RemotePort    = $RemotePort
+            Process       = $proc
+            ProcessId     = $proc.Id
+            StartUtcTicks = $startTicks
+            StartedUtc    = [datetime]::UtcNow
+            ReadyLine     = ''
+            ProbeBody     = ''
+            OutputLines   = $outputLines
+            StdOutTask    = $null
+            StdErrTask    = $null
+            StopResult    = $null
+        }
+        $succeeded = $false
+        try {
+            # Standard error is drained for the whole life of the tunnel, so a
+            # chatty client never blocks on a full pipe.
+            $tunnel.StdErrTask = $proc.StandardError.ReadToEndAsync()
+            $lineTask = $proc.StandardOutput.ReadLineAsync()
+            $tunnel.StdOutTask = $lineTask
+            $outputEnded = $false
+            $draining = $false
+            while ($true) {
+                if (-not $outputEnded -and $lineTask.IsCompleted) {
+                    $line = $null
+                    try {
+                        $line = $lineTask.Result
+                    } catch {
+                        Write-Verbose "Start-GuestSshTunnel: reading the output of ssh process $($proc.Id) failed: $($_.Exception.GetBaseException().Message)"
+                    }
+                    if ($null -eq $line) {
+                        $outputEnded = $true
+                        $tunnel.StdOutTask = $null
+                        continue
+                    }
+                    if (-not $result.Attached -and [regex]::IsMatch($line, $ReadyPattern)) {
+                        $tunnel.ReadyLine = $line
+                        $result.Attached = $true
+                    } elseif ($outputLines.Count -lt 20) {
+                        $outputLines.Add($line)
+                    }
+                    if ($result.Attached -and -not $draining) {
+                        $tunnel.StdOutTask = $null
+                        break
+                    }
+                    $lineTask = $proc.StandardOutput.ReadLineAsync()
+                    $tunnel.StdOutTask = $lineTask
+                    continue
+                }
+                if ($draining) {
+                    # A client that prints one line and exits is often seen as
+                    # exited before its line is read; drain before deciding.
+                    if ($outputEnded) { break }
+                    $gotLine = $true
+                    try {
+                        $gotLine = $lineTask.Wait(1000)
+                    } catch {
+                        Write-Verbose "Start-GuestSshTunnel: the last read of ssh process $($proc.Id) failed: $($_.Exception.GetBaseException().Message)"
+                    }
+                    if (-not $gotLine) { break }
+                    continue
+                }
+                if ($proc.HasExited) {
+                    $draining = $true
+                    continue
+                }
+                $leftMs = Get-YurunaDeadlineRemainingMs -Deadline $startupDeadline
+                if ($leftMs -le 0) { break }
+                $slice = [int][Math]::Min(200, $leftMs)
+                if ($outputEnded) {
+                    [void]$proc.WaitForExit($slice)
+                } else {
+                    try {
+                        [void]$lineTask.Wait($slice)
+                    } catch {
+                        Write-Verbose "Start-GuestSshTunnel: a read of ssh process $($proc.Id) failed: $($_.Exception.GetBaseException().Message)"
+                    }
+                }
+            }
+
+            if ($draining) {
+                $errText = ''
+                try {
+                    if ($tunnel.StdErrTask.Wait(2000)) { $errText = [string]$tunnel.StdErrTask.Result }
+                } catch {
+                    Write-Verbose "Start-GuestSshTunnel: the standard error of ssh process $($proc.Id) is unreadable: $($_.Exception.GetBaseException().Message)"
+                }
+                $exitCode = $proc.ExitCode
+                $exitDetail = & $limitDetail ((@("exit ${exitCode}:", $errText.Trim(), ($outputLines -join ' | ')) | Where-Object { $_ }) -join ' ')
+                $result.Detail = $exitDetail
+                if ($exitCode -eq 255 -and [regex]::IsMatch($errText, 'Address already in use|cannot listen to port|Could not request local forwarding')) {
+                    Write-Verbose "Start-GuestSshTunnel: local port $localPort was taken before ssh bound it (attempt $attempt of 3)."
+                    continue
+                }
+                $result.Code = 'exited-early'
+                return $result
+            }
+            if (-not $result.Attached) {
+                $stop = Stop-GuestSshTunnel -Tunnel $tunnel -GraceMilliseconds 1000
+                $result.Code = 'not-attached'
+                $result.Detail = & $limitDetail ((@('no ready line:', $stop.StdErr, $stop.StdOut) | Where-Object { $_ }) -join ' ')
+                return $result
+            }
+
+            $tunnel.StdOutTask = $proc.StandardOutput.ReadToEndAsync()
+            if ($ProbePath) {
+                $lastStatus = 0
+                $lastError = ''
+                while ($true) {
+                    if ($proc.HasExited) {
+                        $errText = ''
+                        try {
+                            if ($tunnel.StdErrTask.Wait(2000)) { $errText = [string]$tunnel.StdErrTask.Result }
+                        } catch {
+                            Write-Verbose "Start-GuestSshTunnel: the standard error of ssh process $($proc.Id) is unreadable: $($_.Exception.GetBaseException().Message)"
+                        }
+                        $result.Code = 'exited-early'
+                        $result.Detail = & $limitDetail ((@("exit $($proc.ExitCode):", $errText.Trim(), ($outputLines -join ' | ')) | Where-Object { $_ }) -join ' ')
+                        return $result
+                    }
+                    $leftMs = Get-YurunaDeadlineRemainingMs -Deadline $startupDeadline
+                    $probeMs = [int][Math]::Max(1, [Math]::Min(2000, $leftMs))
+                    $probe = Invoke-GuestSshTunnelProbe -LocalPort $localPort -Path $ProbePath -TimeoutMilliseconds $probeMs
+                    if ([int]$probe.StatusCode -eq 200) {
+                        $tunnel.ProbeBody = [string]$probe.Body
+                        break
+                    }
+                    $lastStatus = [int]$probe.StatusCode
+                    $lastError = [string]$probe.Error
+                    $waitArguments = @{ Deadline = $startupDeadline; Milliseconds = 200 }
+                    if ($PSBoundParameters.ContainsKey('Sleep')) { $waitArguments['Sleep'] = $Sleep }
+                    if (-not (Wait-YurunaDeadlineInterval @waitArguments)) {
+                        $result.Code = 'endpoint-silent'
+                        $result.Detail = & $limitDetail (('probe: {0} {1}' -f $lastStatus, $lastError).Trim())
+                        return $result
+                    }
+                }
+            }
+            $succeeded = $true
+            $result.Ok = $true
+            $result.Code = ''
+            $result.Detail = ''
+            $result.Tunnel = $tunnel
+            return $result
+        } finally {
+            if (-not $succeeded) { [void](Stop-GuestSshTunnel -Tunnel $tunnel -GraceMilliseconds 1000) }
+        }
+    }
+    $result.Code = 'local-port-taken'
+    return $result
+}
+
+function Invoke-GuestSshTunnelProbe {
+<#
+.SYNOPSIS
+Ask one HTTP path through a tunnel's loopback port.
+.DESCRIPTION
+The proxy of the host's environment is never used: with http_proxy set and no
+no_proxy, HttpClient sends a request for 127.0.0.1 to the proxy.
+.OUTPUTS
+System.Collections.Hashtable: StatusCode (0 when no answer came), Body, Error.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][ValidateRange(1, 65535)][int]$LocalPort,
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][ValidateRange(1, 600000)][int]$TimeoutMilliseconds
+    )
+    $probe = @{ StatusCode = 0; Body = ''; Error = '' }
+    $handler = $null
+    $client = $null
+    $response = $null
+    try {
+        $handler = [System.Net.Http.HttpClientHandler]::new()
+        $handler.UseProxy = $false
+        $client = [System.Net.Http.HttpClient]::new($handler, $false)
+        $client.Timeout = [TimeSpan]::FromMilliseconds($TimeoutMilliseconds)
+        $response = $client.GetAsync("http://127.0.0.1:$LocalPort$Path").GetAwaiter().GetResult()
+        $body = [string]$response.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+        if ($body.Length -gt 65536) { $body = $body.Substring(0, 65536) }
+        $probe.StatusCode = [int]$response.StatusCode
+        $probe.Body = $body
+    } catch {
+        $probe.StatusCode = 0
+        $probe.Error = [string]$_.Exception.GetBaseException().Message
+        Write-Verbose "Invoke-GuestSshTunnelProbe: 127.0.0.1:$LocalPort$Path did not answer: $($probe.Error)"
+    } finally {
+        if ($response) { $response.Dispose() }
+        if ($client) { $client.Dispose() }
+        if ($handler) { $handler.Dispose() }
+    }
+    return $probe
+}
+
+function Stop-GuestSshTunnel {
+<#
+.SYNOPSIS
+End a tunnel from Start-GuestSshTunnel and collect what its client printed.
+.DESCRIPTION
+Closing the client's standard input is the orderly end: the remote command reads
+the end of its input, finishes, and ssh exits with its status (0). A client still
+running after the grace period is killed with its tree. Neither exit is an error.
+A second call returns the first call's result and starts nothing. Never throws.
+.PARAMETER Tunnel
+The Tunnel table of Start-GuestSshTunnel, or $null.
+.PARAMETER GraceMilliseconds
+How long the client gets to exit after its input closed.
+.OUTPUTS
+System.Collections.Hashtable: Exited, ExitCode, Forced, StdOut, StdErr.
+#>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Ends the ssh child process that Start-GuestSshTunnel started.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][AllowNull()][System.Collections.IDictionary]$Tunnel,
+        [ValidateRange(0, 600000)][int]$GraceMilliseconds = 5000
+    )
+    if ($null -eq $Tunnel -or $null -eq $Tunnel['Process']) {
+        if ($null -ne $Tunnel -and $null -ne $Tunnel['StopResult']) { return $Tunnel['StopResult'] }
+        return @{ Exited = $true; ExitCode = $null; Forced = $false; StdOut = ''; StdErr = '' }
+    }
+    $proc = $Tunnel['Process']
+    $stop = @{ Exited = $false; ExitCode = $null; Forced = $false; StdOut = ''; StdErr = '' }
+    try {
+        $proc.StandardInput.Close()
+    } catch {
+        Write-Verbose "Stop-GuestSshTunnel: closing the input of ssh process $($Tunnel['ProcessId']) failed: $($_.Exception.Message)"
+    }
+    try {
+        if (-not $proc.WaitForExit($GraceMilliseconds)) {
+            try {
+                $proc.Kill($true)
+            } catch {
+                Write-Verbose "Stop-GuestSshTunnel: killing ssh process $($Tunnel['ProcessId']) failed: $($_.Exception.Message)"
+            }
+            $stop.Forced = $true
+            [void]$proc.WaitForExit(2000)
+        }
+        $stop.Exited = $proc.HasExited
+        if ($stop.Exited) { $stop.ExitCode = $proc.ExitCode }
+    } catch {
+        Write-Verbose "Stop-GuestSshTunnel: waiting for ssh process $($Tunnel['ProcessId']) failed: $($_.Exception.Message)"
+    }
+    $outText = ''
+    $errText = ''
+    $outTask = $Tunnel['StdOutTask']
+    if ($outTask) {
+        try {
+            if ($outTask.Wait(1000)) { $outText = [string]$outTask.Result }
+        } catch {
+            Write-Verbose "Stop-GuestSshTunnel: the output of ssh process $($Tunnel['ProcessId']) is unreadable: $($_.Exception.GetBaseException().Message)"
+        }
+    }
+    $errTask = $Tunnel['StdErrTask']
+    if ($errTask) {
+        try {
+            if ($errTask.Wait(1000)) { $errText = [string]$errTask.Result }
+        } catch {
+            Write-Verbose "Stop-GuestSshTunnel: the standard error of ssh process $($Tunnel['ProcessId']) is unreadable: $($_.Exception.GetBaseException().Message)"
+        }
+    }
+    $earlier = if ($Tunnel['OutputLines']) { @($Tunnel['OutputLines']) -join "`n" } else { '' }
+    $stop.StdOut = ("$earlier`n$outText").Trim()
+    $stop.StdErr = $errText.Trim()
+    try {
+        $proc.Dispose()
+    } catch {
+        Write-Verbose "Stop-GuestSshTunnel: disposing ssh process $($Tunnel['ProcessId']) failed: $($_.Exception.Message)"
+    }
+    $Tunnel['Process'] = $null
+    $Tunnel['StopResult'] = $stop
+    return $stop
+}
+
+function Test-GuestSshTunnel {
+<#
+.SYNOPSIS
+$true while a tunnel's ssh client still runs.
+.OUTPUTS
+System.Boolean
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][System.Collections.IDictionary]$Tunnel)
+    if ($null -eq $Tunnel -or $null -eq $Tunnel['Process']) { return $false }
+    try {
+        return (-not $Tunnel['Process'].HasExited)
+    } catch {
+        Write-Verbose "Test-GuestSshTunnel: the state of ssh process $($Tunnel['ProcessId']) is unreadable: $($_.Exception.Message)"
+        return $false
     }
 }
 
@@ -2603,5 +3644,6 @@ final observation, in words) and Reachability.
     }
 }
 
-Export-ModuleMember -Function New-ServiceVmRecoveredEndpoint, Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Get-GuestHostKeyPinPath, Reset-GuestHostKeyPin, Move-GuestHostKeyPin, Wait-SshReady, Get-LastSshReadiness, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
+Export-ModuleMember -Function New-ServiceVmRecoveredEndpoint, Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Get-GuestHostKeyPinPath, Reset-GuestHostKeyPin, Move-GuestHostKeyPin, Wait-SshReady, Get-LastSshReadiness, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Invoke-GuestSshPasswordRotation, Set-GuestSshPassword, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
+    Start-GuestSshTunnel, Stop-GuestSshTunnel, Test-GuestSshTunnel,
     Set-ProvenGuestAddress, Get-ProvenGuestAddress, Clear-ProvenGuestAddress, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon

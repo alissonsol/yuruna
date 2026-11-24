@@ -20,6 +20,8 @@ properties:
     type: object
     description: Map<actionName, plain-prose description>.
     propertyNames:
+      # Held equal to the registered verbs and to the action enum of
+      # sequence.schema.yml by test/modules/Test.SequenceCatalogParity.Tests.ps1.
       enum:
         - break
         - callExtension
@@ -39,6 +41,7 @@ properties:
         - sshFetchAndExecute
         - sshWaitReady
         - startVm
+        - stopVm
         - takeScreenshot
         - tapOn
         - typeAndEnter
@@ -46,6 +49,13 @@ properties:
         - waitForSeconds
         - waitForText
         - waitForTextWithNudge
+        - webClick
+        - webClose
+        - webExpect
+        - webFill
+        - webOpen
+        - webPress
+        - webSelect
     additionalProperties:
       type: string
       minLength: 1

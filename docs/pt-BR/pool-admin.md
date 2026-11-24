@@ -461,7 +461,7 @@ portanto a interface e a linha de comando não podem divergir.
   projetos dos próprios hospedeiros* quando os membros executam os seus. O cartão também sinaliza hospedeiros
   que não conseguem ler o projeto do grupo (abaixo). O painel não altera nada.
 - **Pools** (`/pools`) &mdash; criar um grupo (gera seu `poolGuid` estável), controlar
-  o **Pool Status** de todos os membros (abaixo), definir os repositórios **Framework / Project**
+  o **Pool status** de todos os membros (abaixo), definir os repositórios **Framework / Project**
   do grupo (abaixo), adicionar/remover hospedeiros (um hospedeiro
   pertence a, no máximo, um grupo), excluir um grupo vazio.
 - **Hosts** (`/hosts`) &mdash; todos os hospedeiros conhecidos pelo agregador *e* todos os que
@@ -469,7 +469,7 @@ portanto a interface e a linha de comando não podem divergir.
   inscrito automaticamente &mdash; ou nunca foi cadastrado &mdash; fica visível junto com
   o motivo. Colunas: **Host ID** (link para a página de status desse hospedeiro),
   **Hostname**, **Type** (o tipo de hospedeiro sem seu prefixo `host.`, por exemplo,
-  `ubuntu.kvm`), **Memory**, **Cores**, **Total Storage** e **Free Storage**
+  `ubuntu.kvm`), **Memory**, **Cores**, **Total storage** e **Free storage**
   (o relatório de hardware do próprio hospedeiro, lido de seu status service),
   **Control** (o valor transmitido: `ready` / `none` / `mismatch` /
   `skew`), **Framework** e **Project** (abaixo), **Runner** (o commit que o
@@ -590,9 +590,9 @@ ainda não esteja atualizada.
 
 <a id="pool-status--pausing-and-continuing-every-member-at-once"></a>
 
-### Pool Status — pausa e continuação de todos os membros de uma vez
+### Pool status — pausa e continuação de todos os membros de uma vez
 
-A coluna **Pool Status** em `/pools` controla, de um só lugar, os botões Pause/Continue da
+A coluna **Pool status** em `/pools` controla, de um só lugar, os botões Pause/Continue da
 página de status de cada membro. Ela oferece exatamente o que um único
 hospedeiro oferece:
 
@@ -645,8 +645,8 @@ HMAC de forma idêntica, byte a byte, como garante um vetor de teste de referên
 compartilhado.
 
 Os membros são controlados individualmente e os resultados são informados individualmente: `2 applied, 1 failed
--- 42ab12cd (the host holds no lab token ...)`. Um hospedeiro que nunca foi inscrito,
-está desligado ou possui outro token do laboratório falha por conta própria, sem impedir a alteração
+-- 42ab12cd (the host holds no internal authentication key ...)`. Um hospedeiro que nunca
+foi inscrito, está desligado ou possui outra chave de autenticação interna falha por conta própria, sem impedir a alteração
 dos demais. Cada ação distribuída é gravada no log de auditoria, com a quantidade de alterações
 que foram aplicadas.
 
@@ -656,7 +656,7 @@ que foram aplicadas.
 
 ### Framework / Project -- quais repositórios cada grupo executa
 
-A coluna **Framework / Project** em `/pools`, logo após **Pool Status**, é
+A coluna **Framework / Project** em `/pools`, logo após **Pool status**, é
 onde se definem os repositórios do framework e do projeto de um grupo. Salvar executa o
 mesmo `Set-PoolRepository.ps1` da [Etapa 4](#4207d71a-0007), portanto cada membro recebe
 a alteração no início de seu próximo ciclo, sem reinicialização. Um grupo novo
@@ -717,10 +717,10 @@ Um pequeno daemon Go (`test/extension/pool-control-service/server`, módulo `poo
 
   | Autenticação | Rotas |
   |---|---|
-  | aberta (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control` |
+  | aberta (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control`, `/api/host/update` (a leitura da página de confirmação: não assina nem envia nada) |
   | aberta (POST) | `/api/login`, `/api/unlock-proof` -- as duas formas de ENTRAR na barreira |
   | lab-token | `/api/pool` (POST, DELETE), `/api/pool/configured-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/adopt-rekey`, `/api/pool/repositories`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/hosts/history` (GET) |
-  | lab-token **e** credencial de atualização | `/api/host/refresh` (POST) -- veja [Atualização remota do hospedeiro](#remote-host-refresh) |
+  | lab-token **e** credencial do operador | `/api/host/repair` (POST) -- veja [Reparo remoto do hospedeiro](#remote-host-repair); `/api/host/update` (POST) -- veja [Atualização remota do hospedeiro](#remote-host-update) |
 
   As leituras são abertas na LAN confiável, para que uma tela de parede não precise de credencial;
   tudo que reescreve a configuração dos grupos passa por `gate.Require`.
@@ -743,7 +743,7 @@ Um pequeno daemon Go (`test/extension/pool-control-service/server`, módulo `poo
   bem-sucedida responde às rotas abertas de leitura por 15 segundos, as chamadas que
   chegam enquanto ela é executada a compartilham, e qualquer outra CLI a invalida; no
   máximo quatro CLIs são executadas ao mesmo tempo.
-- **Controla as rotas de controle dos próprios membros** para Pool Status
+- **Controla as rotas de controle dos próprios membros** para Pool status
   (`/api/pool/host-control`): a única parte daqui que atua em outras máquinas,
   em vez de no armazenamento de configuração. A composição vem da configuração e os endereços
   vêm do agregador, pois a noção de grupo do agregador é um rótulo que um
@@ -830,28 +830,28 @@ desistir.
 
 <a id="4207d71a-001f"></a>
 
-<a id="remote-host-refresh"></a>
+<a id="remote-host-repair"></a>
 
-### Atualização remota do hospedeiro
+### Reparo remoto do hospedeiro
 
 Um hospedeiro cujo hipervisor ou executor de testes travou pode receber daqui uma solicitação para reparar
 a si mesmo, um hospedeiro de cada vez: recuperar um executor parado por travamento, iniciar um serviço de
 hipervisor interrompido ou reiniciar um travado, quando o hospedeiro permitir -- o
-nível **restart** da própria escala de atualização do hospedeiro, nunca alterações de pacotes ou
-configurações. É o mesmo reparo que `test/lab/Invoke-HostRefresh.ps1` executa no
+nível **restart** da própria escala de reparo do hospedeiro, nunca alterações de pacotes ou
+configurações. É o mesmo reparo que `test/lab/Invoke-HostRepair.ps1` executa no
 hospedeiro; este serviço apenas autoriza e entrega a solicitação. O controle de todo o grupo
-(`/api/pool/host-control` e sua ferramenta MCP) nunca executa uma atualização: recusa a
+(`/api/pool/host-control` e sua ferramenta MCP) nunca executa um reparo: recusa a
 ação antes que qualquer chamada saia deste serviço.
 
-A atualização remota fica **desabilitada até ser provisionada** e permanece desabilitada para um hospedeiro, a menos que
+O reparo remoto fica **desabilitado até ser provisionado** e permanece desabilitado para um hospedeiro, a menos que
 todas estas condições sejam atendidas:
 
-- este serviço contém ambos os segredos de atualização (abaixo);
+- este serviço contém ambos os seus segredos de reparo remoto (abaixo);
 - o hospedeiro instalou sua própria chave de verificação;
-- o hospedeiro executa em uma plataforma qualificada para atualização remota -- atualmente,
+- o hospedeiro executa em uma plataforma qualificada para reparo remoto -- atualmente,
   apenas Ubuntu KVM; hospedeiros macOS e Windows informam `unqualified`;
-- o status service do hospedeiro anuncia a atualização como disponível, e o agregador
-  do grupo leu esse anúncio recentemente (o objeto `refresh` do hospedeiro na
+- o status service do hospedeiro anuncia o reparo como disponível, e o agregador
+  do grupo leu esse anúncio recentemente (o objeto `repair` do hospedeiro na
   página Hosts e em `/api/hosts`).
 
 <a id="4207d71a-0020"></a>
@@ -860,19 +860,19 @@ todas estas condições sejam atendidas:
 
 #### Os três segredos
 
-A atualização remota usa segredos próprios. O token do laboratório, um cookie de sessão do laboratório e
+O reparo remoto usa segredos próprios. O token do laboratório, um cookie de sessão do laboratório e
 a chave de autenticação interna nunca a autorizam: a chave do laboratório pode ser obtida
 pelo código de inscrição do painel, e uma sessão do laboratório, por uma prova de controle
 pública.
 
 | Segredo | Formato | Onde fica |
 |---|---|---|
-| Autoridade de assinatura | uma linha `yhra1.<key>` | a máquina do operador e `/etc/yuruna/host-refresh/authority.key` deste serviço (`-refresh-authority-file`) |
-| Credencial do operador | uma linha `yhrc1.<key>` | o operador ou a automação e `/etc/yuruna/host-refresh/operator.credential` deste serviço (`-refresh-credential-file`) |
-| Chave de verificação do hospedeiro | uma linha `yhrk1.<hostId>.<key>` | `$HOME/.yuruna/host-refresh/remote-verifier.key` de cada hospedeiro |
+| Autoridade de assinatura | uma linha `yrpa1.<key>` | a máquina do operador e `/etc/yuruna/host-repair/authority.key` deste serviço (`-repair-authority-file`) |
+| Credencial do operador | uma linha `yoc1.<key>` | o operador ou a automação e `/etc/yuruna/host-repair/operator.credential` deste serviço (`-operator-credential-file`) |
+| Chave de verificação do hospedeiro | uma linha `yrpk1.<hostId>.<key>` | `$HOME/.yuruna/host-repair/remote-verifier.key` de cada hospedeiro |
 
 Cada arquivo deve poder ser lido apenas por seu proprietário (`chmod 600`); um arquivo
-ausente, malformado ou legível por outras pessoas desabilita a atualização remota com uma linha de log
+ausente, malformado ou legível por outras pessoas desabilita o reparo remoto com uma linha de log
 que informa o nome do arquivo, nunca seu conteúdo. O serviço também recusa uma
 autoridade ou credencial igual à chave de autenticação interna e uma
 credencial igual à autoridade. Cada chave de hospedeiro é derivada da autoridade
@@ -885,25 +885,25 @@ não pode assinar nada para outro hospedeiro.
 
 #### Provisionamento
 
-`test/lab/Set-HostRefreshCredential.ps1` cria e move os segredos e
+`test/lab/Set-HostRepairCredential.ps1` cria e move os segredos e
 não solicita nenhuma entrada. As etiquetas em sua saída são nomes sem segredos que você pode comparar;
 os próprios segredos nunca chegam à saída.
 
 ```powershell
 # 1. On the operator's machine: create the authority and the credential.
-pwsh test/lab/Set-HostRefreshCredential.ps1 -NewAuthority
+pwsh test/lab/Set-HostRepairCredential.ps1 -NewAuthority
 # Copy authority.key and operator.credential from the printed directory to the
-# pool-control VM's /etc/yuruna/host-refresh/, owner-only, then restart the service.
+# pool-control VM's /etc/yuruna/host-repair/, owner-only, then restart the service.
 
 # 2. Still on the operator's machine: write one host's key.
-pwsh test/lab/Set-HostRefreshCredential.ps1 -ExportHostKey -HostId <hostId> -OutputPath ./<hostId>.key
+pwsh test/lab/Set-HostRepairCredential.ps1 -ExportHostKey -HostId <hostId> -OutputPath ./<hostId>.key
 
 # 3. On that host, after moving the file there privately: install it, then delete the file.
-pwsh test/lab/Set-HostRefreshCredential.ps1 -InstallHostKey -KeyPath ./<hostId>.key
+pwsh test/lab/Set-HostRepairCredential.ps1 -InstallHostKey -KeyPath ./<hostId>.key
 
 # Status of this host's key and of the local authority; withdraw a host.
-pwsh test/lab/Set-HostRefreshCredential.ps1
-pwsh test/lab/Set-HostRefreshCredential.ps1 -RemoveHostKey
+pwsh test/lab/Set-HostRepairCredential.ps1
+pwsh test/lab/Set-HostRepairCredential.ps1 -RemoveHostKey
 ```
 
 Um hospedeiro que também é a máquina da autoridade pode dispensar o transporte:
@@ -915,21 +915,42 @@ informar que gravou `authority.key`, mas não `operator.credential`, execute
 sem criar nada, mesmo em um hospedeiro que ainda não tenha um diretório de estado
 privado.
 
+**Segredos provisionados antes da 2026.11.23.** Versões anteriores chamavam esta operação
+de host refresh; na página Config, o controle **Atualizar hospedeiro** fazia o reparo e
+hoje inicia uma atualização do hospedeiro, e o reparo é **Reparar hospedeiro**; os dois
+ficam agora na página Diagnósticos. A renomeação é uma ruptura limpa: nenhuma opção,
+cabeçalho ou prefixo de chave antigo é aceito. Um executor em execução faz pull do
+framework a cada ciclo, então pare todos os executores (ou execute-os com `-NoGitPull`)
+antes que esta versão chegue ao branch do qual os hospedeiros fazem pull; caso contrário,
+um ciclo pode mover a raiz privada enquanto o listener e o controlador antigos ainda estão
+em execução, e o diretório `host-refresh` que sobra precisa então ser removido à mão
+(`migration-conflict`). A autoridade, a credencial e cada chave de hospedeiro são criadas
+de novo com `Set-HostRepairCredential.ps1 -NewAuthority -Rotate` (a autoridade antiga foi
+movida com a raiz privada, ou ainda está no seu `-AuthorityDirectory`, e não é mais lida)
+e depois exportadas e instaladas em cada hospedeiro como acima; os novos arquivos vão para
+`/etc/yuruna/host-repair/`; depois remova `/etc/yuruna/host-refresh/`. Reconstrua ou
+reinicie a VM de pool-control no código novo e retire qualquer opção
+`-refresh-authority-file` ou `-refresh-credential-file` acrescentada à mão: o serviço se
+recusa a iniciar com uma opção que não conhece. Renomeie
+`config.testCycle.autoRefreshAfterStalls` para `autoRepairAfterStalls` em qualquer
+configuração de grupo que a defina; até lá, cada executor emite um aviso, cita as duas
+chaves e mantém o valor do próprio hospedeiro.
+
 <a id="4207d71a-0022"></a>
 
-<a id="asking-a-host-to-refresh"></a>
+<a id="asking-a-host-to-repair-itself"></a>
 
-#### Solicitação de atualização a um hospedeiro
+#### Solicitação de reparo a um hospedeiro
 
 ```bash
-curl -s -X POST http://<pool-control>/api/host/refresh \
+curl -s -X POST http://<pool-control>/api/host/repair \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $(cat internal-auth.key)" \
-  -H "X-Yuruna-Refresh-Credential: $(cat operator.credential)" \
+  -H "X-Yuruna-Operator-Credential: $(cat operator.credential)" \
   -d '{"hostId":"<hostId>","requestId":"<uuid>","tier":"restart","maxRung":"start-if-stopped"}'
 ```
 
-A solicitação precisa da credencial comum de gravação **e** da credencial de atualização
+A solicitação precisa da credencial comum de gravação **e** da credencial do operador
 em seu próprio cabeçalho. O corpo contém exatamente `hostId`, `requestId` (um UUID em minúsculas
 que o chamador gera uma vez e reutiliza em cada nova tentativa), `tier` (`restart`) e,
 opcionalmente, `maxRung` (`probe`, `reclaim`, `start-if-stopped`,
@@ -938,9 +959,9 @@ o reduz ao que consegue executar). Qualquer outra chave -- incluindo todas as gr
 hard-stop -- é recusada.
 
 Este serviço verifica a capacidade anunciada pelo hospedeiro, obtém sua
-prova comum de controle, assina uma prova de atualização vinculada àquele hospedeiro, ID de solicitação,
+prova comum de controle, assina uma prova de reparo vinculada àquele hospedeiro, ID de solicitação,
 nível e limite máximo, que expira em dois minutos, e envia ambas ao
-`/control/host-refresh` do hospedeiro. Uma falha de transporte provoca um reenvio, uma vez, da mesma
+`/control/host-repair` do hospedeiro. Uma falha de transporte provoca um reenvio, uma vez, da mesma
 solicitação. Respostas:
 
 | Status | Significado |
@@ -948,26 +969,126 @@ solicitação. Respostas:
 | 202 | aceita: `action` é `spawned` ou `already_claimed`; consulte `stateUrl` periodicamente |
 | 200 | este ID de solicitação já foi concluído: `replay`, `verdict`, `state` |
 | 400 / 413 | o corpo foi recusado (`code` informa o motivo) |
-| 401 / 429 / 503 | uma credencial está ausente ou incorreta, a origem está limitada, ou a atualização remota não está provisionada (`reason` é `refresh_credential_required`, `refresh_auth_throttled` ou `refresh_auth_unconfigured`; uma autoridade ausente é `pool.host_refresh_signing_unconfigured`) |
-| 404 / 409 | o hospedeiro é desconhecido, não tem endereço, não anuncia atualização remota (`hostReason`), está ocupado com `activeRequestId`, ou já usou este ID de solicitação de outro modo ou até a conclusão |
-| 502 | o hospedeiro recusou (`hostStatus`, `hostReason`, por exemplo, `refresh_proof_expired` quando os relógios diferem em mais de um minuto) ou respondeu de forma inutilizável |
+| 401 / 429 / 503 | uma credencial está ausente ou incorreta, a origem está limitada, ou o reparo remoto não está provisionado (`reason` é `operator_credential_required`, `operator_auth_throttled` ou `operator_auth_unconfigured`; uma autoridade ausente é `pool.host_repair_signing_unconfigured`) |
+| 404 / 409 | o hospedeiro é desconhecido, não tem endereço, não anuncia reparo remoto (`hostReason`), está ocupado com `activeRequestId`, ou já usou este ID de solicitação de outro modo ou até a conclusão |
+| 502 | o hospedeiro recusou (`hostStatus`, `hostReason`, por exemplo, `repair_proof_expired` quando os relógios diferem em mais de um minuto) ou respondeu de forma inutilizável |
 | 503 / 504 | o hospedeiro não conseguiu iniciar ou não respondeu; `retryable` é verdadeiro -- tente novamente com o mesmo ID de solicitação |
 
-A ferramenta MCP `pool_control_refresh_host` recebe os mesmos quatro argumentos e só é
+A ferramenta MCP `pool_control_repair_host` recebe os mesmos quatro argumentos e só é
 listada enquanto ambos os segredos estão provisionados. Ela usa exatamente a mesma barreira de autorização da
 rota: a solicitação MCP precisa da credencial comum de gravação e do
-cabeçalho `X-Yuruna-Refresh-Credential`, portanto um cliente que só pode enviar
+cabeçalho `X-Yuruna-Operator-Credential`, portanto um cliente que só pode enviar
 `Authorization` não consegue usá-la.
 
-Cada solicitação é gravada no log de auditoria como ação `host-refresh`, com o
+Cada solicitação é gravada no log de auditoria como ação `host-repair`, com o
 hospedeiro, ID de solicitação, nível, limite máximo, resultado e status e motivo do hospedeiro --
 nunca uma credencial, chave ou prova --, e cada credencial recusada é gravada como
-`refresh-credential`, com seu endereço de origem.
+`operator-credential`, com seu endereço de origem.
 
 O Pool-control serve HTTP sem criptografia, portanto a credencial e as provas atravessam a LAN
 em texto simples, como as outras credenciais do laboratório. Uma prova está vinculada a um hospedeiro
 e uma solicitação e expira em dois minutos, e reenviá-la apenas repete a
 mesma solicitação; a credencial permanece válida até que você a rotacione.
+
+<a id="remote-host-update"></a>
+
+<a id="4207d71a-0027"></a>
+
+### Atualização remota do hospedeiro
+
+Uma **atualização do hospedeiro** para o runner de um hospedeiro depois do ciclo em execução,
+atualiza seu checkout e inicia o runner de novo (escopo `restart`), ou antes também executa
+de novo o instalador e o `Enable-TestAutomation` (escopo `full`). O próprio controlador do
+hospedeiro faz o trabalho (veja
+[POST /control/host-update](../control-routes.md#post-controlhost-update)); este serviço apenas
+assina a solicitação e a leva até lá, para que um operador em qualquer máquina possa pedir.
+
+Além da credencial do operador de [Reparo remoto do hospedeiro](#remote-host-repair), ela precisa de:
+
+| O quê | Forma | Onde fica |
+|---|---|---|
+| Chave de assinatura de atualização | um bloco PEM PKCS#8 RSA de 3072 bits | a máquina do operador e `/etc/yuruna/host-repair/update-signing.key` deste serviço (`-update-signing-key-file`) |
+| Registro do pool-control | o URL base do pool-control e a metade pública da chave de assinatura | `$HOME/.yuruna/host-repair/pool-control.record` de cada hospedeiro |
+
+O hospedeiro não guarda nenhum segredo para isso: ele verifica a assinatura com uma chave
+pública, então nenhum tipo de hospedeiro fica de fora por causa de onde um segredo poderia ser
+guardado. O que ele exige é que apenas a própria conta possa substituir o registro. O arquivo da
+chave deve ser legível apenas pelo dono; uma chave ausente, malformada, menor que 3072 bits ou
+legível por outros desativa a atualização remota do hospedeiro com uma linha de log que nomeia o
+arquivo.
+
+```powershell
+# 1. On the operator's machine: create the key. The output ends with the
+#    command each host runs, carrying the public key line.
+pwsh test/lab/Set-HostRepairCredential.ps1 -NewUpdateSigningKey
+# Copy update-signing.key to the pool-control VM's /etc/yuruna/host-repair/,
+# owner-only, then restart the service.
+
+# 2. On each host: install the record. The URL is where its Diagnostics page sends
+#    a press made from another machine.
+pwsh test/lab/Set-HostRepairCredential.ps1 -InstallPoolControlRecord -PoolControlUrl http://<pool-control> -PublicKey yupk1.<...>
+
+# Status; withdraw a host.
+pwsh test/lab/Set-HostRepairCredential.ps1
+pwsh test/lab/Set-HostRepairCredential.ps1 -RemovePoolControlRecord
+```
+
+Um hospedeiro que também é a máquina do operador pode usar `-AuthorityDirectory <dir>` no lugar
+de `-PublicKey`. Instalar sobre um registro existente imprime cada valor substituído como
+`previous -> new` antes de gravar. `-NewUpdateSigningKey -Rotate` substitui a chave; cada
+registro precisa então ser instalado de novo com a nova chave pública.
+
+**A partir da página Diagnósticos de um hospedeiro.** Em outra máquina, **Atualizar hospedeiro** abre a
+página de confirmação deste serviço, `GET /host/update?host=<hostId>&scope=<scope>`, no endereço
+que o registro do hospedeiro indica. A página mostra o hospedeiro por id, endereço e tipo e todos
+os campos que vai assinar, gera o id da solicitação e pede a credencial do operador; nada é
+assinado ou enviado antes disso. Depois que o hospedeiro enfileira a atualização, a página volta
+à página Diagnósticos do hospedeiro com o id da solicitação em `#yhu=`, onde a página a acompanha. A
+página Hosts oferece a mesma página na linha de cada hospedeiro enquanto este serviço puder
+assinar. A página de confirmação se recusa a ser exibida dentro de um quadro.
+
+**A partir da API.** `POST /api/host/update` passa pelas mesmas duas barreiras da rota de reparo:
+
+```bash
+curl -s -X POST http://<pool-control>/api/host/update \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $(cat internal-auth.key)" \
+  -H "X-Yuruna-Operator-Credential: $(cat operator.credential)" \
+  -d '{"hostId":"<hostId>","requestId":"<uuid>","scope":"restart"}'
+```
+
+O corpo é exatamente `hostId`, `requestId` (um UUID em minúsculas que o chamador gera uma vez e
+reutiliza a cada nova tentativa) e, opcionalmente, `scope` (`restart`, o padrão, ou `full`),
+`drainSeconds` (um inteiro JSON de 60 a 21600, padrão 7200: quanto tempo a atualização espera
+pelo ciclo em execução antes de desistir sem mudar nada) e `expectCommit` (7 a 40 dígitos
+hexadecimais minúsculos que o checkout precisa alcançar). Uma chave que nomeie `drain` em
+qualquer outra grafia é recusada com `pool.host_update_field_forbidden`: nenhuma solicitação
+que este serviço envia encerra um ciclo em execução. Para encerrar um, execute
+`pwsh test/lab/Invoke-HostUpdate.ps1 -Drain now` em um shell no hospedeiro.
+
+Este serviço primeiro lê o `GET /control/control-status` do próprio hospedeiro e não envia nada
+a menos que o objeto `update` do hospedeiro esteja `available`, liste o escopo e informe
+`remote: provisioned`. Depois obtém a prova de controle comum do hospedeiro, assina uma prova
+`yup1` sobre o hospedeiro, o id da solicitação, o escopo, o limite de drenagem e o commit
+esperado, que expira em dois minutos, e envia as duas ao `/control/host-update` do hospedeiro.
+Uma falha de transporte é reenviada uma vez com a solicitação idêntica. Respostas:
+
+| Status | Significado |
+|---|---|
+| 202 | enfileirada: `action` é `queued`, `already_queued` ou `already_claimed`; consulte `stateUrl`, ou abra `diagnosticsUrl`, a página Diagnósticos do hospedeiro acompanhando esta solicitação |
+| 200 | este id de solicitação já terminou: `replay`, `verdict`, `state` |
+| 400 / 413 | o corpo foi recusado (`code` diz por quê) |
+| 401 / 429 / 503 | falta uma credencial ou ela está errada, a origem está limitada, ou a atualização remota não está provisionada (`pool.host_update_signing_unconfigured`) |
+| 404 / 409 | o hospedeiro é desconhecido, não tem endereço, não pode aceitar uma atualização remota agora (`pool.host_update_unavailable` com `hostReason`, como `controller_absent`, `update_remote_unprovisioned` ou `scope_unavailable`), está ocupado com `activeRequestId`, ou já usou este id de solicitação de outra forma |
+| 502 | o hospedeiro recusou (`hostStatus`, `hostReason`, por exemplo `update_proof_expired` quando os relógios diferem em mais de um minuto) ou respondeu de forma inutilizável |
+| 503 / 504 | o hospedeiro não conseguiu enfileirá-la ou não respondeu; `retryable` é verdadeiro -- tente de novo com o mesmo id de solicitação |
+
+A ferramenta MCP `pool_control_update_host` recebe os mesmos argumentos, não tem entrada de
+drenagem e só é listada enquanto a chave de assinatura e a credencial do operador estiverem
+provisionadas; ela tem as mesmas barreiras da rota. Cada solicitação é gravada no log de
+auditoria como ação `host-update` com o hospedeiro, o id da solicitação, o escopo, o limite de
+drenagem, o commit esperado, o resultado e o status e o motivo do hospedeiro -- nunca uma
+credencial, chave ou prova.
 
 <a id="4207d71a-0013"></a>
 
@@ -1341,6 +1462,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Voltar para [Yuruna](../../README.md)

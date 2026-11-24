@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -582,7 +582,7 @@ Describe 'one registry names every browser source' {
         foreach ($page in $registered) {
             if ($tracked -notcontains $page) { $findings += "$page has a disposition but is not a tracked page" }
         }
-        Assert-Equal -Expected 15 -Actual $tracked.Count `
+        Assert-Equal -Expected 16 -Actual $tracked.Count `
             'the current shipped HTML census changed; classify the new surface deliberately'
         Assert-NoFinding $findings 'the performance manifest can become incomplete without failing'
     }
@@ -676,7 +676,7 @@ Describe 'the shipped surface stays inside its budget' {
         $baseline = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($path))
         Assert-True ($baseline.assets.PSObject.Properties.Name.Count -ge 10) `
             'the baseline records too few assets to describe the shipped surface'
-        Assert-Equal -Expected 15 -Actual $baseline.pages.PSObject.Properties.Name.Count `
+        Assert-Equal -Expected 16 -Actual $baseline.pages.PSObject.Properties.Name.Count `
             'each tracked page needs a budget row or an explicit exclusion'
         foreach ($asset in $baseline.assets.PSObject.Properties) {
             Assert-StringEqual -Expected 'deterministic-gzip-estimate' `

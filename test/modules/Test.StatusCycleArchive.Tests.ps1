@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4225e4e5-9e96-476f-b10c-41d45c8308df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,7 +64,7 @@ $script:SharePage  = Get-Content -Raw -LiteralPath (Join-Path $statusDir 'share-
 # checks read this rather than the whole file: other routes serve tarballs of
 # their own (the committed-content archives), and one of those named in some
 # unrelated handler is not this page asking for the wrong thing.
-$script:ShareRegion = [regex]::Match($ShareJs, '(?s)// --- REGION: Share-cycle page.*?(?=// Page dispatch keyed)').Value
+$script:ShareRegion = [regex]::Match($ShareJs, '(?s)// --- REGION: Share-cycle page.*?(?=// --- REGION: Per-page bootstrap dispatch)').Value
 
 # The literal the route matches the URL leaf against.
 $ArchiveMatch = [regex]::Match($SvcSource, "\`$leaf\s+-notmatch\s+'(\^[^']+)'")

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,8 +19,8 @@
 <#
 .SYNOPSIS
     Shared single-instance pidfile guard for the runner trio, plus the process
-    identity, reclamation and refresh-handoff protocol every runner process and
-    the host-refresh worker agree on.
+    identity, reclamation and handoff protocol every runner process and
+    the host-operation workers agree on.
 .DESCRIPTION
     Outer ([test/Start-TestRunner.ps1](../Start-TestRunner.ps1)) and
     inner ([test/modules/Invoke-TestRunnerInnerLoop.ps1](Invoke-TestRunnerInnerLoop.ps1))
@@ -51,8 +51,8 @@
     is bare `pwsh`), with the cmdline regex as the fallback for a pidfile
     that carries no sidecar.
 
-    The refresh protocol is stricter than the takeover above, because a host
-    refresh must never kill or unlink anything it has not proven it owns:
+    The handoff protocol is stricter than the takeover above, because a host
+    operation must never kill or unlink anything it has not proven it owns:
 
     - Process identity : one process table per decision (Linux /proc, macOS
       bounded `ps`, Windows CIM), and a five-way classifier -- AliveOwned,
@@ -64,14 +64,14 @@
       ancestry are pruned or protected before the tree is expanded; every
       signal is preceded by a fresh identity check and targets a single PID,
       never a tree kill, a process group or a port owner.
-    - Refresh gate : a per-user critical record under the private state root
+    - Runner gate : a per-user critical record under the private state root
       that holds every runner spawn and pull site while a repair is in
       progress, and fails closed when it cannot be read. A handoff token opens
       only the preflight spawn of the designated replacement chain, which
       acknowledges readiness before the gate releases.
     - Launch record : the six operator options a runner was started with,
       validated against the runner script's own parameter metadata, so a
-      refresh restarts the runner with the configuration it had, never one
+      handoff restarts the runner with the configuration it had, never one
       derived from a command line.
 #>
 
@@ -1977,7 +1977,8 @@ function Get-YurunaRunnerExclusionSet {
     .DESCRIPTION
         Excluded: the worker; any process whose command line names this
         runtime's generated status server, the address beacon, a service
-        script, the installer, the refresh entry point, the listener's
+        script, the installer, the repair entry point, a host update's
+        command and step children, the listener's
         diagnostic and start-cycle workers, or the pool drain and push
         forwarders; the status and config server pidfile owners when their
         record is AliveOwned or Unknown (uncertainty protects); any process
@@ -2048,7 +2049,9 @@ function Get-YurunaRunnerExclusionSet {
             @{ Rel = 'test/modules/Invoke-HostAddressBeacon.ps1';   Role = 'beacon' },
             @{ Rel = 'test/service/';                               Role = 'service-script' },
             @{ Rel = 'install/';                                    Role = 'installer' },
-            @{ Rel = 'test/lab/Invoke-HostRefresh.ps1';             Role = 'refresh-worker' },
+            @{ Rel = 'test/lab/Invoke-HostRepair.ps1';             Role = 'repair-worker' },
+            @{ Rel = 'test/lab/Invoke-HostUpdate.ps1';              Role = 'host-update' },
+            @{ Rel = 'test/lab/Invoke-HostUpdateStep.ps1';          Role = 'host-update' },
             @{ Rel = 'test/modules/Invoke-HostDiagnosticWorker.ps1'; Role = 'listener-worker' },
             @{ Rel = 'test/modules/Invoke-StartCycleWorker.ps1';    Role = 'listener-worker' },
             @{ Rel = 'test/modules/Invoke-PoolStorageDrain.ps1';    Role = 'pool-drain' },
@@ -2501,7 +2504,7 @@ function Stop-YurunaRunnerProcessTarget {
     }
 }
 
-# --- REGION: Refresh gate
+# --- REGION: Runner gate
 # One gate per user, under the private state root, because a hypervisor
 # repair disrupts every runtime this user owns. The record is a critical
 # record (checksummed, generation-numbered, previous generation retained),
@@ -2517,7 +2520,7 @@ $script:ProtocolVersion  = 1
 # as expired: the tick counter the expiry is measured on restarted.
 $script:BootEpochSlackMs = 120000
 $script:RunnerOptionName = @('ConfigPath', 'NoGitPull', 'NoStatusService', 'NoConfigGate', 'CycleDelaySeconds', 'logLevel')
-$script:RunnerTransportName = @('RefreshResume', 'RefreshHandoffToken')
+$script:RunnerTransportName = @('HandoffResume', 'HandoffToken')
 
 function Get-YurunaBootEpochMs {
     <#
@@ -2532,10 +2535,10 @@ function Get-YurunaBootEpochMs {
     return ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - [Environment]::TickCount64)
 }
 
-function Resolve-YurunaRefreshStateRoot {
+function Resolve-YurunaRunnerStateRoot {
     <#
     .SYNOPSIS
-        The private state root for refresh records: an explicitly given,
+        The private state root for host-operation records: an explicitly given,
         already-resolved directory, or Get-YurunaPrivateStateRoot.
     .OUTPUTS
         [pscustomobject] @{ Resolved; Path; Reason }
@@ -2602,7 +2605,7 @@ function Get-YurunaRuntimeKey {
     return ([System.Convert]::ToHexString($hash)).ToLowerInvariant().Substring(0, 16)
 }
 
-function Read-YurunaRefreshGateRecord {
+function Read-YurunaRunnerGateRecord {
     <#
     .SYNOPSIS
         Lock-free read of the gate record: { Status ok|missing|unreadable|
@@ -2645,17 +2648,22 @@ function Read-YurunaRefreshGateRecord {
     }
 }
 
-function Get-YurunaRefreshGateState {
+function Get-YurunaRunnerGateState {
     <#
     .SYNOPSIS
-        Read-only view of the host-refresh runner gate. Creates nothing.
+        Read-only view of the runner gate. Creates nothing.
     .DESCRIPTION
         No private root, no gate record, or a released gate: open. A closed,
         recovery-pending or handoff gate holds every spawn. A record that
         cannot be read, or carries a newer schema, is unknown and holds every
         spawn too (fail closed). A gate file present under a root that fails
         the private-root checks is unknown as well: nothing written there can
-        be trusted, and nothing proves it absent.
+        be trusted, and nothing proves it absent. That holds for a gate file
+        under the earlier host-refresh leaf too, when the root is refused
+        before its move is tried. An earlier private root not
+        yet moved (migration-pending) or left beside the current one
+        (migration-conflict) holds every spawn too: its gate record is out of
+        reach, and nothing proves it open.
 
         PreflightAllowed is $true only for a handoff whose token matches
         -TokenId, has not expired, was issued in this boot, and names this
@@ -2692,18 +2700,28 @@ function Get-YurunaRefreshGateState {
         RuntimeDir = $null; ExpiresTick = $null; DesignatedOuter = $null; OnReady = $null
         Reclaimed = $null; ReasonCode = $null
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) {
+        if ($root.Reason -in @('migration-pending', 'migration-conflict')) { $out.State = 'unknown'; $out.SpawnAllowed = $false; $out.Reason = $root.Reason; return [pscustomobject]$out }
         if ($root.Reason -in @('absent', 'no-home')) { return [pscustomobject]$out }
-        $textual = if ($PrivateRoot) { $PrivateRoot } elseif ($HOME) { [System.IO.Path]::Combine($HOME, '.yuruna', 'host-refresh') } else { $null }
-        $gateFile = if ($textual) { [System.IO.Path]::Combine($textual, $script:GateRecordName) } else { $null }
-        $out.Path = $gateFile
-        if ($gateFile -and ([System.IO.File]::Exists($gateFile) -or [System.IO.File]::Exists("$gateFile.prev"))) {
-            $out.State = 'unknown'; $out.SpawnAllowed = $false; $out.Reason = 'private-root-unsafe'
+        # A refusal can come before the move of the earlier host-refresh
+        # root is even tried (an untrusted parent, a link at the earlier
+        # leaf), so a gate record still sitting there holds as well.
+        $textualRoots = if ($PrivateRoot) { @($PrivateRoot) }
+            elseif ($HOME) { @([System.IO.Path]::Combine($HOME, '.yuruna', 'host-repair'), [System.IO.Path]::Combine($HOME, '.yuruna', 'host-refresh')) }
+            else { @() }
+        foreach ($textual in $textualRoots) {
+            $gateFile = [System.IO.Path]::Combine($textual, $script:GateRecordName)
+            if ([System.IO.File]::Exists($gateFile) -or [System.IO.File]::Exists("$gateFile.prev")) {
+                $out.Path = $gateFile
+                $out.State = 'unknown'; $out.SpawnAllowed = $false; $out.Reason = 'private-root-unsafe'
+                return [pscustomobject]$out
+            }
         }
+        if ($textualRoots.Count -gt 0) { $out.Path = [System.IO.Path]::Combine($textualRoots[0], $script:GateRecordName) }
         return [pscustomobject]$out
     }
-    $read = Read-YurunaRefreshGateRecord -Root $root.Path
+    $read = Read-YurunaRunnerGateRecord -Root $root.Path
     $out.Path = $read.Path
     if ($read.Status -eq 'missing') { return [pscustomobject]$out }
     if ($read.Status -ne 'ok') {
@@ -2732,7 +2750,7 @@ function Get-YurunaRefreshGateState {
         $out.DesignatedOuter = $handoff['designatedOuter']
         $out.OnReady = $handoff['onReady']
         if ($TokenId) {
-            $verdict = Test-YurunaRefreshTokenWindow -Handoff $handoff -TokenId $TokenId
+            $verdict = Test-YurunaHandoffTokenWindow -Handoff $handoff -TokenId $TokenId
             $runtimeMatch = (-not $RuntimeDir) -or (Test-YurunaSameRuntimeDir -Left $RuntimeDir -Right ([string]$gate['runtimeDir']))
             $out.PreflightAllowed = ($verdict -eq 'ok') -and $runtimeMatch
         }
@@ -2753,13 +2771,13 @@ function Get-YurunaRefreshGateState {
         # A live handoff is not orphaned while its token can still be used;
         # the designated chain may be about to acknowledge.
         $tokenLive = ($out.State -eq 'handoff') -and $handoff -and
-            ((Test-YurunaRefreshTokenWindow -Handoff $handoff -TokenId ([string]$handoff['tokenId'])) -eq 'ok')
+            ((Test-YurunaHandoffTokenWindow -Handoff $handoff -TokenId ([string]$handoff['tokenId'])) -eq 'ok')
         $out.Orphaned = ($out.OwnerState -eq 'DeadOrRecycled') -and -not $tokenLive
     }
     return [pscustomobject]$out
 }
 
-function Test-YurunaRefreshTokenWindow {
+function Test-YurunaHandoffTokenWindow {
     <#
     .SYNOPSIS
         ok, token-mismatch, boot-changed or expired for a handoff block.
@@ -2778,37 +2796,38 @@ function Test-YurunaRefreshTokenWindow {
     return 'ok'
 }
 
-function Invoke-YurunaRefreshBootResume {
+function Invoke-YurunaRepairBootResume {
     <#
     .SYNOPSIS
-        Once per boot and request, resume a host refresh whose gate an earlier
+        Once per boot and request, resume a host repair whose gate an earlier
         boot left held.
     .DESCRIPTION
-        A power loss or reboot in the middle of a refresh leaves the gate held
+        A power loss or reboot in the middle of a host repair leaves the gate held
         by an owner that no longer exists, and nothing expires a gate by age,
         so every runner start would refuse until an operator ran
-        test/lab/Invoke-HostRefresh.ps1 -Resume. When the gate is orphaned and
+        test/lab/Invoke-HostRepair.ps1 -Resume. When the gate is orphaned and
         its owner started before the current boot, this runs that same remedy
         once, detached: the refusing start still exits, and the worker's own
         handoff starts the runner. A gate whose owner died in this boot, or
-        whose owner's start is unknown, stays with the operator.
+        whose owner's start is unknown, stays with the operator, and a gate
+        the host controller closed stays with the controller.
 
         The marker under the private state root names the request and the
         boot. It is written before the launch, so a launch or a worker that
         fails is not retried in the same boot.
     .PARAMETER Gate
-        The gate view from Get-YurunaRefreshGateState.
+        The gate view from Get-YurunaRunnerGateState.
     .PARAMETER RepoRoot
-        The repository whose test/lab/Invoke-HostRefresh.ps1 resumes it.
+        The repository whose test/lab/Invoke-HostRepair.ps1 resumes it.
     .PARAMETER PrivateRoot
         An already-resolved private state root; defaults to the per-user one.
     .PARAMETER BootEpochMs
         The current boot's epoch; defaults to Get-YurunaBootEpochMs.
     .OUTPUTS
         [pscustomobject] @{ Launched; Reason; RequestId; MarkerPath; Pid;
-        StdErrPath }. Reason is launched, not-orphaned, owner-this-boot,
-        owner-start-unknown, already-tried, no-private-root, marker-failed,
-        whatif, or launch-failed:<reason>.
+        StdErrPath }. Reason is launched, not-orphaned, controller-gate,
+        owner-this-boot, owner-start-unknown, already-tried, no-private-root,
+        marker-failed, whatif, or launch-failed:<reason>.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject])]
@@ -2823,6 +2842,12 @@ function Invoke-YurunaRefreshBootResume {
     $result.RequestId = [string]$Gate.RequestId
     $ownerStart = [long]0
     $owner = $Gate.Owner
+    # A gate the host controller closed belongs to a host update, which the
+    # controller continues; the repair's resume would only refuse its row.
+    if ($owner -is [System.Collections.IDictionary] -and [string]$owner['role'] -ceq 'controller') {
+        $result.Reason = 'controller-gate'
+        return [pscustomobject]$result
+    }
     if (-not ($owner -is [System.Collections.IDictionary] -and $null -ne $owner['startTimeUnixMs'] -and
             [long]::TryParse([string]$owner['startTimeUnixMs'], [ref]$ownerStart) -and $ownerStart -gt 0)) {
         $result.Reason = 'owner-start-unknown'
@@ -2834,7 +2859,7 @@ function Invoke-YurunaRefreshBootResume {
         $result.Reason = 'owner-this-boot'
         return [pscustomobject]$result
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) { $result.Reason = 'no-private-root'; return [pscustomobject]$result }
     $markerPath = [System.IO.Path]::Combine($root.Path, 'boot-resume.json')
     $result.MarkerPath = $markerPath
@@ -2845,8 +2870,8 @@ function Invoke-YurunaRefreshBootResume {
             $result.Reason = 'already-tried'
             return [pscustomobject]$result
         }
-    } catch { Write-Verbose "Invoke-YurunaRefreshBootResume: no usable marker: $($_.Exception.Message)" }
-    if (-not $PSCmdlet.ShouldProcess($result.RequestId, 'resume the host refresh an earlier boot left unfinished')) {
+    } catch { Write-Verbose "Invoke-YurunaRepairBootResume: no usable marker: $($_.Exception.Message)" }
+    if (-not $PSCmdlet.ShouldProcess($result.RequestId, 'resume the host repair an earlier boot left unfinished')) {
         $result.Reason = 'whatif'
         return [pscustomobject]$result
     }
@@ -2856,12 +2881,12 @@ function Invoke-YurunaRefreshBootResume {
         [System.IO.File]::WriteAllText($temporary, $marker)
         [System.IO.File]::Move($temporary, $markerPath, $true)
     } catch {
-        Write-Verbose "Invoke-YurunaRefreshBootResume: marker write failed: $($_.Exception.Message)"
+        Write-Verbose "Invoke-YurunaRepairBootResume: marker write failed: $($_.Exception.Message)"
         $result.Reason = 'marker-failed'
         return [pscustomobject]$result
     }
     $result.StdErrPath = [System.IO.Path]::Combine($root.Path, 'boot-resume.err')
-    $launch = Start-YurunaDetachedProcess -FilePath (Join-Path $RepoRoot 'test/lab/Invoke-HostRefresh.ps1') -ArgumentList @('-Resume') `
+    $launch = Start-YurunaDetachedProcess -FilePath (Join-Path $RepoRoot 'test/lab/Invoke-HostRepair.ps1') -ArgumentList @('-Resume') `
         -WorkingDirectory $RepoRoot -StdOutPath ([System.IO.Path]::Combine($root.Path, 'boot-resume.out')) -StdErrPath $result.StdErrPath `
         -PrivateDirectory $root.Path -Confirm:$false
     if (-not $launch.Launched) {
@@ -2874,7 +2899,7 @@ function Invoke-YurunaRefreshBootResume {
     return [pscustomobject]$result
 }
 
-function Test-YurunaRefreshSpawnAllowed {
+function Test-YurunaRunnerSpawnAllowed {
     <#
     .SYNOPSIS
         Exactly one [bool]: may this process spawn or pull now?
@@ -2882,13 +2907,13 @@ function Test-YurunaRefreshSpawnAllowed {
         $true when the gate is open; with -TokenId, also when the gate is in
         a handoff that token's preflight chain may pass.
     .PARAMETER RuntimeDir
-        See Get-YurunaRefreshGateState.
+        See Get-YurunaRunnerGateState.
     .PARAMETER TokenId
-        See Get-YurunaRefreshGateState.
+        See Get-YurunaRunnerGateState.
     .PARAMETER PrivateRoot
-        See Get-YurunaRefreshGateState.
+        See Get-YurunaRunnerGateState.
     .PARAMETER Deadline
-        See Get-YurunaRefreshGateState.
+        See Get-YurunaRunnerGateState.
     .OUTPUTS
         [bool]
     #>
@@ -2904,11 +2929,11 @@ function Test-YurunaRefreshSpawnAllowed {
     if ($TokenId) { $call.TokenId = $TokenId }
     if ($PrivateRoot) { $call.PrivateRoot = $PrivateRoot }
     if ($Deadline) { $call.Deadline = $Deadline }
-    $gate = Get-YurunaRefreshGateState @call
+    $gate = Get-YurunaRunnerGateState @call
     return [bool]($gate.SpawnAllowed -or $gate.PreflightAllowed)
 }
 
-function Invoke-YurunaRefreshGateTransaction {
+function Invoke-YurunaRunnerGateTransaction {
     <#
     .SYNOPSIS
         Read, decide and write the gate under runner-gate.lock.
@@ -2997,10 +3022,10 @@ function ConvertTo-YurunaReclaimedPayload {
     return $out
 }
 
-function Set-YurunaRefreshGate {
+function Set-YurunaRunnerGate {
     <#
     .SYNOPSIS
-        Close, release, or mark recovery-pending the host-refresh runner gate.
+        Close, release, or mark recovery-pending the runner gate.
     .DESCRIPTION
         A compare-and-set on the gate's generation under runner-gate.lock,
         then a critical write. -ExpectedGeneration is the Generation the
@@ -3011,7 +3036,7 @@ function Set-YurunaRefreshGate {
     .PARAMETER State
         closed, recovery-pending or released.
     .PARAMETER RequestId
-        The host-refresh request.
+        The host-operation request.
     .PARAMETER Attempt
         The request's attempt number.
     .PARAMETER RuntimeDir
@@ -3024,6 +3049,9 @@ function Set-YurunaRefreshGate {
         A private reason token recorded with the transition.
     .PARAMETER OwnerPid
         The owning worker.
+    .PARAMETER OwnerRole
+        worker (a repair, the default) or controller (a host update), so a
+        runner start can tell whose gate holds it.
     .PARAMETER PrivateRoot
         An already-resolved private state root.
     .OUTPUTS
@@ -3041,14 +3069,15 @@ function Set-YurunaRefreshGate {
         [hashtable]$Reclaimed,
         [ValidatePattern('^[a-z0-9][a-z0-9._-]{0,63}$')][string]$ReasonCode,
         [int]$OwnerPid = $PID,
+        [ValidateSet('worker', 'controller')][string]$OwnerRole = 'worker',
         [string]$PrivateRoot
     )
     $result = [ordered]@{ Written = $false; Generation = $null; Reason = $null }
-    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.refresh_gate_write_action' -Arguments @{ state = $State }))) {
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.runner_gate_write_action' -Arguments @{ state = $State }))) {
         $result.Reason = 'preview'
         return [pscustomobject]$result
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot
     if (-not $root.Resolved) {
         $result.Reason = 'private-root-unavailable'
         return [pscustomobject]$result
@@ -3057,7 +3086,7 @@ function Set-YurunaRefreshGate {
     $ownerStart = Get-YurunaProcessStartUnixMs -ProcessId $OwnerPid
     $canonicalRuntime = Get-YurunaCanonicalRuntimeDir -RuntimeDir $RuntimeDir
     $hasReclaimed = $PSBoundParameters.ContainsKey('Reclaimed')
-    # Invoked by Invoke-YurunaRefreshGateTransaction as a callee of this
+    # Invoked by Invoke-YurunaRunnerGateTransaction as a callee of this
     # function, so it reads this function's parameters and locals through
     # PowerShell's dynamic scoping; a GetNewClosure copy would lose the
     # module's private helpers.
@@ -3079,7 +3108,7 @@ function Set-YurunaRefreshGate {
             requestId       = $RequestId
             attempt         = $Attempt
             state           = $State
-            owner           = @{ pid = $OwnerPid; startTimeUnixMs = $ownerStart; role = 'worker' }
+            owner           = @{ pid = $OwnerPid; startTimeUnixMs = $ownerStart; role = $OwnerRole }
             runtimeDir      = $canonicalRuntime
             reclaimed       = $reclaimedBlock
             handoff         = $null
@@ -3088,7 +3117,7 @@ function Set-YurunaRefreshGate {
         }
         return @{ Write = $true; Payload = $payload }
     }
-    $tx = Invoke-YurunaRefreshGateTransaction -Root $root.Path -Decide $decide
+    $tx = Invoke-YurunaRunnerGateTransaction -Root $root.Path -Decide $decide
     if ($tx.Done) {
         # Every transition here clears the handoff, revoking its token.
         $null = Remove-YurunaStaleReadinessAck -Root $root.Path -Confirm:$false
@@ -3097,7 +3126,7 @@ function Set-YurunaRefreshGate {
         $result.Reason = 'written'
     } else {
         $result.Reason = if ($tx.Reason -eq 'unreadable') { 'write-failed' } else { $tx.Reason }
-        Write-Verbose "Set-YurunaRefreshGate: not written ($($tx.Reason) $($tx.Detail))."
+        Write-Verbose "Set-YurunaRunnerGate: not written ($($tx.Reason) $($tx.Detail))."
     }
     return [pscustomobject]$result
 }
@@ -3122,7 +3151,7 @@ function Remove-YurunaStaleReadinessAck {
         The gate holds at most one handoff per user, so an acknowledgment for
         any other token has no waiter: its token was completed, revoked by a
         new close, or expired and replaced. Without this they accumulate in
-        the private root, one per refresh. Only regular files named exactly
+        the private root, one per handoff. Only regular files named exactly
         runner-handoff.<32 hex>.ack.json are touched; a link is left alone.
     .PARAMETER Root
         The private state root.
@@ -3166,7 +3195,7 @@ function New-YurunaRunnerHandoffToken {
         successful completion leaves: released, or recovery-pending when
         obligations remain outstanding.
     .PARAMETER RequestId
-        The host-refresh request (must match the gate's).
+        The host-operation request (must match the gate's).
     .PARAMETER Attempt
         The attempt number.
     .PARAMETER RuntimeDir
@@ -3209,11 +3238,11 @@ function New-YurunaRunnerHandoffToken {
         $result.Reason = 'designated-outer-required'
         return [pscustomobject]$result
     }
-    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.refresh_handoff_issue_action' -Arguments @{ purpose = $Purpose }))) {
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.handoff_issue_action' -Arguments @{ purpose = $Purpose }))) {
         $result.Reason = 'preview'
         return [pscustomobject]$result
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot
     if (-not $root.Resolved) {
         $result.Reason = 'private-root-unavailable'
         return [pscustomobject]$result
@@ -3261,7 +3290,7 @@ function New-YurunaRunnerHandoffToken {
         }
         return @{ Write = $true; Payload = $payload }
     }
-    $tx = Invoke-YurunaRefreshGateTransaction -Root $root.Path -Decide $decide
+    $tx = Invoke-YurunaRunnerGateTransaction -Root $root.Path -Decide $decide
     if ($tx.Done) {
         $null = Remove-YurunaStaleReadinessAck -Root $root.Path -KeepTokenId $tokenId -Confirm:$false
         $result.Issued = $true
@@ -3317,12 +3346,12 @@ function Test-YurunaRunnerHandoffToken {
         Valid = $false; Reason = $null; RequestId = $null; Attempt = $null; Generation = $null; Purpose = $null
         Reclaimed = $null; ExpiresTick = $null; DesignatedOuter = $null; OnReady = $null
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) {
         $out.Reason = if ($root.Reason -in @('absent', 'no-home')) { 'no-gate' } else { 'unreadable' }
         return [pscustomobject]$out
     }
-    $read = Read-YurunaRefreshGateRecord -Root $root.Path
+    $read = Read-YurunaRunnerGateRecord -Root $root.Path
     if ($read.Status -eq 'missing') { $out.Reason = 'no-gate'; return [pscustomobject]$out }
     if ($read.Status -ne 'ok') { $out.Reason = 'unreadable'; return [pscustomobject]$out }
     $gate = $read.Payload
@@ -3336,7 +3365,7 @@ function Test-YurunaRunnerHandoffToken {
     $out.ExpiresTick = $handoff['expiresTick']
     $out.DesignatedOuter = $handoff['designatedOuter']
     $out.OnReady = $handoff['onReady']
-    $window = Test-YurunaRefreshTokenWindow -Handoff $handoff -TokenId $TokenId
+    $window = Test-YurunaHandoffTokenWindow -Handoff $handoff -TokenId $TokenId
     if ($window -ne 'ok') { $out.Reason = $window; return [pscustomobject]$out }
     if (-not (Test-YurunaSameRuntimeDir -Left $RuntimeDir -Right ([string]$gate['runtimeDir']))) {
         $out.Reason = 'runtime-mismatch'
@@ -3462,12 +3491,12 @@ function Write-YurunaRunnerReadinessAck {
         [string]$RuntimeDir = $env:YURUNA_RUNTIME_DIR,
         [string]$PrivateRoot
     )
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) { return $false }
     $path = Get-YurunaAckPath -Root $root.Path -TokenId $TokenId
     # Only the handoff the gate currently holds has a waiter; an
     # acknowledgment for any other token would be a stray private file.
-    $gate = Read-YurunaRefreshGateRecord -Root $root.Path
+    $gate = Read-YurunaRunnerGateRecord -Root $root.Path
     if ($gate.Status -ne 'ok' -or -not $gate.Payload['handoff'] -or [string]$gate.Payload['handoff']['tokenId'] -ne $TokenId) {
         Write-Verbose "Write-YurunaRunnerReadinessAck: the gate holds no handoff for this token; nothing written."
         return $false
@@ -3510,7 +3539,7 @@ function Write-YurunaRunnerReadinessAck {
     # A completion between the check above and this write has already
     # removed the acknowledgments it knew of; re-read the gate so this one
     # does not outlive the handoff it answers.
-    $after = Read-YurunaRefreshGateRecord -Root $root.Path
+    $after = Read-YurunaRunnerGateRecord -Root $root.Path
     if ($after.Status -ne 'ok' -or -not $after.Payload['handoff'] -or [string]$after.Payload['handoff']['tokenId'] -ne $TokenId) {
         try { [System.IO.File]::Delete($path) } catch { Write-Verbose "Write-YurunaRunnerReadinessAck: late acknowledgment '$path' not removed: $($_.Exception.Message)" }
         return $false
@@ -3649,7 +3678,7 @@ function Wait-YurunaRunnerReadiness {
         param([string]$State, $Ack, [string]$Reason)
         [pscustomobject]@{ State = $State; Ack = $Ack; Reason = $Reason; ElapsedMs = [long]$stopwatch.ElapsedMilliseconds }
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) { return (& $finish 'timeout' $null 'private-root-unavailable') }
     # One read of the acknowledgment: a verdict, or $null to keep waiting.
     $evaluate = {
@@ -3733,11 +3762,11 @@ function Complete-YurunaRunnerHandoff {
         [string]$PrivateRoot
     )
     $result = [ordered]@{ Completed = $false; Generation = $null; State = $null; Reason = $null }
-    if (-not $PSCmdlet.ShouldProcess($TokenId, (Format-YurunaOperatorMessage -Key 'runner.refresh_handoff_complete_action' -Arguments @{ verdict = $Verdict }))) {
+    if (-not $PSCmdlet.ShouldProcess($TokenId, (Format-YurunaOperatorMessage -Key 'runner.handoff_complete_action' -Arguments @{ verdict = $Verdict }))) {
         $result.Reason = 'preview'
         return [pscustomobject]$result
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) { $result.Reason = 'private-root-unavailable'; return [pscustomobject]$result }
     $newGeneration = [guid]::NewGuid().ToString('N')
     $ownStart = if ($AsDesignatedOuter) { Get-YurunaProcessStartUnixMs -ProcessId $PID } else { $null }
@@ -3764,7 +3793,7 @@ function Complete-YurunaRunnerHandoff {
         $payload['updatedUtc'] = [DateTime]::UtcNow.ToString('o')
         return @{ Write = $true; Payload = $payload }
     }
-    $tx = Invoke-YurunaRefreshGateTransaction -Root $root.Path -Decide $decide
+    $tx = Invoke-YurunaRunnerGateTransaction -Root $root.Path -Decide $decide
     if (-not $tx.Done) {
         $result.Reason = $tx.Reason
         return [pscustomobject]$result
@@ -3790,7 +3819,7 @@ function Complete-YurunaRunnerExpiredHandoff {
         the token expires, or the host rebooted since it was issued, before
         the outer dispatched its preflight, the gate would otherwise stay in
         handoff for good. This completes it recovery-pending -- the verdict a
-        failed preflight gets -- which Invoke-HostRefresh.ps1 -Resume then
+        failed preflight gets -- which Invoke-HostRepair.ps1 -Resume then
         resolves. A token still inside its window is left alone.
     .PARAMETER PrivateRoot
         An already-resolved private state root.
@@ -3804,10 +3833,10 @@ function Complete-YurunaRunnerExpiredHandoff {
     [OutputType([pscustomobject])]
     param([string]$PrivateRoot)
     $result = [ordered]@{ Completed = $false; Reason = $null; RequestId = $null; Generation = $null; State = $null }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) { $result.Reason = 'private-root-unavailable'; return [pscustomobject]$result }
     $gatePath = [System.IO.Path]::Combine($root.Path, $script:GateRecordName)
-    if (-not $PSCmdlet.ShouldProcess($gatePath, (Format-YurunaOperatorMessage -Key 'runner.refresh_handoff_complete_action' -Arguments @{ verdict = 'recovery-pending' }))) {
+    if (-not $PSCmdlet.ShouldProcess($gatePath, (Format-YurunaOperatorMessage -Key 'runner.handoff_complete_action' -Arguments @{ verdict = 'recovery-pending' }))) {
         $result.Reason = 'preview'
         return [pscustomobject]$result
     }
@@ -3822,7 +3851,7 @@ function Complete-YurunaRunnerExpiredHandoff {
         if (-not (Test-YurunaDesignatedOuterIsSelf -Handoff $handoff -OwnStart $ownStart)) {
             return @{ Write = $false; Reason = 'not-designated' }
         }
-        if ((Test-YurunaRefreshTokenWindow -Handoff $handoff -TokenId ([string]$handoff['tokenId'])) -eq 'ok') {
+        if ((Test-YurunaHandoffTokenWindow -Handoff $handoff -TokenId ([string]$handoff['tokenId'])) -eq 'ok') {
             return @{ Write = $false; Reason = 'token-live' }
         }
         $payload = [ordered]@{}
@@ -3834,7 +3863,7 @@ function Complete-YurunaRunnerExpiredHandoff {
         $payload['updatedUtc'] = [DateTime]::UtcNow.ToString('o')
         return @{ Write = $true; Payload = $payload }
     }
-    $tx = Invoke-YurunaRefreshGateTransaction -Root $root.Path -Decide $decide
+    $tx = Invoke-YurunaRunnerGateTransaction -Root $root.Path -Decide $decide
     if ($tx.Payload) { $result.RequestId = $tx.Payload['requestId'] }
     if (-not $tx.Done) {
         $result.Reason = $tx.Reason
@@ -3885,12 +3914,12 @@ function Get-YurunaScriptParameterDefault {
 function Write-YurunaRunnerLaunchRecord {
     <#
     .SYNOPSIS
-        Persist the runner's validated launch specification, so a refresh
+        Persist the runner's validated launch specification, so a handoff
         restarts it with the configuration it had.
     .DESCRIPTION
         Written by Start-TestRunner.ps1 after it wins its pidfile. Every
         bound name is accounted for in one of three lists -- the six operator
-        options, the refresh transport fields (never recorded), and the
+        options, the handoff transport fields (never recorded), and the
         common parameters -- and any other name aborts the write, so nothing
         is dropped silently. The six options are recorded with their resolved
         values and defaults filled in; the working directory, runtime
@@ -3990,7 +4019,7 @@ function Write-YurunaRunnerLaunchRecord {
         $result.Reason = 'preview'
         return [pscustomobject]$result
     }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot
     if (-not $root.Resolved) { $result.Reason = 'private-root-unavailable'; return [pscustomobject]$result }
     $path = Get-YurunaLaunchRecordPath -Root $root.Path -RuntimeDir $RuntimeDir
     $result.Path = $path
@@ -3999,7 +4028,7 @@ function Write-YurunaRunnerLaunchRecord {
     if ($null -eq $expected) {
         # Damaged evidence is never overwritten by the critical writer; a
         # runner refuses nothing over it, it just cannot be restarted by a
-        # refresh until the operator removes the damaged record.
+        # handoff until the operator removes the damaged record.
         $result.Reason = 'write-failed'
         return [pscustomobject]$result
     }
@@ -4014,7 +4043,7 @@ function Complete-YurunaRunnerLaunchRecord {
     <#
     .SYNOPSIS
         Mark this runner's launch record ended; -CleanExit for an orderly exit
-        (Ctrl+C, a pool drain, a normal end), so a refresh never restarts a
+        (Ctrl+C, a pool drain, a normal end), so a handoff never restarts a
         runner the operator stopped.
     .PARAMETER RuntimeDir
         The runtime directory.
@@ -4035,7 +4064,7 @@ function Complete-YurunaRunnerLaunchRecord {
         [int]$RunnerPid = $PID,
         [string]$PrivateRoot
     )
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) { return $false }
     $path = Get-YurunaLaunchRecordPath -Root $root.Path -RuntimeDir $RuntimeDir
     $current = Read-YurunaCriticalRecord -Path $path -Kind $script:LaunchKind
@@ -4068,7 +4097,7 @@ function Read-YurunaRunnerLaunchRecord {
         [string]$PrivateRoot
     )
     $out = [ordered]@{ Found = $false; Valid = $false; Record = $null; Reason = $null; Path = $null }
-    $root = Resolve-YurunaRefreshStateRoot -PrivateRoot $PrivateRoot -NoCreate
+    $root = Resolve-YurunaRunnerStateRoot -PrivateRoot $PrivateRoot -NoCreate
     if (-not $root.Resolved) {
         $out.Reason = if ($root.Reason -in @('absent', 'no-home')) { 'missing' } else { 'private-root-unavailable' }
         return [pscustomobject]$out
@@ -4198,12 +4227,12 @@ function New-YurunaRunnerResumeArgumentList {
     <#
     .SYNOPSIS
         The -File argument vector that restarts a runner from its launch
-        record in refresh-resume mode.
+        record in handoff-resume mode.
     .DESCRIPTION
         Emits one [string] per token: -ConfigPath <path>, each true switch
         (a false switch is omitted, which is equivalent for these scripts),
         -CycleDelaySeconds <n>, -logLevel <level> when recorded, then
-        -RefreshResume -RefreshHandoffToken <token>. Callers capture with @().
+        -HandoffResume -HandoffToken <token>. Callers capture with @().
     .PARAMETER Record
         The launch record payload (or a Read-YurunaRunnerLaunchRecord result).
     .PARAMETER TokenId
@@ -4232,8 +4261,8 @@ function New-YurunaRunnerResumeArgumentList {
     if ($null -ne $delay) { '-CycleDelaySeconds'; [string][int]$delay }
     $level = & $get 'logLevel'
     if ($level) { '-logLevel'; [string]$level }
-    '-RefreshResume'
-    '-RefreshHandoffToken'
+    '-HandoffResume'
+    '-HandoffToken'
     $TokenId
 }
 
@@ -4279,7 +4308,7 @@ function Get-YurunaRunnerProtocolCapability {
     }
 }
 
-# --- REGION: Runner restart after a refresh
+# --- REGION: Runner restart after a handoff
 function Remove-YurunaStaleRunnerStream {
     <#
     .SYNOPSIS
@@ -4287,7 +4316,7 @@ function Remove-YurunaStaleRunnerStream {
         directory.
     .DESCRIPTION
         Each restart leaves one capture that the restarted runner holds open
-        for its whole life, so they otherwise pile up one per refresh. A file
+        for its whole life, so they otherwise pile up one per handoff. A file
         goes only when it is older than -MaxAgeDays and is not among the
         -KeepNewest most recently written: a quiet runner that is still alive
         is almost always one of the latest restarts, and a runner that has
@@ -4327,10 +4356,10 @@ function Remove-YurunaStaleRunnerStream {
     return $removed
 }
 
-function Invoke-YurunaRunnerRefreshResume {
+function Invoke-YurunaRunnerHandoffResume {
     <#
     .SYNOPSIS
-        Restart the runner after a host refresh and wait for its verified
+        Restart the runner after a host operation and wait for its verified
         readiness: validate the launch record, issue a new-outer handoff
         token, launch Start-TestRunner.ps1 detached in resume mode, wait for
         the preflight chain's acknowledgment, and complete the handoff.
@@ -4345,7 +4374,7 @@ function Invoke-YurunaRunnerRefreshResume {
     .PARAMETER LaunchRecord
         Read-YurunaRunnerLaunchRecord output (or its Record payload).
     .PARAMETER RequestId
-        The host-refresh request.
+        The host-operation request.
     .PARAMETER Attempt
         The attempt number.
     .PARAMETER RuntimeDir
@@ -4366,10 +4395,24 @@ function Invoke-YurunaRunnerRefreshResume {
         An already-resolved private state root.
     .PARAMETER ProcessLookup
         Test seam for the launched runner's liveness during the wait.
+    .PARAMETER ConsoleSocketPath
+        With the two parameters below, start the runner in a console session
+        (see Start-YurunaDetachedProcess); its output is copied to the log
+        until the readiness wait ends.
+    .PARAMETER ConsoleSessionName
+        The console session's name.
+    .PARAMETER ConsoleLogPath
+        Where the console's output is copied, inside -PrivateDirectory.
+    .PARAMETER ConsoleWindow
+        On Windows, start the runner in a console window of its own (see
+        Start-YurunaDetachedProcess).
     .OUTPUTS
         [pscustomobject] @{ Outcome ready|failed|timeout|identity-mismatch|
         launch-failed|refused|preview; Reason; Ack; OuterPid;
-        OuterStartTimeUnixMs; PreservedControls; GateGeneration; GateState }.
+        OuterStartTimeUnixMs; PreservedControls; GateGeneration; GateState },
+        and with the console parameters also Console (tmux or none),
+        ConsoleReason and ConsolePid (the pane's process); with
+        -ConsoleWindow, Console window and ConsolePid the runner's process.
         A runner that exits before acknowledging is launch-failed with
         reason runner-exited.
     #>
@@ -4387,12 +4430,24 @@ function Invoke-YurunaRunnerRefreshResume {
         [Parameter(Mandatory)][psobject]$Deadline,
         [ValidateSet('released', 'recovery-pending')][string]$OnReady = 'released',
         [string]$PrivateRoot,
-        [scriptblock]$ProcessLookup
+        [scriptblock]$ProcessLookup,
+        [string]$ConsoleSocketPath,
+        [string]$ConsoleSessionName,
+        [string]$ConsoleLogPath,
+        [switch]$ConsoleWindow
     )
     $out = [ordered]@{
         Outcome = $null; Reason = $null; Ack = $null; OuterPid = $null; OuterStartTimeUnixMs = $null
         PreservedControls = @(); GateGeneration = $ExpectedGateGeneration; GateState = 'unchanged'
     }
+    # Only a host update's start step passes the console; without it the
+    # launch is the one the repair qualified.
+    $consoleArgs = @{}
+    foreach ($name in @('ConsoleSocketPath', 'ConsoleSessionName', 'ConsoleLogPath')) {
+        if ($PSBoundParameters.ContainsKey($name)) { $consoleArgs[$name] = [string]$PSBoundParameters[$name] }
+    }
+    if ($ConsoleWindow) { $consoleArgs['ConsoleWindow'] = $true }
+    if ($consoleArgs.Count -gt 0) { $out.Console = $null; $out.ConsoleReason = $null; $out.ConsolePid = $null }
     $scriptPath = [System.IO.Path]::Combine($RepoRoot, 'test', 'Start-TestRunner.ps1')
     $payload = $LaunchRecord
     if ($LaunchRecord.PSObject.Properties['Valid'] -and $LaunchRecord.PSObject.Properties['Record']) {
@@ -4405,7 +4460,7 @@ function Invoke-YurunaRunnerRefreshResume {
         $out.Reason = if ($spec.Parameter) { "$($spec.Reason):$($spec.Parameter)" } else { $spec.Reason }
         return [pscustomobject]$out
     }
-    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.refresh_resume_action'))) {
+    if (-not $PSCmdlet.ShouldProcess($RuntimeDir, (Format-YurunaOperatorMessage -Key 'runner.handoff_resume_action'))) {
         $out.Outcome = 'preview'; $out.Reason = 'preview'
         return [pscustomobject]$out
     }
@@ -4447,7 +4502,12 @@ function Invoke-YurunaRunnerRefreshResume {
     $launch = Start-YurunaDetachedProcess -FilePath $scriptPath -ArgumentList @(New-YurunaRunnerResumeArgumentList -Record $payload -TokenId $token.TokenId) `
         -WorkingDirectory $workingDirectory -Environment $environment -StdOutPath $stdout `
         -StdErrPath ([System.IO.Path]::Combine($PrivateDirectory, "runner.$RequestId.err")) `
-        -PrivateDirectory $PrivateDirectory -WaitForHandshakeMilliseconds $hopWaitMs -Deadline $launchDeadline -Confirm:$false
+        -PrivateDirectory $PrivateDirectory -WaitForHandshakeMilliseconds $hopWaitMs -Deadline $launchDeadline -Confirm:$false @consoleArgs
+    if ($consoleArgs.Count -gt 0) {
+        $out.Console = [string]$launch.Console
+        $out.ConsoleReason = [string]$launch.ConsoleReason
+        if ($launch.Console -in @('tmux', 'window')) { $out.ConsolePid = $launch.FinalPid }
+    }
     if (-not $launch.Launched) {
         & $complete 'recovery-pending'
         $out.Outcome = 'launch-failed'; $out.Reason = [string]$launch.Reason
@@ -4463,6 +4523,11 @@ function Invoke-YurunaRunnerRefreshResume {
         if ($ProcessLookup) { $waitArgs.ProcessLookup = $ProcessLookup }
     }
     $ready = Wait-YurunaRunnerReadiness @waitArgs
+    # The copy keeps a start's last lines; after the wait the console only
+    # shows the runner, and the log stays in the private directory.
+    if ($consoleArgs.Count -gt 0 -and $launch.Console -eq 'tmux' -and (Get-Command Stop-YurunaConsoleCopy -ErrorAction SilentlyContinue)) {
+        $null = Stop-YurunaConsoleCopy -ConsoleSocketPath $consoleArgs.ConsoleSocketPath -ConsoleSessionName $consoleArgs.ConsoleSessionName
+    }
     $out.Ack = $ready.Ack
     if ($ready.Ack) {
         $out.PreservedControls = @($ready.Ack.preservedControls | Where-Object { $_ })
@@ -4597,7 +4662,15 @@ function Invoke-YurunaInstallerState {
     if ($Action -eq 'Capture') {
         if ([IO.File]::Exists($snapshot)) { throw "Installer snapshot already exists: $snapshot" }
         $launch = $null
-        if (-not $PrivateRoot) { $PrivateRoot = Join-Path $HOME '.yuruna/host-refresh' }
+        if (-not $PrivateRoot) {
+            $PrivateRoot = Join-Path $HOME '.yuruna/host-repair'
+            # Code that predates the host-repair root keeps its launch records
+            # under host-refresh until a later resolver moves that root, and the
+            # runner being upgraded may be that code, so the earlier root is read
+            # when it is the only one.
+            $earlierRoot = Join-Path $HOME '.yuruna/host-refresh'
+            if (-not [IO.Directory]::Exists($PrivateRoot) -and [IO.Directory]::Exists($earlierRoot)) { $PrivateRoot = $earlierRoot }
+        }
         if (([IO.DirectoryInfo]::new($PrivateRoot)).LinkTarget) { throw 'Installer launch state root is linked.' }
         if (-not $runtimeExplicit -and [IO.Directory]::Exists($PrivateRoot)) {
             $recordMatches = @()
@@ -4731,7 +4804,7 @@ function Start-YurunaCapturedRunner {
     .SYNOPSIS
         Explicitly start a stopped runner with its preserved installer options.
     .DESCRIPTION
-        This operator action does not change refresh policy or clear cleanExit.
+        This operator action does not change repair policy or clear cleanExit.
         The new runner must claim its normal single-instance record with a new
         process identity. macOS launches require the caller's Aqua session.
     #>
@@ -4750,7 +4823,7 @@ function Start-YurunaCapturedRunner {
     if (-not $valid.Valid) { throw "Captured runner options cannot be started: $($valid.Reason) $($valid.Parameter)" }
     $runtime = [string]$record.runtimeDir
     $running = Get-RunnerInstanceState -RunnerPidFile (Join-Path $runtime 'runner.pid') -RunnerStartFile (Join-Path $runtime 'runner.start')
-    if ($running.status -in @('OtherRunner', 'Self')) { throw 'A runner already owns this runtime; use the normal local refresh action to replace it.' }
+    if ($running.status -in @('OtherRunner', 'Self')) { throw 'A runner already owns this runtime; use the normal local repair action to replace it.' }
     if ((Get-YurunaIdentityPlatform) -eq 'MacOS') {
         Import-Module (Join-Path $PSScriptRoot 'Test.HostCondition.Mac.psm1') -DisableNameChecking
         if ($env:SSH_CONNECTION -or $env:SSH_TTY -or (Get-MacSessionKind -TimeoutSeconds 5) -ne 'Aqua') {
@@ -5033,9 +5106,9 @@ Export-ModuleMember -Function `
     Get-YurunaOneShotLeaseState, Enter-YurunaOneShotLease, Exit-YurunaOneShotLease, `
     Clear-YurunaRunnerCycleRecord, Get-YurunaRunnerExclusionSet, Get-YurunaRunnerSnapshot, `
     New-YurunaRunnerReclaimPlan, Compare-YurunaRunnerReclaimPlan, Stop-YurunaRunnerProcessTarget, `
-    Get-YurunaRuntimeKey, Get-YurunaRefreshGateState, Invoke-YurunaRefreshBootResume, Test-YurunaRefreshSpawnAllowed, Set-YurunaRefreshGate, `
+    Get-YurunaRuntimeKey, Get-YurunaRunnerGateState, Invoke-YurunaRepairBootResume, Test-YurunaRunnerSpawnAllowed, Set-YurunaRunnerGate, `
     New-YurunaRunnerHandoffToken, Test-YurunaRunnerHandoffToken, Get-YurunaRunnerChainIdentity, `
     Write-YurunaRunnerReadinessAck, Wait-YurunaRunnerReadiness, Complete-YurunaRunnerHandoff, Complete-YurunaRunnerExpiredHandoff, `
     Write-YurunaRunnerLaunchRecord, Complete-YurunaRunnerLaunchRecord, Read-YurunaRunnerLaunchRecord, `
     Test-YurunaRunnerLaunchSpec, New-YurunaRunnerResumeArgumentList, Get-YurunaRunnerProtocolCapability, `
-    Invoke-YurunaRunnerRefreshResume, Invoke-YurunaInstallerState, Start-YurunaCapturedRunner
+    Invoke-YurunaRunnerHandoffResume, Invoke-YurunaInstallerState, Start-YurunaCapturedRunner

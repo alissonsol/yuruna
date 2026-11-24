@@ -355,7 +355,7 @@ func TestRegistryIsSafeForConcurrentUse(t *testing.T) {
 	wg.Wait()
 }
 
-func TestArgumentsNormalisesAbsence(t *testing.T) {
+func TestArgumentsNormalizesAbsence(t *testing.T) {
 	var tool Tool
 	for _, raw := range []json.RawMessage{nil, json.RawMessage(""), json.RawMessage("null")} {
 		if got := string(tool.Arguments(raw)); got != "{}" {
@@ -473,14 +473,14 @@ const gatedCall = `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name
 // refusal carries the tool gate's own reason without running the handler.
 func TestToolGateRefusesWhenTheServerGateAllows(t *testing.T) {
 	ran := 0
-	tool := &countingGate{reason: "refresh_credential_required"}
+	tool := &countingGate{reason: "operator_credential_required"}
 	srv := gatedServer(t, openGate(), tool, &ran)
 	got := call(t, srv, gatedCall)
 	errObj, ok := got["error"].(map[string]any)
 	if !ok || int(errObj["code"].(float64)) != CodeRefused {
 		t.Fatalf("a tool-gate refusal must be a JSON-RPC refusal: %v", got)
 	}
-	if errObj["data"].(map[string]any)["reason"] != "refresh_credential_required" {
+	if errObj["data"].(map[string]any)["reason"] != "operator_credential_required" {
 		t.Errorf("reason = %v, want the tool gate's own", errObj["data"])
 	}
 	if ran != 0 || tool.count() != 1 {

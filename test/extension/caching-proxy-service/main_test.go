@@ -417,7 +417,7 @@ func TestMcpRemoteModeRefusalCarriesTheSameTokenAsTheRoute(t *testing.T) {
 	}
 }
 
-func TestMcpMutatingToolRunsForAnAuthorisedCaller(t *testing.T) {
+func TestMcpMutatingToolRunsForAnAuthorizedCaller(t *testing.T) {
 	srv, fx := newDaemonWithGate(t, modeLocal, testBearer)
 	got := mcpCall(t, srv,
 		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"caching_proxy_set_offline","arguments":{"on":true}}}`,

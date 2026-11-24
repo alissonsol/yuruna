@@ -11,7 +11,7 @@ import (
 )
 
 // The bound golden wire, shared with the host-side PowerShell verifier through
-// hostrefresh/testdata/vectors.json, carries the window and parsing rules every
+// hostrepair/testdata/vectors.json, carries the window and parsing rules every
 // verifier applies.
 const (
 	goldenToken    = "yuruna-net1-golden-token"
@@ -99,7 +99,7 @@ func TestSharedMintGoldenAndBlankKey(t *testing.T) {
 }
 
 // The bound vector is shared with the host-side PowerShell verifier through
-// hostrefresh/testdata/vectors.json.
+// hostrepair/testdata/vectors.json.
 func TestBoundProofGoldenAudienceAndWindow(t *testing.T) {
 	const token = "yuruna-net1-golden-token"
 	const audience = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -142,7 +142,7 @@ func TestBoundProofGoldenAudienceAndWindow(t *testing.T) {
 }
 
 // The scoped vector is shared with the host-side PowerShell verifier through
-// hostrefresh/testdata/vectors.json. A scoped proof opens only the routes its
+// hostrepair/testdata/vectors.json. A scoped proof opens only the routes its
 // scope names on its own target, and no verifier that predates scopes takes it.
 func TestScopedProofGoldenAudienceScopeAndWindow(t *testing.T) {
 	const token = "yuruna-net1-golden-token"

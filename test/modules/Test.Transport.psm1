@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -190,22 +190,25 @@ $script:CachedVnc   = $null
 $script:CachedVncVM = $null
 
 # --- REGION: Input fault record
-# Every key and text send returns [bool], and a bool cannot say whether the
-# same send would fail again. A deterministic fault -- text the input path has
-# no key for, a key name no map defines -- fails identically on every retry,
-# while a transient one -- a closed connection, a refused write -- may clear on
-# the next attempt. Each failing send records which it was here; the sequence
-# dispatcher reads the record after a failed send to classify the step, and a
-# fallback path reads Delivered to resume after the characters that did go out.
+# A send returns only [bool], so each failing send records here whether a retry
+# would fail the same way and how much went out; the sequence dispatcher, a
+# fallback path and a retry read it. See https://yuruna.link/4222e5f2-0004
 $script:LastInputFault = $null
 
 function Set-HostInputFault {
     <#
     .SYNOPSIS
-        Record how the last key or text send failed.
+        Record how the last key, text or click send failed.
     .PARAMETER Delivered
         Characters of the text known to have been written before the failure;
-        -1 when the extent is unknown or the send was a key.
+        -1 when the extent is unknown or the send was a key. For a click it is
+        the number of button events (a press or a release) QEMU acknowledged,
+        -1 when a press may have reached the guest unconfirmed; with the
+        reason send-failed the failing call sent nothing, while Delivered
+        keeps the events acknowledged before it.
+    .PARAMETER Total
+        Characters of the text; for a click, the button events it planned:
+        2, or 4 for a double click.
     #>
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -311,9 +314,9 @@ function Read-VncBuffer {
 }
 
 # --- REGION: VNC connection events
-# The opens, the connections found closed by their server, and the failed
-# writes, newest last and bounded, so a step that lost input can show what its
-# connection did while it typed.
+# Connection changes and successful host dispatches, newest last and bounded,
+# so a step that lost input can identify its actual backend. Dispatch confirms
+# a host write or event post, never guest receipt; text values stay excluded.
 $script:VncConnectionEvents = [System.Collections.Generic.List[object]]::new()
 
 function Add-VncConnectionEvent {
@@ -605,12 +608,16 @@ function Send-KeyVNC {
             Send-VncKeyEvent -Client $tcp -KeySym $modSym -Down $false
             $heldModSym = $null
             Write-Debug "      VNC chord='$KeyName' mod=0x$($modSym.ToString('X4')) key=0x$($baseSym.ToString('X4'))"
+            try { Add-VncConnectionEvent -VMName $VMName -Kind 'key-dispatched' -Detail "backend=VNC keyName=$KeyName" }
+            catch { Write-Debug '      GUI input dispatch evidence unavailable' }
             return $true
         }
         $heldSym = $keySym
         Send-VncKeyTap -Client $tcp -KeySym $keySym
         $heldSym = $null
         Write-Debug "      VNC key='$KeyName' sym=0x$($keySym.ToString('X4'))"
+        try { Add-VncConnectionEvent -VMName $VMName -Kind 'key-dispatched' -Detail "backend=VNC keyName=$KeyName" }
+        catch { Write-Debug '      GUI input dispatch evidence unavailable' }
         return $true
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_22ec2c9b5f0c9a52' -Arguments @{ value = "$_" })
@@ -698,6 +705,8 @@ function Send-TextVNC {
             if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
         }
         Write-Debug "      VNC text send complete"
+        try { Add-VncConnectionEvent -VMName $VMName -Kind 'text-dispatched' -Detail "backend=VNC chars=$($Text.Length) charDelayMs=$CharDelayMs" }
+        catch { Write-Debug '      GUI input dispatch evidence unavailable' }
         return $true
     } catch {
         Write-Warning (Format-YurunaOperatorMessage -Key 'runner.operator_2d0a11d52e180ee9' -Arguments @{ value = "$_" })
@@ -1071,7 +1080,11 @@ function Send-ChordUTM {
 
     $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      JXA CGEvent chord='$KeyName': $result"
-    if ("$result" -eq "ok") { return $true }
+    if ("$result" -eq "ok") {
+        try { Add-VncConnectionEvent -VMName $VMName -Kind 'key-dispatched' -Detail "backend=JXA/CGEvent keyName=$KeyName" }
+        catch { Write-Debug '      GUI input dispatch evidence unavailable' }
+        return $true
+    }
     Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'UTM' -Detail "$KeyName -> $result"
     return $false
 }
@@ -1126,7 +1139,11 @@ return "window_not_found"
 "@
     $result = Invoke-OsaScriptFile -Script $appleScript -Language AppleScript
     Write-Debug "      AppleScript: $result"
-    if ("$result" -eq "ok") { return $true }
+    if ("$result" -eq "ok") {
+        try { Add-VncConnectionEvent -VMName $VMName -Kind 'key-dispatched' -Detail "backend=AppleScript keyName=$KeyName" }
+        catch { Write-Debug '      GUI input dispatch evidence unavailable' }
+        return $true
+    }
     Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'UTM' -Detail "$KeyName -> $result"
     return $false
 }
@@ -1308,6 +1325,289 @@ function Send-TextKvmLegacy {
     }
     Write-Debug "      virsh send-key: $sentChars chars sent (${CharDelayMs}ms delay between chars)"
     return $true
+}
+
+# --- REGION: libvirt KVM mouse transport: QEMU monitor input-send-event
+# Each monitor call has its own cap, so a libvirt daemon that stops answering
+# costs one click, not the step watchdog. The move, the presses and the park
+# share one click budget; a release never takes it, so a spent budget cannot
+# leave a button held.
+$script:KvmPointerCallSeconds = 5
+$script:KvmPointerBudgetMs = 15000
+$script:KvmPointerReleaseAttempts = 2
+$script:KvmPointerSettleMs = 50
+$script:KvmPointerHoldMs = 50
+$script:KvmPointerDoubleGapMs = 80
+$script:KvmPointerDoubleLimitMs = 400
+$script:KvmPointerClickKinds = @('left', 'right', 'double')
+
+function ConvertTo-KvmPointerAxis {
+    <#
+    .SYNOPSIS
+        Map a frame pixel to the center of that pixel on QEMU's 0..32767 axis.
+    .DESCRIPTION
+        floor((2 * pixel + 1) * 16384 / size) is the center of the pixel, so a
+        guest that maps the axis back with floor(value * size / 32768) gets the
+        same pixel for every size. The endpoint form
+        round(pixel * 32767 / (size - 1)) misses pixels under that mapping and
+        the left-edge form is one pixel off, so neither is used. The operands
+        are exact in a double, which makes the floor exact.
+    .PARAMETER Pixel
+        The pixel on this axis of the frame; clamped to the frame.
+    .PARAMETER Size
+        The number of pixels of the frame on this axis.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][int]$Pixel, [Parameter(Mandatory)][int]$Size)
+    $inside = [Math]::Min([Math]::Max($Pixel, 0), $Size - 1)
+    $value = [int][Math]::Floor(((2L * $inside + 1L) * 16384L) / [double]$Size)
+    return [Math]::Min([Math]::Max($value, 0), 32767)
+}
+
+function Invoke-KvmPointerEvent {
+    <#
+    .SYNOPSIS
+        Send one input-send-event call through the QEMU monitor and say what
+        is known about its delivery.
+    .DESCRIPTION
+        QEMU checks every event of a call before it sends the first, so an
+        error reply means nothing of the call reached the guest. libvirt
+        raises 'failed to get domain' and 'domain is not running' before it
+        enters the monitor, so those exits sent nothing either. Any other
+        failure -- no complete answer inside the cap, another libvirt error,
+        a reply that is not a JSON object -- leaves the delivery open.
+        virsh runs with LC_MESSAGES=C, and LC_ALL emptied because it would
+        override that, so its errors are read in English. --pretty and
+        --return-value are never passed: the second turns an error reply into
+        exit 1 and hides QEMU's text.
+    .PARAMETER Events
+        The comma-separated JSON event objects of one call, without the
+        surrounding brackets.
+    .PARAMETER Deadline
+        The click budget; a release passes none and keeps only its own cap.
+    .OUTPUTS
+        @{ Outcome; Detail; ElapsedMs }, Outcome one of ok, not-sent,
+        qemu-error, no-answer.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Events,
+        [psobject]$Deadline
+    )
+    $json = '{"execute":"input-send-event","arguments":{"events":[' + $Events + ']}}'
+    $call = @{
+        FilePath         = 'virsh'
+        ArgumentList     = @('--connect', 'qemu:///system', 'qemu-monitor-command', $VMName, $json)
+        Environment      = @{ LC_MESSAGES = 'C'; LC_ALL = '' }
+        TimeoutSeconds   = $script:KvmPointerCallSeconds
+        MaxCapturedChars = 8192
+    }
+    if ($null -ne $Deadline) { $call.Deadline = $Deadline }
+    $result = Invoke-BoundedNativeCommand @call
+    $elapsed = $result.ElapsedMs
+    if (-not $result.Started) {
+        $detail = if ($result.DeadlineExhausted) { 'the click budget was spent before the call' }
+                  elseif (-not [string]::IsNullOrEmpty([string]$result.StartError)) { [string]$result.StartError }
+                  else { 'virsh was not found' }
+        return @{ Outcome = 'not-sent'; Detail = $detail; ElapsedMs = $elapsed }
+    }
+    if (-not (Test-BoundedNativeResultComplete -Result $result)) {
+        return @{ Outcome = 'no-answer'; Detail = "virsh gave no complete answer in $elapsed ms"; ElapsedMs = $elapsed }
+    }
+    if ($result.ExitCode -ne 0) {
+        $line = @(([string]$result.StdErr) -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            Select-Object -First 1)
+        $first = if ($line.Count -gt 0) { $line[0].Trim() } else { '' }
+        $outcome = if ($first.Contains('failed to get domain') -or $first.Contains('domain is not running')) { 'not-sent' } else { 'no-answer' }
+        return @{ Outcome = $outcome; Detail = "virsh exit $($result.ExitCode): $first"; ElapsedMs = $elapsed }
+    }
+    $unreadable = @{ Outcome = 'no-answer'; Detail = 'the monitor reply was not a JSON object'; ElapsedMs = $elapsed }
+    try {
+        $reply = ConvertFrom-Json -InputObject ([string]$result.StdOut) -AsHashtable -NoEnumerate -ErrorAction Stop
+    } catch {
+        Write-Verbose "KVM pointer reply did not parse: $($_.Exception.Message)"
+        return $unreadable
+    }
+    if ($reply -isnot [Collections.IDictionary]) { return $unreadable }
+    if ($reply.Contains('error')) {
+        $text = $null
+        if ($reply['error'] -is [Collections.IDictionary]) { $text = $reply['error']['desc'] }
+        $detail = if ($text -is [string] -and $text.Length -gt 0) { $text } else { 'the monitor answered with an error' }
+        return @{ Outcome = 'qemu-error'; Detail = $detail; ElapsedMs = $elapsed }
+    }
+    if ($reply.Contains('return')) { return @{ Outcome = 'ok'; Detail = ''; ElapsedMs = $elapsed } }
+    return @{ Outcome = 'no-answer'; Detail = 'the monitor reply carried neither return nor error'; ElapsedMs = $elapsed }
+}
+
+function Send-ClickKvm {
+    <#
+    .SYNOPSIS
+        Click at (X, Y) of a KVM guest's frame through the QEMU monitor.
+    .DESCRIPTION
+        X and Y are pixels of the frame the capture describes by Width and
+        Height; each is sent as the center of its pixel on the monitor's
+        0..32767 axis. A click is a move, one press and release per click
+        (two for a double click), and a park at the right edge, middle height,
+        so the pointer is not drawn over the next frame's text. Press and
+        release stay in separate calls because QEMU reports once per call.
+
+        Each press is sent once. A press whose delivery is unknown is never
+        sent again; the finally block releases a button that may be held,
+        also when the pipeline is stopped and the catch does not run. The
+        recorded fault keeps the kind, reason and count of the first failure.
+        One call returns within 31 s: the move, the presses and the park
+        share a 15 s budget, and at most three releases follow at 5 s each.
+    .PARAMETER Capture
+        The window capture the label was found in; only Width and Height are
+        read.
+    .PARAMETER Click
+        left, right or double; an empty value is left.
+    .OUTPUTS
+        [bool] $true when every button event was acknowledged; otherwise
+        records one input fault and returns $false.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [string]$VMName,
+        [int]$X,
+        [int]$Y,
+        [hashtable]$Capture = $null,
+        [string]$Click = 'left'
+    )
+    $kind = if ([string]::IsNullOrEmpty($Click)) { 'left' } else { $Click }
+    if ($kind -cnotin $script:KvmPointerClickKinds) {
+        # Invoke-TapOn warns for this reason, as it does for the other hosts.
+        Set-HostInputFault -Kind deterministic -Reason 'click-kind-unsupported' -Transport 'KVM' -Detail $kind -Delivered 0
+        return $false
+    }
+    $button = if ($kind -ceq 'right') { 'right' } else { 'left' }
+    $presses = if ($kind -ceq 'double') { 2 } else { 1 }
+    $total = 2 * $presses
+
+    $rawWidth = if ($null -eq $Capture) { $null } else { $Capture['Width'] }
+    $rawHeight = if ($null -eq $Capture) { $null } else { $Capture['Height'] }
+    $width = $rawWidth -as [double]
+    $height = $rawHeight -as [double]
+    $usable = $true
+    foreach ($side in @($width, $height)) {
+        if ($null -eq $side -or -not [double]::IsFinite($side) -or $side -ne [Math]::Floor($side) -or
+            $side -lt 2 -or $side -gt 32768) { $usable = $false }
+    }
+    if (-not $usable) {
+        $frameDetail = "width=$rawWidth height=$rawHeight"
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_event' -Arguments @{
+            vmName = $VMName; stage = 'frame'; detail = $frameDetail })
+        Set-HostInputFault -Kind deterministic -Reason 'invalid-frame' -Transport 'KVM' -Detail $frameDetail `
+            -Delivered 0 -Total $total
+        return $false
+    }
+
+    $ax = ConvertTo-KvmPointerAxis -Pixel $X -Size ([int]$width)
+    $ay = ConvertTo-KvmPointerAxis -Pixel $Y -Size ([int]$height)
+    $moveEvents = '{"type":"abs","data":{"axis":"x","value":' + $ax + '}},{"type":"abs","data":{"axis":"y","value":' + $ay + '}}'
+    $pressEvents = '{"type":"btn","data":{"down":true,"button":"' + $button + '"}}'
+    $releaseEvents = '{"type":"btn","data":{"down":false,"button":"' + $button + '"}}'
+    $parkEvents = '{"type":"abs","data":{"axis":"x","value":32767}},{"type":"abs","data":{"axis":"y","value":16383}}'
+
+    if (-not (Get-Command New-YurunaDeadline -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Common.psm1') -Global -Force -Verbose:$false
+    }
+    $deadline = New-YurunaDeadline -TotalMilliseconds $script:KvmPointerBudgetMs
+    $held = $false
+    $delivered = 0
+    $fault = $null
+    try {
+        $move = Invoke-KvmPointerEvent -VMName $VMName -Events $moveEvents -Deadline $deadline
+        if ($move.Outcome -cne 'ok') {
+            if ($move.Outcome -ceq 'qemu-error' -and $move.Detail.Contains('Input handler not found')) {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_no_device' -Arguments @{
+                    vmName = $VMName; detail = $move.Detail })
+                $fault = [ordered]@{ kind = 'deterministic'; reason = 'no-absolute-pointer'; detail = $move.Detail; delivered = 0 }
+            } else {
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_event' -Arguments @{
+                    vmName = $VMName; stage = 'move'; detail = $move.Detail })
+                $fault = [ordered]@{ kind = 'transient'; reason = 'send-failed'; detail = "move: $($move.Detail)"; delivered = 0 }
+            }
+            return $false
+        }
+        $null = Start-Sleep -Milliseconds $script:KvmPointerSettleMs
+        $releaseElapsed = 0
+        for ($n = 1; $n -le $presses; $n++) {
+            if ($n -gt 1) { $null = Start-Sleep -Milliseconds $script:KvmPointerDoubleGapMs }
+            $held = $true
+            $press = Invoke-KvmPointerEvent -VMName $VMName -Events $pressEvents -Deadline $deadline
+            if ($press.Outcome -cne 'ok') {
+                if ($press.Outcome -ceq 'qemu-error' -or $press.Outcome -ceq 'not-sent') {
+                    # The call sent nothing; the button events acknowledged before it still count.
+                    $held = $false
+                    $fault = [ordered]@{ kind = 'transient'; reason = 'send-failed'; detail = "press ${n}: $($press.Detail)"; delivered = $delivered }
+                } else {
+                    $fault = [ordered]@{ kind = 'transient'; reason = 'delivery-unknown'; detail = "press ${n}: $($press.Detail)"; delivered = -1 }
+                }
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_event' -Arguments @{
+                    vmName = $VMName; stage = 'press'; detail = $press.Detail })
+                return $false
+            }
+            $delivered++
+            if ($n -eq 2) {
+                $gap = $script:KvmPointerHoldMs + $releaseElapsed + $script:KvmPointerDoubleGapMs + $press.ElapsedMs
+                if ($gap -gt $script:KvmPointerDoubleLimitMs) {
+                    Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_event' -Arguments @{
+                        vmName = $VMName; stage = 'double'; detail = "$gap ms between the two presses" })
+                }
+            }
+            $null = Start-Sleep -Milliseconds $script:KvmPointerHoldMs
+            $release = Invoke-KvmPointerEvent -VMName $VMName -Events $releaseEvents
+            if ($release.Outcome -cne 'ok') {
+                $fault = [ordered]@{ kind = 'transient'; reason = 'delivery-unknown'; detail = "release ${n}: $($release.Detail)"; delivered = -1 }
+                Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_event' -Arguments @{
+                    vmName = $VMName; stage = 'release'; detail = $release.Detail })
+                return $false
+            }
+            $held = $false
+            $delivered++
+            $releaseElapsed = $release.ElapsedMs
+        }
+        $park = Invoke-KvmPointerEvent -VMName $VMName -Events $parkEvents -Deadline $deadline
+        if ($park.Outcome -cne 'ok') {
+            # The click was delivered; only the parking spot is wrong.
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_event' -Arguments @{
+                vmName = $VMName; stage = 'park'; detail = $park.Detail })
+        }
+        return $true
+    } catch {
+        $message = $_.Exception.Message
+        Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_event' -Arguments @{
+            vmName = $VMName; stage = 'error'; detail = $message })
+        if ($null -eq $fault) {
+            $fault = if ($held -or $delivered -gt 0) {
+                [ordered]@{ kind = 'transient'; reason = 'delivery-unknown'; detail = "error: $message"; delivered = -1 }
+            } else {
+                [ordered]@{ kind = 'transient'; reason = 'send-failed'; detail = "error: $message"; delivered = 0 }
+            }
+        }
+        return $false
+    } finally {
+        # A return cannot leave a finally block, so the try and catch return
+        # and this block only releases and records.
+        for ($attempt = 1; $held -and $attempt -le $script:KvmPointerReleaseAttempts; $attempt++) {
+            $cleanup = Invoke-KvmPointerEvent -VMName $VMName -Events $releaseEvents
+            if ($cleanup.Outcome -ceq 'ok') { $held = $false }
+        }
+        if ($held) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'runner.kvm_pointer_button_held' -Arguments @{
+                vmName = $VMName; button = $button })
+            if ($null -ne $fault) { $fault.detail = "$($fault.detail); release unconfirmed" }
+        }
+        if ($null -ne $fault) {
+            Set-HostInputFault -Kind $fault.kind -Reason $fault.reason -Transport 'KVM' -Detail $fault.detail `
+                -Delivered $fault.delivered -Total $total
+        }
+    }
 }
 
 
@@ -1549,7 +1849,11 @@ __KEYCALLS__
 
     $result = Invoke-OsaScriptFile -Script $jxaScript -Language JavaScript
     Write-Debug "      JXA CGEvent: $result"
-    if ("$result" -eq "ok") { return $true }
+    if ("$result" -eq "ok") {
+        try { Add-VncConnectionEvent -VMName $VMName -Kind 'text-dispatched' -Detail "backend=JXA/CGEvent chars=$($Text.Length) charDelayMs=$CharDelayMs" }
+        catch { Write-Debug '      GUI input dispatch evidence unavailable' }
+        return $true
+    }
     # osascript posts the events as it runs, so a script that did not finish
     # may have typed any part of the text.
     Set-HostInputFault -Kind transient -Reason 'send-failed' -Transport 'UTM' -Detail "$result" -Total $Text.Length
@@ -1810,5 +2114,5 @@ Export-ModuleMember -Function Get-HyperVKeyboard, Clear-HyperVKeyboard, Read-Vnc
     Send-VncKeyEvent, Send-KeyVNC, Send-TextVNC, `
     Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-ChordUTM, Send-KeyKvm, `
     Send-TextKvm, Send-TextHyperV, Test-HardCharsInText, ConvertTo-ShellEscapedText, `
-    Send-TextUTM, Initialize-HyperVMouseType, Send-ClickHyperV, Send-ClickUtm, `
+    Send-TextUTM, Initialize-HyperVMouseType, Send-ClickHyperV, Send-ClickUtm, Send-ClickKvm, `
     Update-TransportDefault, Set-HostInputFault, Get-HostInputFault, Clear-HostInputFault

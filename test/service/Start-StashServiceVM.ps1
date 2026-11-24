@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,9 +18,11 @@
 
 <#
 .SYNOPSIS
-    Brings up the Yuruna stash service VM (host.windows.hyper-v,
-    host.ubuntu.kvm, host.macos.utm). See
-    https://yuruna.link/42f5e921 for the stash user guide.
+    Bring up the Stash service on THIS host by building + launching it on
+    its OWN VM, and publish its marker.
+.DESCRIPTION
+    Supported on host.windows.hyper-v, host.ubuntu.kvm and host.macos.utm.
+    See https://yuruna.link/42f5e921 for the stash user guide.
 
 .PARAMETER VMName
     Name for the stash-service VM. Default: yuruna-stash-service.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,10 @@ $script:FailureClassEnum = @(
     'guest_kernel_stalled',
     # The guest display driver stalled while the guest could still be running.
     'guest_display_stalled',
+    # What a page showed was not what a page step expected. Distinct from the
+    # wait classes: the test or the site has to change first, so it is neither
+    # retried unattended nor resumed.
+    'web_step_failed',
     'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')

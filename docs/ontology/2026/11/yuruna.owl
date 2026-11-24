@@ -203,6 +203,19 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/compute#DiskImage" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#CacheVM">
+    <rdfs:label xml:lang="en">cache VM</rdfs:label>
+    <skos:prefLabel xml:lang="en">cache VM</skos:prefLabel>
+    <skos:definition xml:lang="en">The service guest that runs the caching-proxy service.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/caching.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/vmconfig.md" />
+    <skos:altLabel xml:lang="en">proxy VM</skos:altLabel>
+    <skos:altLabel xml:lang="en">caching-proxy VM</skos:altLabel>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/compute#ServiceGuest" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#CachingProxyService" />
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#ClockSkew">
     <rdfs:label xml:lang="en">clock skew</rdfs:label>
     <skos:prefLabel xml:lang="en">clock skew</skos:prefLabel>
@@ -253,6 +266,17 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#CloudInitOverlay" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#CodeSnapshot">
+    <rdfs:label xml:lang="en">code snapshot</rdfs:label>
+    <skos:prefLabel xml:lang="en">code snapshot</skos:prefLabel>
+    <skos:definition xml:lang="en">A private, hash-named copy of the framework code the host controller runs, so that a pull never changes the code that is running an update.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <skos:scopeNote xml:lang="en">Not a VM or disk snapshot.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Artifact" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostController" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#CommittedMemory">
     <rdfs:label xml:lang="en">committed memory</rdfs:label>
@@ -450,8 +474,8 @@
     <skos:prefLabel xml:lang="en">guest display stalled</skos:prefLabel>
     <skos:definition xml:lang="en">A step's console wait ended on sustained display-driver page-flip timeout reports while the console remained unchanged, although the guest may still be running.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="urn:sha256:37fb3a5bc1034a08ff40145e1b8888a1db8427233347650241cf1bb39daeb4eb" />
-    <dcterms:source rdf:resource="urn:sha256:8cf0e1a7ca88f9e8c694aec8f0cff3acf2227941980572b0d41de82f8219dcd1" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/bbd63c83482d678bc51901b28530cb10767454b0/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/bbd63c83482d678bc51901b28530cb10767454b0/test/modules/Test.FailureTaxonomy.psm1" />
     <skos:scopeNote xml:lang="en">Requires timeout reports from the wait's own serial capture and an unchanged console; a static frame alone or a guest clock jump does not establish this failure. The existing bounded login cold restart is unchanged, with no new unattended retry or warm resume. A proved kernel stall takes precedence.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#SequenceFailure" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -514,9 +538,9 @@
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/host/README.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/example/nested.host/README.md" />
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/globalization/terminology/pt-BR.terms.json" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/globalization/terminology/pt-BR.terms.json" />
     <skos:altLabel xml:lang="en">Yuruna host</skos:altLabel>
-    <skos:scopeNote xml:lang="en">The nested-host example allows a VM to act as a host. The existing translation glossary's physical-machine wording is narrower than this implemented use.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">The nested-host example allows a VM to act as a host.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/compute#ComputingNode" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <rdfs:subClassOf>
@@ -527,6 +551,22 @@
     </rdfs:subClassOf>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#Incident" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#HostIncident" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HostController">
+    <rdfs:label xml:lang="en">host controller</rdfs:label>
+    <skos:prefLabel xml:lang="en">host controller</skos:prefLabel>
+    <skos:definition xml:lang="en">A resident process, neither the test runner nor the status listener, that a system service starts through a shim from a code snapshot; it holds one lock per host, claims queued host updates and runs their phases as step children.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/host/ubuntu.kvm/README.md" />
+    <skos:scopeNote xml:lang="en">After three failed starts of a snapshot the shim falls back to the previous one. Stopping its unit leaves the runner, the listener and the runner's console running.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SoftwareService" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostUpdate" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#CodeSnapshot" />
+    <y:implementationStatus xml:lang="en">Registered on Ubuntu KVM hosts by Enable-TestAutomation; Windows and macOS registration are design.</y:implementationStatus>
+    <y:codeToken>yuruna-host-controller.service</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HostIdentity">
     <rdfs:label xml:lang="en">host identity</rdfs:label>
@@ -549,6 +589,112 @@
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/host/README.md" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/compute#OperatingSystem" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HostRepair">
+    <rdfs:label xml:lang="en">host repair</rdfs:label>
+    <skos:prefLabel xml:lang="en">host repair</skos:prefLabel>
+    <skos:definition xml:lang="en">A bounded repair of a stalled runner or hypervisor on one host: it climbs rungs up to a ceiling, restores the services it disrupted and hands the host back to a runner.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-config.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-admin.md" />
+    <skos:scopeNote xml:lang="en">Starts from the Diagnostics page's Repair host, POST /control/host-repair, pool-control's remote repair or Invoke-HostRepair.ps1; the resident runner also starts one after repeated hypervisor timeouts when testCycle.autoRepairAfterStalls opts in, at most once per UTC day, on a platform that passed native qualification. It never updates the host's code: the Config page's Update host starts a host update instead. Releases before 2026.11.23 named it host refresh; no old route, header or proof prefix is accepted, and the first start moves the private root from ~/.yuruna/host-refresh/ to ~/.yuruna/host-repair/.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RecoveryAction" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HypervisorUnresponsiveFailure" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestRunner" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostUpdate" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#RunnerGate" />
+    <y:implementationStatus xml:lang="en">Manual, loopback and remote repair are implemented; the automatic start is implemented, but no platform has passed native qualification, so it acts on no host yet.</y:implementationStatus>
+    <y:codeToken>host_repair</y:codeToken>
+    <y:codeToken>host-repair</y:codeToken>
+    <y:codeToken>Invoke-HostRepair.ps1</y:codeToken>
+    <y:retiredLabel xml:lang="en">host refresh</y:retiredLabel>
+    <y:retiredLabel xml:lang="en">Refresh host</y:retiredLabel>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HostRepairVerdict">
+    <rdfs:label xml:lang="en">host repair verdict</rdfs:label>
+    <skos:prefLabel xml:lang="en">host repair verdict</skos:prefLabel>
+    <skos:definition xml:lang="en">The closed outcome token of a host repair, saying whether it repaired the host, found it already healthy, refused, failed, left it partly repaired or still unresponsive, or was abandoned.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/test/modules/Test.HostRepair.psm1" />
+    <skos:scopeNote xml:lang="en">A sibling of the host update verdict, never the same class, although refused is spelled the same. preview and disposed come only from the host's own command, for a preview run and for obligations disposed by hand.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#State" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostRepair" />
+    <y:codeToken>repaired</y:codeToken>
+    <y:codeToken>already_healthy</y:codeToken>
+    <y:codeToken>refused</y:codeToken>
+    <y:codeToken>failed</y:codeToken>
+    <y:codeToken>partial</y:codeToken>
+    <y:codeToken>still_unresponsive</y:codeToken>
+    <y:codeToken>abandoned</y:codeToken>
+    <y:codeToken>preview</y:codeToken>
+    <y:codeToken>disposed</y:codeToken>
+    <y:codeVocabulary>hostRepairVerdict</y:codeVocabulary>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HostType">
+    <rdfs:label xml:lang="en">host type</rdfs:label>
+    <skos:prefLabel xml:lang="en">host type</skos:prefLabel>
+    <skos:definition xml:lang="en">The identifier that host detection selects for a platform implementation of the host contract (hypervisor driver, input backends, capture); it also names the host folder, image rows and status records.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/test/modules/Test.HostDetection.psm1" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/host-io.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/download-agent.md" />
+    <skos:altLabel xml:lang="en">host provider</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Names a provider, not a hypervisor product or a host identity.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Identifier" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#Host" />
+    <y:codeToken>host.windows.hyper-v</y:codeToken>
+    <y:codeToken>host.macos.utm</y:codeToken>
+    <y:codeToken>host.ubuntu.kvm</y:codeToken>
+    <y:codeToken>hostType</y:codeToken>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HostUpdate">
+    <rdfs:label xml:lang="en">host update</rdfs:label>
+    <skos:prefLabel xml:lang="en">host update</skos:prefLabel>
+    <skos:definition xml:lang="en">An operation the host controller runs from one row of the host's request journal: it waits for the running cycle (the drain), stops the runner, brings the checkout to its upstream's newest commit, restarts the status listener when needed, starts the runner again on the new code and ends with a host update verdict.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/test/modules/Test.HostUpdate.psm1" />
+    <skos:scopeNote xml:lang="en">The Diagnostics page's Update host, POST /control/host-update from the host itself, or Invoke-HostUpdate.ps1 starts one; only the command can end a running cycle (-Drain now). Not a host repair, and not the per-cycle framework update that its update_source phase reuses. Its drain (drainSeconds, after-cycle) has the pool drain's meaning at the scope of one host.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostController" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostUpdateVerdict" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostRepair" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#RunnerGate" />
+    <y:implementationStatus xml:lang="en">The restart scope is implemented on Ubuntu KVM hosts, from loopback or the host's command; the full scope, the Windows and macOS controllers and the remote path through pool-control are design.</y:implementationStatus>
+    <y:codeToken>host_update</y:codeToken>
+    <y:codeToken>host-update</y:codeToken>
+    <y:codeToken>Invoke-HostUpdate.ps1</y:codeToken>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HostUpdateVerdict">
+    <rdfs:label xml:lang="en">host update verdict</rdfs:label>
+    <skos:prefLabel xml:lang="en">host update verdict</skos:prefLabel>
+    <skos:definition xml:lang="en">The closed outcome token a host update records in its state and journal, saying how the host was left: untouched, recovering, released, superseded, restored after a failed scope, or updated, with or without remarks or a started runner.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/test/modules/Test.HostUpdate.psm1" />
+    <skos:scopeNote xml:lang="en">recovering is not terminal. Distinct from the host repair verdicts and from cycle outcomes, although refused is spelled the same.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#State" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostUpdate" />
+    <y:codeToken>refused</y:codeToken>
+    <y:codeToken>drain_timeout</y:codeToken>
+    <y:codeToken>stop_failed</y:codeToken>
+    <y:codeToken>recovering</y:codeToken>
+    <y:codeToken>released</y:codeToken>
+    <y:codeToken>superseded</y:codeToken>
+    <y:codeToken>failed_restored</y:codeToken>
+    <y:codeToken>updated_not_started</y:codeToken>
+    <y:codeToken>updated_with_remarks</y:codeToken>
+    <y:codeToken>updated</y:codeToken>
+    <y:codeVocabulary>hostUpdateVerdict</y:codeVocabulary>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#HyperV">
     <rdfs:label xml:lang="en">Hyper-V</rdfs:label>
@@ -886,12 +1032,12 @@
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/compute#SeedImage">
-    <rdfs:label xml:lang="en">seed image</rdfs:label>
-    <skos:prefLabel xml:lang="en">seed image</skos:prefLabel>
+    <rdfs:label xml:lang="en">seed ISO</rdfs:label>
+    <skos:prefLabel xml:lang="en">seed ISO</skos:prefLabel>
     <skos:definition xml:lang="en">Bootstrap media carrying guest configuration and instance metadata for unattended initialization.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/vmconfig.md" />
-    <skos:altLabel xml:lang="en">seed ISO</skos:altLabel>
+    <skos:altLabel xml:lang="en">seed image</skos:altLabel>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Artifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
@@ -920,7 +1066,7 @@
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/definition.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
-    <skos:scopeNote xml:lang="en">A snapshot is not automatically a complete or portable backup.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">A snapshot is not automatically a complete or portable backup. A host controller's code snapshot is a different concept.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Artifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#SnapshotManifest" />
@@ -1094,6 +1240,26 @@
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#NotificationPolicy" />
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#BootRecovery">
+    <rdfs:label xml:lang="en">boot recovery</rdfs:label>
+    <skos:prefLabel xml:lang="en">boot recovery</skos:prefLabel>
+    <skos:definition xml:lang="en">The sweep a runner runs once at startup: it archives cycles a previous runner left unfinished, clears stale process and pause records, and attributes each aborted cycle to a host restart or to an ending signal.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/definition.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/design/04-lifecycle-state.md" />
+    <skos:altLabel xml:lang="en">boot sweep</skos:altLabel>
+    <skos:altLabel xml:lang="en">startup sweep</skos:altLabel>
+    <skos:scopeNote xml:lang="en">The attribution events are neither failure classes nor runner faults, and the aborted cycle has no failure record.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RunnerExitRecord" />
+    <y:codeToken>Invoke-YurunaBootRecovery</y:codeToken>
+    <y:codeToken>boot_recovery_completed</y:codeToken>
+    <y:codeToken>host_restart</y:codeToken>
+    <y:codeToken>runner_ended_by_signal</y:codeToken>
+    <y:codeToken>endedBy</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#ClearStaleGitLock">
     <rdfs:label xml:lang="en">clear stale Git lock</rdfs:label>
     <skos:prefLabel xml:lang="en">clear stale Git lock</skos:prefLabel>
@@ -1132,10 +1298,14 @@
     <skos:definition xml:lang="en">An aggregator incident correlating a shared failure class across hosts.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/pool-dashboard.md" />
-    <skos:scopeNote xml:lang="en">A shared class supports correlation, not proof that all hosts share the same underlying cause.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/test/extension/pool-aggregator-service/README.md" />
+    <skos:altLabel xml:lang="en">pool-wide incident</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A shared class supports correlation, not proof that all hosts share the same underlying cause. Its pool_incident_open and pool_incident_resolved events are the aggregator's, distinct from a host's own incident_open and incident_resolved.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RepeatedFailureIncident" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#DominantFailureClass" />
+    <y:codeToken>pool_incident_open</y:codeToken>
+    <y:codeToken>pool_incident_resolved</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#DashboardPanel">
     <rdfs:label xml:lang="en">dashboard panel</rdfs:label>
@@ -1156,6 +1326,21 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#Failure" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#NoDataState" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#DeepDiagnosticsMode">
+    <rdfs:label xml:lang="en">deep diagnostics mode</rdfs:label>
+    <skos:prefLabel xml:lang="en">deep diagnostics mode</skos:prefLabel>
+    <skos:definition xml:lang="en">A reversible host configuration that makes the next hard freeze leave evidence: a kernel panic and reboot, a hardware watchdog reset, and records that survive on disk and over netconsole.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/host/ubuntu.kvm/README.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/system-diagnostic.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/definition.md" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:implementationStatus xml:lang="en">Implemented for Ubuntu KVM hosts only.</y:implementationStatus>
+    <y:codeToken>Enable-DeepDiagnostics.ps1</y:codeToken>
+    <y:codeToken>deep-diagnostics</y:codeToken>
+    <y:codeToken>deepDiagnosticsBundles</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#DiagnosticCheck">
     <rdfs:label xml:lang="en">diagnostic check</rdfs:label>
@@ -1199,6 +1384,23 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RecoveryAction" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:codeToken>end_failure_pause_early</y:codeToken>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#EndFailurePauseOnProbe">
+    <rdfs:label xml:lang="en">end failure pause on probe</rdfs:label>
+    <skos:prefLabel xml:lang="en">end failure pause on probe</skos:prefLabel>
+    <skos:definition xml:lang="en">Ending a failure pause once the recovery probe registered for the failure class reports that the condition has cleared; the pause runs the probe in a short-lived process.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/test/modules/Test.RecoveryActions.psm1" />
+    <skos:scopeNote xml:lang="en">Only for classes with a registered probe: hypervisor_unresponsive, host_network_degraded and pool_storage_full. It writes ledger lines only on clearance and declines with class-budget-spent.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RecoveryAction" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#EndFailurePauseEarly" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RecoveryLedger" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HypervisorUnresponsiveFailure" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#HostNetworkDegradedFailure" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/storage#PoolStorageFullFailure" />
+    <y:codeToken>end_failure_pause_on_probe</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#EscalateRecommendation">
     <rdfs:label xml:lang="en">escalate</rdfs:label>
@@ -1700,6 +1902,23 @@
       </owl:Restriction>
     </rdfs:subClassOf>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#RemediationDispatcher">
+    <rdfs:label xml:lang="en">remediation dispatcher</rdfs:label>
+    <skos:prefLabel xml:lang="en">remediation dispatcher</skos:prefLabel>
+    <skos:definition xml:lang="en">Advisory routing of a failure record to the handler registered for its class, which returns a recovery recommendation and a severity that nothing acts on.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/definition.md" />
+    <skos:scopeNote xml:lang="en">A recommendation is not a recovery action. Past retry_exhausted, it routes on the inner class.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RecoveryRecommendation" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#FailureRecord" />
+    <y:codeToken>Invoke-Remediation</y:codeToken>
+    <y:codeToken>Register-RecoveryHandler</y:codeToken>
+    <y:codeToken>remediation_recommended</y:codeToken>
+    <y:codeToken>last_remediation.json</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#RepeatedFailureIncident">
     <rdfs:label xml:lang="en">repeated-failure incident</rdfs:label>
     <skos:prefLabel xml:lang="en">repeated-failure incident</skos:prefLabel>
@@ -1760,6 +1979,25 @@
     <y:codeToken>retry_with_backoff</y:codeToken>
     <y:codeVocabulary>recoveryRecommendation</y:codeVocabulary>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#RunnerExitRecord">
+    <rdfs:label xml:lang="en">runner exit record</rdfs:label>
+    <skos:prefLabel xml:lang="en">runner exit record</skos:prefLabel>
+    <skos:definition xml:lang="en">The record of how a runner was started, joined with the signal its SIGHUP or SIGTERM handler wrote, that says why a runner that is gone ended.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/design/04-lifecycle-state.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <skos:altLabel xml:lang="en">exit record</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A null signal means the runner stopped on its own or was ended without a catchable signal; a Windows restart leaves no signal.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#DiagnosticEvidence" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestRunner" />
+    <y:codeToken>lastExit</y:codeToken>
+    <y:codeToken>previousRunner</y:codeToken>
+    <y:codeToken>runner.exit.json</y:codeToken>
+    <y:codeToken>runner.session.json</y:codeToken>
+    <y:codeToken>Register-YurunaRunnerExitRecord</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/diagnostics#SoftFailureSeverity">
     <rdfs:label xml:lang="en">soft failure severity</rdfs:label>
     <skos:prefLabel xml:lang="en">soft failure severity</skos:prefLabel>
@@ -1779,6 +2017,7 @@
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/pool-admin.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-harness.md" />
+    <skos:altLabel xml:lang="en">status page</skos:altLabel>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#InformationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
@@ -1970,17 +2209,19 @@
     </rdfs:subClassOf>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdAuditCertificate">
-    <rdfs:label xml:lang="en">audit certificate</rdfs:label>
-    <skos:prefLabel xml:lang="en">audit certificate</skos:prefLabel>
-    <skos:definition xml:lang="en">The result of checking required integrity, lifecycle, and monetary evidence against the audit contract.</skos:definition>
+    <rdfs:label xml:lang="en">certification findings</rdfs:label>
+    <skos:prefLabel xml:lang="en">certification findings</skos:prefLabel>
+    <skos:definition xml:lang="en">The findings record the audit service returns for each certification dimension (attestation continuity, residency, consent, and settlement evidence) after recomputing the ledger chains itself; it is returned to the caller, not stored.</skos:definition>
     <y:context xml:lang="en">AmisAd</y:context>
     <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/ba9f52ff8965883dc7f8f6c1626c8fa1fef6d533/poc/contracts/service-behavior.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/plan/design/08-audit.md" />
     <skos:scopeNote xml:lang="en">Not a TLS certificate or a guarantee beyond the supplied evidence.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#InformationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdLifecycleEvidence" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdSettlementInstruction" />
+    <y:retiredLabel xml:lang="en">audit certificate</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdAuditor">
     <rdfs:label xml:lang="en">auditor</rdfs:label>
@@ -2083,12 +2324,16 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdConsentLedger">
     <rdfs:label xml:lang="en">consent ledger</rdfs:label>
     <skos:prefLabel xml:lang="en">consent ledger</skos:prefLabel>
-    <skos:definition xml:lang="en">The record of grants, changes, and revocations used to determine current delegated authority.</skos:definition>
+    <skos:definition xml:lang="en">The append-only, hash-chained record of consent grants, revocations and uses, by grant type, from which current delegated authority and its exercise are determined.</skos:definition>
     <y:context xml:lang="en">AmisAd</y:context>
     <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/ba9f52ff8965883dc7f8f6c1626c8fa1fef6d533/plan/applications.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/poc/db/schema.sql" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#InformationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>grant</y:codeToken>
+    <y:codeToken>revoke</y:codeToken>
+    <y:codeToken>use</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdContributionGrant">
     <rdfs:label xml:lang="en">contribution grant</rdfs:label>
@@ -2471,11 +2716,13 @@
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdPrivacyThreshold">
-    <rdfs:label xml:lang="en">privacy threshold</rdfs:label>
-    <skos:prefLabel xml:lang="en">privacy threshold</skos:prefLabel>
+    <rdfs:label xml:lang="en">anonymity threshold</rdfs:label>
+    <skos:prefLabel xml:lang="en">anonymity threshold</skos:prefLabel>
     <skos:definition xml:lang="en">A minimum aggregation condition intended to prevent publication of individual-level demand information.</skos:definition>
     <y:context xml:lang="en">AmisAd</y:context>
     <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/ba9f52ff8965883dc7f8f6c1626c8fa1fef6d533/plan/applications.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/plan/design/01-overview.md" />
+    <skos:altLabel xml:lang="en">privacy threshold</skos:altLabel>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Policy" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -2495,15 +2742,23 @@
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdSupportCase" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdResource">
-    <rdfs:label xml:lang="en">matching resource</rdfs:label>
-    <skos:prefLabel xml:lang="en">matching resource</skos:prefLabel>
-    <skos:definition xml:lang="en">Capacity available to host an AmisAd matching environment under placement and jurisdiction constraints.</skos:definition>
+    <rdfs:label xml:lang="en">edge</rdfs:label>
+    <skos:prefLabel xml:lang="en">edge</skos:prefLabel>
+    <skos:definition xml:lang="en">A registered region endpoint with capacity, running slice-runtime, on which a match may be placed under jurisdiction constraints.</skos:definition>
     <y:context xml:lang="en">AmisAd</y:context>
     <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/ba9f52ff8965883dc7f8f6c1626c8fa1fef6d533/plan/applications.md" />
-    <skos:scopeNote xml:lang="en">Distinct from a Yuruna deployment resource.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/plan/design/04-resource.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/poc/contracts/service-behavior.md" />
+    <skos:altLabel xml:lang="en">edge VM</skos:altLabel>
+    <skos:altLabel xml:lang="en">registered edge</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Distinct from a Yuruna deployment resource. Its registration lease is not a DHCP lease.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SystemElement" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>lease_secs</y:codeToken>
+    <y:codeToken>lease_remaining_secs</y:codeToken>
+    <y:codeToken>no_compliant_edge</y:codeToken>
+    <y:retiredLabel xml:lang="en">matching resource</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdSeller">
     <rdfs:label xml:lang="en">seller</rdfs:label>
@@ -2569,11 +2824,15 @@
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdSlice">
-    <rdfs:label xml:lang="en">matching slice</rdfs:label>
-    <skos:prefLabel xml:lang="en">matching slice</skos:prefLabel>
+    <rdfs:label xml:lang="en">sealed environment</rdfs:label>
+    <skos:prefLabel xml:lang="en">sealed environment</skos:prefLabel>
     <skos:definition xml:lang="en">An allocated ephemeral environment in which an AmisAd match is evaluated.</skos:definition>
     <y:context xml:lang="en">AmisAd</y:context>
     <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/ba9f52ff8965883dc7f8f6c1626c8fa1fef6d533/plan/design.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/plan/design/01-overview.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/ba9f52ff8965883dc7f8f6c1626c8fa1fef6d533/plan/applications.md" />
+    <skos:altLabel xml:lang="en">sealed slice</skos:altLabel>
+    <skos:altLabel xml:lang="en">ephemeral environment</skos:altLabel>
     <skos:scopeNote xml:lang="en">The prototype simulates the sealed environment lifecycle; do not infer hardware isolation or attestation guarantees.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SystemElement" />
@@ -2582,17 +2841,24 @@
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdAttestation" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdSovereigntyPolicy" />
     <y:implementationStatus xml:lang="en">Prototype; stronger isolation or cryptographic guarantees described in design are not established by the implementation.</y:implementationStatus>
+    <y:retiredLabel xml:lang="en">matching slice</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdSovereigntyPolicy">
-    <rdfs:label xml:lang="en">sovereignty policy</rdfs:label>
-    <skos:prefLabel xml:lang="en">sovereignty policy</skos:prefLabel>
+    <rdfs:label xml:lang="en">jurisdiction policy</rdfs:label>
+    <skos:prefLabel xml:lang="en">jurisdiction policy</skos:prefLabel>
     <skos:definition xml:lang="en">Placement constraints restricting where matching may execute under residency and jurisdiction requirements.</skos:definition>
     <y:context xml:lang="en">AmisAd</y:context>
     <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/ba9f52ff8965883dc7f8f6c1626c8fa1fef6d533/plan/applications.md" />
-    <skos:scopeNote xml:lang="en">A declared policy is distinct from independently verified compliance.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/plan/design/04-resource.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/poc/db/schema.sql" />
+    <skos:altLabel xml:lang="en">allocation policy</skos:altLabel>
+    <skos:altLabel xml:lang="en">sovereignty rules</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A declared policy is distinct from independently verified compliance. The policy is persisted before it is applied, so a restart does not fail open.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Policy" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>allocation_policies</y:codeToken>
+    <y:retiredLabel xml:lang="en">sovereignty policy</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdSupportCase">
     <rdfs:label xml:lang="en">support case</rdfs:label>
@@ -2626,6 +2892,23 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#InformationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#AmisAdWriteToken">
+    <rdfs:label xml:lang="en">write token</rdfs:label>
+    <skos:prefLabel xml:lang="en">write token</skos:prefLabel>
+    <skos:definition xml:lang="en">The per-build bearer credential that ledger-svc requires on every append, and platform-svc on a disclosure-grant delivery.</skos:definition>
+    <y:context xml:lang="en">AmisAd</y:context>
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/poc/contracts/service-behavior.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/plan/design/08-audit.md" />
+    <skos:altLabel xml:lang="en">ledger write token</skos:altLabel>
+    <skos:scopeNote xml:lang="en">It admits the writer set, not an individual caller, and is never given to the auditor.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdDomainEntity" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#BearerToken" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#AmisAdConsentLedger" />
+    <y:codeToken>LEDGER_WRITE_TOKEN</y:codeToken>
+    <y:codeToken>write_token_required</y:codeToken>
+    <y:codeToken>grant_token_required</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#CallerCancellation">
     <rdfs:label xml:lang="en">caller cancellation</rdfs:label>
@@ -2763,8 +3046,11 @@
     <skos:definition xml:lang="en">A dependency refuses or delays a request because an allowed request rate or quota is exceeded.</skos:definition>
     <y:context xml:lang="en">Text-to-SQL example</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/example/text-to-sql/README.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/040f0fd7b4d39680cf1271962b707c1744e6a749/example/text-to-sql/components/frontend/text-to-sql-ui/Services/ILlmClient.cs" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/examples#DependencyFailure" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#UpstreamRateLimit" />
+    <y:codeToken>rate-limit</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#ReadOnlyRole">
     <rdfs:label xml:lang="en">read-only database role</rdfs:label>
@@ -2783,7 +3069,7 @@
     <skos:definition xml:lang="en">The total time allowance for attempts, body reads, and backoff in a dependency call.</skos:definition>
     <y:context xml:lang="en">Text-to-SQL example</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/example/text-to-sql/README.md" />
-    <skos:scopeNote xml:lang="en">Distinct from the per-attempt timeout and the caller's cancellation signal.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">Distinct from the per-attempt timeout and the caller's cancellation signal, and from the framework's retry policy.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Policy" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
@@ -3009,7 +3295,7 @@
     </rdfs:subClassOf>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#TextSQLMonthlyRecurringRevenue" />
     <y:codeToken>subscription</y:codeToken>
-    <y:codeToken>cancelled_at</y:codeToken>
+    <y:codeToken>canceled_at</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/examples#WebsiteFrontend">
     <rdfs:label xml:lang="en">website frontend</rdfs:label>
@@ -3231,15 +3517,19 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/network#CachingProxyService">
     <rdfs:label xml:lang="en">caching-proxy service</rdfs:label>
     <skos:prefLabel xml:lang="en">caching-proxy service</skos:prefLabel>
-    <skos:definition xml:lang="en">The Yuruna extension service combining HTTP caching, registry mirroring, monitoring, and related lab endpoints.</skos:definition>
+    <skos:definition xml:lang="en">The Yuruna extension service combining HTTP caching, registry mirroring, Git mirroring, monitoring, and related lab endpoints.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/caching.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/caching.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/extensions-api.md" />
+    <skos:altLabel xml:lang="en">caching proxy</skos:altLabel>
     <skos:scopeNote xml:lang="en">The service is broader than Squid alone and distinct from its host-side TCP forwarder.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SoftwareService" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#Squid" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/software#Zot" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#CacheVM" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/software#GitMirror" />
+    <y:codeToken>caching-proxy-service</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/network#ClientAddressAttribution">
     <rdfs:label xml:lang="en">client address attribution</rdfs:label>
@@ -3809,13 +4099,14 @@
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#NATNetwork" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/network#HyperVExternalSwitch">
-    <rdfs:label xml:lang="en">Hyper-V external switch</rdfs:label>
-    <skos:prefLabel xml:lang="en">Hyper-V external switch</skos:prefLabel>
+    <rdfs:label xml:lang="en">External vSwitch</rdfs:label>
+    <skos:prefLabel xml:lang="en">External vSwitch</skos:prefLabel>
     <skos:definition xml:lang="en">A switch configured to bridge guest traffic through a physical host uplink.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/host-hyperv.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/network.md" />
-    <skos:altLabel xml:lang="en">External vSwitch</skos:altLabel>
+    <skos:altLabel xml:lang="en">external switch</skos:altLabel>
+    <skos:altLabel xml:lang="en">Hyper-V external switch</skos:altLabel>
     <skos:scopeNote xml:lang="en">The persisted switch object's existence does not establish that the adapter binding or management host leg still forwards traffic.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/network#VirtualSwitch" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -4758,6 +5049,18 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/network#StoreID">
+    <rdfs:label xml:lang="en">Store ID</rdfs:label>
+    <skos:prefLabel xml:lang="en">Store ID</skos:prefLabel>
+    <skos:definition xml:lang="en">A Squid cache key that files a request URL under another URL's stored object, so a URL that only redirects is served from the cached CDN object.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/caching.md" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Identifier" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#Squid" />
+    <y:codeToken>store_id_access</y:codeToken>
+    <y:codeToken>storeid_file_rewrite</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/network#Subnet">
     <rdfs:label xml:lang="en">subnet</rdfs:label>
     <skos:prefLabel xml:lang="en">subnet</skos:prefLabel>
@@ -4962,6 +5265,20 @@
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#HyperVManagementAdapter" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#UplinkBinding" />
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/network#UpstreamRateLimit">
+    <rdfs:label xml:lang="en">rate limit</rdfs:label>
+    <skos:prefLabel xml:lang="en">rate limit</skos:prefLabel>
+    <skos:definition xml:lang="en">An upstream's refusal of requests once the allowed rate or anonymous quota for the egress address is exhausted; Docker Hub answers 429 and AWS ECR Public answers 400.</skos:definition>
+    <y:context xml:lang="en">Shared</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/network.md" />
+    <skos:altLabel xml:lang="en">pull rate limit</skos:altLabel>
+    <skos:altLabel xml:lang="en">rate-limit failure</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Keyed to the egress address's quota window, so it does not clear on a short retry: the workload scripts that detect it give operator guidance and stop instead of spending their retries. It has no failure class of its own.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#Failure" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/examples#RateLimitFailure" />
+    <y:codeToken>toomanyrequests</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/network#VLAN">
     <rdfs:label xml:lang="en">VLAN</rdfs:label>
     <skos:prefLabel xml:lang="en">VLAN</skos:prefLabel>
@@ -5045,6 +5362,10 @@
     <skos:definition xml:lang="en">An authentication identifier or key material accepted by a cloud or service API.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/authentication.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/caching.md" />
+    <skos:altLabel xml:lang="en">access token</skos:altLabel>
+    <skos:altLabel xml:lang="en">personal access token</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Covers the GitHub token (repositories.ghToken, github-mirror-token) and the Docker Hub token (dockerhub-token); not the Lab token or the internal authentication key.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
@@ -5080,7 +5401,7 @@
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/definition.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/content/blob/78d52c574aada850bbdcaf003e6c4f81ef50cad9/article/2026.security/draft02.linked.identity/protect-sequence.txt" />
     <skos:altLabel xml:lang="en">ring</skos:altLabel>
-    <skos:scopeNote xml:lang="en">Comparisons require the same scope, outcome representation, and observation period. The views are related evidence, not four interchangeable names for configuration files.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">Comparisons require the same scope, outcome representation, and observation period. The views are related evidence, not four interchangeable names for configuration files. The article calls the views rings; unrelated to the framework canary ring.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Entity" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#AssessmentCondition" />
@@ -5208,6 +5529,15 @@
       </owl:Restriction>
     </rdfs:subClassOf>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#ConfigCA">
+    <rdfs:label xml:lang="en">Config CA</rdfs:label>
+    <skos:prefLabel xml:lang="en">Config CA</skos:prefLabel>
+    <skos:definition xml:lang="en">A per-host certificate authority that issues the config service's server leaf and one client leaf per service VM for mutual TLS.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/framework-implementation-notes.md" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#CertificateAuthority" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#ControlProof">
     <rdfs:label xml:lang="en">control proof</rdfs:label>
     <skos:prefLabel xml:lang="en">control proof</skos:prefLabel>
@@ -5232,11 +5562,12 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#CredentialExpiredFailure">
     <rdfs:label xml:lang="en">credential expired</rdfs:label>
     <skos:prefLabel xml:lang="en">credential expired</skos:prefLabel>
-    <skos:definition xml:lang="en">Authentication cannot proceed because required credential validity has expired.</skos:definition>
+    <skos:definition xml:lang="en">Authentication with a configured credential was refused: the guest or registry rejected it, or the guest demands a password change before any command can run.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/authentication.md" />
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/failure-schema.md" />
-    <skos:scopeNote xml:lang="en">Not every authorization denial proves expiration.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <skos:scopeNote xml:lang="en">The token keeps its historical name; a rejected password, a guest password still expired after an attempted rotation, and a registry 401 are all filed here. Not every authorization denial proves expiration.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#Failure" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#CredentialProvider" />
@@ -5353,12 +5684,15 @@
     <skos:definition xml:lang="en">Stable authentication material used by internal lab service-to-service requests.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/control-routes.md" />
-    <skos:altLabel xml:lang="en">internal service key</skos:altLabel>
-    <skos:scopeNote xml:lang="en">Distinct from the rotating operator Lab token.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/definition.md" />
+    <skos:scopeNote xml:lang="en">Stored in each host's vault as internal-auth-key and baked into service VMs at /etc/yuruna/internal-auth.key; never displayed; keys control proofs, the /ingest bearer and cross-host credential fetch. Distinct from the rotating Lab token, which is redeemed for it.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Secret" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#Authentication" />
+    <y:codeToken>internal-auth-key</y:codeToken>
+    <y:retiredLabel xml:lang="en">lab-auth-token</y:retiredLabel>
+    <y:retiredLabel xml:lang="en">pool-auth-token</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#JSONWebToken">
     <rdfs:label xml:lang="en">JSON Web Token</rdfs:label>
@@ -5376,15 +5710,32 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#LabToken">
     <rdfs:label xml:lang="en">lab token</rdfs:label>
     <skos:prefLabel xml:lang="en">lab token</skos:prefLabel>
-    <skos:definition xml:lang="en">The operator-facing rotating credential used to unlock protected lab controls.</skos:definition>
+    <skos:definition xml:lang="en">The six-character code the pool aggregator rotates on the dashboard Lab token tile; it unlocks service UI actions and is redeemed once, through POST /api/v1/lab-token, for the internal authentication key.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/control-routes.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/pool-admin.md" />
-    <skos:scopeNote xml:lang="en">Not the stable internal service key, a language-model token, or a permanent host identity.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/definition.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-dashboard.md" />
+    <skos:altLabel xml:lang="en">lab connection token</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A host never stores a Lab token. Not the internal authentication key it is redeemed for, a language-model token, or a permanent host identity.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Secret" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#Authorization" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#MirrorSigningKey">
+    <rdfs:label xml:lang="en">mirror signing key</rdfs:label>
+    <skos:prefLabel xml:lang="en">mirror signing key</skos:prefLabel>
+    <skos:definition xml:lang="en">The proxy owner's private key, kept in the owner's vault, that signs the Git mirror's receipts; hosts enroll its public half under repositories.mirror.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/caching.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/vmconfig.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/design/02-component-breakdown.md" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Secret" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/software#GitMirror" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/storage#Vault" />
+    <y:codeToken>github-mirror-signing-key</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#MutualTLSAuthentication">
     <rdfs:label xml:lang="en">mutual TLS authentication</rdfs:label>
@@ -5408,13 +5759,28 @@
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/definition.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/content/blob/78d52c574aada850bbdcaf003e6c4f81ef50cad9/article/2026.security/draft02.linked.identity/protect-sequence.txt" />
     <skos:altLabel xml:lang="en">non-compliance</skos:altLabel>
-    <skos:scopeNote xml:lang="en">ISO/IEC 27000 defines nonconformity as non-fulfilment of a requirement. Not an incident classification: a failed test, an absent namespace, a stale configuration revision, or an invalid runner-state transition does not by itself prove one.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">ISO/IEC 27000 defines nonconformity as nonfulfillment of a requirement. Not an incident classification: a failed test, an absent namespace, a stale configuration revision, or an invalid runner-state transition does not by itself prove one.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#AssessmentCondition" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#Telemetry" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#Baseline" />
     <y:retiredLabel xml:lang="en">violation</y:retiredLabel>
     <y:retiredLabel xml:lang="en">gap</y:retiredLabel>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#OperatorCredential">
+    <rdfs:label xml:lang="en">operator credential</rdfs:label>
+    <skos:prefLabel xml:lang="en">operator credential</skos:prefLabel>
+    <skos:definition xml:lang="en">The operator secret a caller sends to pool-control's host repair route before pool-control mints a repair proof.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-admin.md" />
+    <skos:scopeNote xml:lang="en">Never the Lab token, a lab session or the internal authentication key; pool-control refuses a credential equal to the internal authentication key or to the signing authority.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Secret" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#RepairProof" />
+    <y:codeToken>yoc1</y:codeToken>
+    <y:codeToken>X-Yuruna-Operator-Credential</y:codeToken>
+    <y:retiredLabel xml:lang="en">refresh credential</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#Patch">
     <rdfs:label xml:lang="en">patch</rdfs:label>
@@ -5457,6 +5823,54 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#RepairProof">
+    <rdfs:label xml:lang="en">repair proof</rdfs:label>
+    <skos:prefLabel xml:lang="en">repair proof</skos:prefLabel>
+    <skos:definition xml:lang="en">A short-lived HMAC-SHA256 proof, minted only by pool-control, that binds one host, request id, tier and ceiling and authorizes a non-loopback host repair.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-admin.md" />
+    <skos:scopeNote xml:lang="en">Required in addition to the control proof, which never authorizes a repair.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#ControlProof" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#RepairVerifierKey" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostRepair" />
+    <y:codeToken>yrp1</y:codeToken>
+    <y:codeToken>X-Yuruna-Repair-Proof</y:codeToken>
+    <y:retiredLabel xml:lang="en">refresh proof</y:retiredLabel>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#RepairSigningAuthority">
+    <rdfs:label xml:lang="en">signing authority</rdfs:label>
+    <skos:prefLabel xml:lang="en">signing authority</skos:prefLabel>
+    <skos:definition xml:lang="en">The operator-provisioned secret from which pool-control mints repair proofs and derives each host's verifier key.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-admin.md" />
+    <skos:altLabel xml:lang="en">repair signing authority</skos:altLabel>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Secret" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#RepairProof" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#RepairVerifierKey" />
+    <y:codeToken>yrpa1</y:codeToken>
+    <y:retiredLabel xml:lang="en">refresh signing authority</y:retiredLabel>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#RepairVerifierKey">
+    <rdfs:label xml:lang="en">repair verifier key</rdfs:label>
+    <skos:prefLabel xml:lang="en">repair verifier key</skos:prefLabel>
+    <skos:definition xml:lang="en">The per-host key, derived from the signing authority, with which a host verifies repair proofs for itself and can sign nothing for another host.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-admin.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <skos:altLabel xml:lang="en">host verifier key</skos:altLabel>
+    <skos:altLabel xml:lang="en">verifier key</skos:altLabel>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Secret" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#RepairSigningAuthority" />
+    <y:codeToken>yrpk1</y:codeToken>
+    <y:retiredLabel xml:lang="en">refresh verifier key</y:retiredLabel>
+    <y:retiredLabel xml:lang="en">refresh key</y:retiredLabel>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#SSHHostKey">
     <rdfs:label xml:lang="en">SSH host key</rdfs:label>
     <skos:prefLabel xml:lang="en">SSH host key</skos:prefLabel>
@@ -5480,6 +5894,24 @@
     <skos:scopeNote xml:lang="en">Only the type and purpose are represented.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#SSLBumpCA">
+    <rdfs:label xml:lang="en">SSL-bump CA</rdfs:label>
+    <skos:prefLabel xml:lang="en">SSL-bump CA</skos:prefLabel>
+    <skos:definition xml:lang="en">The certificate authority the caching proxy generates to intercept TLS; guests and hosts trust it by pinned fingerprint, and it also signs the pool aggregator's TLS leaf.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/vmconfig.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/caching.md" />
+    <skos:altLabel xml:lang="en">squid CA</skos:altLabel>
+    <skos:altLabel xml:lang="en">pool CA</skos:altLabel>
+    <skos:altLabel xml:lang="en">proxy CA</skos:altLabel>
+    <skos:altLabel xml:lang="en">bump CA</skos:altLabel>
+    <skos:scopeNote xml:lang="en">The pool CA is the same certificate published under a pool-specific name.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#CertificateAuthority" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#TLSInterception" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#CachingProxyService" />
+    <y:codeToken>yuruna-squid-ca.crt</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#ScreenRecordingPermission">
     <rdfs:label xml:lang="en">screen recording permission</rdfs:label>
@@ -5559,6 +5991,22 @@
     <skos:scopeNote xml:lang="en">Pool storage and stash storage use separate configuration and credentials.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/security#Credential" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#SudoersRule">
+    <rdfs:label xml:lang="en">sudoers rule</rdfs:label>
+    <skos:prefLabel xml:lang="en">sudoers rule</skos:prefLabel>
+    <skos:definition xml:lang="en">A narrow /etc/sudoers.d entry that lets an unattended Yuruna account run named commands as root through sudo -n without a password prompt.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/pool-storage.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/network.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/vmconfig.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/lab-operator.md" />
+    <skos:altLabel xml:lang="en">sudo rule</skos:altLabel>
+    <skos:altLabel xml:lang="en">sudoers drop-in</skos:altLabel>
+    <skos:scopeNote xml:lang="en">The design's temporary, self-expiring rule is not implemented.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Policy" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#ElevationRequiredFailure" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/security#TLSCertificate">
     <rdfs:label xml:lang="en">TLS certificate</rdfs:label>
@@ -5806,6 +6254,19 @@
     <y:codeVocabulary>failureClass</y:codeVocabulary>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/test/modules/Test.FailureTaxonomy.psm1" />
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#CalVer">
+    <rdfs:label xml:lang="en">CalVer</rdfs:label>
+    <skos:prefLabel xml:lang="en">CalVer</skos:prefLabel>
+    <skos:definition xml:lang="en">The release version held by Yuruna's VERSION file: YYYY.MM.DD with an optional .N same-day patch, which release tags carry bare.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/install.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/SECURITY.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/040f0fd7b4d39680cf1271962b707c1744e6a749/tools/Test-ExampleBuild.ps1" />
+    <skos:altLabel xml:lang="en">Calendar Versioning</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A four-part patch version is not SemVer, so it cannot be copied into a Helm chart version.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/software#SoftwareVersion" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#CapabilityMatrix">
     <rdfs:label xml:lang="en">capability matrix</rdfs:label>
     <skos:prefLabel xml:lang="en">capability matrix</skos:prefLabel>
@@ -5822,7 +6283,6 @@
     <skos:definition xml:lang="en">The project configuration selected for a deployment target such as localhost, AWS, Azure, or GCP.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/architecture.md" />
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/README.md" />
     <skos:scopeNote xml:lang="en">A configuration directory alone does not prove that every provider resource template is implemented.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -5858,7 +6318,6 @@
     <skos:definition xml:lang="en">Explicit settings in code, files, and management tools that specify parameters or deployment behavior; the Configuration view of a system.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-config.md" />
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/README.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/definition.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/content/blob/78d52c574aada850bbdcaf003e6c4f81ef50cad9/article/2026.security/draft02.linked.identity/protect-sequence.txt" />
     <skos:altLabel xml:lang="en">configuration artifact</skos:altLabel>
@@ -6002,6 +6461,21 @@
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/software#HeadingAnchor" />
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#GitMirror">
+    <rdfs:label xml:lang="en">Git mirror</rdfs:label>
+    <skos:prefLabel xml:lang="en">Git mirror</skos:prefLabel>
+    <skos:definition xml:lang="en">The caching-proxy component that keeps bare copies of the seeded GitHub repositories, checks their refs against GitHub, and serves Git smart HTTP and signed ref receipts.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/caching.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-config.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/design/02-component-breakdown.md" />
+    <skos:altLabel xml:lang="en">caching-proxy Git mirror</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Not a container-registry mirror. A host accepts an answer only with a receipt signed by an enrolled key.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SoftwareService" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#CachingProxyService" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/security#MirrorSigningKey" />
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#Globalization">
     <rdfs:label xml:lang="en">globalization</rdfs:label>
     <skos:prefLabel xml:lang="en">globalization</skos:prefLabel>
@@ -6058,7 +6532,7 @@
     <skos:prefLabel xml:lang="en">Helm values</skos:prefLabel>
     <skos:definition xml:lang="en">Values supplied to a chart to render its Kubernetes manifests for a deployment.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/README.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/example/website/README.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/automation/Set-Workload.ps1" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -6099,7 +6573,6 @@
     <skos:definition xml:lang="en">A machine-readable infrastructure description used to create and reconcile resources.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/architecture.md" />
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/README.md" />
     <skos:altLabel xml:lang="en">IaC</skos:altLabel>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -6257,11 +6730,29 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#LocalDeploymentTarget">
     <rdfs:label xml:lang="en">local deployment target</rdfs:label>
     <skos:prefLabel xml:lang="en">local deployment target</skos:prefLabel>
-    <skos:definition xml:lang="en">A target using the operator's local container and Kubernetes environment.</skos:definition>
+    <skos:definition xml:lang="en">The localhost configuration of a project, which deploys to the Kubernetes context and container registry local to the machine running the deployment phases: a workstation or a workload guest with its own node and a localhost:5000 registry.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/README.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/design/06-deployment.md" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/software#DeploymentTarget" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/software#LocalRegistry" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#LocalRegistry">
+    <rdfs:label xml:lang="en">local registry</rdfs:label>
+    <skos:prefLabel xml:lang="en">local registry</skos:prefLabel>
+    <skos:definition xml:lang="en">The plain-HTTP distribution registry that a deployment guest runs on loopback port 5000; workload builds push to it and the guest's cluster pulls from it.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/definition.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/memory.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/guest/shared/ubuntu.k8s.sh" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/design/02-component-breakdown.md" />
+    <skos:altLabel xml:lang="en">loopback registry</skos:altLabel>
+    <skos:altLabel xml:lang="en">localhost registry</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Not the registry mirror or the pull-through cache. From Docker Engine 29.10, insecure-registries must name it.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/software#Registry" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/software#LocalDeploymentTarget" />
+    <y:codeToken>localhost:5000</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#Locale">
     <rdfs:label xml:lang="en">locale</rdfs:label>
@@ -6310,6 +6801,20 @@
     <skos:scopeNote xml:lang="en">Protocol keys and diagnostic classification codes remain stable across translations.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#MachineDraft">
+    <rdfs:label xml:lang="en">machine draft</rdfs:label>
+    <skos:prefLabel xml:lang="en">machine draft</skos:prefLabel>
+    <skos:definition xml:lang="en">A translation drafted by machine translation and marked with origin machine; it ships until a professional return replaces it and removes the marker.</skos:definition>
+    <y:context xml:lang="en">Shared</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/globalization.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/dev-only/localization-guide.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/040f0fd7b4d39680cf1271962b707c1744e6a749/docs/globalization.md" />
+    <skos:scopeNote xml:lang="en">No marker means accepted, and no sign-off is recorded, so neither state is a translation review.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/software#Translation" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/software#TranslationReview" />
+    <y:codeToken>machine</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#ManualImageDrop">
     <rdfs:label xml:lang="en">manual image drop</rdfs:label>
@@ -6433,7 +6938,7 @@
     <skos:prefLabel xml:lang="en">OpenTofu configuration</skos:prefLabel>
     <skos:definition xml:lang="en">Infrastructure declarations evaluated by OpenTofu during resource provisioning.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/README.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/example/website/README.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/automation/Set-Resource.ps1" />
     <skos:altLabel xml:lang="en">Terraform configuration</skos:altLabel>
     <skos:scopeNote xml:lang="en">Terraform-compatible syntax does not imply that the Terraform executable is the selected tool.</skos:scopeNote>
@@ -6660,9 +7165,10 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/software#ShortLinkCatalog">
     <rdfs:label xml:lang="en">short-link catalog</rdfs:label>
     <skos:prefLabel xml:lang="en">short-link catalog</skos:prefLabel>
-    <skos:definition xml:lang="en">The mapping of document IDs, tags, aliases, and optional locale targets used by yuruna.link.</skos:definition>
+    <skos:definition xml:lang="en">The yuruna.link mapping from hand-written slugs and their aliases, and from generated document-ID rows, to titles, target URLs and optional per-locale targets.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yuruna.link/blob/bf87a8eff20cb9f16d6a53513b1d73debc5d735b/README.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yuruna.link/blob/78e1dd4a758ec673aa2d5d498f8b43035b8300c1/README.md" />
+    <skos:altLabel xml:lang="en">link catalog</skos:altLabel>
     <skos:scopeNote xml:lang="en">Not a message catalog.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#InformationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -6899,7 +7405,7 @@
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/caching.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/download-agent.md" />
-    <skos:scopeNote xml:lang="en">The existing translation glossary defines one registry-mirror use; this broader class separates that sense from HTTP and DNS caches.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">Separates the general reuse store from the HTTP cache, the DNS cache, and the container-registry mirror.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/storage#StorageResource" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
@@ -7044,6 +7550,18 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Quantity" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/storage#LabVault">
+    <rdfs:label xml:lang="en">lab vault</rdfs:label>
+    <skos:prefLabel xml:lang="en">lab vault</skos:prefLabel>
+    <skos:definition xml:lang="en">A per-lab plaintext file (lab.&lt;name&gt;.vault.yml) that New-Lab writes with the generated storage-account credentials, deliberately copyable to the lab's other hosts.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/framework-implementation-notes.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/lab-operator.md" />
+    <skos:scopeNote xml:lang="en">The test harness reads the host's vault, not this file.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/storage#StorageResource" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/storage#Vault" />
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/storage#LocalStorage">
     <rdfs:label xml:lang="en">local storage</rdfs:label>
     <skos:prefLabel xml:lang="en">local storage</skos:prefLabel>
@@ -7125,6 +7643,8 @@
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/pool-storage.md" />
     <skos:altLabel xml:lang="en">ypool-nas</skos:altLabel>
     <skos:altLabel xml:lang="en">yuruna pool storage</skos:altLabel>
+    <skos:altLabel xml:lang="en">pool share</skos:altLabel>
+    <skos:altLabel xml:lang="en">pool NAS</skos:altLabel>
     <skos:scopeNote xml:lang="en">Only the archived-cycle subtree is a cold archive; other subtrees contain live service data.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/storage#StorageResource" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -7216,6 +7736,7 @@
     <y:context xml:lang="en">Shared</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/stash-guide.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/pool-storage.md" />
+    <skos:altLabel xml:lang="en">stash share</skos:altLabel>
     <skos:scopeNote xml:lang="en">It is separate from the pool storage tier even when both are hosted by the same machine.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/storage#StorageResource" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -7229,6 +7750,21 @@
     <skos:scopeNote xml:lang="en">Modern scp and legacy scp can group uploads differently.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/storage#StorageAdmissionPolicy">
+    <rdfs:label xml:lang="en">storage admission policy</rdfs:label>
+    <skos:prefLabel xml:lang="en">storage admission policy</skos:prefLabel>
+    <skos:definition xml:lang="en">A project's read-only declaration of the memory and VM-storage capacity its topology needs on a host, checked before a cycle is admitted.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-config.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/host-hyperv.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alius-git/amisad.dev/blob/986dcf749ca49c7b4a15c32287c0ad0f1c0578c7/README.md" />
+    <skos:altLabel xml:lang="en">storage admission</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A shortage fails through the configuration gate; a VM startup failure during a cycle stays a provisioning failure.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Policy" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>host-storage.requirements.json</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/storage#StorageCapacity">
     <rdfs:label xml:lang="en">storage capacity</rdfs:label>
@@ -7267,7 +7803,9 @@
     <skos:prefLabel xml:lang="en">storage replication</skos:prefLabel>
     <skos:definition xml:lang="en">Copying completed cycle output from host-local storage into durable pool storage and recording verified completion.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/pool-storage.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/pool-storage.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-harness.md" />
+    <skos:altLabel xml:lang="en">pool-storage drain</skos:altLabel>
     <skos:scopeNote xml:lang="en">The running cycle's active files remain local.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -7278,6 +7816,7 @@
       </owl:Restriction>
     </rdfs:subClassOf>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/storage#CompletionSentinel" />
+    <y:codeToken>Invoke-PoolStorageDrain.ps1</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/storage#StorageResource">
     <rdfs:label xml:lang="en">storage resource</rdfs:label>
@@ -7304,13 +7843,18 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/storage#Vault">
     <rdfs:label xml:lang="en">vault</rdfs:label>
     <skos:prefLabel xml:lang="en">vault</skos:prefLabel>
-    <skos:definition xml:lang="en">The configured credential store supplying project or runner secrets to authorized operations.</skos:definition>
+    <skos:definition xml:lang="en">The per-host test-harness credential store (vault.yml), kept by the authentication extension, that supplies guest account passwords (with the previous password, so a half-applied rotation can recover), service and storage account passwords, the internal authentication key and optional service tokens to authorized operations through logical users mapped in users.yml.</skos:definition>
     <y:context xml:lang="en">Shared</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/authentication.md" />
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev-project/blob/ee1f65d0b5f53e2632dc0e3439b5707609659f77/README.md" />
-    <skos:scopeNote xml:lang="en">Its presence alone does not establish encryption against a compromised host account.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/authentication.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/vmconfig.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/lab-operator.md" />
+    <skos:altLabel xml:lang="en">host vault</skos:altLabel>
+    <skos:altLabel xml:lang="en">test-harness vault</skos:altLabel>
+    <skos:altLabel xml:lang="en">authentication vault</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Its presence alone does not establish encryption against a compromised host account. A guest password is committed only after a login proves it. Plaintext by design; not a production secrets store and not the per-lab lab vault.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/storage#StorageResource" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/storage#LabVault" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/storage#WriterLease">
     <rdfs:label xml:lang="en">writer lease</rdfs:label>
@@ -7346,9 +7890,9 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#ComponentTestPhase">
     <rdfs:label xml:lang="en">component test phase</rdfs:label>
     <skos:prefLabel xml:lang="en">component test phase</skos:prefLabel>
-    <skos:definition xml:lang="en">The sequence group used to build or validate components after resource preparation.</skos:definition>
+    <skos:definition xml:lang="en">The run of a guest sequence's ordered component steps, after its resource chain, to build or validate components.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:codeToken>component</y:codeToken>
@@ -7479,7 +8023,7 @@
     <skos:definition xml:lang="en">The configured state in which pool members finish current work and refrain from starting further cycles.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/pool-admin.md" />
-    <skos:scopeNote xml:lang="en">Draining is not forcibly terminating an in-flight step.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">Draining is not forcibly terminating an in-flight step. A host update's drain waits the same way for one host's running cycle without this pool setting, and the pool-storage drain is storage replication.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#DesiredState" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:codeToken>drain</y:codeToken>
@@ -7545,12 +8089,17 @@
     <skos:definition xml:lang="en">A pool setting under which canary members install every framework tip while the other members install only the newest revision with enough completed canary passes.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/5fda7746ded9940613d07f62f2cb8152e0d75eb4/docs/pool-admin.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-admin.md" />
     <skos:altLabel xml:lang="en">canary ring</skos:altLabel>
+    <skos:altLabel xml:lang="en">framework ring</skos:altLabel>
     <skos:scopeNote xml:lang="en">Without the setting every member installs the tip at its next boundary; a follower never moves back and holds when the aggregator does not answer.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Policy" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#HostPool" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#PoolAggregator" />
+    <y:codeToken>frameworkRing</y:codeToken>
+    <y:codeToken>canaryMembers</y:codeToken>
+    <y:codeToken>requiredPasses</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#GuestRunLostFailure">
     <rdfs:label xml:lang="en">guest run lost</rdfs:label>
@@ -7565,6 +8114,17 @@
     <y:codeToken>guest_run_lost</y:codeToken>
     <y:codeVocabulary>failureClass</y:codeVocabulary>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/5fda7746ded9940613d07f62f2cb8152e0d75eb4/test/modules/Test.FailureTaxonomy.psm1" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#GuestSequence">
+    <rdfs:label xml:lang="en">guest sequence</rdfs:label>
+    <skos:prefLabel xml:lang="en">guest sequence</skos:prefLabel>
+    <skos:definition xml:lang="en">A test sequence bound to guest OS keys through its resource chain, whose component and workload steps drive one guest.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestSequence" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#ResourceTestPhase" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#Heartbeat">
     <rdfs:label xml:lang="en">heartbeat</rdfs:label>
@@ -7666,10 +8226,12 @@
     <skos:prefLabel xml:lang="en">inner loop</skos:prefLabel>
     <skos:definition xml:lang="en">The cycle execution process that performs the resolved sequences and records their steps and outcomes.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/runner-outer-loop.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-harness.md" />
+    <skos:altLabel xml:lang="en">inner runner</skos:altLabel>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>Invoke-TestRunnerInnerLoop.ps1</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#InputLostFailure">
     <rdfs:label xml:lang="en">input lost</rdfs:label>
@@ -7765,15 +8327,17 @@
     <skos:prefLabel xml:lang="en">OCR timeout</skos:prefLabel>
     <skos:definition xml:lang="en">The requested screen text was not established within the allowed OCR wait interval.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/failure-schema.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/ocr.md" />
-    <skos:scopeNote xml:lang="en">Absence of the requested text alone does not establish a network outage or a failed installer.</skos:scopeNote>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/test/modules/Test.Remediation.psm1" />
+    <skos:scopeNote xml:lang="en">Absence of the requested text alone does not establish a network outage or a failed installer. A processor that serviced no interrupt during the wait points to a wedged guest kernel, while the class stays ocr_timeout.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#SequenceFailure" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:diagnosticCheck rdf:resource="https://yuruna.com/ontology/2026/11/testing#CaptureHealthCheck" />
     <y:diagnosticCheck rdf:resource="https://yuruna.com/ontology/2026/11/compute#GuestProcessCheck" />
     <y:possibleCause rdf:resource="https://yuruna.com/ontology/2026/11/testing#HostIOBlockedFailure" />
     <y:possibleCause rdf:resource="https://yuruna.com/ontology/2026/11/testing#InputLostFailure" />
+    <y:possibleCause rdf:resource="https://yuruna.com/ontology/2026/11/compute#GuestKernelStall" />
     <y:codeToken>ocr_timeout</y:codeToken>
     <y:codeVocabulary>failureClass</y:codeVocabulary>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/test/modules/Test.FailureTaxonomy.psm1" />
@@ -7781,6 +8345,21 @@
     <dcterms:source rdf:resource="urn:yuruna:ontology:source:labevents" />
     <y:evidenceBasis xml:lang="en">Classification token observed in a selected host failure file; deduplicated file contents are not unique incident counts.</y:evidenceBasis>
     <dcterms:source rdf:resource="urn:yuruna:ontology:source:labhostlogs" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#OneShotLease">
+    <rdfs:label xml:lang="en">one-shot lease</rdfs:label>
+    <skos:prefLabel xml:lang="en">one-shot lease</skos:prefLabel>
+    <skos:definition xml:lang="en">The runtime claim that a one-shot run (Invoke-TestProject, Debug-TestSequence) or a workload session holds from before its first side effect until it ends; while the holder is alive the runner does not start and a host repair runs no repair step.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <skos:scopeNote xml:lang="en">A holder that cannot be proven alive or gone is reported and the runner and the repair proceed, but another one-shot entry point refuses. Distinct from a writer lease and a DHCP lease.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#InformationArtifact" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#WorkloadSession" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostRepair" />
+    <y:codeToken>oneshot.pid</y:codeToken>
+    <y:codeToken>oneshot.start</y:codeToken>
+    <y:codeToken>oneshot-active</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#OpticalCharacterRecognition">
     <rdfs:label xml:lang="en">optical character recognition</rdfs:label>
@@ -7795,6 +8374,20 @@
     <y:expectedInput rdf:resource="https://yuruna.com/ontology/2026/11/testing#Screenshot" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#TextPattern" />
     <y:expectedOutput rdf:resource="https://yuruna.com/ontology/2026/11/testing#OCRText" />
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#OrchestrationSequence">
+    <rdfs:label xml:lang="en">orchestration sequence</rdfs:label>
+    <skos:prefLabel xml:lang="en">orchestration sequence</skos:prefLabel>
+    <skos:definition xml:lang="en">A test sequence whose steps run inner guest sequences or host actions in-process under one cycle document, one top-level row per inner sequence.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/test/schemas/orchestration-sequence.schema.yml" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <skos:scopeNote xml:lang="en">At most one per cycle plan, and never mixed with guest sequences; a mixed plan fails as plan_invalid.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestSequence" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestPlan" />
+    <y:codeToken>InvokeTestSequence</y:codeToken>
+    <y:codeToken>orchestration-sequence.schema.yml</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#OutcomeUnrecordedFault">
     <rdfs:label xml:lang="en">outcome unrecorded</rdfs:label>
@@ -7813,11 +8406,31 @@
     <skos:prefLabel xml:lang="en">outer loop</skos:prefLabel>
     <skos:definition xml:lang="en">The runner supervision loop that prepares a cycle, launches its inner process, handles termination, and decides whether to start again.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/runner-outer-loop.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <skos:altLabel xml:lang="en">outer runner</skos:altLabel>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#InnerLoop" />
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#Watchdog" />
+    <y:codeToken>Start-TestRunner.ps1</y:codeToken>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#PageStep">
+    <rdfs:label xml:lang="en">page step</rdfs:label>
+    <skos:prefLabel xml:lang="en">page step</skos:prefLabel>
+    <skos:definition xml:lang="en">A step that drives a web page in a headless browser inside the guest, reached over SSH; the page lives from the first webOpen until webClose, the end of the sequence, or a VM power or snapshot operation.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/09ce03a21245826a2d5fa38809de1c1cd1acf676/docs/failure-schema.md" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestStep" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#WebStepFailure" />
+    <y:codeToken>webOpen</y:codeToken>
+    <y:codeToken>webClick</y:codeToken>
+    <y:codeToken>webFill</y:codeToken>
+    <y:codeToken>webSelect</y:codeToken>
+    <y:codeToken>webExpect</y:codeToken>
+    <y:codeToken>webPress</y:codeToken>
+    <y:codeToken>webClose</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#PatternMatch">
     <rdfs:label xml:lang="en">pattern match</rdfs:label>
@@ -7904,6 +8517,19 @@
     <y:codeVocabulary>failureClass</y:codeVocabulary>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/test/modules/Test.FailureTaxonomy.psm1" />
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#PhraseLibrary">
+    <rdfs:label xml:lang="en">phrase library</rdfs:label>
+    <skos:prefLabel xml:lang="en">phrase library</skos:prefLabel>
+    <skos:definition xml:lang="en">A data file of phrases, each with an id, one sentence and a template step list per surface; the framework library loads first, and a project may add sentences but not redefine one.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/test/schemas/phrases.schema.yml" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#StepSentence" />
+    <y:codeToken>_phrases.yml</y:codeToken>
+    <y:codeToken>phrases</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#Polling">
     <rdfs:label xml:lang="en">polling</rdfs:label>
     <skos:prefLabel xml:lang="en">polling</skos:prefLabel>
@@ -7976,15 +8602,19 @@
     <dcterms:source rdf:resource="urn:yuruna:ontology:source:labevents" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#ResourceTestPhase">
-    <rdfs:label xml:lang="en">resource test phase</rdfs:label>
-    <skos:prefLabel xml:lang="en">resource test phase</skos:prefLabel>
-    <skos:definition xml:lang="en">The sequence group used to establish and validate resources needed by later test groups.</skos:definition>
+    <rdfs:label xml:lang="en">resource chain</rdfs:label>
+    <skos:prefLabel xml:lang="en">resource chain</skos:prefLabel>
+    <skos:definition xml:lang="en">The ordered, per-guest-OS list of prerequisite sequences named under a guest sequence's resource key, run ahead of that sequence's own steps unless a requiresSnapshot snapshot lets the runner skip it.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
-    <skos:scopeNote xml:lang="en">Uses the structural marker resource; not an infrastructure object.</skos:scopeNote>
-    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/test/schemas/sequence.schema.yml" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-harness.md" />
+    <skos:altLabel xml:lang="en">prerequisite chain</skos:altLabel>
+    <skos:scopeNote xml:lang="en">A list of sequence names, not steps and not infrastructure; it replaces the removed baseline key, which the loader rejects. Distinct from the deployment resource phase.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:codeToken>resource</y:codeToken>
+    <y:retiredLabel xml:lang="en">resource test phase</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#RetryAttempt">
     <rdfs:label xml:lang="en">retry attempt</rdfs:label>
@@ -8019,9 +8649,25 @@
     <skos:definition xml:lang="en">The limits, delay rules, and eligible conditions controlling repeated attempts of an operation.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/failure-schema.md" />
-    <skos:scopeNote xml:lang="en">Retrying a non-idempotent action may duplicate effects; eligibility depends on evidence and handler contracts.</skos:scopeNote>
+    <skos:altLabel xml:lang="en">retry budget</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Retrying a non-idempotent action may duplicate effects; eligibility depends on evidence and handler contracts. Not the Text-to-SQL example's retry budget, a dependency call's time allowance.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Policy" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#RunnerConsole">
+    <rdfs:label xml:lang="en">runner's console</rdfs:label>
+    <skos:prefLabel xml:lang="en">runner's console</skos:prefLabel>
+    <skos:definition xml:lang="en">The terminal session that a resident runner started by a host update runs in; an operator can attach to it and stop the runner with Ctrl+C.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <skos:scopeNote xml:lang="en">Not the guest console. A missing console never fails a host update; it adds the remark runner_console_unavailable.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SystemElement" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostUpdate" />
+    <y:implementationStatus xml:lang="en">tmux on Ubuntu KVM hosts; screen on macOS and a console window on Windows are design.</y:implementationStatus>
+    <y:codeToken>runnerConsole</y:codeToken>
+    <y:codeToken>runner_console_unavailable</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#RunnerFault">
     <rdfs:label xml:lang="en">runner fault</rdfs:label>
@@ -8033,6 +8679,40 @@
     <skos:scopeNote xml:lang="en">Keep runner-only fault codes separate from the shared failureClass enum.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#Failure" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#RunnerGate">
+    <rdfs:label xml:lang="en">runner gate</rdfs:label>
+    <skos:prefLabel xml:lang="en">runner gate</skos:prefLabel>
+    <skos:definition xml:lang="en">A per-user record that, while not open, keeps every runner process from starting a cycle, a pull or a VM sweep, so that a host repair or a host update can stop and restart the runner; it is handed back through a handoff and a preflight.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/control-routes.md" />
+    <skos:scopeNote xml:lang="en">Not the config gate, the cycle pause or a pool pause. A cycle it holds (gate-held) is neither a pass nor a failure.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#State" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostRepair" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#HostUpdate" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestRunner" />
+    <y:codeToken>runner-gate.record</y:codeToken>
+    <y:codeToken>gate-held</y:codeToken>
+    <y:codeToken>handoff-preflight</y:codeToken>
+    <y:codeToken>recovery-pending</y:codeToken>
+    <y:retiredLabel xml:lang="en">refresh gate</y:retiredLabel>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#RunnerLostMidCycle">
+    <rdfs:label xml:lang="en">runner lost mid-cycle</rdfs:label>
+    <skos:prefLabel xml:lang="en">runner lost mid-cycle</skos:prefLabel>
+    <skos:definition xml:lang="en">A host whose test runner ended inside a cycle while the host and its status service stayed up, so nothing restarts the runner.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-dashboard.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/pool-aggregator-implementation-notes.md" />
+    <skos:scopeNote xml:lang="en">Not a runner fault; a host restart reads as unreachable instead. Episodes are counted by episodeKey.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Situation" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#RunnerFault" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#HostPresence" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/diagnostics#RunnerExitRecord" />
+    <y:codeToken>runner_lost</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#RunnerStatus">
     <rdfs:label xml:lang="en">runner status</rdfs:label>
@@ -8112,8 +8792,12 @@
     <skos:definition xml:lang="en">A named test operation and its parameters, dispatched to a registered handler.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/host-io.md" />
+    <skos:altLabel xml:lang="en">action verb</skos:altLabel>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>action</y:codeToken>
+    <y:codeToken>actionVerb</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#SequenceFailure">
     <rdfs:label xml:lang="en">sequence failure</rdfs:label>
@@ -8138,6 +8822,7 @@
         <owl:someValuesFrom rdf:resource="https://yuruna.com/ontology/2026/11/testing#SequenceAction" />
       </owl:Restriction>
     </rdfs:subClassOf>
+    <y:codeToken>Register-SequenceAction</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#SnapshotRestoreFailure">
     <rdfs:label xml:lang="en">snapshot restore failed</rdfs:label>
@@ -8158,13 +8843,30 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#Snippet">
     <rdfs:label xml:lang="en">snippet</rdfs:label>
     <skos:prefLabel xml:lang="en">snippet</skos:prefLabel>
-    <skos:definition xml:lang="en">A small text item stored or executed in a context that determines its format and purpose.</skos:definition>
-    <y:context xml:lang="en">Shared</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/stash-guide.md" />
-    <skos:scopeNote xml:lang="en">A stored text snippet is not automatically executable or trusted.</skos:scopeNote>
-    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#InformationArtifact" />
+    <skos:definition xml:lang="en">A named, parameter-free list of sequence steps defined in a _snippets.yml library and spliced in place of a snippet step when the sequence file is read; a project snippet overrides a framework snippet of the same name.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/test/schemas/snippets.schema.yml" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-harness.md" />
+    <skos:altLabel xml:lang="en">step snippet</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Text put into the stash is a stash entry, not a snippet.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/storage#StashEntry" />
+    <y:codeToken>snippet</y:codeToken>
+    <y:codeToken>_snippets.yml</y:codeToken>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#StartSequence">
+    <rdfs:label xml:lang="en">start sequence</rdfs:label>
+    <skos:prefLabel xml:lang="en">start sequence</skos:prefLabel>
+    <skos:definition xml:lang="en">The guest sequence that creates, installs and first logs in to a fresh guest, run before any other sequence for that guest.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/host-hyperv.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/docs/vmconfig.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/failure-schema.md" />
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#GuestSequence" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:codeToken>start.*</y:codeToken>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#StatusService">
     <rdfs:label xml:lang="en">status service</rdfs:label>
@@ -8179,6 +8881,22 @@
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#RunnerStatus" />
     <y:retiredLabel xml:lang="en">status server</y:retiredLabel>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#StepSentence">
+    <rdfs:label xml:lang="en">step sentence</rdfs:label>
+    <skos:prefLabel xml:lang="en">step sentence</skos:prefLabel>
+    <skos:definition xml:lang="en">A sequence step written as a sentence that must match exactly one phrase of the vocabulary in force; when the file is read it is replaced by the action steps that phrase defines for the step's surface (screen or page).</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <skos:altLabel xml:lang="en">sentence step</skos:altLabel>
+    <skos:scopeNote xml:lang="en">Nothing interprets a sentence at run time.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#PhraseLibrary" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#PageStep" />
+    <y:codeToken>step</y:codeToken>
+    <y:codeToken>on</y:codeToken>
+    <y:codeToken>defaultSurface</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#StreamDrain">
     <rdfs:label xml:lang="en">drain</rdfs:label>
     <skos:prefLabel xml:lang="en">drain</skos:prefLabel>
@@ -8186,7 +8904,7 @@
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/d599dce7428757e444aaa22b089e8c600fead64c/docs/definition.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/globalization/terminology/pt-BR.terms.json" />
-    <skos:scopeNote xml:lang="en">Different from a pool drain request that lets a current cycle finish without starting another.</skos:scopeNote>
+    <skos:scopeNote xml:lang="en">Different from a pool drain request that lets a current cycle finish without starting another, from a host update's drain, and from the pool-storage drain.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#DrainingIntent" />
@@ -8206,12 +8924,13 @@
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/compute#VMAdmission" />
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#TestPlan">
-    <rdfs:label xml:lang="en">test plan</rdfs:label>
-    <skos:prefLabel xml:lang="en">test plan</skos:prefLabel>
+    <rdfs:label xml:lang="en">cycle plan</rdfs:label>
+    <skos:prefLabel xml:lang="en">cycle plan</skos:prefLabel>
     <skos:definition xml:lang="en">The resolved ordered set of sequences and operations selected for execution on a host.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-harness.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
     <skos:scopeNote xml:lang="en">Pool members each resolve their own full plan; membership does not imply work partitioning.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
@@ -8222,11 +8941,12 @@
       </owl:Restriction>
     </rdfs:subClassOf>
     <y:codeToken>test.runner.yml</y:codeToken>
+    <y:retiredLabel xml:lang="en">test plan</y:retiredLabel>
   </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#TestRunner">
     <rdfs:label xml:lang="en">test runner</rdfs:label>
     <skos:prefLabel xml:lang="en">test runner</skos:prefLabel>
-    <skos:definition xml:lang="en">The host-side automation that resolves and executes test plans while publishing progress and outcomes.</skos:definition>
+    <skos:definition xml:lang="en">The host-side automation that resolves and executes cycle plans while publishing progress and outcomes.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/runner-outer-loop.md" />
     <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-harness.md" />
@@ -8242,9 +8962,11 @@
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#TestSequence">
     <rdfs:label xml:lang="en">test sequence</rdfs:label>
     <skos:prefLabel xml:lang="en">test sequence</skos:prefLabel>
-    <skos:definition xml:lang="en">A declarative set of test actions grouped into resource, component, and workload phases.</skos:definition>
+    <skos:definition xml:lang="en">A declarative YAML file the sequence engine runs: a guest sequence names its prerequisite sequences per guest OS under resource and lists its own steps under component and workload; an orchestration sequence lists inner sequences to run in one cycle.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/test/schemas/sequence.schema.yml" />
+    <skos:scopeNote xml:lang="en">Its file name is the lookup key; sequenceGuid survives a rename.</skos:scopeNote>
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#ConfigurationArtifact" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#ResourceTestPhase" />
@@ -8383,12 +9105,60 @@
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SoftwareService" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
   </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#WebStepFailure">
+    <rdfs:label xml:lang="en">web step failed</rdfs:label>
+    <skos:prefLabel xml:lang="en">web step failed</skos:prefLabel>
+    <skos:definition xml:lang="en">A page step ended on what the page showed: the element it sought was absent, ambiguous or unable to take input, an expectation did not hold, a navigation failed, the page opened a dialog, a new window or a download, or the page crashed, closed or stopped answering.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/09ce03a21245826a2d5fa38809de1c1cd1acf676/docs/failure-schema.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/09ce03a21245826a2d5fa38809de1c1cd1acf676/test/modules/Test.FailureTaxonomy.psm1" />
+    <skos:scopeNote xml:lang="en">Filed from the page step's own account of how it ended. A lost tunnel or socket files as a network timeout, an unresolved guest address as IP not discovered, and a missing browser, a refused protocol command or a step the guest cannot run as an invalid plan. The class has no unattended retry and no warm resume.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/testing#SequenceFailure" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/network#IPNotDiscoveredFailure" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#PageStep" />
+    <y:codeToken>web_step_failed</y:codeToken>
+    <y:codeVocabulary>failureClass</y:codeVocabulary>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#WorkloadMcpServer">
+    <rdfs:label xml:lang="en">workload MCP server</rdfs:label>
+    <skos:prefLabel xml:lang="en">workload MCP server</skos:prefLabel>
+    <skos:definition xml:lang="en">The stdio MCP server that lets an authoring client drive a running guest with the sequence engine's own step executor, one step at a time, and save the steps that worked as a sequence file.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/extensions-api.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-harness.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/dev-only/mcp-guide.md" />
+    <skos:altLabel xml:lang="en">workload server</skos:altLabel>
+    <skos:scopeNote xml:lang="en">For writing tests; no test cycle uses it. Not an application workload.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#SoftwareService" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#WorkloadSession" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#TestSequence" />
+    <y:codeToken>Start-WorkloadMcpServer.ps1</y:codeToken>
+  </owl:Class>
+  <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#WorkloadSession">
+    <rdfs:label xml:lang="en">workload session</rdfs:label>
+    <skos:prefLabel xml:lang="en">workload session</skos:prefLabel>
+    <skos:definition xml:lang="en">The attachment of the workload MCP server's worker to one running VM, from session start to end; it holds the one-shot lease and journals the steps that succeeded.</skos:definition>
+    <y:context xml:lang="en">Yuruna</y:context>
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-harness.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/1dc629eebb0098b9cce9674ff87689d869c6e18b/dev-only/mcp-guide.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/runner-outer-loop.md" />
+    <skos:scopeNote xml:lang="en">It never creates or stops the VM and has no idle expiry. While it is open, the runner, Debug-TestSequence and a second session are refused.</skos:scopeNote>
+    <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
+    <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#WorkloadMcpServer" />
+    <y:relatedConcept rdf:resource="https://yuruna.com/ontology/2026/11/testing#OneShotLease" />
+    <y:codeToken>workload_session_start</y:codeToken>
+    <y:codeToken>workload_session_end</y:codeToken>
+    <y:codeToken>Invoke-WorkloadSession.ps1</y:codeToken>
+  </owl:Class>
   <owl:Class rdf:about="https://yuruna.com/ontology/2026/11/testing#WorkloadTestPhase">
     <rdfs:label xml:lang="en">workload test phase</rdfs:label>
     <skos:prefLabel xml:lang="en">workload test phase</skos:prefLabel>
-    <skos:definition xml:lang="en">The sequence group used to deploy or validate application behavior after its prerequisites.</skos:definition>
+    <skos:definition xml:lang="en">The run of a guest sequence's ordered workload steps, after its component steps, to deploy or validate application behavior.</skos:definition>
     <y:context xml:lang="en">Yuruna</y:context>
-    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/49bf4c9df89aa5ec604b892d06c3b0840a0e6465/docs/test-sequences.md" />
+    <dcterms:source rdf:resource="https://github.com/alissonsol/yurunadev/blob/a65116888ac2f3f1ee06aafd07ffdcc677a9245e/docs/test-sequences.md" />
     <rdfs:subClassOf rdf:resource="https://yuruna.com/ontology/2026/11/yuruna#Process" />
     <y:evidenceBasis xml:lang="en">Source-defined concept; no occurrence asserted.</y:evidenceBasis>
     <y:codeToken>workload</y:codeToken>

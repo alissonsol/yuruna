@@ -33,7 +33,7 @@ func TestMintControlProofGolden(t *testing.T) {
 // TestMintControlProofEmptyToken: no configured internal authentication key -> no proof, so /go/host
 // adds no fragment and the host falls back to loopback-only control.
 func TestMintControlProofEmptyToken(t *testing.T) {
-	if got := mintControlProof("", refreshHostIDForProofs, 0); got != "" {
+	if got := mintControlProof("", repairHostIDForProofs, 0); got != "" {
 		t.Fatalf("empty token must yield empty proof, got %q", got)
 	}
 }
@@ -42,16 +42,16 @@ func TestMintControlProofEmptyToken(t *testing.T) {
 // The answer an extension service cannot work out for itself.
 const proofToken = "sekret-internal-auth-key"
 
-// refreshHostIDForProofs is a host id used as the audience of a host-bound proof.
-const refreshHostIDForProofs = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+// repairHostIDForProofs is a host id used as the audience of a host-bound proof.
+const repairHostIDForProofs = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
 // TestVerifyControlProofAcceptsWhatItMints closes the loop on the format: what this
 // daemon hands a browser is what this daemon will later accept back from the service
 // that browser landed on.
 func TestVerifyControlProofAcceptsWhatItMints(t *testing.T) {
 	now := time.Now()
-	proof := mintControlProof(proofToken, refreshHostIDForProofs, controlProofTTL)
-	if !verifyControlProof(proofToken, proof, refreshHostIDForProofs, now, controlProofMaxTTL) {
+	proof := mintControlProof(proofToken, repairHostIDForProofs, controlProofTTL)
+	if !verifyControlProof(proofToken, proof, repairHostIDForProofs, now, controlProofMaxTTL) {
 		t.Fatalf("a freshly minted proof did not verify: %q", proof)
 	}
 }
@@ -60,7 +60,7 @@ func TestVerifyControlProofRefusesWhatItDidNotMint(t *testing.T) {
 	now := time.Now()
 	fresh := now.Add(controlProofTTL).Unix()
 	bound := func(token string, expiry int64) string {
-		return controlproof.ProofFor(token, refreshHostIDForProofs, expiry)
+		return controlproof.ProofFor(token, repairHostIDForProofs, expiry)
 	}
 	cases := []struct {
 		name  string
@@ -71,7 +71,7 @@ func TestVerifyControlProofRefusesWhatItDidNotMint(t *testing.T) {
 		// The ceiling is what stops a captured token minting an eternal pass.
 		{"expiry beyond the ceiling", proofToken, bound(proofToken, now.Add(controlProofMaxTTL+time.Minute).Unix())},
 		{"already expired", proofToken, bound(proofToken, now.Add(-time.Second).Unix())},
-		{"tampered signature", proofToken, strconv.FormatInt(fresh, 10) + "." + refreshHostIDForProofs + ".AAAA"},
+		{"tampered signature", proofToken, strconv.FormatInt(fresh, 10) + "." + repairHostIDForProofs + ".AAAA"},
 		{"no dot", proofToken, "not-a-proof"},
 		{"empty proof", proofToken, ""},
 		// A daemon holding no token has no key to check against, so nothing verifies.
@@ -90,7 +90,7 @@ func TestVerifyControlProofRefusesWhatItDidNotMint(t *testing.T) {
 func TestVerifyControlProofRefusesAnUnboundProof(t *testing.T) {
 	now := time.Now()
 	unbound := controlProofFor(proofToken, now.Add(controlProofTTL).Unix())
-	for _, audience := range []string{"", refreshHostIDForProofs, "svc-stash-service"} {
+	for _, audience := range []string{"", repairHostIDForProofs, "svc-stash-service"} {
 		if verifyControlProof(proofToken, unbound, audience, now, controlProofMaxTTL) {
 			t.Errorf("an unbound proof verified for audience %q", audience)
 		}

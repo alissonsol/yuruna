@@ -1,0 +1,505 @@
+// LICENSEURI https://yuruna.link/license
+// Copyright (c) 2019-2026 by Alisson Sol et al.
+// GUID: 4234ef4e-4eaa-47de-9852-f1ce4616bd14
+
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	sdkpool "yuruna.com/test/extension/extension-sdk/pool"
+	"yuruna.com/test/extension/pool-aggregator-service/internal/hostpoll"
+)
+
+// The repair capability's path through this daemon: read from each host's
+// control-status, clamped, merged with an expiry, published in pool-status and
+// one bounded gauge -- and never minted, never carried in a redirect, never
+// exposed through MCP.
+
+const repairHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func serveControlStatus(code int, body string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/control/control-status" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(code)
+		fmt.Fprint(w, body)
+	}))
+}
+
+func TestFetchControlStatusReadsTheRepairSummary(t *testing.T) {
+	const head = `{"ok":true,"tokenConfigured":true,"tokenTag":"TAG","utcNow":"2026-07-29T12:00:00Z"`
+	cases := []struct {
+		name     string
+		body     string
+		wantNil  bool
+		avail    string
+		reason   string
+		ceiling  string
+		remote   string
+		state    string
+		protocol int
+	}{
+		{"present", head + `,"repair":{"protocol":1,"availability":"available","ceiling":"start-if-stopped","reason":"","remote":"provisioned","state":"idle"}}`,
+			false, sdkpool.RepairAvailable, "", sdkpool.RungStartIfStopped, sdkpool.RepairRemoteProvisioned, sdkpool.RepairStateIdle, 1},
+		{"absent", head + `}`, true, "", "", "", "", "", 0},
+		{"explicit null", head + `,"repair":null}`, true, "", "", "", "", "", 0},
+		{"other protocol", head + `,"repair":{"protocol":2,"availability":"available","ceiling":"probe","remote":"provisioned","state":"idle"}}`,
+			false, sdkpool.RepairUnavailable, sdkpool.RepairReasonProtocolUnsupported, sdkpool.RungProbe, sdkpool.RepairRemoteProvisioned, sdkpool.RepairStateIdle, 2},
+		{"protocol as a string", head + `,"repair":{"protocol":"1","availability":"available","ceiling":"probe"}}`,
+			false, sdkpool.RepairUnavailable, sdkpool.RepairReasonCapabilityMalformed, "", sdkpool.RepairRemoteUnknown, sdkpool.RepairStateUnknown, 0},
+		{"not an object", head + `,"repair":"available"}`,
+			false, sdkpool.RepairUnavailable, sdkpool.RepairReasonCapabilityMalformed, "", sdkpool.RepairRemoteUnknown, sdkpool.RepairStateUnknown, 0},
+		{"unknown availability", head + `,"repair":{"protocol":1,"availability":"sure","ceiling":"probe","remote":"missing","state":"idle"}}`,
+			false, sdkpool.RepairUnavailable, sdkpool.RepairReasonCapabilityMalformed, sdkpool.RungProbe, sdkpool.RepairRemoteMissing, sdkpool.RepairStateIdle, 1},
+		{"no availability", head + `,"repair":{"protocol":1,"ceiling":"probe"}}`,
+			false, sdkpool.RepairUnavailable, sdkpool.RepairReasonCapabilityMalformed, "", sdkpool.RepairRemoteUnknown, sdkpool.RepairStateUnknown, 0},
+		{"ceiling not a rung", head + `,"repair":{"protocol":1,"availability":"unavailable","ceiling":"everything","reason":"no_qualified_rung","remote":"missing","state":"idle"}}`,
+			false, sdkpool.RepairUnavailable, "no_qualified_rung", "", sdkpool.RepairRemoteMissing, sdkpool.RepairStateIdle, 1},
+		{"reason out of shape", head + `,"repair":{"protocol":1,"availability":"unavailable","reason":"<script>","remote":"missing","state":"idle"}}`,
+			false, sdkpool.RepairUnavailable, sdkpool.RepairReasonCapabilityMalformed, "", sdkpool.RepairRemoteMissing, sdkpool.RepairStateIdle, 1},
+		{"remote and state out of vocabulary", head + `,"repair":{"protocol":1,"availability":"available","ceiling":"reclaim","remote":"root","state":"hung"}}`,
+			false, sdkpool.RepairAvailable, "", sdkpool.RungReclaim, sdkpool.RepairRemoteUnknown, sdkpool.RepairStateUnknown, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			srv := serveControlStatus(http.StatusOK, c.body)
+			defer srv.Close()
+			cs, err := hostpoll.FetchControlStatus(srv.Client(), srv.URL)
+			if err != nil || !cs.Present || cs.TokenTag != "TAG" {
+				t.Fatalf("the legacy fields must still read: %+v %v", cs, err)
+			}
+			if c.wantNil {
+				if cs.Repair != nil {
+					t.Fatalf("repair = %+v, want absent", *cs.Repair)
+				}
+				return
+			}
+			if cs.Repair == nil {
+				t.Fatal("repair absent")
+			}
+			r := *cs.Repair
+			if r.Availability != c.avail || r.Reason != c.reason || r.Ceiling != c.ceiling || r.Remote != c.remote || r.State != c.state || r.Protocol != c.protocol {
+				t.Fatalf("repair = %+v", r)
+			}
+		})
+	}
+}
+
+// An answer past the cap is an error, not a truncation: a truncated document
+// fails to parse and would otherwise leave every verdict stuck at its previous
+// value.
+func TestFetchControlStatusRefusesAnOversizeAnswer(t *testing.T) {
+	pad := strings.Repeat("x", 5000)
+	srv := serveControlStatus(http.StatusOK, `{"ok":true,"tokenConfigured":true,"tokenTag":"TAG","pad":"`+pad+`"}`)
+	defer srv.Close()
+	if _, err := hostpoll.FetchControlStatus(srv.Client(), srv.URL); err != errControlStatusOversize {
+		t.Fatalf("oversize answer: err = %v, want errControlStatusOversize", err)
+	}
+	exact := `{"ok":true,"tokenConfigured":true,"tokenTag":"TAG","pad":"`
+	exact += strings.Repeat("y", maxControlStatusBytes-len(exact)-2) + `"}`
+	if len(exact) != maxControlStatusBytes {
+		t.Fatalf("fixture is %d bytes", len(exact))
+	}
+	at := serveControlStatus(http.StatusOK, exact)
+	defer at.Close()
+	if cs, err := hostpoll.FetchControlStatus(at.Client(), at.URL); err != nil || !cs.Present {
+		t.Fatalf("an answer of exactly the cap must read: %+v %v", cs, err)
+	}
+}
+
+// repairHost is a status service whose control-status answer the test swaps
+// between phases, like TestPollOnceControlStickiness does for the control
+// verdict.
+type repairHost struct {
+	mu      sync.Mutex
+	control func(http.ResponseWriter)
+	srv     *httptest.Server
+}
+
+func newRepairHost(t *testing.T) *repairHost {
+	t.Helper()
+	h := &repairHost{}
+	h.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/runtime/status.json":
+			fmt.Fprintf(w, `{"hostId":%q,"host":"host.ubuntu.kvm","overallStatus":"pass"}`, repairHostID)
+		case "/control/control-status":
+			h.mu.Lock()
+			f := h.control
+			h.mu.Unlock()
+			f(w)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	t.Cleanup(h.srv.Close)
+	return h
+}
+
+func (h *repairHost) set(f func(http.ResponseWriter)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.control = f
+}
+
+func availableAnswer(w http.ResponseWriter) {
+	fmt.Fprint(w, `{"ok":true,"tokenConfigured":false,"tokenTag":"","utcNow":"","repair":{"protocol":1,"availability":"available","ceiling":"start-if-stopped","reason":"","remote":"provisioned","state":"idle"}}`)
+}
+
+func pollState(t *testing.T, h *repairHost, now time.Time) (*poolState, *http.Client) {
+	t.Helper()
+	u, err := url.Parse(h.srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := newPoolState("default", port)
+	s.view().Hosts[repairHostID] = &hostView{HostId: repairHostID, CurrentIP: u.Hostname(), LastSeenUnixMs: now.UnixMilli()}
+	return s, h.srv.Client()
+}
+
+// A host that answers replaces its reading; one whose control-status fails
+// keeps the ceiling for display but is demoted; one that answers without the
+// field is not_advertised; one that goes dark is host_unreachable; and a
+// recovered host is available again. The legacy control verdict keeps its
+// own stickiness beside it.
+func TestPollOnceMergesTheRepairCapability(t *testing.T) {
+	now := time.Now().UTC()
+	h := newRepairHost(t)
+	h.set(availableAnswer)
+	s, client := pollState(t, h, now)
+
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	got := s.view().Hosts[repairHostID].RepairView(now, s.repairTTL)
+	if got.Availability != sdkpool.RepairAvailable || got.Ceiling != sdkpool.RungStartIfStopped || !got.RemoteUsable() || got.ObservedUnixMs != now.UnixMilli() {
+		t.Fatalf("after an available answer: %+v", got)
+	}
+
+	h.set(func(w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) })
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	got = s.view().Hosts[repairHostID].RepairView(now, s.repairTTL)
+	if got.Availability != sdkpool.RepairUnavailable || got.Reason != sdkpool.RepairReasonControlStatusUnreadable || got.Ceiling != sdkpool.RungStartIfStopped || got.RemoteUsable() {
+		t.Fatalf("after a failed control-status read: %+v", got)
+	}
+
+	h.set(func(w http.ResponseWriter) { fmt.Fprint(w, `{"ok":true,"pad":"`+strings.Repeat("z", 5000)+`"}`) })
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	if got = s.view().Hosts[repairHostID].RepairView(now, s.repairTTL); got.Reason != sdkpool.RepairReasonControlStatusUnreadable {
+		t.Fatalf("after an oversize answer: %+v", got)
+	}
+
+	h.set(availableAnswer)
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	h.set(func(w http.ResponseWriter) { w.WriteHeader(http.StatusNotFound) })
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	got = s.view().Hosts[repairHostID].RepairView(now, s.repairTTL)
+	if got.Availability != sdkpool.RepairUnavailable || got.Reason != sdkpool.RepairReasonNotAdvertised {
+		t.Fatalf("after a route-less answer: %+v", got)
+	}
+
+	h.set(func(w http.ResponseWriter) {
+		fmt.Fprint(w, `{"ok":true,"tokenConfigured":false,"tokenTag":"","utcNow":""}`)
+	})
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	if got = s.view().Hosts[repairHostID].RepairView(now, s.repairTTL); got.Reason != sdkpool.RepairReasonNotAdvertised {
+		t.Fatalf("after an answer without the field: %+v", got)
+	}
+
+	h.set(availableAnswer)
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	h.srv.Close()
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	hv := s.view().Hosts[repairHostID]
+	got = hv.RepairView(now, s.repairTTL)
+	if hv.Reachable || got.Availability != sdkpool.RepairUnavailable || got.Reason != sdkpool.RepairReasonHostUnreachable || got.Ceiling != sdkpool.RungStartIfStopped {
+		t.Fatalf("after the host went dark: reachable=%v %+v", hv.Reachable, got)
+	}
+}
+
+func TestPollOnceRecoversAnAvailableCapability(t *testing.T) {
+	now := time.Now().UTC()
+	h := newRepairHost(t)
+	h.set(func(w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) })
+	s, client := pollState(t, h, now)
+	s.pollOnce(client, "no-such-squid.log", "", now)
+	if got := s.view().Hosts[repairHostID].RepairView(now, s.repairTTL); got.Availability != sdkpool.RepairUnavailable {
+		t.Fatalf("a host never read must not be available: %+v", got)
+	}
+	h.set(availableAnswer)
+	later := now.Add(time.Minute)
+	s.pollOnce(client, "no-such-squid.log", "", later)
+	if got := s.view().Hosts[repairHostID].RepairView(later, s.repairTTL); !got.RemoteUsable() || got.Reason != "" {
+		t.Fatalf("a recovered host must read available again: %+v", got)
+	}
+}
+
+// The single expiry rule: an available reading is believed for the TTL and
+// not one millisecond longer; age is always stamped; the zero value reads as
+// never observed.
+func TestRepairViewExpiresAnAvailableReading(t *testing.T) {
+	observed := time.Unix(1900000000, 0)
+	ttl := 2 * time.Minute
+	hv := &hostView{Repair: sdkpool.HostRepair{Protocol: 1, Availability: sdkpool.RepairAvailable, Ceiling: sdkpool.RungReclaim,
+		Remote: sdkpool.RepairRemoteProvisioned, State: sdkpool.RepairStateIdle, ObservedUnixMs: observed.UnixMilli()}}
+	if v := hv.RepairView(observed.Add(ttl), ttl); v.Availability != sdkpool.RepairAvailable || v.AgeSeconds != 120 {
+		t.Fatalf("at the TTL: %+v", v)
+	}
+	v := hv.RepairView(observed.Add(ttl+time.Second), ttl)
+	if v.Availability != sdkpool.RepairUnavailable || v.Reason != sdkpool.RepairReasonObservationExpired || v.RemoteUsable() || v.AgeSeconds != 121 {
+		t.Fatalf("past the TTL: %+v", v)
+	}
+	if hv.Repair.Availability != sdkpool.RepairAvailable {
+		t.Fatal("RepairView must not mutate the stored reading")
+	}
+	if v := (&hostView{}).RepairView(observed, ttl); v != sdkpool.UnobservedRepair() {
+		t.Fatalf("zero value = %+v, want the unobserved value", v)
+	}
+	// A clock behind the observation is age 0, not a negative age.
+	if v := hv.RepairView(observed.Add(-time.Hour), ttl); v.AgeSeconds != 0 || v.Availability != sdkpool.RepairAvailable {
+		t.Fatalf("clock behind the observation: %+v", v)
+	}
+}
+
+// The window follows the poll interval upward but never below the floor.
+func TestRepairTTLDefaultsToTheFloor(t *testing.T) {
+	if s := newPoolState("default", 8080); s.repairTTL != repairObservationFloor {
+		t.Fatalf("default repairTTL = %v, want %v", s.repairTTL, repairObservationFloor)
+	}
+	if !strings.Contains(readSource(t, "main.go"), "state.repairTTL = max(repairObservationFloor, 3**interval)") {
+		t.Fatal("main no longer derives the repair window from the poll interval")
+	}
+}
+
+func readSource(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatalf("read %s: %v", name, err)
+	}
+	return string(b)
+}
+
+// pool-status keeps control as a string and adds repair as an object, and
+// nothing in it is a key, a tag, a proof or a request id.
+func TestPoolStatusCarriesRepairBesideTheControlString(t *testing.T) {
+	const token = "yuruna-net1-golden-token"
+	s := newPoolState("default", 8080)
+	s.authToken = token
+	now := time.Now()
+	s.view().Hosts[repairHostID] = &hostView{HostId: repairHostID, BaseURL: "http://192.0.2.10:8080", Reachable: true, Control: controlReady,
+		LastSeenUnixMs: now.UnixMilli(), Repair: sdkpool.HostRepair{Protocol: 1, Availability: sdkpool.RepairAvailable,
+			Ceiling: sdkpool.RungStartIfStopped, Remote: sdkpool.RepairRemoteProvisioned, State: sdkpool.RepairStateIdle, ObservedUnixMs: now.UnixMilli()}}
+	s.view().Hosts["42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"] = &hostView{HostId: "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", BaseURL: "http://192.0.2.11:8080"}
+	rec := httptest.NewRecorder()
+	s.handlePoolStatus(rec, httptest.NewRequest(http.MethodGet, routePoolStatus, nil))
+	body := rec.Body.String()
+	var doc struct {
+		Hosts []map[string]json.RawMessage `json:"hosts"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil || len(doc.Hosts) != 2 {
+		t.Fatalf("pool-status did not parse: %v\n%s", err, body)
+	}
+	for _, h := range doc.Hosts {
+		var control string
+		if err := json.Unmarshal(h["control"], &control); err != nil && len(h["control"]) > 0 {
+			t.Fatalf("control is no longer a string: %s", h["control"])
+		}
+		var r sdkpool.HostRepair
+		if err := json.Unmarshal(h["repair"], &r); err != nil || r.Availability == "" {
+			t.Fatalf("repair is not an object with an availability: %s", h["repair"])
+		}
+	}
+	var hid string
+	_ = json.Unmarshal(doc.Hosts[0]["hostId"], &hid)
+	var first, second sdkpool.HostRepair
+	_ = json.Unmarshal(doc.Hosts[0]["repair"], &first)
+	_ = json.Unmarshal(doc.Hosts[1]["repair"], &second)
+	if hid != repairHostID || !first.RemoteUsable() || second.Reason != sdkpool.RepairReasonNeverObserved {
+		t.Fatalf("repair entries: %s %+v %+v", hid, first, second)
+	}
+	for _, secret := range []string{token, controlTagFor(token), "yrp", "requestId"} {
+		if strings.Contains(body, secret) {
+			t.Fatalf("pool-status carries %q", secret)
+		}
+	}
+}
+
+var repairGaugeRE = regexp.MustCompile(`(?m)^yuruna_pool_host_repair_available\{pool="[^"]*",hostId="([^"]*)",hostIdDashed="[^"]*",state="([^"]*)"\} (\d+)$`)
+
+// Garbage from fifty hosts cannot grow the series: the gauge carries only the
+// four states and a 0/1 value, and host_info's label set is untouched.
+func TestRepairGaugeCardinalityIsBounded(t *testing.T) {
+	s := newPoolState("default", 8080)
+	now := time.Now()
+	for i := 0; i < 50; i++ {
+		id := fmt.Sprintf("42%030x", i)
+		s.view().Hosts[id] = &hostView{HostId: id, BaseURL: "http://192.0.2.1:8080", LastSeenUnixMs: now.UnixMilli(),
+			Repair: sdkpool.HostRepair{Protocol: 1, Availability: []string{sdkpool.RepairAvailable, "garbage-" + strconv.Itoa(i)}[i%2],
+				Ceiling: sdkpool.RungProbe, State: fmt.Sprintf("state-%d\"}", i), ObservedUnixMs: now.UnixMilli()}}
+	}
+	s.view().Hosts["42ffffffffffffffffffffffffffffff"] = &hostView{HostId: "42ffffffffffffffffffffffffffffff", LastSeenUnixMs: now.UnixMilli(),
+		Repair: sdkpool.HostRepair{Protocol: 1, Availability: sdkpool.RepairAvailable, Ceiling: sdkpool.RungProbe,
+			State: sdkpool.RepairStateRecoveryPending, ObservedUnixMs: now.UnixMilli()}}
+	rec := httptest.NewRecorder()
+	s.handleMetrics(rec, metricsRequest())
+	body := rec.Body.String()
+	rows := repairGaugeRE.FindAllStringSubmatch(body, -1)
+	if len(rows) != 51 {
+		t.Fatalf("%d repair gauge rows, want 51\n%s", len(rows), body)
+	}
+	states := map[string]bool{}
+	ones := 0
+	for _, m := range rows {
+		states[m[2]] = true
+		switch m[3] {
+		case "1":
+			ones++
+		case "0":
+		default:
+			t.Fatalf("gauge value %q is not 0 or 1", m[3])
+		}
+	}
+	allowed := map[string]bool{"idle": true, "active": true, "recovery_pending": true, "unknown": true}
+	for st := range states {
+		if !allowed[st] {
+			t.Fatalf("state label %q escaped the vocabulary", st)
+		}
+	}
+	if !states["recovery_pending"] || ones != 26 {
+		t.Fatalf("states %v, %d available rows (want 26)", sortedStates(states), ones)
+	}
+	info := regexp.MustCompile(`(?m)^yuruna_pool_host_info\{([^}]*)\}`).FindStringSubmatch(body)
+	if info == nil {
+		t.Fatal("no host_info row")
+	}
+	var keys []string
+	for _, kv := range regexp.MustCompile(`(\w+)="`).FindAllStringSubmatch(info[1], -1) {
+		keys = append(keys, kv[1])
+	}
+	want := "pool,poolGuid,hostId,hostIdDashed,hostType,version,commit,commitUrl,projectCommitUrl,baseUrl,cycleStartUtc,cycleFolderUrl,status,control"
+	if strings.Join(keys, ",") != want {
+		t.Fatalf("host_info labels changed:\n got  %s\n want %s", strings.Join(keys, ","), want)
+	}
+}
+
+// The redirects mint only control proofs (bound to their target), nothing here
+// mints or serves a repair proof, and the lab-token exchange still hands out
+// only the legacy key.
+func TestTheAggregatorMintsNoRepairAuthority(t *testing.T) {
+	s := newPoolState("default", 8080)
+	s.authToken = proofToken
+	s.view().Hosts[repairHostID] = &hostView{HostId: repairHostID, BaseURL: "http://192.0.2.10:8080", CurrentIP: "192.0.2.10",
+		Reachable: true, LastSeenUnixMs: time.Now().UnixMilli(), ExtensionTargets: map[string]string{"stash-service": "http://192.0.2.12"}}
+	seedExtensionHealth(s, repairHostID, stashArea, "http://192.0.2.12")
+	// The whole Location is pinned: the destination the route resolves, no
+	// query, and a fragment that is one control proof and nothing else.
+	proofShape := regexp.MustCompile(`^[0-9]+\.(?:[A-Za-z0-9_-]+\.)?[A-Za-z0-9+/]+=*$`)
+	for target, want := range map[string]string{
+		"/go/host?host=" + repairHostID:  "http://192.0.2.10:8080",
+		"/go/stash?host=" + repairHostID: "http://192.0.2.12",
+	} {
+		rec := httptest.NewRecorder()
+		if strings.HasPrefix(target, "/go/host") {
+			s.handleGoHost(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		} else {
+			s.handleGoStash(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		}
+		loc := rec.Header().Get("Location")
+		dest, fragment, cut := strings.Cut(loc, "#")
+		proof, isControl := strings.CutPrefix(fragment, "yctl=")
+		if rec.Code != http.StatusFound || !cut || dest != want || !isControl || !proofShape.MatchString(proof) {
+			t.Fatalf("%s: %d Location %q, want %s#yctl=<control proof>", target, rec.Code, loc, want)
+		}
+		if !verifyControlProof(proofToken, proof, "", time.Now(), controlProofMaxTTL) {
+			t.Fatalf("%s: the fragment is not a control proof this daemon accepts", target)
+		}
+	}
+
+	ls := newLabState("abc123")
+	rec := postLabToken(ls, "10.0.0.7:5555", `{"labToken":"abc123"}`)
+	var env labEnvelope
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatal(err)
+	}
+	opened, err := openLabEnvelope(t, "abc123", env)
+	if err != nil || opened != ls.authToken || strings.HasPrefix(opened, "yrp") {
+		t.Fatalf("the exchange opened %q (%v), want only the legacy key", opened, err)
+	}
+
+	// The mux is assembled in main(), so the registrations are read from the
+	// source: no route mints, verifies or forwards an operator credential, and
+	// the repair package is not linked into this daemon at all.
+	for _, name := range []string{"main.go", "mcp.go"} {
+		src := readSource(t, name)
+		if strings.Contains(src, "extension-sdk/hostrepair") || strings.Contains(src, `"yrp`) {
+			t.Fatalf("%s links or spells repair authority material", name)
+		}
+		for _, line := range strings.Split(src, "\n") {
+			if strings.Contains(line, "mux.HandleFunc(") && strings.Contains(strings.ToLower(line), "repair") {
+				t.Fatalf("%s registers a repair route: %s", name, strings.TrimSpace(line))
+			}
+		}
+	}
+}
+
+// This daemon's control-proof verifier refuses both other forms in the shared
+// vector file: the unbound legacy wire, which names no target, and the
+// versioned repair wire, even under the very token that derives its key.
+func TestLegacyVerifierRefusesTheSharedRepairVector(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "extension-sdk", "hostrepair", "testdata", "vectors.json"))
+	if err != nil {
+		t.Fatalf("read shared vectors: %v", err)
+	}
+	var v struct {
+		Legacy struct {
+			Token, Wire  string
+			ExpiryUnix   int64 `json:"expiryUnix"`
+			VerifyAtUnix int64 `json:"verifyAtUnix"`
+		} `json:"legacy"`
+		Versioned struct {
+			Wire string `json:"wire"`
+		} `json:"versioned"`
+	}
+	if err := json.Unmarshal(raw, &v); err != nil {
+		t.Fatal(err)
+	}
+	if got := controlProofFor(v.Legacy.Token, v.Legacy.ExpiryUnix); got != v.Legacy.Wire {
+		t.Fatalf("the legacy mint drifted from the shared vector: %s", got)
+	}
+	at := time.Unix(v.Legacy.VerifyAtUnix, 0)
+	if verifyControlProof(v.Legacy.Token, v.Legacy.Wire, "", at, controlProofMaxTTL) {
+		t.Fatal("the shared legacy vector verified here; the unbound form is refused")
+	}
+	if verifyControlProof(v.Legacy.Token, v.Versioned.Wire, "", at, controlProofMaxTTL) {
+		t.Fatal("the control-proof verifier accepted a repair proof")
+	}
+}
+
+// Sorted state names so a failure message is stable.
+func sortedStates(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42e6d9c8-1705-43a2-89f3-6013cc25bb54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,6 +88,19 @@ Describe 'real sequence execution preserves source positions and current-step ca
         $advisory.Signals | Should -Contain 'guest-clock-anomaly'
         $advisory.ClockWarnings | Should -Contain 'cpu-idle-exceeds-boot-uptime'
         $advisory.AutomaticRecoveryAllowed | Should -BeFalse
+    }
+    It 'files a tapOn step with an invalid option as plan_invalid before anything is captured' {
+        $script:CaptureSources = [Collections.Generic.List[string]]::new()
+        # The engine's own post-failure capture still runs, with the default
+        # frame source, because tapOn saved no frame.
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $script:CaptureSources.Add([string]$Source); $false }
+        $script:FixtureSequence = @{ steps = @(@{ action = 'tapOn'; label = 'Next'; match = 'fuzzy' }) }
+        Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SequenceFile 3>$null | Should -BeFalse
+        $record = Get-Content (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json') -Raw | ConvertFrom-Json
+        $record.reason | Should -Be step -Because "the failure path must not crash: $($record.context.crash | ConvertTo-Json -Compress -Depth 4)"
+        $record.failureClass | Should -Be 'plan_invalid'
+        $record.context.causeDetail.hostInputFault.reason | Should -Be 'invalid-argument'
+        $script:CaptureSources | Should -Not -Contain 'window' -Because 'the step fails before its first capture'
     }
     It 'reports resumed steps using their original file positions' {
         $script:FixtureSequence = @{ steps=@(1..5 | ForEach-Object { @{ action='safetyFixture' } }) }
@@ -552,5 +565,246 @@ Describe 'checkpoint matching reuses already parsed timestamps' {
         Mock ConvertTo-PerfUtc -ModuleName Test.PerfAggregate { param($Value) return [string]$Value }
         (Find-PerfCheckpoint -Step $step -Sidecar $sidecars).Label | Should -Be match
         Should -Invoke ConvertTo-PerfUtc -ModuleName Test.PerfAggregate -Times 2 -Exactly
+    }
+}
+
+Describe 'a sentence step runs through the engine without evaluating its secret twice' {
+    # The engine expands every description at run time, so a label that still
+    # held the password expression would call the extension a second time and
+    # print the password. These cases run the real reader and engine on a
+    # sentence login and read every sink the run writes.
+    BeforeAll {
+        # The first Invoke-Sequence of a process loads the planner, whose load
+        # imports the engine again with -Force and replaces the handler and
+        # variable modules a mock below was set in. Loading it here keeps those
+        # mocks in force when this block runs alone.
+        Import-Module (Join-Path $PSScriptRoot 'Test.SequencePlanner.psm1') -Global -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'Test.WarmResume.psm1') -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $PSScriptRoot 'Test.Capability.psm1') -Force -Global -DisableNameChecking
+        $script:SentenceRootNumber = 0
+        $script:LoginEntry = '  - step: "login ${username} with password ${ext:authentication.GetPassword(${username})}"'
+
+        function Write-SentenceSequence {
+            <#
+            .SYNOPSIS
+                Write the fixture guest sequence with the given component entries.
+            #>
+            [CmdletBinding()]
+            param([Parameter(Mandatory)][string]$Component)
+            $text = "description: sentence fixture`nkeystrokeMechanism: gui`nresource:`n  ubuntu.server.26: []`n" +
+                "variables:`n  username: yuuser26`n  loginUser: yuuser26`ncomponent:`n$Component`n"
+            [IO.File]::WriteAllText($script:SentenceSequence, $text)
+        }
+
+        function Invoke-SentenceRun {
+            <#
+            .SYNOPSIS
+                Run the fixture sequence and return its result with the texts of every sink.
+            #>
+            [CmdletBinding()]
+            [OutputType([hashtable])]
+            param()
+            $all = @(Invoke-Sequence -HostType host.ubuntu.kvm -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:SentenceSequence 3>$null 6>&1)
+            $information = @($all | Select-Object -First ($all.Count - 1) |
+                Where-Object { $_ -is [System.Management.Automation.InformationRecord] } | ForEach-Object { [string]$_.MessageData }) -join "`n"
+            $currentAction = Join-Path $env:YURUNA_RUNTIME_DIR 'current-action.json'
+            $currentText = if (Test-Path -LiteralPath $currentAction) { [IO.File]::ReadAllText($currentAction) } else { '' }
+            return @{
+                Result      = $all[-1]
+                Information = $information
+                Sink        = @(($script:SentenceEvents | ConvertTo-Json -Depth 8), $information, $currentText)
+            }
+        }
+    }
+
+    BeforeEach {
+        $script:SentenceRootNumber++
+        $root = Join-Path $TestDrive ('sentence-run{0:D2}' -f $script:SentenceRootNumber)
+        $sequences = Join-Path $root 'test/sequences'
+        New-Item -ItemType Directory -Path $sequences -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $sequences '_phrases.yml'), @'
+phrases:
+  login:
+    sentence: "login <user> with password <password:secret>"
+    screen:
+      - action: passwdPrompt
+        pattern: "login:"
+        text: "<user>"
+      - action: passwdPrompt
+        pattern: "Password:"
+        text: "<password>"
+'@)
+        $script:SentenceSequence = Join-Path $sequences 'workload.fixture.login.yml'
+        $script:SentenceEvents = [Collections.Generic.List[object]]::new()
+        Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { $script:SentenceEvents.Add($EventRecord) }
+        Mock Restart-VMConsole -ModuleName Test.SequenceEngine { $true }
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        Mock Wait-ForText -ModuleName Test.SequenceHandler { $true }
+        Mock Send-TabNavigation -ModuleName Test.SequenceHandler { }
+        Mock Invoke-TypeDrainEnter -ModuleName Test.SequenceHandler { $true }
+        Mock Invoke-ExtensionExpression -ModuleName Test.SequenceVariable { 'fixture-secret' }
+        Register-SequenceAction -Name safetyFixture -ReplaySafety observe -CapturesOwnFailureScreenshot $true -Handler { $true }
+    }
+
+    It 'runs a sentence login with one extension call and no password in events, log lines or the current action' {
+        Write-SentenceSequence -Component $script:LoginEntry
+        $run = Invoke-SentenceRun
+        Assert-True ($run.Result -eq $true) 'the sentence login must pass'
+        Should -Invoke Invoke-ExtensionExpression -ModuleName Test.SequenceVariable -Times 1 -Exactly
+        foreach ($text in $run.Sink) {
+            Assert-False $text.Contains('fixture-secret') 'a sink holds the password'
+            Assert-False $text.Contains('GetPassword') 'a sink holds the password expression'
+        }
+        Assert-True $run.Information.Contains('login yuuser26 with password *** (1/2)') "information: $($run.Information)"
+        Assert-True $run.Information.Contains('(2/2)') "information: $($run.Information)"
+    }
+
+    It 'keeps an author description that repeats the password expression from being evaluated' {
+        Write-SentenceSequence -Component ($script:LoginEntry + "`n    description: ""Log in with `${ext:authentication.GetPassword(`${username})}""`n    descriptionLocalized:`n      pt-BR: ""Entrar com `${ext:authentication.GetPassword(`${username})}""")
+        $run = Invoke-SentenceRun
+        Assert-True ($run.Result -eq $true) 'the sentence login must pass'
+        Should -Invoke Invoke-ExtensionExpression -ModuleName Test.SequenceVariable -Times 1 -Exactly
+        foreach ($text in $run.Sink) {
+            Assert-False $text.Contains('fixture-secret') 'a sink holds the password'
+            Assert-False $text.Contains('GetPassword') 'a sink holds the password expression'
+        }
+    }
+
+    It 'records a failed sentence login without the password and names its sentence' {
+        Mock Wait-ForText -ModuleName Test.SequenceHandler { -not (($Pattern -join ' ') -match 'Password:') }
+        Write-SentenceSequence -Component $script:LoginEntry
+        $run = Invoke-SentenceRun
+        Assert-True ($run.Result -eq $false) 'the login must fail at the password prompt'
+        Should -Invoke Invoke-ExtensionExpression -ModuleName Test.SequenceVariable -Times 0 -Exactly
+        $recordText = [IO.File]::ReadAllText((Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'))
+        Assert-False $recordText.Contains('fixture-secret') 'the record holds the password'
+        Assert-False $recordText.Contains('GetPassword') 'the record holds the password expression'
+        $record = $recordText | ConvertFrom-Json
+        Assert-StringEqual -Expected 'wait' -Actual $record.context.stepFailurePhase
+        Assert-StringEqual -Expected 'passwdPrompt' -Actual $record.actionVerb
+        Assert-Equal -Expected 2 -Actual $record.stepNumber
+        Assert-True ($record.context.fromStep -ceq 'login ${username} with password ***') "fromStep: $($record.context.fromStep)"
+    }
+
+    It 'numbers the steps a sentence generates in file order, as the planner helpers do' {
+        Write-SentenceSequence -Component ("  - action: safetyFixture`n" + $script:LoginEntry + "`n  - action: safetyFixture")
+        $run = Invoke-SentenceRun
+        Assert-True ($run.Result -eq $true) 'the run must pass'
+        $ends = @($script:SentenceEvents | Where-Object { $_.event -eq 'step_end' })
+        Assert-StringEqual -Expected '1,2,3,4' -Actual (@($ends | ForEach-Object { $_.stepNumber }) -join ',')
+        Assert-StringEqual -Expected 'safetyFixture,passwdPrompt,passwdPrompt,safetyFixture' -Actual (@($ends | ForEach-Object { $_.actionVerb }) -join ',')
+        Assert-StringEqual -Expected 'safetyFixture,passwdPrompt,passwdPrompt,safetyFixture' -Actual (@(Get-WarmResumeStepAction -Path $script:SentenceSequence) -join ',')
+        $stepList = [Collections.Generic.List[object]]::new()
+        $null = Get-SequenceActionsUsed -SequencePath $script:SentenceSequence -StepList $stepList
+        Assert-StringEqual -Expected '1,2,3,4' -Actual (@($stepList | ForEach-Object { $_.step }) -join ',')
+        Assert-StringEqual -Expected 'safetyFixture,passwdPrompt,passwdPrompt,safetyFixture' -Actual (@($stepList | ForEach-Object { $_.action }) -join ',')
+    }
+}
+
+Describe 'a run takes an in-memory definition, a caller-owned variable table and a continuation' {
+    # A workload session runs each operation as one Invoke-Sequence call on a
+    # definition it built, with one variable table for the whole session, and
+    # must not reset the console between operations. The cases above, which
+    # pass none of the three parameters, prove that a cycle's run is unchanged.
+    BeforeAll {
+        # The first Invoke-Sequence of a process loads the planner, whose load
+        # imports the engine again with -Force and replaces the variable module
+        # a mock below is set in. Loading it here keeps those mocks in force
+        # when this block runs alone.
+        Import-Module (Join-Path $PSScriptRoot 'Test.SequencePlanner.psm1') -Global -DisableNameChecking
+    }
+
+    BeforeEach {
+        Mock Send-CycleEventSafely -ModuleName Test.SequenceEngine { }
+        Mock Restart-VMConsole -ModuleName Test.SequenceEngine { $true }
+        Mock Get-VMScreenshot -ModuleName Test.SequenceEngine { $false }
+        Mock Read-SequenceFile -ModuleName Test.SequenceEngine { $script:FixtureSequence }
+        $script:ScopeRows = [Collections.Generic.List[object]]::new()
+        $rows = $script:ScopeRows
+        Register-SequenceAction -Name scopeFixture -ReplaySafety observe -CapturesOwnFailureScreenshot $true -Handler {
+            param($context)
+            $rows.Add(@{
+                    StepNum      = $context.StepNum
+                    StepCount    = $context.StepCount
+                    SequencePath = $context.SequencePath
+                    VMName       = $context.VMName
+                    Vars         = $context.Vars
+                    VarsCopy     = $context.Vars.Clone()
+                    Baseline     = (Get-CarriedConsoleBaseline -VMName $context.VMName)
+                })
+            if ($context.Step.renameTo) { $context.NewVMName = [string]$context.Step.renameTo }
+            return $true
+        }.GetNewClosure()
+        $script:AbsentPath = Join-Path $TestDrive 'never-written.yml'
+    }
+
+    It 'builds the variable table the sequence used to build inline' {
+        Mock Invoke-ExtensionExpression -ModuleName Test.SequenceVariable { 'from-the-extension' }
+        $ordered = New-SequenceVariableScope -VMName 'never-a-real-vm' -HostType 'host.fixture' -GuestKey 'guest.fixture' `
+            -SequenceVariables ([ordered]@{ first = 'one'; second = '${first}-two'; escaped = 'ab$$cd' }) -EffectiveVariables $null
+        Assert-StringEqual 'one-two' $ordered['second'] 'a sequence value did not see the one before it'
+        Assert-True ([string]::Equals('ab$cd', [string]$ordered['escaped'], [StringComparison]::Ordinal)) "the escape gave '$($ordered['escaped'])'"
+        Assert-StringEqual 'never-a-real-vm' $ordered['vmName']
+        Assert-StringEqual 'host.fixture' $ordered['hostType']
+        Assert-StringEqual 'guest.fixture' $ordered['guestKey']
+        Assert-StringEqual 'never-a-real-vm' $ordered['hostname']
+
+        $override = New-SequenceVariableScope -VMName 'never-a-real-vm' -HostType 'host.fixture' -GuestKey 'guest.fixture' `
+            -SequenceVariables ([ordered]@{ token = '${ext:authentication.NewRandomPassword()}' }) `
+            -EffectiveVariables ([ordered]@{ token = 'given-by-the-chain'; hostname = 'box.example.test' })
+        Should -Invoke Invoke-ExtensionExpression -ModuleName Test.SequenceVariable -Times 0 -Exactly
+        Assert-StringEqual 'given-by-the-chain' $override['token']
+        Assert-StringEqual 'box' $override['hostLabel'] 'hostLabel is the first label of a dotted hostname'
+
+        $login = New-SequenceVariableScope -VMName 'never-a-real-vm' -HostType 'host.fixture' -GuestKey 'guest.fixture' `
+            -SequenceVariables ([ordered]@{ username = 'yuuser26'; loginUser = 'fixture-login' }) -EffectiveVariables $null
+        Assert-StringEqual 'fixture-login' $login['loginUser'] 'a loginUser the fixture set was replaced'
+    }
+
+    It 'runs an in-memory definition without reading a file' {
+        $definition = @{ description = 'in-memory fixture'; steps = [object[]]@(@{ action = 'scopeFixture' }, @{ action = 'scopeFixture' }) }
+        $result = Invoke-Sequence -HostType host.fixture -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:AbsentPath -Definition $definition
+        Assert-True ($result -eq $true) "the run answered '$result'"
+        Should -Invoke Read-SequenceFile -ModuleName Test.SequenceEngine -Times 0 -Exactly
+        Assert-False (Test-Path -LiteralPath $script:AbsentPath) 'the run wrote the sequence file'
+        Assert-StringEqual '1,2' (@($script:ScopeRows | ForEach-Object { $_.StepNum }) -join ',')
+        Assert-StringEqual '2,2' (@($script:ScopeRows | ForEach-Object { $_.StepCount }) -join ',')
+    }
+
+    It "uses the caller's variable table as it is" {
+        $scope = @{ p = 'ab$$cd'; vmName = 'never-a-real-vm'; hostType = 'host.fixture'; guestKey = 'guest.fixture'; hostname = 'never-a-real-vm' }
+        $definition = @{ description = 'scope fixture'; steps = [object[]]@(@{ action = 'scopeFixture' }) }
+        $result = Invoke-Sequence -HostType host.fixture -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:AbsentPath -Definition $definition -VariableScope $scope
+        Assert-True ($result -eq $true) "the run answered '$result'"
+        Assert-True ([object]::ReferenceEquals($scope, $script:ScopeRows[0].Vars)) 'the handler saw another table'
+        Assert-True ([string]::Equals('ab$$cd', [string]$script:ScopeRows[0].VarsCopy['p'], [StringComparison]::Ordinal)) "the handler saw '$($script:ScopeRows[0].VarsCopy['p'])'"
+        Assert-True ([string]::Equals('ab$$cd', [string]$scope['p'], [StringComparison]::Ordinal)) 'the run expanded a value of the caller table'
+    }
+
+    It "writes a rename into the caller's variable table" {
+        $scope = @{ vmName = 'never-a-real-vm'; hostType = 'host.fixture'; guestKey = 'guest.fixture'; hostname = 'never-a-real-vm' }
+        $definition = @{ description = 'rename fixture'; steps = [object[]]@(@{ action = 'scopeFixture'; renameTo = 'never-a-real-vm-renamed' }) }
+        $result = Invoke-Sequence -HostType host.fixture -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:AbsentPath -Definition $definition -VariableScope $scope
+        Assert-True ($result -eq $true) "the run answered '$result'"
+        Assert-StringEqual 'never-a-real-vm-renamed' $scope['vmName']
+        Assert-StringEqual 'never-a-real-vm-renamed' (Get-SequenceFinishedVMName)
+    }
+
+    It 'keeps the carried baseline and the console viewer under -Continuation' {
+        Set-CarriedConsoleBaseline -VMName 'never-a-real-vm' -Text "login: prompt`nsecond line"
+        $definition = @{ description = 'continuation fixture'; steps = [object[]]@(@{ action = 'scopeFixture' }) }
+        $result = Invoke-Sequence -HostType host.fixture -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:AbsentPath -Definition $definition -Continuation
+        Assert-True ($result -eq $true) "the run answered '$result'"
+        Assert-NotNull $script:ScopeRows[0].Baseline 'the carried baseline was cleared'
+        Should -Invoke Restart-VMConsole -ModuleName Test.SequenceEngine -Times 0 -Exactly
+    }
+
+    It 'clears the baseline and restarts the viewer without -Continuation' {
+        Set-CarriedConsoleBaseline -VMName 'never-a-real-vm' -Text "login: prompt`nsecond line"
+        $definition = @{ description = 'restart fixture'; steps = [object[]]@(@{ action = 'scopeFixture' }) }
+        $result = Invoke-Sequence -HostType host.fixture -GuestKey guest.fixture -VMName never-a-real-vm -SequencePath $script:AbsentPath -Definition $definition
+        Assert-True ($result -eq $true) "the run answered '$result'"
+        Assert-Null $script:ScopeRows[0].Baseline 'the carried baseline survived a new run'
+        Should -Invoke Restart-VMConsole -ModuleName Test.SequenceEngine -Times 1 -Exactly
     }
 }

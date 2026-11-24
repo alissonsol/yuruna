@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,11 +18,11 @@
 
 <#
 .SYNOPSIS
-    Dev helper: run one test sequence (with its baseline chain) from a
+    Dev helper: run one test sequence (with its resource chain) from a
     chosen step. No image download; reuses an existing VM if present.
-    See test/README.md (Developing test sequences) for usage and naming.
+    See docs/test-sequences.md for usage and naming.
 
-    When the named sequence declares a `baseline:` chain (the same chain
+    When the named sequence declares a `resource:` chain (the same chain
     the cycle planner walks), Debug-TestSequence runs every prereq sequence
     in order BEFORE the named sequence -- start.* + workload.* both, in
     dependency order -- so the VM lands in the same state the runner
@@ -36,7 +36,7 @@
     Base name (no .yml, e.g. "workload.guest.ubuntu.server.24")
     OR a path to an existing .yml sequence file. The path
     form is shell-tab-completion friendly; it supplies the
-    top-level file directly while the baseline chain is
+    top-level file directly while the resource chain is
     still walked via the standard search paths. GuestKey
     is derived from the basename. Required.
 .PARAMETER StartStep
@@ -197,6 +197,16 @@ $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $script:CmdLineLogLevel -Co
 # shells.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
+# --- REGION: Completion record for a waiting parent
+# A parent that waits for this run (the replay of a workload session) names a
+# completion record and an invocation id; the outer finally writes the record.
+# The names are read once and removed, so no process this run starts inherits
+# them.
+$completionSidecar    = [string]$env:YURUNA_SEQUENCE_COMPLETION_SIDECAR
+$completionInvocation = [string]$env:YURUNA_SEQUENCE_INVOCATION_ID
+Remove-Item -LiteralPath Env:\YURUNA_SEQUENCE_COMPLETION_SIDECAR,
+    Env:\YURUNA_SEQUENCE_INVOCATION_ID -ErrorAction SilentlyContinue
+
 # --- REGION: Elevation check
 # See https://yuruna.link/42010605-0017
 if (-not (Assert-Elevation -HostType (Get-HostType))) { exit $ExitFailure }
@@ -327,7 +337,7 @@ try {
         $allDirs = @($SequencesDir) + (Get-ProjectFlatTestSearchDir -RepoRoot $RepoRoot)
         $allDirs |
             ForEach-Object { Get-ChildItem -Path $_ -Filter "*.yml" -ErrorAction SilentlyContinue } |
-            Where-Object { $_.Name -notin @('actions.yml', '_snippets.yml') } |
+            Where-Object { $_.Name -notin @('actions.yml', '_snippets.yml', '_phrases.yml') } |
             Sort-Object BaseName -Unique |
             ForEach-Object { Write-Output "    $($_.BaseName)" }
         exit $ExitFailure
@@ -388,7 +398,7 @@ try {
         exit $orchExit
     }
 
-    # --- REGION: Derive GuestKey from the sequence's baseline map
+    # --- REGION: Derive GuestKey from the sequence's resource map
     # See https://yuruna.link/42010605-000e
     if ($GuestKey) {
         Write-Output (Format-YurunaOperatorMessage -Key 'runner.operator_79690a75cc829126' -Arguments @{ guestKey = "$GuestKey" })
@@ -818,6 +828,14 @@ try {
         }
     }
 } finally {
+    if ($completionSidecar -and $completionInvocation) {
+        $completionOutcome = if ($script:TestSequenceOutcome -eq 'pass') { 'pass' }
+            elseif ($null -eq $script:TestSequenceOutcome) { 'not-run' }
+            else { 'fail' }
+        $completionVmName = [string](Get-SequenceFinishedVMName)
+        if (-not $completionVmName) { $completionVmName = [string]$VMName }
+        $null = Write-SequenceCompletionSidecar -Path $completionSidecar -InvocationId $completionInvocation -SequenceName ([string]$SequenceName) -Outcome $completionOutcome -Reason ([string]$script:TestSequenceReason) -FinishedVmName $completionVmName
+    }
     if (-not $isNested -and (Get-Command Exit-YurunaOneShotLease -ErrorAction SilentlyContinue)) {
         $null = Exit-YurunaOneShotLease -RuntimeDir $env:YURUNA_RUNTIME_DIR -Confirm:$false
     }

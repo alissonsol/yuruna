@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42df85f3-7223-8240-a334-1350406572f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -5332,6 +5332,51 @@
             'trust' = 'external'
         }
         '‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'automation.private_state_migration_conflict' = @(
+        '[!‮Ƀóţħ '
+        @{
+            'arg' = 'legacy'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' áñď '
+        @{
+            'arg' = 'current'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' éẋíšţ, šó ţħé ƥříṽáţé šţáţé řóóţ íš řéƒúšéď áñď ñóţħíñğ ŵáš ɱéřğéď, ɱóṽéď óř çřéáţéď. Ķééƥ ţħé ďířéçţóřý ţħáţ ħóļďš ţħíš ħóšţ''š šţáţé, ɱóṽé ţħé óţħéř óñé ášíďé, áñď řúñ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'automation.private_state_migration_lock_held' = @(
+        '[!‮Ţħé éářļíéř ƥříṽáţé šţáţé řóóţ '
+        @{
+            'arg' = 'legacy'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' ŵáš ñóţ ɱóṽéď: '
+        @{
+            'arg' = 'lockFile'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' íš ħéļď ƀý áñóţħéř ƥřóçéšš, šúçħ áš áñ óļď řúññéř, šţáţúš ļíšţéñéř óř ħóšţ çóñţřóļļéř. Šţóƥ ţħáţ ƥřóçéšš áñď šţářţ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]'
+    )
+    'automation.private_state_moved' = @(
+        '[!‮Ɱóṽéď ƥříṽáţé ħóšţ šţáţé: '
+        @{
+            'arg' = 'previous'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ' -> '
+        @{
+            'arg' = 'current'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '‬ ~~~~~~~~~~~~~~~~~~~~]'
     )
     'automation.retry_already_applied' = @(
         '[!‮'

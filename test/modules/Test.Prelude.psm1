@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,9 +114,11 @@ function Initialize-YurunaEntryPointModuleSet {
         cycle boundaries refreshes mid-run git-pull'd code changes.
     .PARAMETER For
         Which entry-point kind is calling: Outer, Inner, Project, Sequence,
-        StatusService, CachingProxyService, PoolAdmin or Refresh (the
-        host-refresh entry point and its worker, which must not load the
-        outer loop's tree-kill helpers).
+        StatusService, CachingProxyService, PoolAdmin, Repair (the
+        host-repair entry point and its worker, which must not load the
+        outer loop's tree-kill helpers), HostUpdateController (the host
+        controller, from its snapshot) or HostUpdate (a host update's step
+        child and the host command).
     .PARAMETER ModulesDir
         Absolute path to test/modules/. Caller passes
         $paths.ModulesDir from Initialize-YurunaEntryPoint.
@@ -125,7 +127,7 @@ function Initialize-YurunaEntryPointModuleSet {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions',
         '', Justification = 'Module-import side effects only; the operator has no -WhatIf intent here.')]
     param(
-        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxyService','PoolAdmin','Refresh')][string]$For,
+        [Parameter(Mandatory)][ValidateSet('Outer','Inner','Project','Sequence','StatusService','CachingProxyService','PoolAdmin','Repair','HostUpdateController','HostUpdate')][string]$For,
         [Parameter(Mandatory)][string]$ModulesDir
     )
     # Canonical per-kind module lists. Order matters where a downstream
@@ -340,17 +342,33 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.YurunaDir.psm1', 'Test.Config.psm1',
             'Test.ConfigValidator.psm1', 'Test.PoolSync.psm1', 'Test.PoolAdmin.psm1'
         )
-        # The host-refresh entry point and its worker. Dependencies before
+        # The host-repair entry point and its worker. Dependencies before
         # dependents. Test.RunnerOuterLoop is deliberately absent: it brings
-        # the cycle kills, the unpruned tree kill a refresh must never reach.
+        # the cycle kills, the unpruned tree kill a repair must never reach.
         # So are Test.Log, Test.EventSchema and Test.SequenceFailureState -- the
         # worker writes no cycle events and no last_failure.json -- and
         # Test.ExtensionService, which Test.ServiceVm and Test.ServiceCensus
         # import themselves.
-        Refresh = @(
+        Repair = @(
             'Test.HostContract.psm1', 'Test.YurunaDir.psm1', 'Test.Config.psm1', 'Test.StateFile.psm1', 'Test.OuterLog.psm1',
             'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1',
-            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostRefreshIntent.psm1', 'Test.HostRefresh.psm1'
+            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostOperationJournal.psm1', 'Test.HostRepair.psm1'
+        )
+        # The host controller runs from a private snapshot that holds
+        # automation/, test/modules/, the generated PowerShell catalogs and a few
+        # named files but nothing under host/, so its set loads no host driver
+        # (Test.HostContract) and, like Repair, not the outer loop's kills.
+        HostUpdateController = @(
+            'Test.YurunaDir.psm1', 'Test.StateFile.psm1', 'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.InnerSpawn.psm1',
+            'Test.SingleInstance.psm1', 'Test.DiagnosticPreservation.psm1', 'Test.HostOperationJournal.psm1', 'Test.HostUpdate.psm1'
+        )
+        # A host update's step child and the host command: the Repair set
+        # plus the runner's elevation check and the controller library.
+        HostUpdate = @(
+            'Test.HostContract.psm1', 'Test.YurunaDir.psm1', 'Test.Config.psm1', 'Test.StateFile.psm1', 'Test.OuterLog.psm1',
+            'Test.SingleFlightLock.psm1', 'Test.CriticalRecord.psm1', 'Test.SingleInstance.psm1', 'Test.InnerSpawn.psm1',
+            'Test.Recovery.psm1', 'Test.ServiceCensus.psm1', 'Test.ServiceVm.psm1', 'Test.HostOperationJournal.psm1', 'Test.HostRepair.psm1',
+            'Test.RunnerElevation.psm1', 'Test.DiagnosticPreservation.psm1', 'Test.HostUpdate.psm1'
         )
     }
     # Every module is checked before any is imported. A missing one used to be
@@ -491,7 +509,7 @@ function Assert-NoOtherRunner {
     .SYNOPSIS
         Return $false (and print a banner) when a live Start-TestRunner
         already owns runner.pid in the given runtime dir, another live
-        one-shot run holds its lease, or a host refresh holds this host's
+        one-shot run holds its lease, or a host operation holds this host's
         runner.
     .DESCRIPTION
         Start-TestRunner ([test/Start-TestRunner.ps1](../Start-TestRunner.ps1))
@@ -499,7 +517,7 @@ function Assert-NoOtherRunner {
         OtherRunner via Stop-StaleRunner. The dev / project entry
         points (Debug-TestSequence, Invoke-TestProject) need the opposite
         contract: refuse to start so they do not interfere with a
-        cycle in progress, or with a host refresh that is holding every
+        cycle in progress, or with a host operation that is holding every
         runner spawn.
 
         The banner goes to the Information stream, so the success stream
@@ -508,7 +526,7 @@ function Assert-NoOtherRunner {
         result into a non-empty array that no caller could refuse on.
     .OUTPUTS
         [bool] $true when the runtime dir is unowned or owned by us and no
-        refresh holds the runner; $false otherwise (caller should exit).
+        host operation holds the runner; $false otherwise (caller should exit).
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -516,15 +534,15 @@ function Assert-NoOtherRunner {
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter(Mandatory)][string]$CallerName
     )
-    if (Get-Command Get-YurunaRefreshGateState -ErrorAction SilentlyContinue) {
-        $gate = Get-YurunaRefreshGateState -RuntimeDir $RuntimeDir
+    if (Get-Command Get-YurunaRunnerGateState -ErrorAction SilentlyContinue) {
+        $gate = Get-YurunaRunnerGateState -RuntimeDir $RuntimeDir
         if (-not $gate.SpawnAllowed) {
-            Write-Information (Format-YurunaOperatorMessage -Key 'runner.no_other_runner_refresh_active' -Arguments @{
+            Write-Information (Format-YurunaOperatorMessage -Key 'runner.no_other_runner_gate_held' -Arguments @{
                 callerName = "$CallerName"; requestId = "$($gate.RequestId)"; state = "$($gate.State)" }) -InformationAction Continue
             return $false
         }
     } else {
-        Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping the host-refresh gate check."
+        Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping the runner gate check."
     }
     if (-not (Get-Command Get-RunnerInstanceState -ErrorAction SilentlyContinue)) {
         Write-Verbose "$CallerName : Test.SingleInstance not loaded; skipping no-other-runner check."

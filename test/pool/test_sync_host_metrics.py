@@ -1,4 +1,4 @@
-# Version: 2026.11.16
+# Version: 2026.11.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 422be02a-af80-4daf-a685-5d5c309c6896
@@ -94,7 +94,7 @@ class Synchronization(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'prometheus.yml'
             path.write_bytes(BASE)
-            with patch.object(metrics, 'run'), patch.object(metrics, 'reload_state', return_value=(1, 1)), patch.object(metrics, 'reload_and_confirm', side_effect=[InterruptedError('cancelled'), None]):
+            with patch.object(metrics, 'run'), patch.object(metrics, 'reload_state', return_value=(1, 1)), patch.object(metrics, 'reload_and_confirm', side_effect=[InterruptedError('canceled'), None]):
                 with self.assertRaisesRegex(RuntimeError, 'restored and reloaded'):
                     metrics.synchronize(path, 'new')
             self.assertEqual(path.read_bytes(), BASE)

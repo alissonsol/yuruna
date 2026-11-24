@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 423477ea-a0ec-419b-b7b3-939dd00dc84a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -185,6 +185,8 @@ Describe 'authentication provider read-only credential plans' {
         }
         function Get-AuthFixtureSnapshot {
             @(Get-ChildItem -LiteralPath $script:AuthRoot -Recurse -Force | Sort-Object FullName | ForEach-Object {
+                # Windows directory enumeration can return metadata cached before fixture writes.
+                $_.Refresh()
                 [ordered]@{
                     Path = [IO.Path]::GetRelativePath($script:AuthRoot, $_.FullName)
                     Directory = $_.PSIsContainer
@@ -253,6 +255,21 @@ Describe 'authentication provider read-only credential plans' {
         $script:AuthModule = Import-Module -Name $copy -Force -PassThru -DisableNameChecking
     }
     AfterEach { Remove-Module -ModuleInfo $script:AuthModule -Force }
+
+    It 'snapshots current directory metadata instead of stale enumeration values' {
+        $directory=Join-Path $script:AuthRoot 'metadata'
+        $null=[IO.Directory]::CreateDirectory($directory)
+        $script:StaleSnapshotDirectory=Get-Item -LiteralPath $directory
+        $null=$script:StaleSnapshotDirectory.LastWriteTimeUtc
+        $expected=[datetime]::new(2025,1,2,3,4,5,[DateTimeKind]::Utc)
+        [IO.Directory]::SetLastWriteTimeUtc($directory,$expected)
+        Mock Get-ChildItem { $script:StaleSnapshotDirectory } -ParameterFilter { $LiteralPath -eq $script:AuthRoot }
+
+        (Get-AuthFixtureSnapshot | ConvertFrom-Json).Modified | Should -Be $expected.Ticks
+        $changed=$expected.AddMinutes(1)
+        [IO.Directory]::SetLastWriteTimeUtc($directory,$changed)
+        (Get-AuthFixtureSnapshot | ConvertFrom-Json).Modified | Should -Be $changed.Ticks
+    }
 
     It 'declares the optional safe read capability on the existing getter' {
         $command = & $script:AuthModule { Get-Command Get-Password }
@@ -423,6 +440,102 @@ Describe 'authentication provider read-only credential plans' {
         $second | Should -BeExactly $first
         Test-Path -LiteralPath (Join-Path $script:AuthState 'users.yml') | Should -BeTrue
         @(Get-Content -LiteralPath (Join-Path $script:AuthState 'events.log')).Count | Should -BeGreaterThan 1
+    }
+}
+
+Describe 'authentication state files that cannot be read as a mapping' {
+    # An interrupted copy of test/status leaves zero-byte vault.yml and
+    # users.yml under their usual names; the config gate refused every cycle
+    # over them until an operator cleared the folder by hand.
+    BeforeAll {
+        $script:AuthSource = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'test/extension/authentication/default.psm1'
+        $script:OperatorUsers = "strict: true`nusers:`n  yuuser24:`n    localOsUser: yuuser24`n    corporate:`n      domain: FIXTURE`n      sam: operator-sam`n      upn: operator@fixture.test`n    vaultKey: operator-slot`n    localOsPasswordRef: ''`n"
+        $script:OperatorVault = "users:`n  operator-slot:`n    password: operator-chosen-secret`n"
+        function Set-AuthStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Writes only disposable authentication fixtures under TestDrive.')]
+            [CmdletBinding()]
+            param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+            $null = [IO.Directory]::CreateDirectory($script:AuthState)
+            [IO.File]::WriteAllText((Join-Path $script:AuthState $Name), $Text)
+        }
+        function Get-AuthStateText([string]$Name) { [IO.File]::ReadAllText((Join-Path $script:AuthState $Name)) }
+        function Get-AuthStateBackup([string]$Name) { @(Get-ChildItem -LiteralPath $script:AuthState -Filter "$Name.unreadable-*" -File) }
+    }
+    BeforeEach {
+        $script:AuthRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $provider = Join-Path $script:AuthRoot 'test/extension/authentication'
+        $null = [IO.Directory]::CreateDirectory($provider)
+        $copy = Join-Path $provider 'AuthRepairFixture.psm1'
+        Copy-Item -LiteralPath $script:AuthSource -Destination $copy
+        $script:TemplatePath = Join-Path $provider 'users.yml.template'
+        Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $script:AuthSource) 'users.yml.template') -Destination $script:TemplatePath
+        $script:AuthState = Join-Path $script:AuthRoot 'test/status/extension/authentication'
+        $script:AuthModule = Import-Module -Name $copy -Force -PassThru -DisableNameChecking
+    }
+    AfterEach { Remove-Module -ModuleInfo $script:AuthModule -Force }
+
+    It 'moves an empty users.yml aside and recreates it from the template' {
+        Set-AuthStateFile -Name 'users.yml' -Text ''
+        Set-AuthStateFile -Name 'vault.yml' -Text $script:OperatorVault
+        $repairs = @(& $script:AuthModule { Repair-AuthenticationStateFile -Confirm:$false })
+        $repairs.Count | Should -Be 1
+        $repairs[0].Name | Should -BeExactly 'users.yml'
+        $repairs[0].Problem | Should -BeExactly 'empty'
+        $repairs[0].Recreated | Should -BeTrue
+        Get-AuthStateText 'users.yml' | Should -BeExactly ([IO.File]::ReadAllText($script:TemplatePath))
+        $backup = Get-AuthStateBackup 'users.yml'
+        $backup.Count | Should -Be 1
+        $backup[0].FullName | Should -BeExactly $repairs[0].BackupPath
+        $backup[0].Length | Should -Be 0
+        Get-AuthStateText 'vault.yml' | Should -BeExactly $script:OperatorVault
+        (& $script:AuthModule { Read-UsersConfig }).users.Contains('yuuser24') | Should -BeTrue
+    }
+    It 'moves an unparseable vault.yml aside, keeps its bytes and leaves the vault empty' {
+        $broken = "users:`n  operator-slot:`n    password: [unterminated`n"
+        Set-AuthStateFile -Name 'vault.yml' -Text $broken
+        Set-AuthStateFile -Name 'users.yml' -Text $script:OperatorUsers
+        $repairs = @(& $script:AuthModule { Repair-AuthenticationStateFile -Confirm:$false })
+        $repairs.Count | Should -Be 1
+        $repairs[0].Name | Should -BeExactly 'vault.yml'
+        $repairs[0].Problem | Should -BeExactly 'unparseable'
+        $repairs[0].Recreated | Should -BeFalse
+        Test-Path -LiteralPath (Join-Path $script:AuthState 'vault.yml') | Should -BeFalse
+        [IO.File]::ReadAllText($repairs[0].BackupPath) | Should -BeExactly $broken
+        Get-AuthStateText 'users.yml' | Should -BeExactly $script:OperatorUsers
+        & $script:AuthModule { Test-VaultEntry -VaultKey 'operator-slot' } | Should -BeFalse
+    }
+    It 'treats a root that is not a mapping as damaged' {
+        Set-AuthStateFile -Name 'users.yml' -Text "- yuuser24`n- yuuser26`n"
+        Set-AuthStateFile -Name 'vault.yml' -Text 'just a sentence'
+        $repairs = @(& $script:AuthModule { Repair-AuthenticationStateFile -Confirm:$false })
+        @($repairs | ForEach-Object { "$($_.Name)=$($_.Problem)" }) | Should -Be @('vault.yml=not-a-mapping', 'users.yml=not-a-mapping')
+        (Get-AuthStateBackup 'users.yml').Count | Should -Be 1
+        (Get-AuthStateBackup 'vault.yml').Count | Should -Be 1
+    }
+    It 'leaves readable files and every operator value in them untouched' {
+        Set-AuthStateFile -Name 'users.yml' -Text $script:OperatorUsers
+        Set-AuthStateFile -Name 'vault.yml' -Text $script:OperatorVault
+        $before = @(Get-ChildItem -LiteralPath $script:AuthState -File | ForEach-Object { "$($_.Name):$((Get-FileHash -LiteralPath $_.FullName).Hash):$($_.LastWriteTimeUtc.Ticks)" })
+        @(& $script:AuthModule { Repair-AuthenticationStateFile -Confirm:$false }).Count | Should -Be 0
+        @(Get-ChildItem -LiteralPath $script:AuthState -File | ForEach-Object { "$($_.Name):$((Get-FileHash -LiteralPath $_.FullName).Hash):$($_.LastWriteTimeUtc.Ticks)" }) | Should -Be $before
+        Get-AuthStateText 'users.yml' | Should -BeExactly $script:OperatorUsers
+    }
+    It 'does not repair a file that a writer completes between the two reads' {
+        Set-AuthStateFile -Name 'users.yml' -Text ''
+        Set-AuthStateFile -Name 'vault.yml' -Text $script:OperatorVault
+        $finished = $script:OperatorUsers
+        $usersPath = Join-Path $script:AuthState 'users.yml'
+        Mock Start-Sleep -ModuleName AuthRepairFixture { [IO.File]::WriteAllText($usersPath, $finished) }
+        @(& $script:AuthModule { Repair-AuthenticationStateFile -Confirm:$false }).Count | Should -Be 0
+        Get-AuthStateText 'users.yml' | Should -BeExactly $script:OperatorUsers
+        (Get-AuthStateBackup 'users.yml').Count | Should -Be 0
+    }
+    It 'changes nothing under -WhatIf' {
+        Set-AuthStateFile -Name 'users.yml' -Text ''
+        @(& $script:AuthModule { Repair-AuthenticationStateFile -WhatIf }).Count | Should -Be 0
+        Get-AuthStateText 'users.yml' | Should -BeExactly ''
+        (Get-AuthStateBackup 'users.yml').Count | Should -Be 0
     }
 }
 

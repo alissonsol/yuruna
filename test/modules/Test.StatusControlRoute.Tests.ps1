@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42798304-85e4-4102-8026-ce168ff64fd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test status service route host-refresh body-reader pester
+.TAGS yuruna test status service route host-operation body-reader pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     The status listener's route helpers and the generated routes that use
-    them: bounded body reads, the refresh body schema, the reply table, the
+    them: bounded body reads, the repair body schema, the reply table, the
     capability summary, worker argument vectors, the diagnostic decision, the
     private worker directory, and the served-tree deny-lists.
 .DESCRIPTION
@@ -309,16 +309,16 @@ Describe 'a body read never parks the caller' {
     }
 }
 
-Describe 'the refresh body has one closed schema' {
+Describe 'the repair body has one closed schema' {
 
     It 'accepts a complete remote body and a partial loopback body' {
-        $remote = ConvertFrom-HostRefreshRequestBody -Remote -AllowedRungName $script:AllowedRung `
+        $remote = ConvertFrom-HostRepairRequestBody -Remote -AllowedRungName $script:AllowedRung `
             -Bytes (ConvertTo-BodyByte ('{"requestId":"' + $script:ValidId + '","tier":"restart","maxRung":"start-if-stopped"}'))
         Assert-True $remote.Valid $remote.Reason
         Assert-StringEqual $script:ValidId $remote.RequestId
         Assert-StringEqual 'start-if-stopped' $remote.MaxRung
         Assert-True $remote.RequestIdSupplied
-        $loopback = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{}')
+        $loopback = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{}')
         Assert-True $loopback.Valid 'loopback may omit every key and take the defaults'
         Assert-False $loopback.RequestIdSupplied
         Assert-StringEqual 'restart' $loopback.Tier
@@ -330,7 +330,7 @@ Describe 'the refresh body has one closed schema' {
                 ('{"tier":"restart","maxRung":"probe"}'),
                 ('{"requestId":"' + $script:ValidId + '","maxRung":"probe"}'),
                 ('{"requestId":"' + $script:ValidId + '","tier":"restart"}'))) {
-            $result = ConvertFrom-HostRefreshRequestBody -Remote -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte $body)
+            $result = ConvertFrom-HostRepairRequestBody -Remote -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte $body)
             Assert-False $result.Valid "remote body $body must be refused"
             Assert-StringEqual 'invalid_value' $result.Reason
         }
@@ -338,7 +338,7 @@ Describe 'the refresh body has one closed schema' {
 
     It 'refuses every request id that is not the canonical lowercase form' {
         foreach ($id in @($script:ValidId.ToUpperInvariant(), ('{' + $script:ValidId + '}'), $script:ValidId.Replace('-', ''), 'not-a-guid', '')) {
-            $result = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte ('{"requestId":"' + $id + '"}'))
+            $result = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte ('{"requestId":"' + $id + '"}'))
             Assert-False $result.Valid "request id '$id' must be refused"
             Assert-StringEqual 'invalid_value' $result.Reason
             Assert-StringEqual 'requestId' $result.Field
@@ -347,7 +347,7 @@ Describe 'the refresh body has one closed schema' {
 
     It 'refuses a tier other than restart and a rung above the restart tier or unknown' {
         foreach ($body in @('{"tier":"full"}', '{"tier":"Restart"}', '{"maxRung":"reapply-settings"}', '{"maxRung":"reinstall"}', '{"maxRung":"reboot"}', '{"maxRung":"teleport"}', '{"maxRung":"Probe"}')) {
-            $result = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte $body)
+            $result = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte $body)
             Assert-False $result.Valid "$body must be refused"
             Assert-StringEqual 'invalid_value' $result.Reason
         }
@@ -356,50 +356,176 @@ Describe 'the refresh body has one closed schema' {
     It 'refuses every spelling of a local-only safety switch as forbidden' {
         foreach ($name in @('force', 'Force', 'FORCE', '-Force', 'allowHardStop', 'AllowHardStop', 'hardStop', 'hard_stop', 'hard-stop',
                 'restoreServiceVmName', 'leaveStoppedServiceVmName', 'configPath', 'ConfigPath', 'x_force_y')) {
-            $result = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte ('{"' + $name + '":true}'))
+            $result = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte ('{"' + $name + '":true}'))
             Assert-False $result.Valid "$name must be refused"
             Assert-StringEqual 'forbidden_field' $result.Reason "$name names a local-only switch"
         }
     }
 
     It 'refuses unknown keys as unsupported and case-variant duplicates' {
-        $unknown = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"tier":"restart","note":"x"}')
+        $unknown = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"tier":"restart","note":"x"}')
         Assert-StringEqual 'unsupported_field' $unknown.Reason
         Assert-StringEqual 'note' $unknown.Field
-        $cased = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"Tier":"restart"}')
+        $cased = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"Tier":"restart"}')
         Assert-StringEqual 'unsupported_field' $cased.Reason 'keys are case-sensitive'
-        $duplicate = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"tier":"restart","TIER":"restart"}')
+        $duplicate = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"tier":"restart","TIER":"restart"}')
         Assert-False $duplicate.Valid
         Assert-StringEqual 'invalid_json' $duplicate.Reason 'a name repeated in another casing is ambiguous'
-        $exact = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"tier":"restart","tier":"restart"}')
+        $exact = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"tier":"restart","tier":"restart"}')
         Assert-StringEqual 'invalid_json' $exact.Reason
     }
 
     It 'refuses non-object roots, deep nesting, non-string values, comments, trailing commas, a BOM and invalid UTF-8' {
         foreach ($text in @('[]', '"restart"', '42', 'null', '{"a":{"b":{"c":{"d":{"e":1}}}}}', '{"tier":1}', '{"tier":null}',
                 '{"tier":"restart",}', '{/*c*/"tier":"restart"}', '', '{')) {
-            $result = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte $text)
+            $result = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte $text)
             Assert-False $result.Valid "'$text' must be refused"
         }
         $bom = [byte[]]@(0xEF, 0xBB, 0xBF) + (ConvertTo-BodyByte '{}')
-        Assert-StringEqual 'invalid_json' (ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes $bom).Reason
+        Assert-StringEqual 'invalid_json' (ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes $bom).Reason
         $invalidUtf8 = [byte[]]@(0x7B, 0x22, 0xC3, 0x28, 0x22, 0x3A, 0x31, 0x7D)
-        Assert-StringEqual 'invalid_json' (ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes $invalidUtf8).Reason
+        Assert-StringEqual 'invalid_json' (ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes $invalidUtf8).Reason
     }
 
     It 'never echoes an arbitrary field name' {
-        $result = ConvertFrom-HostRefreshRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"<script>alert(1)</script>":1}')
+        $result = ConvertFrom-HostRepairRequestBody -AllowedRungName $script:AllowedRung -Bytes (ConvertTo-BodyByte '{"<script>alert(1)</script>":1}')
         Assert-StringEqual 'unsupported_field' $result.Reason
         Assert-StringEqual 'field' $result.Field 'a name outside the echo shape is replaced'
     }
 
     It 'accepts only a JSON content type with a UTF-8 charset or none' {
         foreach ($ok in @('application/json', 'application/json; charset=utf-8', 'Application/JSON;charset=UTF-8', 'application/json; charset="utf-8"')) {
-            Assert-True (Test-HostRefreshContentType -ContentType $ok) $ok
+            Assert-True (Test-HostControlContentType -ContentType $ok) $ok
         }
         foreach ($bad in @('', 'text/plain', 'application/json; charset=latin1', 'application/jsonx', 'application/x-www-form-urlencoded', 'application/json; boundary=x')) {
-            Assert-False (Test-HostRefreshContentType -ContentType $bad) $bad
+            Assert-False (Test-HostControlContentType -ContentType $bad) $bad
         }
+    }
+}
+
+Describe 'the host-update body has one closed schema' {
+
+    It 'refuses <Name> as forbidden_field, whatever its value' -ForEach @(
+        @{ Name = 'drain' }, @{ Name = 'Drain' }, @{ Name = 'DRAIN' }, @{ Name = 'drain_mode' }, @{ Name = 'drainseconds' }
+        @{ Name = 'DrainSeconds' }, @{ Name = 'x-drain' }, @{ Name = 'force' }, @{ Name = 'configPath' }
+    ) {
+        foreach ($value in @('"now"', '1', 'null', '{}', '"after-cycle"')) {
+            $result = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte ('{"' + $Name + '":' + $value + '}'))
+            Assert-False $result.Valid "$Name=$value must be refused"
+            Assert-StringEqual 'forbidden_field' $result.Reason "$Name=$value"
+            Assert-StringEqual $Name $result.Field 'the name is echoed as sent'
+        }
+    }
+
+    It 'applies the defaults to an empty body' {
+        $result = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte '{}')
+        Assert-True $result.Valid $result.Reason
+        Assert-False $result.RequestIdSupplied
+        Assert-StringEqual 'restart' $result.Scope
+        Assert-Equal 7200 $result.DrainSeconds
+        Assert-Null $result.ExpectCommit
+    }
+
+    It 'accepts drainSeconds <Value>' -ForEach @(@{ Value = 60 }, @{ Value = 7200 }, @{ Value = 21600 }) {
+        $result = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte ('{"drainSeconds":' + $Value + '}'))
+        Assert-True $result.Valid $result.Reason
+        Assert-Equal $Value $result.DrainSeconds
+    }
+
+    It 'refuses drainSeconds <Text>' -ForEach @(@{ Text = '59' }, @{ Text = '21601' }, @{ Text = '60.5' }, @{ Text = '"7200"' }, @{ Text = '1e3' }, @{ Text = 'null' }, @{ Text = '-60' }) {
+        $result = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte ('{"drainSeconds":' + $Text + '}'))
+        Assert-False $result.Valid
+        Assert-StringEqual 'invalid_value' $result.Reason
+        Assert-StringEqual 'drainSeconds' $result.Field
+    }
+
+    It 'accepts every full request with the values it names' {
+        $body = '{"requestId":"' + $script:ValidId + '","scope":"full","drainSeconds":600,"expectCommit":"0123456789abcdef0123456789abcdef01234567"}'
+        $result = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte $body)
+        Assert-True $result.Valid $result.Reason
+        Assert-StringEqual $script:ValidId $result.RequestId
+        Assert-True $result.RequestIdSupplied
+        Assert-StringEqual 'full' $result.Scope
+        Assert-Equal 600 $result.DrainSeconds
+        Assert-StringEqual '0123456789abcdef0123456789abcdef01234567' $result.ExpectCommit
+    }
+
+    It 'refuses an expectCommit, scope or request id outside its shape' {
+        foreach ($case in @(
+                @{ Body = '{"expectCommit":"abc123"}'; Field = 'expectCommit' }
+                @{ Body = '{"expectCommit":"ABCDEF1"}'; Field = 'expectCommit' }
+                @{ Body = ('{"expectCommit":"' + ('a' * 41) + '"}'); Field = 'expectCommit' }
+                @{ Body = '{"expectCommit":"main"}'; Field = 'expectCommit' }
+                @{ Body = '{"expectCommit":1234567}'; Field = 'expectCommit' }
+                @{ Body = '{"scope":"Restart"}'; Field = 'scope' }
+                @{ Body = '{"scope":"install"}'; Field = 'scope' }
+                @{ Body = '{"scope":null}'; Field = 'scope' }
+                @{ Body = ('{"requestId":"' + $script:ValidId.ToUpperInvariant() + '"}'); Field = 'requestId' }
+                @{ Body = '{"requestId":"not-a-guid"}'; Field = 'requestId' })) {
+            $result = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte $case.Body)
+            Assert-False $result.Valid "$($case.Body) must be refused"
+            Assert-StringEqual 'invalid_value' $result.Reason $case.Body
+            Assert-StringEqual $case.Field $result.Field $case.Body
+        }
+        foreach ($commit in @('abcdef1', ('0' * 40))) {
+            Assert-True (ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte ('{"expectCommit":"' + $commit + '"}'))).Valid $commit
+        }
+    }
+
+    It 'refuses unknown keys, a case variant of an allowed key and duplicates in any casing' {
+        $unknown = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte '{"note":"x"}')
+        Assert-StringEqual 'unsupported_field' $unknown.Reason
+        Assert-StringEqual 'note' $unknown.Field
+        Assert-StringEqual 'unsupported_field' (ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte '{"Scope":"restart"}')).Reason 'keys are case-sensitive'
+        Assert-StringEqual 'invalid_json' (ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte '{"scope":"restart","SCOPE":"full"}')).Reason
+        Assert-StringEqual 'invalid_json' (ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte '{"scope":"restart","scope":"restart"}')).Reason
+        $echo = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte '{"<script>":1}')
+        Assert-StringEqual 'field' $echo.Field 'a name outside the echo shape is replaced'
+    }
+
+    It 'refuses a BOM, invalid UTF-8, depth five, other roots and an oversize body' {
+        $bom = [byte[]]@(0xEF, 0xBB, 0xBF) + (ConvertTo-BodyByte '{}')
+        Assert-StringEqual 'invalid_json' (ConvertFrom-HostUpdateRequestBody -Bytes $bom).Reason
+        $invalidUtf8 = [byte[]]@(0x7B, 0x22, 0xC3, 0x28, 0x22, 0x3A, 0x31, 0x7D)
+        Assert-StringEqual 'invalid_json' (ConvertFrom-HostUpdateRequestBody -Bytes $invalidUtf8).Reason
+        foreach ($text in @('{"a":{"b":{"c":{"d":{}}}}}', '[]', '"restart"', 'null', '', '{', '{"scope":"restart",}', '{/*c*/}')) {
+            $result = ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte $text)
+            Assert-False $result.Valid "'$text' must be refused"
+            Assert-StringEqual 'invalid_json' $result.Reason "'$text'"
+        }
+        Assert-StringEqual 'invalid_json' (ConvertFrom-HostUpdateRequestBody -Bytes (ConvertTo-BodyByte ('{"scope":"' + ('r' * 5000) + '"}'))).Reason
+    }
+}
+
+Describe 'the host-update loopback rule' {
+
+    It 'counts <Address> with Host <HostLabel> as loopback: <Expected>' -ForEach @(
+        @{ Address = '127.0.0.1'; HostLabel = 'localhost:8080'; Header = 'localhost:8080'; Port = 8080; Expected = $true }
+        @{ Address = '127.0.0.1'; HostLabel = 'LOCALHOST:8080'; Header = 'LOCALHOST:8080'; Port = 8080; Expected = $true }
+        @{ Address = '127.0.0.1'; HostLabel = '127.0.0.1:8080'; Header = '127.0.0.1:8080'; Port = 8080; Expected = $true }
+        @{ Address = '::1'; HostLabel = '[::1]:8080'; Header = '[::1]:8080'; Port = 8080; Expected = $true }
+        @{ Address = '::ffff:127.0.0.1'; HostLabel = 'localhost:8080'; Header = 'localhost:8080'; Port = 8080; Expected = $true }
+        @{ Address = '127.0.0.2'; HostLabel = 'localhost:8080'; Header = 'localhost:8080'; Port = 8080; Expected = $true }
+        @{ Address = '127.0.0.1'; HostLabel = 'localhost (port 80)'; Header = 'localhost'; Port = 80; Expected = $true }
+        @{ Address = '127.0.0.1'; HostLabel = 'localhost:80 (port 80)'; Header = 'localhost:80'; Port = 80; Expected = $true }
+        @{ Address = '127.0.0.1'; HostLabel = 'localhost (port 8080)'; Header = 'localhost'; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'localhost:8081'; Header = 'localhost:8081'; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'localhost.:8080'; Header = 'localhost.:8080'; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'user@localhost:8080'; Header = 'user@localhost:8080'; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'localhost:8080/x'; Header = 'localhost:8080/x'; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'evil.example:8080'; Header = 'evil.example:8080'; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'empty'; Header = ''; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'none'; Header = $null; Port = 8080; Expected = $false }
+        @{ Address = '127.0.0.1'; HostLabel = 'a list'; Header = 'localhost:8080, localhost:8080'; Port = 8080; Expected = $false }
+        @{ Address = '192.168.1.5'; HostLabel = 'localhost:8080'; Header = 'localhost:8080'; Port = 8080; Expected = $false }
+        @{ Address = '192.168.1.5'; HostLabel = '192.168.1.5:8080'; Header = '192.168.1.5:8080'; Port = 8080; Expected = $false }
+    ) {
+        $verdict = Test-HostUpdateLoopbackCaller -RemoteAddress ([System.Net.IPAddress]::Parse($Address)) -HostHeader $Header -Port $Port
+        Assert-Equal $Expected $verdict "$Address with Host '$Header' on port $Port"
+    }
+
+    It 'refuses a caller with no remote address' {
+        Assert-False (Test-HostUpdateLoopbackCaller -RemoteAddress $null -HostHeader 'localhost:8080' -Port 8080)
     }
 }
 
@@ -407,56 +533,60 @@ Describe 'every admission decision maps to exactly one documented reply' {
 
     It 'maps spawn with a launch to 202 spawned and without one to 503 launcher_failed' {
         $admission = [pscustomobject]@{ Decision = 'spawn'; RequestId = $script:ValidId; Ceiling = 'start-if-stopped' }
-        $ok = Get-HostRefreshAdmissionReply -Admission $admission -Launch ([pscustomobject]@{ Launched = $true; Reason = 'launched' })
+        $ok = Get-HostRepairAdmissionReply -Admission $admission -Launch ([pscustomobject]@{ Launched = $true; Reason = 'launched' })
         Assert-Equal 202 $ok.StatusCode
         Assert-StringEqual 'spawned' $ok.Body.action
         Assert-True $ok.Body.ok
         Assert-StringEqual $script:ValidId $ok.Body.requestId
         Assert-StringEqual 'start-if-stopped' $ok.Body.ceiling
-        Assert-StringEqual '/runtime/host-refresh.state.json' $ok.Body.stateUrl
+        Assert-StringEqual '/runtime/host-repair.state.json' $ok.Body.stateUrl
         Assert-StringEqual '' $ok.MessageKey
-        $failed = Get-HostRefreshAdmissionReply -Admission $admission -Launch ([pscustomobject]@{ Launched = $false; Reason = 'launcher-failed' })
+        $failed = Get-HostRepairAdmissionReply -Admission $admission -Launch ([pscustomobject]@{ Launched = $false; Reason = 'launcher-failed' })
         Assert-Equal 503 $failed.StatusCode
         Assert-StringEqual 'launcher_failed' $failed.Body.reason
         Assert-StringEqual $script:ValidId $failed.Body.requestId 'a failed launch keeps the queued request identity so it can be retried'
-        Assert-StringEqual '/runtime/host-refresh.state.json' $failed.Body.stateUrl
+        Assert-StringEqual '/runtime/host-repair.state.json' $failed.Body.stateUrl
         Assert-StringEqual 'status.api_worker_launcher_failed' $failed.MessageKey
         Assert-StringEqual 'launcher_failed' $failed.MessageArguments.reason
-        $none = Get-HostRefreshAdmissionReply -Admission $admission -Launch $null
+        $none = Get-HostRepairAdmissionReply -Admission $admission -Launch $null
         Assert-Equal 503 $none.StatusCode 'a spawn with no launch result never reads as spawned'
     }
 
     It 'maps already-claimed, completed, busy, policy-mismatch, stored and unavailable' {
-        $claimed = Get-HostRefreshAdmissionReply -Admission ([pscustomobject]@{ Decision = 'already-claimed'; RequestId = $script:ValidId }) -Ceiling 'reclaim'
+        $claimed = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'already-claimed'; RequestId = $script:ValidId }) -Ceiling 'reclaim'
         Assert-Equal 202 $claimed.StatusCode
         Assert-StringEqual 'already_claimed' $claimed.Body.action
         Assert-StringEqual 'reclaim' $claimed.Body.ceiling
-        $completed = Get-HostRefreshAdmissionReply -Admission ([pscustomobject]@{ Decision = 'completed'; RequestId = $script:ValidId; State = 'completed'; Verdict = 'partial' })
+        $completed = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'completed'; RequestId = $script:ValidId; State = 'completed'; Verdict = 'partial' })
         Assert-Equal 200 $completed.StatusCode
         Assert-True $completed.Body.ok 'ok means the record was retrieved, not that the repair succeeded'
         Assert-StringEqual 'partial' $completed.Body.verdict
         Assert-StringEqual 'completed' $completed.Body.action
-        $healthy = Get-HostRefreshAdmissionReply -Admission @{ Decision = 'completed'; RequestId = $script:ValidId; State = 'recovery-pending'; Verdict = 'already-healthy' }
+        $healthy = Get-HostRepairAdmissionReply -Admission @{ Decision = 'completed'; RequestId = $script:ValidId; State = 'recovery-pending'; Verdict = 'already-healthy' }
         Assert-StringEqual 'already_healthy' $healthy.Body.verdict 'private tokens cross the wire underscored'
         Assert-StringEqual 'recovery_pending' $healthy.Body.state
-        $busy = Get-HostRefreshAdmissionReply -Admission ([pscustomobject]@{ Decision = 'busy'; RequestId = $script:ValidId; ActiveRequestId = 'aaaa'; ActiveKind = 'host-refresh' })
+        $busy = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'busy'; RequestId = $script:ValidId; ActiveRequestId = 'aaaa'; ActiveKind = 'host-repair' })
         Assert-Equal 409 $busy.StatusCode
         Assert-StringEqual 'busy' $busy.Body.reason
-        Assert-StringEqual 'host_refresh' $busy.Body.activeKind
+        Assert-StringEqual 'host_repair' $busy.Body.activeKind
         Assert-StringEqual 'aaaa' $busy.Body.activeRequestId
-        Assert-StringEqual '/runtime/host-refresh.state.json' $busy.Body.stateUrl
-        $busyCycle = Get-HostRefreshAdmissionReply -Admission ([pscustomobject]@{ Decision = 'busy'; ActiveRequestId = 'bbbb'; ActiveKind = 'start-cycle' })
+        Assert-StringEqual '/runtime/host-repair.state.json' $busy.Body.stateUrl
+        $busyCycle = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'busy'; ActiveRequestId = 'bbbb'; ActiveKind = 'start-cycle' })
         Assert-StringEqual 'start_cycle' $busyCycle.Body.activeKind
         Assert-StringEqual '/runtime/start-cycle.state.json' $busyCycle.Body.stateUrl 'a start-cycle holder is observed at its own state file'
-        $conflict = Get-HostRefreshAdmissionReply -Admission ([pscustomobject]@{ Decision = 'policy-mismatch'; RequestId = $script:ValidId })
+        $busyUpdate = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'busy'; ActiveRequestId = 'cccc'; ActiveKind = 'host-update' })
+        Assert-StringEqual 'host_update' $busyUpdate.Body.activeKind
+        Assert-StringEqual '/runtime/host-update.state.json' $busyUpdate.Body.stateUrl 'a host-update holder is observed at its own state file'
+        Assert-StringEqual 'status.api_host_update_busy' $busyUpdate.MessageKey
+        $conflict = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'policy-mismatch'; RequestId = $script:ValidId })
         Assert-Equal 409 $conflict.StatusCode
         Assert-StringEqual 'request_conflict' $conflict.Body.reason
-        $stored = Get-HostRefreshAdmissionReply -Admission ([pscustomobject]@{ Decision = 'stored'; RequestId = $script:ValidId; State = 'refused'; Verdict = 'refused' })
+        $stored = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'stored'; RequestId = $script:ValidId; State = 'refused'; Verdict = 'refused' })
         Assert-Equal 409 $stored.StatusCode
         Assert-StringEqual 'request_closed' $stored.Body.reason
         Assert-StringEqual 'refused' $stored.Body.state
         Assert-StringEqual 'refused' $stored.Body.verdict
-        $unavailable = Get-HostRefreshAdmissionReply -Admission ([pscustomobject]@{ Decision = 'unavailable'; Reason = 'journal-unreadable' })
+        $unavailable = Get-HostRepairAdmissionReply -Admission ([pscustomobject]@{ Decision = 'unavailable'; Reason = 'journal-unreadable' })
         Assert-Equal 503 $unavailable.StatusCode
         Assert-StringEqual 'admission_unavailable' $unavailable.Body.reason
         Assert-StringEqual 'journal_unreadable' $unavailable.MessageArguments.reason
@@ -464,7 +594,7 @@ Describe 'every admission decision maps to exactly one documented reply' {
 
     It 'answers an unrecognized or missing decision with 500, never a success' {
         foreach ($admission in @($null, [pscustomobject]@{ Decision = 'SPAWN' }, [pscustomobject]@{ Decision = 'maybe' }, @{})) {
-            $reply = Get-HostRefreshAdmissionReply -Admission $admission -Launch ([pscustomobject]@{ Launched = $true })
+            $reply = Get-HostRepairAdmissionReply -Admission $admission -Launch ([pscustomobject]@{ Launched = $true })
             Assert-Equal 500 $reply.StatusCode
             Assert-StringEqual 'internal_error' $reply.Body.reason
         }
@@ -481,14 +611,19 @@ Describe 'every admission decision maps to exactly one documented reply' {
         Assert-Equal 503 $failed.StatusCode
         Assert-StringEqual 'launcher_failed' $failed.Body.reason
         Assert-StringEqual 'hop_failed' $failed.MessageArguments.reason
-        $refreshBusy = Get-StartCycleAdmissionReply -Reservation ([pscustomobject]@{ Decision = 'busy'; ActiveKind = 'host-refresh'; ActiveRequestId = $script:ValidId }) -OperationId $id
-        Assert-Equal 409 $refreshBusy.StatusCode
-        Assert-StringEqual 'host_refresh' $refreshBusy.Body.activeKind
-        Assert-StringEqual '/runtime/host-refresh.state.json' $refreshBusy.Body.stateUrl
-        Assert-StringEqual 'status.api_host_refresh_busy' $refreshBusy.MessageKey
+        $repairBusy = Get-StartCycleAdmissionReply -Reservation ([pscustomobject]@{ Decision = 'busy'; ActiveKind = 'host-repair'; ActiveRequestId = $script:ValidId }) -OperationId $id
+        Assert-Equal 409 $repairBusy.StatusCode
+        Assert-StringEqual 'host_repair' $repairBusy.Body.activeKind
+        Assert-StringEqual '/runtime/host-repair.state.json' $repairBusy.Body.stateUrl
+        Assert-StringEqual 'status.api_host_repair_busy' $repairBusy.MessageKey
         $cycleBusy = Get-StartCycleAdmissionReply -Reservation ([pscustomobject]@{ Decision = 'busy'; ActiveKind = 'start-cycle'; ActiveRequestId = 'other' }) -OperationId $id
         Assert-StringEqual 'start_cycle' $cycleBusy.Body.activeKind
         Assert-StringEqual 'status.api_another_start_cycle_request_is_in_progress_3f51d139' $cycleBusy.MessageKey 'an older page still reads the sentence it always read'
+        $updateBusy = Get-StartCycleAdmissionReply -Reservation ([pscustomobject]@{ Decision = 'busy'; ActiveKind = 'host-update'; ActiveRequestId = $script:ValidId }) -OperationId $id
+        Assert-Equal 409 $updateBusy.StatusCode
+        Assert-StringEqual 'host_update' $updateBusy.Body.activeKind
+        Assert-StringEqual '/runtime/host-update.state.json' $updateBusy.Body.stateUrl
+        Assert-StringEqual 'status.api_host_update_busy' $updateBusy.MessageKey
         $unavailable = Get-StartCycleAdmissionReply -Reservation ([pscustomobject]@{ Decision = 'unavailable'; Reason = 'journal-corrupt' }) -OperationId $id
         Assert-Equal 503 $unavailable.StatusCode
         Assert-StringEqual 'admission_unavailable' $unavailable.Body.reason
@@ -499,7 +634,7 @@ Describe 'every admission decision maps to exactly one documented reply' {
 Describe 'the capability summary is compact and fails closed' {
 
     It 'copies an available capability and adds remote' {
-        $summary = Get-HostRefreshControlSummary -ListenerReady $true -Remote 'missing' -Capability ([ordered]@{
+        $summary = Get-HostRepairControlSummary -ListenerReady $true -Remote 'missing' -Capability ([ordered]@{
                 protocol = 1; availability = 'available'; ceiling = 'start-if-stopped'; reason = ''; state = 'idle' })
         Assert-StringEqual 'available' $summary.availability
         Assert-StringEqual 'start-if-stopped' $summary.ceiling
@@ -519,37 +654,191 @@ Describe 'the capability summary is compact and fails closed' {
             @{ Capability = @{ protocol = 1; availability = 'yes'; ceiling = 'reclaim' }; Reason = 'capability_unavailable' }
         )
         foreach ($case in $cases) {
-            $summary = Get-HostRefreshControlSummary -ListenerReady $true -Remote 'unqualified' -Capability $case.Capability
+            $summary = Get-HostRepairControlSummary -ListenerReady $true -Remote 'unqualified' -Capability $case.Capability
             Assert-StringEqual 'unavailable' $summary.availability
             Assert-StringEqual '' $summary.ceiling 'an unavailable capability never names a ceiling'
             Assert-StringEqual $case.Reason $summary.reason
         }
-        $pending = Get-HostRefreshControlSummary -ListenerReady $true -Remote 'bogus' -Capability @{ protocol = 1; availability = 'unavailable'; state = 'recovery-pending' }
+        $pending = Get-HostRepairControlSummary -ListenerReady $true -Remote 'bogus' -Capability @{ protocol = 1; availability = 'unavailable'; state = 'recovery-pending' }
         Assert-StringEqual 'recovery_pending' $pending.state
         Assert-StringEqual 'unqualified' $pending.remote 'an unknown remote state reads as unqualified'
     }
 
     It 'applies the listener refusal over an available capability' {
         $capability = @{ protocol = 1; availability = 'available'; ceiling = 'reclaim'; reason = ''; state = 'active' }
-        $missing = Get-HostRefreshControlSummary -Capability $capability -ListenerReady $false -Remote 'missing'
+        $missing = Get-HostRepairControlSummary -Capability $capability -ListenerReady $false -Remote 'missing'
         Assert-StringEqual 'unavailable' $missing.availability
         Assert-StringEqual 'listener_dependency_missing' $missing.reason
         Assert-StringEqual 'active' $missing.state 'the request state is still reported'
-        $noHost = Get-HostRefreshControlSummary -Capability $capability -ListenerReady $false -ListenerReason 'unsupported_host' -Remote 'missing'
+        $noHost = Get-HostRepairControlSummary -Capability $capability -ListenerReady $false -ListenerReason 'unsupported_host' -Remote 'missing'
         Assert-StringEqual 'unsupported_host' $noHost.reason
     }
 
     It 'stays within 256 bytes, and the whole control-status reply within 1024' {
-        $longest = Get-HostRefreshControlSummary -ListenerReady $false -ListenerReason ('a' * 48) -Remote 'unqualified' `
+        $longest = Get-HostRepairControlSummary -ListenerReady $false -ListenerReason ('a' * 48) -Remote 'unqualified' `
             -Capability @{ protocol = 1; availability = 'available'; ceiling = 'restart-if-hung'; state = 'recovery_pending' }
         $json = $longest | ConvertTo-Json -Compress
         Assert-True ([System.Text.Encoding]::UTF8.GetByteCount($json) -le 256) "summary is $([System.Text.Encoding]::UTF8.GetByteCount($json)) bytes"
-        $available = Get-HostRefreshControlSummary -ListenerReady $true -Remote 'provisioned' `
+        $available = Get-HostRepairControlSummary -ListenerReady $true -Remote 'provisioned' `
             -Capability @{ protocol = 1; availability = 'available'; ceiling = 'restart-broker'; state = 'recovery_pending' }
+        $update = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -ControllerState @{ scopes = 'restart,full' } `
+            -Protocol 999999 -UpdateState 'recovering'
+        $update['caller'] = 'loopback'
         $payload = @{
-            ok = $true; tokenConfigured = $true; tokenTag = ('f' * 64); utcNow = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); refresh = $available
+            ok = $true; tokenConfigured = $true; tokenTag = ('f' * 64); utcNow = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'); repair = $available
+            update = $update
         } | ConvertTo-Json -Compress
         Assert-True ([System.Text.Encoding]::UTF8.GetByteCount($payload) -lt 1024) "control-status is $([System.Text.Encoding]::UTF8.GetByteCount($payload)) bytes"
+    }
+}
+
+Describe 'every host-update admission decision maps to its reply' {
+
+    It 'maps queued and a takeover to 202 queued, and an active replay to already queued or claimed' {
+        $queued = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'queued'; RequestId = $script:ValidId; State = 'queued' }) -Scope 'restart'
+        Assert-Equal 202 $queued.StatusCode
+        Assert-True $queued.Body.ok
+        Assert-StringEqual 'queued' $queued.Body.action
+        Assert-StringEqual 'restart' $queued.Body.scope
+        Assert-StringEqual '/runtime/host-update.state.json' $queued.Body.stateUrl
+        Assert-False ($queued.Body.Contains('supersedes'))
+        $other = [Guid]::NewGuid().ToString('D')
+        $takeover = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'taken-over'; RequestId = $script:ValidId; SupersededId = $other }) -Scope 'restart'
+        Assert-Equal 202 $takeover.StatusCode
+        Assert-StringEqual $other $takeover.Body.supersedes
+        $waiting = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'already-active'; RequestId = $script:ValidId; State = 'queued' })
+        Assert-StringEqual 'already_queued' $waiting.Body.action
+        foreach ($state in @('running', 'recovery-pending')) {
+            Assert-StringEqual 'already_claimed' (Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'already-active'; RequestId = $script:ValidId; State = $state })).Body.action $state
+        }
+    }
+
+    It 'maps completed, busy, policy-mismatch, policy-invalid and unavailable' {
+        $completed = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'completed'; RequestId = $script:ValidId; State = 'completed'; Verdict = 'updated_with_remarks' })
+        Assert-Equal 200 $completed.StatusCode
+        Assert-StringEqual 'completed' $completed.Body.action
+        Assert-StringEqual 'updated_with_remarks' $completed.Body.verdict
+        foreach ($case in @(
+                @{ Kind = 'host-update'; Wire = 'host_update'; Url = '/runtime/host-update.state.json'; Key = 'status.api_host_update_busy' }
+                @{ Kind = 'host-repair'; Wire = 'host_repair'; Url = '/runtime/host-repair.state.json'; Key = 'status.api_host_repair_busy' }
+                @{ Kind = 'start-cycle'; Wire = 'start_cycle'; Url = '/runtime/start-cycle.state.json'; Key = 'status.api_host_repair_busy' }
+                @{ Kind = 'teleport'; Wire = 'host_repair'; Url = '/runtime/host-repair.state.json'; Key = 'status.api_host_repair_busy' })) {
+            $busy = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'busy'; ActiveKind = $case.Kind; ActiveRequestId = 'aaaa' })
+            Assert-Equal 409 $busy.StatusCode $case.Kind
+            Assert-StringEqual 'busy' $busy.Body.reason
+            Assert-StringEqual $case.Wire $busy.Body.activeKind $case.Kind
+            Assert-StringEqual 'aaaa' $busy.Body.activeRequestId
+            Assert-StringEqual $case.Url $busy.Body.stateUrl $case.Kind
+            Assert-StringEqual $case.Key $busy.MessageKey $case.Kind
+        }
+        $conflict = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'policy-mismatch'; RequestId = $script:ValidId })
+        Assert-Equal 409 $conflict.StatusCode
+        Assert-StringEqual 'request_conflict' $conflict.Body.reason
+        $invalid = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'policy-invalid'; RequestId = $script:ValidId })
+        Assert-Equal 400 $invalid.StatusCode
+        Assert-StringEqual 'invalid_value' $invalid.Body.reason
+        Assert-StringEqual 'drain' $invalid.Body.field
+        $unavailable = Get-HostUpdateAdmissionReply -Admission ([pscustomobject]@{ Decision = 'unavailable'; Reason = 'runtime-owner-mismatch' })
+        Assert-Equal 503 $unavailable.StatusCode
+        Assert-StringEqual 'admission_unavailable' $unavailable.Body.reason
+        Assert-StringEqual 'runtime_owner_mismatch' $unavailable.MessageArguments.reason
+    }
+
+    It 'answers an unrecognized or missing decision with 500, never a success' {
+        foreach ($admission in @($null, [pscustomobject]@{ Decision = 'QUEUED' }, [pscustomobject]@{ Decision = 'spawn' }, @{})) {
+            $reply = Get-HostUpdateAdmissionReply -Admission $admission
+            Assert-Equal 500 $reply.StatusCode
+            Assert-StringEqual 'internal_error' $reply.Body.reason
+        }
+    }
+}
+
+Describe 'the update capability is compact and fails closed' {
+
+    It 'reads controller_absent for <LockState>' -ForEach @(@{ LockState = 'free' }, @{ LockState = 'absent' }, @{ LockState = 'unknown' }, @{ LockState = '' }) {
+        $summary = Get-HostUpdateControlSummary -ListenerReady $true -LockState $LockState -JournalStatus 'ok' -Protocol 1 -UpdateState 'idle'
+        Assert-StringEqual 'unavailable' $summary.availability
+        Assert-StringEqual 'controller_absent' $summary.reason
+        Assert-StringEqual '' $summary.scopes 'an unavailable capability lists no scope'
+        Assert-StringEqual 'missing' $summary.remote
+    }
+
+    It 'reads listener_dependency_missing when the route is not ready' {
+        $summary = Get-HostUpdateControlSummary -ListenerReady $false -ListenerReason 'listener_dependency_missing' -LockState 'held' -JournalStatus 'ok' -Protocol 1 -UpdateState 'active'
+        Assert-StringEqual 'unavailable' $summary.availability
+        Assert-StringEqual 'listener_dependency_missing' $summary.reason
+        Assert-StringEqual 'active' $summary.state 'the update state is still reported'
+    }
+
+    It 'reads journal_unreadable for a journal it cannot read' {
+        foreach ($status in @('corrupt', 'unreadable', 'unknown-version', '')) {
+            $summary = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus $status -Protocol 1 -UpdateState 'unknown'
+            Assert-StringEqual 'journal_unreadable' $summary.reason $status
+        }
+        foreach ($status in @('ok', 'absent', 'recovered-previous')) {
+            Assert-StringEqual 'available' (Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus $status -Protocol 1).availability $status
+        }
+    }
+
+    It 'reads session_unusable only from the state file' {
+        $unusable = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -ControllerState @{ sessionUsable = $false; scopes = 'restart' } -Protocol 1
+        Assert-StringEqual 'session_unusable' $unusable.reason
+        foreach ($state in @($null, @{}, @{ sessionUsable = $true }, @{ sessionUsable = 'false' })) {
+            Assert-StringEqual 'available' (Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -ControllerState $state -Protocol 1).availability
+        }
+    }
+
+    It 'lists restart when the state file is absent and only the scopes it knows' {
+        $absent = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -Protocol 1 -UpdateState 'idle'
+        Assert-StringEqual 'available' $absent.availability
+        Assert-StringEqual '' $absent.reason
+        Assert-StringEqual 'restart' $absent.scopes
+        Assert-StringEqual 'restart,full' (Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -ControllerState @{ scopes = 'restart,full' }).scopes
+        Assert-StringEqual 'restart' (Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -ControllerState @{ scopes = 'everything' }).scopes
+    }
+
+    It 'reports the pool-control record whatever the availability, and its address only when provisioned' {
+        $absent = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'free' -JournalStatus 'ok' -Protocol 1 -Remote 'provisioned' -PoolControl 'http://192.0.2.10'
+        Assert-StringEqual 'controller_absent' $absent.reason
+        Assert-StringEqual 'provisioned' $absent.remote 'remote is reported with no controller'
+        Assert-StringEqual 'http://192.0.2.10' $absent.poolControl
+        $ready = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -Protocol 1 -Remote 'provisioned' -PoolControl 'https://pool.example:8443/p'
+        Assert-StringEqual 'protocol,availability,scopes,reason,remote,state,poolControl' (@($ready.Keys) -join ',')
+        Assert-True ([Text.Encoding]::UTF8.GetByteCount(($ready | ConvertTo-Json -Compress)) -le 512) 'the summary stays inside its bound'
+        foreach ($remote in @('missing', 'invalid')) {
+            $other = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -Protocol 1 -Remote $remote -PoolControl 'http://192.0.2.10'
+            Assert-StringEqual $remote $other.remote
+            Assert-False ($other.Contains('poolControl')) "an address rides along with $remote"
+        }
+    }
+
+    It 'reads an address outside the record''s own shape as invalid: <PoolControl>' -ForEach @(
+        @{ PoolControl = '' }, @{ PoolControl = 'javascript:alert(1)' }, @{ PoolControl = 'http://192.0.2.10/?x=1' }, @{ PoolControl = 'http://a b' }
+        @{ PoolControl = 'http://h/' + ('a' * 260) }
+    ) {
+        $summary = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok' -Protocol 1 -Remote 'provisioned' -PoolControl $PoolControl
+        Assert-StringEqual 'invalid' $summary.remote
+        Assert-False ($summary.Contains('poolControl'))
+        Assert-StringEqual 'invalid' (Get-HostUpdateControlSummary -ListenerReady $true -Remote 'other').remote 'an unknown remote state reads as invalid'
+    }
+
+    It 'clamps unknown values' {
+        $summary = Get-HostUpdateControlSummary -ListenerReady $false -ListenerReason 'Not A Code!' -Protocol 12345678 -UpdateState 'recovery-pending'
+        Assert-StringEqual 'listener_dependency_missing' $summary.reason
+        Assert-Equal -1 $summary.protocol
+        Assert-StringEqual 'unknown' $summary.state
+        Assert-StringEqual 'recovering' (Get-HostUpdateControlSummary -ListenerReady $true -UpdateState 'recovering').state
+        Assert-Equal -1 (Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok').protocol 'an unread protocol is -1 and decides nothing'
+        Assert-StringEqual 'available' (Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'ok').availability
+        Assert-StringEqual 'protocol,availability,scopes,reason,remote,state' (@($summary.Keys) -join ',')
+    }
+
+    It 'stays within 192 bytes' {
+        $longest = Get-HostUpdateControlSummary -ListenerReady $false -ListenerReason ('a' * 48) -Protocol 999999 -UpdateState 'recovering'
+        $json = $longest | ConvertTo-Json -Compress
+        Assert-True ([System.Text.Encoding]::UTF8.GetByteCount($json) -le 192) "summary is $([System.Text.Encoding]::UTF8.GetByteCount($json)) bytes"
+        $available = Get-HostUpdateControlSummary -ListenerReady $true -LockState 'held' -JournalStatus 'recovered-previous' -ControllerState @{ scopes = 'restart,full' } -Protocol 999999 -UpdateState 'recovering'
+        Assert-True ([System.Text.Encoding]::UTF8.GetByteCount(($available | ConvertTo-Json -Compress)) -le 192)
     }
 }
 
@@ -936,14 +1225,32 @@ Describe 'the generated server wires the routes the way the listener must' {
         Assert-Equal 0 $script:ServerParseErrors.Count "the generated server does not parse: $(@($script:ServerParseErrors | ForEach-Object { $_.Message }) -join '; ')"
     }
 
-    It 'guards the refresh route with the always-on cross-site check and answers 405 through the shared error' {
-        $guard = Get-StatusControlRouteGuard -Path 'control/host-refresh' -Method 'GET'
-        Assert-True ($guard -and $guard.Guard -eq 'Always' -and $guard.RequiresHeader) 'control/host-refresh must be guarded on every method'
-        $route = Get-ServerRouteText -Route 'control/host-refresh'
+    It 'guards the repair route with the always-on cross-site check and answers 405 through the shared error' {
+        $guard = Get-StatusControlRouteGuard -Path 'control/host-repair' -Method 'GET'
+        Assert-True ($guard -and $guard.Guard -eq 'Always' -and $guard.RequiresHeader) 'control/host-repair must be guarded on every method'
+        $route = Get-ServerRouteText -Route 'control/host-repair'
         Assert-Match "Send-JsonError -Response \`$res -StatusCode 405 -Request \`$req -Key 'status.api_post_required_663cc07c'" $route
-        Assert-True ($route -notmatch 'ReadToEnd') 'the refresh route must not read its body synchronously'
-        Assert-True ($route -match 'Add-PendingRequestBody') 'the refresh route hands its body to the bounded reader'
+        Assert-True ($route -notmatch 'ReadToEnd') 'the repair route must not read its body synchronously'
+        Assert-True ($route -match 'Add-PendingRequestBody') 'the repair route hands its body to the bounded reader'
         Assert-True ($route -match '\$pendingBodies\.Count -ge 4') 'at most four bodies are read at once'
+    }
+
+    It 'guards the host-update route like the repair route, reads its body through the bounded reader and launches nothing' {
+        $guard = Get-StatusControlRouteGuard -Path 'control/host-update' -Method 'GET'
+        Assert-True ($guard -and $guard.Guard -eq 'Always' -and $guard.RequiresHeader) 'control/host-update must be guarded on every method'
+        Assert-Equal 0 @($guard.ProofScope).Count 'a scoped proof never opens it'
+        $route = Get-ServerRouteText -Route 'control/host-update'
+        Assert-Match "Send-JsonError -Response \`$res -StatusCode 405 -Request \`$req -Key 'status.api_post_required_663cc07c'" $route
+        Assert-True ($route -notmatch 'ReadToEnd') 'the host-update route must not read its body synchronously'
+        Assert-True ($route -match "Add-PendingRequestBody -RequestContext \`$ctx -Route 'host-update' -UpdateLoopback \`$updateLoopback") 'the route hands its body and its loopback verdict to the bounded reader'
+        Assert-True ($route -match '\$pendingBodies\.Count -ge 4') 'at most four bodies are read at once'
+        Assert-True ($route -match "Test-HostUpdateLoopbackCaller -RemoteAddress \`$req\.RemoteEndPoint\.Address -HostHeader \(\[string\]\`$req\.Headers\['Host'\]\) -Port \`$Port") 'the verdict reads the raw Host header and the listener port'
+        Assert-True ($script:ServerText -match "Tag\.Route -ceq 'host-update'\) \{\s+Invoke-HostUpdateRequest -RequestContext \`$pendingContext -BodyBytes \`$bodyRead\.Bytes -Loopback \(\[bool\]\`$bodyRead\.Tag\.UpdateLoopback\)") 'the dispatcher sends a host-update body to its own handler'
+        $handler = Get-ServerFunctionText -Name 'Invoke-HostUpdateRequest'
+        foreach ($forbidden in @('Start-StatusWorker', 'Start-YurunaDetachedProcess', 'Publish-HostRepairQueuedState', '& pwsh', 'Start-Process')) {
+            Assert-True (-not $handler.Contains($forbidden)) "the host-update handler must not contain '$forbidden'"
+        }
+        Assert-True ($handler -match "Drain = 'after-cycle'") 'the route always hands admission the constant after-cycle'
     }
 
     It 'never accepts a request with the blocking call, and waits on the pending bodies too' {
@@ -965,19 +1272,19 @@ Describe 'the generated server wires the routes the way the listener must' {
             }
             Assert-True ($route -match 'Start-StatusWorker') "$routeName launches its detached worker"
         }
-        Assert-True ($startCycleHandler -match 'Request-HostRefreshStartCycleReservation') 'start-cycle reserves before launching'
-        Assert-True ($startCycleHandler -match '(?s)finally\s*\{.*Save-StatusLaunchOutcome.*Set-HostRefreshStartCycleLaunch') 'every reserved launch is recorded from a finally'
-        Assert-True ((Get-ServerFunctionText -Name 'Invoke-HostRefreshRequest') -match '(?s)finally\s*\{.*Save-StatusLaunchOutcome.*Set-HostRefreshLaunchOutcome') 'every admitted launch is recorded from a finally'
+        Assert-True ($startCycleHandler -match 'Request-StartCycleReservation') 'start-cycle reserves before launching'
+        Assert-True ($startCycleHandler -match '(?s)finally\s*\{.*Save-StatusLaunchOutcome.*Set-StartCycleLaunch') 'every reserved launch is recorded from a finally'
+        Assert-True ((Get-ServerFunctionText -Name 'Invoke-HostOperationRequest') -match '(?s)finally\s*\{.*Save-StatusLaunchOutcome.*Set-HostRepairLaunchOutcome') 'every admitted launch is recorded from a finally'
     }
 
     It 'launches workers only with fixed argument vectors checked against the script' {
         $worker = Get-ServerFunctionText -Name 'Start-StatusWorker'
         Assert-True ($worker -match 'Test-StatusWorkerArgument -ScriptPath \$ScriptPath -ArgumentList \$ArgumentList') 'every vector is bound-checked before launch'
         Assert-True ($worker -match 'TotalMilliseconds 5000') 'the launch is bounded'
-        $refresh = Get-ServerFunctionText -Name 'Invoke-HostRefreshRequest'
-        Assert-True ($refresh -match 'New-HostRefreshWorkerArgumentList -RepoRoot \$workerRoot -RequestId \$refreshRequestId -Budget') 'the refresh vector comes from the fixed builder'
-        $refreshCode = (@($refresh -split "`r?`n" | Where-Object { $_.TrimStart() -notlike '#*' }) -join "`n")
-        Assert-True ($refreshCode -notmatch 'X-Yuruna-Control') 'the refresh proof is never read from the legacy header'
+        $repair = Get-ServerFunctionText -Name 'Invoke-HostOperationRequest'
+        Assert-True ($repair -match 'New-HostRepairWorkerArgumentList -RepoRoot \$workerRoot -RequestId \$repairRequestId -Budget') 'the repair vector comes from the fixed builder'
+        $repairCode = (@($repair -split "`r?`n" | Where-Object { $_.TrimStart() -notlike '#*' }) -join "`n")
+        Assert-True ($repairCode -notmatch 'X-Yuruna-Control') 'the repair proof is never read from the legacy header'
     }
 
     It 'names every route command to the route guard so a lost import heals' {
@@ -990,11 +1297,13 @@ Describe 'the generated server wires the routes the way the listener must' {
             }
         }
         $findings = @()
-        foreach ($name in @('Request-HostRefreshAdmission', 'Set-HostRefreshLaunchOutcome', 'Get-HostRefreshPrivateWorkDir', 'Get-HostRefreshCapability',
-                'New-HostRefreshBudget', 'New-HostRefreshWorkerArgumentList', 'Publish-HostRefreshQueuedState', 'Get-VirtualizationRepairRung',
-                'Request-HostRefreshStartCycleReservation', 'Set-HostRefreshStartCycleLaunch', 'Start-YurunaDetachedProcess',
-                'Test-YurunaHostRefreshAuthorization', 'Get-YurunaHostRefreshRemoteState', 'Get-StatusWorkerDirectory', 'Get-HostDiagnosticRouteState',
-                'Save-StatusLaunchOutcome', 'Get-StatusWorkerTranscriptStem')) {
+        foreach ($name in @('Request-HostRepairAdmission', 'Set-HostRepairLaunchOutcome', 'Get-HostRepairPrivateWorkDir', 'Get-HostRepairCapability',
+                'New-HostRepairBudget', 'New-HostRepairWorkerArgumentList', 'Publish-HostRepairQueuedState', 'Get-VirtualizationRepairRung',
+                'Request-StartCycleReservation', 'Set-StartCycleLaunch', 'Start-YurunaDetachedProcess',
+                'Test-YurunaHostRepairAuthorization', 'Get-YurunaHostRepairRemoteState', 'Get-StatusWorkerDirectory', 'Get-HostDiagnosticRouteState',
+                'Save-StatusLaunchOutcome', 'Get-StatusWorkerTranscriptStem', 'Request-HostUpdateAdmission', 'Get-HostUpdateControllerLockState',
+                'Get-HostUpdateCapability', 'ConvertFrom-HostUpdateRequestBody', 'Test-HostUpdateLoopbackCaller', 'Get-HostUpdateControlSummary',
+                'Get-HostUpdateAdmissionReply')) {
             if (-not $guarded.ContainsKey($name)) { $findings += "$name is called but never named to Import-RouteModule" }
         }
         Assert-NoFinding $findings 'a route calls a command a lost startup import cannot recover'
@@ -1007,12 +1316,13 @@ Describe 'the generated server wires the routes the way the listener must' {
             }, $true) | Select-Object -First 1
         Assert-NotNull $assignment 'the shared shapes are gone'
         $shapes = @(& ([scriptblock]::Create($assignment.Right.Extent.Text)))
-        $private = @('host-refresh/host-refresh.journal', 'x/host-refresh/host-refresh.lock', 'host-refresh.journal', 'host-refresh.journal.prev',
-            'host-refresh.request.json', 'host-refresh.request.v1.json', 'host-refresh.lock', 'host-refresh.admission.lock', 'runner-gate.record',
+        $private = @('host-repair/host-operation.journal', 'x/host-repair/host-operation.lock', 'host-operation.journal', 'host-operation.journal.prev',
+            'host-operation.lock', 'host-operation.admission.lock', 'runner-gate.record',
             'service-census.record.prev', 'abc.handshake.json', 'x.hop.json', 'x.hop.json.ack.json', 'runner-handoff.0123.ack.json',
-            'remote-verifier.key', 'authority/operator.credential', 'work/stdin.empty.tmp')
-        $public = @('host-refresh.state.json', 'start-cycle.state.json', 'status.json', 'runner.refresh-evidence.json', 'runner.cycle.json',
-            'inner.start', 'runner.refresh-gated.json')
+            'remote-verifier.key', 'authority/operator.credential', 'work/stdin.empty.tmp',
+            'host-repair/host-controller.lock', 'x/host-repair/host-controller/current', 'host-repair/host-controller/runner-console.sock')
+        $public = @('host-repair.state.json', 'start-cycle.state.json', 'status.json', 'runner.repair-evidence.json', 'runner.cycle.json',
+            'inner.start', 'runner.gate-held.json', 'host-update.state.json', 'host-controller.state.json')
         $findings = @()
         foreach ($name in $private) {
             $denied = $false
@@ -1023,23 +1333,49 @@ Describe 'the generated server wires the routes the way the listener must' {
             foreach ($shape in $shapes) { if ($name -like $shape) { $findings += "public name '$name' is denied by '$shape'" } }
         }
         Assert-NoFinding $findings 'the served-tree shapes do not separate private state from public progress'
+        foreach ($leaf in @('host-update.state.json', 'host-controller.state.json')) {
+            Assert-True ($script:ServerText -match ("'" + [regex]::Escape($leaf) + "'")) "the runtime allow-list serves $leaf"
+        }
+    }
+
+    It 'reads the host-update route as ready with no worker vector' {
+        $definitions = @(
+            (Get-ServerFunctionText -Name 'Import-RouteModule'),
+            (Get-ServerFunctionText -Name 'Test-StatusRouteReady')
+        ) -join "`n"
+        $probe = [scriptblock]::Create("param([string]`$RepoRoot)`n" + $definitions + "`n" + @'
+$repoRoot = $RepoRoot
+$script:StatusRouteReady = @{}
+$errors = [System.Collections.Generic.List[string]]::new()
+$vectors = [System.Collections.Generic.List[string]]::new()
+function Write-ServerErr { param([string]$msg) $errors.Add($msg) }
+# A worker-vector check that always refuses: a route that ran it could never
+# be ready, so a ready answer proves the route skipped it.
+function Test-StatusWorkerArgument { param($ScriptPath, $ArgumentList) $null = $ArgumentList; $vectors.Add([string]$ScriptPath); [pscustomobject]@{ Valid = $false; Reason = 'probe'; Parameter = 'probe' } }
+$ready = Test-StatusRouteReady -Route 'host-update'
+[pscustomobject]@{ Ready = $ready.Ready; Reason = $ready.Reason; Errors = @($errors); Vectors = @($vectors) }
+'@)
+        $got = & $probe $script:RepoRoot
+        Assert-True $got.Ready "host-update not ready: $($got.Errors -join '; ')"
+        Assert-StringEqual '' $got.Reason
+        Assert-Equal 0 @($got.Vectors).Count 'no worker vector is checked for a route that launches nothing'
     }
 }
 
-Describe 'the refresh request handler maps each path to its documented reply' {
+Describe 'the repair request handler maps each path to its documented reply' {
 
     BeforeAll {
         $definitions = @(
             (Get-ServerFunctionText -Name 'Send-JsonReply'),
-            (Get-ServerFunctionText -Name 'Invoke-HostRefreshRequest'),
+            (Get-ServerFunctionText -Name 'Invoke-HostOperationRequest'),
             (Get-ServerFunctionText -Name 'Set-ResponseLocaleHeaders')
         ) -join "`n"
-        $script:RefreshHarness = [scriptblock]::Create("param([hashtable]`$Case)`n" + $definitions + "`n" + @'
+        $script:RepairHarness = [scriptblock]::Create("param([hashtable]`$Case)`n" + $definitions + "`n" + @'
 $serverHostType = 'host.ubuntu.kvm'
 $runtimeDir = '/scratch/runtime'
 $workerRoot = '/scratch/repo'
-$hostRefreshEntry = '/scratch/repo/test/lab/Invoke-HostRefresh.ps1'
-$hostRefreshStateUrl = '/runtime/host-refresh.state.json'
+$hostRepairEntry = '/scratch/repo/test/lab/Invoke-HostRepair.ps1'
+$hostRepairStateUrl = '/runtime/host-repair.state.json'
 $startCycleStateUrl = '/runtime/start-cycle.state.json'
 $calls = [System.Collections.Generic.List[string]]::new()
 function Write-ServerErr { param([string]$msg) $calls.Add("err:$msg") }
@@ -1047,39 +1383,39 @@ function Resolve-PageLocale { param($AcceptLanguage) $null = $AcceptLanguage; re
 function Get-VirtualizationRepairRung { param($HostType) $null = $HostType
     foreach ($pair in @(@('probe', 0), @('reclaim', 1), @('start-if-stopped', 2), @('restart-if-hung', 3), @('restart-broker', 4), @('reapply-settings', 5))) {
         [pscustomobject]@{ Name = $pair[0]; Order = $pair[1] } } }
-function Get-HostRefreshSummaryCached { return $Case.Summary }
+function Get-HostRepairSummaryCached { return $Case.Summary }
 function Import-RouteModule { param($ModuleRelativePath, $RequiredCommand) $null = $ModuleRelativePath, $RequiredCommand; return [bool]$Case.VerifierLoads }
 function Get-ArchiveHostId { return '42af6f0d32ad41c48cffd47c91c16b2d' }
-function Test-YurunaHostRefreshAuthorization { param($ProofWire, $HostId, $RequestId, $Tier, $MaxRung)
+function Test-YurunaHostRepairAuthorization { param($ProofWire, $HostId, $RequestId, $Tier, $MaxRung)
     $calls.Add("auth:$ProofWire|$HostId|$RequestId|$Tier|$MaxRung"); return $Case.Authorization }
-function Request-HostRefreshAdmission { param($RequestId, $Channel, $Tier, $MaxRung, $RuntimeDir, $HostType, $AdmissionWaitMilliseconds, [switch]$Confirm)
+function Request-HostRepairAdmission { param($RequestId, $Channel, $Tier, $MaxRung, $RuntimeDir, $HostType, $AdmissionWaitMilliseconds, [switch]$Confirm)
     $null = $Confirm; $calls.Add("admit:$RequestId|$Channel|$Tier|$MaxRung|$RuntimeDir|$HostType|$AdmissionWaitMilliseconds")
     $record = $Case.Admission.Clone(); if (-not $record.ContainsKey('RequestId')) { $record.RequestId = $RequestId }; return [pscustomobject]$record }
-function Get-HostRefreshPrivateWorkDir { return $Case.WorkDir }
-function New-HostRefreshBudget { return [pscustomobject]@{ TotalExpiryTick = 1 } }
-function New-HostRefreshWorkerArgumentList { param($RepoRoot, $RequestId, $Budget) $null = $Budget; $calls.Add("argv:$RepoRoot|$RequestId")
+function Get-HostRepairPrivateWorkDir { return $Case.WorkDir }
+function New-HostRepairBudget { return [pscustomobject]@{ TotalExpiryTick = 1 } }
+function New-HostRepairWorkerArgumentList { param($RepoRoot, $RequestId, $Budget) $null = $Budget; $calls.Add("argv:$RepoRoot|$RequestId")
     if ($Case.ArgvThrows) { throw [System.InvalidOperationException]::new('argument list refused') }
     '-RequestId'; $RequestId }
 function Start-StatusWorker { param($Directory, $StdInPath, $ScriptPath, $ArgumentList, $TranscriptStem)
     $calls.Add("launch:$ScriptPath|$($ArgumentList -join ' ')|$TranscriptStem|$Directory"); return $Case.Launch }
 # Answers each record attempt from OutcomeReplies in order (saved, refused or
 # throw), then saved.
-function Set-HostRefreshLaunchOutcome { param($RequestId, $Outcome, $Launch, [switch]$Confirm) $null = $Launch, $Confirm; $calls.Add("outcome:$RequestId|$Outcome")
+function Set-HostRepairLaunchOutcome { param($RequestId, $Outcome, $Launch, [switch]$Confirm) $null = $Launch, $Confirm; $calls.Add("outcome:$RequestId|$Outcome")
     $next = 'saved'
     if ($Case.OutcomeReplies -and $Case.OutcomeReplies.Count -gt 0) { $next = [string]$Case.OutcomeReplies[0]; $Case.OutcomeReplies.RemoveAt(0) }
     if ($next -eq 'throw') { throw [System.IO.IOException]::new('journal write failed') }
     return [pscustomobject]@{ Saved = ($next -eq 'saved'); Reason = $next } }
-function Publish-HostRefreshQueuedState { param($RuntimeDir, $RequestId, $Channel) $calls.Add("queued:$RuntimeDir|$RequestId|$Channel"); return $true }
+function Publish-HostRepairQueuedState { param($RuntimeDir, $RequestId, $Channel) $calls.Add("queued:$RuntimeDir|$RequestId|$Channel"); return $true }
 $headers = [System.Net.WebHeaderCollection]::new()
 $request = [pscustomobject]@{ Headers = $headers; HttpMethod = 'POST' }
 $response = [pscustomobject]@{ Headers = [System.Net.WebHeaderCollection]::new(); OutputStream = [System.IO.MemoryStream]::new(); StatusCode = 0; ContentType = ''; ContentLength64 = [long]0; KeepAlive = $true }
 $context = [pscustomobject]@{ Request = $request; Response = $response }
-Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Encoding]::UTF8.GetBytes($Case.Body)) -Loopback ([bool]$Case.Loopback) -ProofWire ([string]$Case.Proof)
+Invoke-HostOperationRequest -RequestContext $context -BodyBytes ([System.Text.Encoding]::UTF8.GetBytes($Case.Body)) -Loopback ([bool]$Case.Loopback) -ProofWire ([string]$Case.Proof)
 [pscustomobject]@{ Response = $response; Json = (ConvertFrom-Json -InputObject ([System.Text.Encoding]::UTF8.GetString($response.OutputStream.ToArray()))); Calls = @($calls) }
 '@)
         $script:WorkDir = New-YurunaTestTempDir -Prefix 'yuruna-route-work'
         $script:Available = [ordered]@{ protocol = 1; availability = 'available'; ceiling = 'start-if-stopped'; reason = ''; remote = 'provisioned'; state = 'idle' }
-        function New-RefreshCase {
+        function New-RepairCase {
             [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
                 Justification = 'Builds an in-memory test case.')]
             [CmdletBinding()]
@@ -1098,7 +1434,7 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
     AfterAll { Remove-YurunaTestTempDir $script:WorkDir }
 
     It 'admits a loopback body with defaults, launches the worker, records the launch and publishes the queued state' {
-        $got = & $script:RefreshHarness (New-RefreshCase)
+        $got = & $script:RepairHarness (New-RepairCase)
         Assert-Equal 202 $got.Response.StatusCode
         Assert-StringEqual 'spawned' $got.Json.action
         Assert-Match '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' $got.Json.requestId 'loopback gets a generated canonical id'
@@ -1106,14 +1442,14 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
         $admit = @($got.Calls | Where-Object { $_ -like 'admit:*' })
         Assert-Equal 1 $admit.Count
         Assert-Match '\|listener\|restart\|start-if-stopped\|/scratch/runtime\|host\.ubuntu\.kvm\|1000$' $admit[0]
-        Assert-True (@($got.Calls | Where-Object { $_ -like 'launch:/scratch/repo/test/lab/Invoke-HostRefresh.ps1|-RequestId *' }).Count -eq 1) 'the fixed entry script is launched'
+        Assert-True (@($got.Calls | Where-Object { $_ -like 'launch:/scratch/repo/test/lab/Invoke-HostRepair.ps1|-RequestId *' }).Count -eq 1) 'the fixed entry script is launched'
         Assert-True (@($got.Calls | Where-Object { $_ -like 'outcome:*|started' }).Count -eq 1)
         Assert-True (@($got.Calls | Where-Object { $_ -like 'queued:/scratch/runtime|*|listener' }).Count -eq 1)
         Assert-True ([IO.File]::Exists((Join-Path $script:WorkDir 'stdin.empty'))) 'the stdin sentinel is prepared in the private work directory'
     }
 
     It 'keeps the request queued and answers 503 launcher_failed when the launch fails' {
-        $got = & $script:RefreshHarness (New-RefreshCase @{ Launch = [pscustomobject]@{ Launched = $false; Reason = 'hop-failed' } })
+        $got = & $script:RepairHarness (New-RepairCase @{ Launch = [pscustomobject]@{ Launched = $false; Reason = 'hop-failed' } })
         Assert-Equal 503 $got.Response.StatusCode
         Assert-StringEqual 'launcher_failed' $got.Json.reason
         Assert-True ([bool]$got.Json.requestId) 'the reply names the request to retry'
@@ -1123,14 +1459,14 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
 
     It 'launches nothing for already-claimed, completed, busy, conflicting or closed requests' {
         foreach ($decision in @('already-claimed', 'completed', 'busy', 'policy-mismatch', 'stored', 'unavailable')) {
-            $got = & $script:RefreshHarness (New-RefreshCase @{ Admission = @{ Decision = $decision; ActiveKind = 'host-refresh'; State = 'completed'; Verdict = 'repaired' } })
+            $got = & $script:RepairHarness (New-RepairCase @{ Admission = @{ Decision = $decision; ActiveKind = 'host-repair'; State = 'completed'; Verdict = 'repaired' } })
             Assert-Equal 0 @($got.Calls | Where-Object { $_ -like 'launch:*' }).Count "$decision must not launch"
             Assert-True ($got.Response.StatusCode -in @(200, 202, 409, 503)) "$decision answered $($got.Response.StatusCode)"
         }
     }
 
     It 'refuses an invalid body before admission, naming the field' {
-        $got = & $script:RefreshHarness (New-RefreshCase @{ Body = '{"allowHardStop":true}' })
+        $got = & $script:RepairHarness (New-RepairCase @{ Body = '{"allowHardStop":true}' })
         Assert-Equal 400 $got.Response.StatusCode
         Assert-StringEqual 'forbidden_field' $got.Json.reason
         Assert-StringEqual 'allowHardStop' $got.Json.field
@@ -1139,36 +1475,36 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
     }
 
     It 'refuses when the capability is not available' {
-        $got = & $script:RefreshHarness (New-RefreshCase @{ Summary = [ordered]@{ protocol = 1; availability = 'unavailable'; ceiling = ''; reason = 'no_qualified_rung'; remote = 'missing'; state = 'idle' } })
+        $got = & $script:RepairHarness (New-RepairCase @{ Summary = [ordered]@{ protocol = 1; availability = 'unavailable'; ceiling = ''; reason = 'no_qualified_rung'; remote = 'missing'; state = 'idle' } })
         Assert-Equal 503 $got.Response.StatusCode
-        Assert-StringEqual 'refresh_unavailable' $got.Json.reason
+        Assert-StringEqual 'repair_unavailable' $got.Json.reason
         Assert-Equal 0 @($got.Calls | Where-Object { $_ -like 'admit:*' }).Count
     }
 
     It 'authorizes a non-loopback caller from its own proof header and admits it on the remote channel' {
         $body = '{"requestId":"' + $script:ValidId + '","tier":"restart","maxRung":"reclaim"}'
-        $got = & $script:RefreshHarness (New-RefreshCase @{ Loopback = $false; Body = $body; Proof = 'yhr1.proof' })
+        $got = & $script:RepairHarness (New-RepairCase @{ Loopback = $false; Body = $body; Proof = 'yrp1.proof' })
         Assert-Equal 202 $got.Response.StatusCode
-        Assert-StringEqual "auth:yhr1.proof|42af6f0d32ad41c48cffd47c91c16b2d|$($script:ValidId)|restart|reclaim" (@($got.Calls | Where-Object { $_ -like 'auth:*' })[0])
+        Assert-StringEqual "auth:yrp1.proof|42af6f0d32ad41c48cffd47c91c16b2d|$($script:ValidId)|restart|reclaim" (@($got.Calls | Where-Object { $_ -like 'auth:*' })[0])
         Assert-Match '\|remote\|restart\|reclaim\|' (@($got.Calls | Where-Object { $_ -like 'admit:*' })[0])
     }
 
     It 'refuses a non-loopback caller without every key, with a refused proof, or with no verifier' {
-        $partial = & $script:RefreshHarness (New-RefreshCase @{ Loopback = $false; Body = '{"tier":"restart"}' })
+        $partial = & $script:RepairHarness (New-RepairCase @{ Loopback = $false; Body = '{"tier":"restart"}' })
         Assert-Equal 400 $partial.Response.StatusCode 'a remote body must carry all three keys'
         $body = '{"requestId":"' + $script:ValidId + '","tier":"restart","maxRung":"reclaim"}'
-        $refused = & $script:RefreshHarness (New-RefreshCase @{ Loopback = $false; Body = $body; Authorization = @{ Authorized = $false; Reason = 'refresh_proof_expired'; HttpStatus = 403 } })
+        $refused = & $script:RepairHarness (New-RepairCase @{ Loopback = $false; Body = $body; Authorization = @{ Authorized = $false; Reason = 'repair_proof_expired'; HttpStatus = 403 } })
         Assert-Equal 403 $refused.Response.StatusCode
-        Assert-StringEqual 'refresh_proof_expired' $refused.Json.reason
-        Assert-StringEqual 'status.api_host_refresh_authorization_refused' $refused.Json.code
+        Assert-StringEqual 'repair_proof_expired' $refused.Json.reason
+        Assert-StringEqual 'status.api_host_repair_authorization_refused' $refused.Json.code
         Assert-Equal 0 @($refused.Calls | Where-Object { $_ -like 'admit:*' }).Count
-        $noVerifier = & $script:RefreshHarness (New-RefreshCase @{ Loopback = $false; Body = $body; VerifierLoads = $false })
+        $noVerifier = & $script:RepairHarness (New-RepairCase @{ Loopback = $false; Body = $body; VerifierLoads = $false })
         Assert-Equal 403 $noVerifier.Response.StatusCode
-        Assert-StringEqual 'refresh_verifier_unavailable' $noVerifier.Json.reason
+        Assert-StringEqual 'repair_verifier_unavailable' $noVerifier.Json.reason
     }
 
     It 'answers 503 private_state_unavailable when the work directory cannot be secured, and closes the admitted launch' {
-        $got = & $script:RefreshHarness (New-RefreshCase @{ WorkDir = $null })
+        $got = & $script:RepairHarness (New-RepairCase @{ WorkDir = $null })
         Assert-Equal 503 $got.Response.StatusCode
         Assert-StringEqual 'private_state_unavailable' $got.Json.reason
         Assert-Equal 0 @($got.Calls | Where-Object { $_ -like 'launch:*' }).Count
@@ -1177,7 +1513,7 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
     }
 
     It 'closes the admitted launch when building the worker vector throws, and still answers 500' {
-        $got = & $script:RefreshHarness (New-RefreshCase @{ ArgvThrows = $true })
+        $got = & $script:RepairHarness (New-RepairCase @{ ArgvThrows = $true })
         Assert-Equal 500 $got.Response.StatusCode
         Assert-StringEqual 'internal_error' $got.Json.reason
         Assert-Equal 0 @($got.Calls | Where-Object { $_ -like 'launch:*' }).Count
@@ -1185,23 +1521,23 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
     }
 
     It 'tries a launch record that did not commit once more, and logs one that never does' {
-        $retried = & $script:RefreshHarness (New-RefreshCase @{ OutcomeReplies = [System.Collections.Generic.List[string]]@('admission-busy') })
+        $retried = & $script:RepairHarness (New-RepairCase @{ OutcomeReplies = [System.Collections.Generic.List[string]]@('admission-busy') })
         Assert-Equal 202 $retried.Response.StatusCode
         Assert-Equal 2 @($retried.Calls | Where-Object { $_ -like 'outcome:*|started' }).Count 'a record that did not commit is tried again'
         Assert-Equal 0 @($retried.Calls | Where-Object { $_ -like 'err:*' }).Count 'a second attempt that commits logs nothing'
 
-        $thrown = & $script:RefreshHarness (New-RefreshCase @{ OutcomeReplies = [System.Collections.Generic.List[string]]@('throw', 'saved') })
+        $thrown = & $script:RepairHarness (New-RepairCase @{ OutcomeReplies = [System.Collections.Generic.List[string]]@('throw', 'saved') })
         Assert-Equal 202 $thrown.Response.StatusCode 'a record write that throws does not tear the reply'
         Assert-Equal 2 @($thrown.Calls | Where-Object { $_ -like 'outcome:*|started' }).Count
 
-        $lost = & $script:RefreshHarness (New-RefreshCase @{
+        $lost = & $script:RepairHarness (New-RepairCase @{
                 Launch = [pscustomobject]@{ Launched = $false; Reason = 'hop-failed' }
                 OutcomeReplies = [System.Collections.Generic.List[string]]@('admission-busy', 'journal-unwritable')
             })
         Assert-Equal 503 $lost.Response.StatusCode
         Assert-StringEqual 'launcher_failed' $lost.Json.reason
         Assert-Equal 2 @($lost.Calls | Where-Object { $_ -like 'outcome:*|launch-failed' }).Count
-        $logged = @($lost.Calls | Where-Object { $_ -like 'err:control/host-refresh could not record launch outcome*' })
+        $logged = @($lost.Calls | Where-Object { $_ -like 'err:control/host-repair could not record launch outcome*' })
         Assert-Equal 1 $logged.Count 'a launch outcome that never commits is logged'
         Assert-Match 'journal-unwritable' $logged[0]
     }
@@ -1211,7 +1547,7 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
         $earlier = Join-Path $script:WorkDir "$($script:ValidId).1.out"
         [IO.File]::WriteAllText($earlier, 'the earlier launch')
         try {
-            $got = & $script:RefreshHarness (New-RefreshCase @{ Body = $body })
+            $got = & $script:RepairHarness (New-RepairCase @{ Body = $body })
             Assert-Equal 202 $got.Response.StatusCode
             $launch = @($got.Calls | Where-Object { $_ -like 'launch:*' })
             Assert-Equal 1 $launch.Count
@@ -1220,10 +1556,144 @@ Invoke-HostRefreshRequest -RequestContext $context -BodyBytes ([System.Text.Enco
     }
 
     It 'turns a throw into a 500 JSON reply rather than a torn connection' {
-        $got = & $script:RefreshHarness (New-RefreshCase @{ Admission = $null })
+        $got = & $script:RepairHarness (New-RepairCase @{ Admission = $null })
         Assert-Equal 500 $got.Response.StatusCode
         Assert-StringEqual 'internal_error' $got.Json.reason
-        Assert-True (@($got.Calls | Where-Object { $_ -like 'err:control/host-refresh failed:*' }).Count -eq 1) 'the throw is logged'
+        Assert-True (@($got.Calls | Where-Object { $_ -like 'err:control/host-repair failed:*' }).Count -eq 1) 'the throw is logged'
+    }
+}
+
+Describe 'the host-update request handler maps each path to its documented reply' {
+
+    BeforeAll {
+        $definitions = @(
+            (Get-ServerFunctionText -Name 'Send-JsonReply'),
+            (Get-ServerFunctionText -Name 'Invoke-HostUpdateRequest'),
+            (Get-ServerFunctionText -Name 'Set-ResponseLocaleHeaders')
+        ) -join "`n"
+        $script:UpdateHarness = [scriptblock]::Create("param([hashtable]`$Case)`n" + $definitions + "`n" + @'
+$serverHostType = 'host.ubuntu.kvm'
+$runtimeDir = '/scratch/runtime'
+$hostUpdateStateUrl = '/runtime/host-update.state.json'
+$hostRepairStateUrl = '/runtime/host-repair.state.json'
+$startCycleStateUrl = '/runtime/start-cycle.state.json'
+$calls = [System.Collections.Generic.List[string]]::new()
+function Write-ServerErr { param([string]$msg) $calls.Add("err:$msg") }
+function Resolve-PageLocale { param($AcceptLanguage) $null = $AcceptLanguage; return @{ Tag = 'en-US'; Direction = 'ltr' } }
+if (-not $Case.RealLock) { function Get-HostUpdateControllerLockState { $calls.Add('lock'); return [string]$Case.LockState } }
+function Get-HostUpdateSummaryCached { return $Case.Summary }
+function Request-HostUpdateAdmission { param($RequestId, $Channel, $Scope, $Drain, $DrainSeconds, $ExpectCommit, $RuntimeDir, $HostType, $AdmissionWaitMilliseconds, [switch]$Confirm)
+    $null = $Confirm; $calls.Add("admit:$RequestId|$Channel|$Scope|$Drain|$DrainSeconds|$ExpectCommit|$RuntimeDir|$HostType|$AdmissionWaitMilliseconds")
+    if ($null -eq $Case.Admission) { throw [System.IO.IOException]::new('journal write failed') }
+    $record = $Case.Admission.Clone(); if (-not $record.ContainsKey('RequestId')) { $record.RequestId = $RequestId }; return [pscustomobject]$record }
+$headers = [System.Net.WebHeaderCollection]::new()
+$request = [pscustomobject]@{ Headers = $headers; HttpMethod = 'POST' }
+$response = [pscustomobject]@{ Headers = [System.Net.WebHeaderCollection]::new(); OutputStream = [System.IO.MemoryStream]::new(); StatusCode = 0; ContentType = ''; ContentLength64 = [long]0; KeepAlive = $true }
+$context = [pscustomobject]@{ Request = $request; Response = $response }
+Invoke-HostUpdateRequest -RequestContext $context -BodyBytes ([System.Text.Encoding]::UTF8.GetBytes($Case.Body)) -Loopback ([bool]$Case.Loopback)
+[pscustomobject]@{ Response = $response; Json = (ConvertFrom-Json -InputObject ([System.Text.Encoding]::UTF8.GetString($response.OutputStream.ToArray()))); Calls = @($calls) }
+'@)
+        $script:UpdateAvailable = [ordered]@{ protocol = 1; availability = 'available'; scopes = 'restart'; reason = ''; remote = 'missing'; state = 'idle' }
+        function New-UpdateCase {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Builds an in-memory test case.')]
+            [CmdletBinding()]
+            [OutputType([hashtable])]
+            param([hashtable]$Override = @{})
+            $case = @{ Body = '{}'; Loopback = $true; LockState = 'held'; Summary = $script:UpdateAvailable; Admission = @{ Decision = 'queued'; State = 'queued' } }
+            foreach ($key in $Override.Keys) { $case[$key] = $Override[$key] }
+            return $case
+        }
+    }
+
+    It 'queues a loopback body with defaults, always draining after the cycle, and launches nothing' {
+        $got = & $script:UpdateHarness (New-UpdateCase)
+        Assert-Equal 202 $got.Response.StatusCode
+        Assert-StringEqual 'queued' $got.Json.action
+        Assert-StringEqual 'restart' $got.Json.scope
+        Assert-StringEqual '/runtime/host-update.state.json' $got.Json.stateUrl
+        Assert-Match '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' $got.Json.requestId 'loopback gets a generated canonical id'
+        $admit = @($got.Calls | Where-Object { $_ -like 'admit:*' })
+        Assert-Equal 1 $admit.Count
+        Assert-Match '\|listener\|restart\|after-cycle\|7200\|\|/scratch/runtime\|host\.ubuntu\.kvm\|1000$' $admit[0]
+    }
+
+    It 'passes the request id, drainSeconds and expectCommit through, and still drains after the cycle' {
+        $body = '{"requestId":"' + $script:ValidId + '","drainSeconds":600,"expectCommit":"abcdef1"}'
+        $got = & $script:UpdateHarness (New-UpdateCase @{ Body = $body })
+        Assert-Equal 202 $got.Response.StatusCode
+        Assert-StringEqual $script:ValidId $got.Json.requestId
+        Assert-StringEqual "admit:$($script:ValidId)|listener|restart|after-cycle|600|abcdef1|/scratch/runtime|host.ubuntu.kvm|1000" (@($got.Calls | Where-Object { $_ -like 'admit:*' })[0])
+    }
+
+    It 'refuses drain in a body before anything else, naming the field' {
+        $got = & $script:UpdateHarness (New-UpdateCase @{ Body = '{"drain":"now"}' })
+        Assert-Equal 400 $got.Response.StatusCode
+        Assert-StringEqual 'forbidden_field' $got.Json.reason
+        Assert-StringEqual 'drain' $got.Json.field
+        Assert-StringEqual 'status.api_request_body_invalid' $got.Json.code
+        Assert-Equal 0 @($got.Calls | Where-Object { $_ -in @('lock') -or $_ -like 'admit:*' }).Count 'a refused body probes nothing and admits nothing'
+    }
+
+    It 'refuses a caller that is not this host itself with 403 update_proof_missing' {
+        $got = & $script:UpdateHarness (New-UpdateCase @{ Loopback = $false })
+        Assert-Equal 403 $got.Response.StatusCode
+        Assert-StringEqual 'update_proof_missing' $got.Json.reason
+        Assert-StringEqual 'status.api_host_update_proof_missing' $got.Json.code
+        Assert-Equal 0 @($got.Calls | Where-Object { $_ -like 'admit:*' }).Count
+    }
+
+    It 'refuses with 503 controller_absent when the controller lock reads <LockState>' -ForEach @(@{ LockState = 'free' }, @{ LockState = 'absent' }, @{ LockState = 'unknown' }) {
+        $got = & $script:UpdateHarness (New-UpdateCase @{ LockState = $LockState })
+        Assert-Equal 503 $got.Response.StatusCode
+        Assert-StringEqual 'controller_absent' $got.Json.reason
+        Assert-StringEqual 'status.api_host_update_controller_absent' $got.Json.code
+        Assert-Equal 0 @($got.Calls | Where-Object { $_ -like 'admit:*' }).Count 'a request nobody will run is never queued'
+    }
+
+    It 'refuses with 503 controller_absent on a host with no private root at all, creating nothing' {
+        $scratchHome = New-YurunaTestTempDir -Prefix 'yuruna-route-noroot'
+        Import-Module (Join-Path $script:RepoRoot 'test/modules/Test.HostOperationJournal.psm1') -Force -Global -DisableNameChecking
+        & (Get-Module Test.HostOperationJournal) { param($h) $script:HostOperationHomePath = $h } $scratchHome
+        try {
+            $got = & $script:UpdateHarness (New-UpdateCase @{ RealLock = $true })
+            Assert-Equal 503 $got.Response.StatusCode
+            Assert-StringEqual 'controller_absent' $got.Json.reason
+            Assert-False (Test-Path -LiteralPath (Join-Path $scratchHome '.yuruna')) 'the probe never creates the private root'
+        } finally {
+            & (Get-Module Test.HostOperationJournal) { $script:HostOperationHomePath = $null }
+            Remove-YurunaTestTempDir $scratchHome
+        }
+    }
+
+    It 'refuses a scope the controller does not run with 409 scope_unavailable, queuing nothing' {
+        $got = & $script:UpdateHarness (New-UpdateCase @{ Body = '{"scope":"full"}' })
+        Assert-Equal 409 $got.Response.StatusCode
+        Assert-StringEqual 'scope_unavailable' $got.Json.reason
+        Assert-StringEqual 'full' $got.Json.scope
+        Assert-StringEqual 'status.api_host_update_scope_unavailable' $got.Json.code
+        Assert-Equal 0 @($got.Calls | Where-Object { $_ -like 'admit:*' }).Count
+        $both = [ordered]@{ protocol = 1; availability = 'available'; scopes = 'restart,full'; reason = ''; remote = 'missing'; state = 'idle' }
+        Assert-Equal 202 (& $script:UpdateHarness (New-UpdateCase @{ Body = '{"scope":"full"}'; Summary = $both })).Response.StatusCode 'a listed scope is admitted'
+    }
+
+    It 'answers busy with the holder, and a takeover with the update it supersedes' {
+        $busy = & $script:UpdateHarness (New-UpdateCase @{ Admission = @{ Decision = 'busy'; ActiveKind = 'host-update'; ActiveRequestId = $script:ValidId } })
+        Assert-Equal 409 $busy.Response.StatusCode
+        Assert-StringEqual 'host_update' $busy.Json.activeKind
+        Assert-StringEqual $script:ValidId $busy.Json.activeRequestId
+        Assert-StringEqual 'status.api_host_update_busy' $busy.Json.code
+        $old = [Guid]::NewGuid().ToString('D')
+        $takeover = & $script:UpdateHarness (New-UpdateCase @{ Admission = @{ Decision = 'taken-over'; State = 'queued'; SupersededId = $old } })
+        Assert-Equal 202 $takeover.Response.StatusCode
+        Assert-StringEqual $old $takeover.Json.supersedes
+    }
+
+    It 'turns a throw into a 500 JSON reply rather than a torn connection' {
+        $got = & $script:UpdateHarness (New-UpdateCase @{ Admission = $null })
+        Assert-Equal 500 $got.Response.StatusCode
+        Assert-StringEqual 'internal_error' $got.Json.reason
+        Assert-Equal 1 @($got.Calls | Where-Object { $_ -like 'err:control/host-update failed:*' }).Count 'the throw is logged'
     }
 }
 
@@ -1242,13 +1712,13 @@ $servedRootSet = @('/scratch/repo', '/scratch/runtime')
 $startCycleWorker = '/scratch/repo/test/modules/Invoke-StartCycleWorker.ps1'
 $startCycleCleanupScript = '/scratch/repo/test/Remove-TestVMFiles.ps1'
 $startCycleRunnerScript = '/scratch/repo/test/Start-TestRunner.ps1'
-$hostRefreshStateUrl = '/runtime/host-refresh.state.json'
+$hostRepairStateUrl = '/runtime/host-repair.state.json'
 $startCycleStateUrl = '/runtime/start-cycle.state.json'
 $calls = [System.Collections.Generic.List[string]]::new()
 function Write-ServerErr { param([string]$msg) $calls.Add("err:$msg") }
 function Resolve-PageLocale { param($AcceptLanguage) $null = $AcceptLanguage; return @{ Tag = 'en-US'; Direction = 'ltr' } }
 function Get-StatusWorkerDirectory { param($Name, $ServedRoot, [switch]$Confirm) $null = $ServedRoot, $Confirm; $calls.Add("directory:$Name"); return $Case.Directory }
-function Request-HostRefreshStartCycleReservation { param($OperationId, $RuntimeDir, $AdmissionWaitMilliseconds, [switch]$Confirm)
+function Request-StartCycleReservation { param($OperationId, $RuntimeDir, $AdmissionWaitMilliseconds, [switch]$Confirm)
     $null = $Confirm; $calls.Add("reserve:$OperationId|$RuntimeDir|$AdmissionWaitMilliseconds"); return [pscustomobject]$Case.Reservation }
 function Start-StatusWorker { param($Directory, $StdInPath, $ScriptPath, $ArgumentList, $TranscriptStem)
     $null = $StdInPath; $calls.Add("launch:$ScriptPath|$TranscriptStem|$Directory|$($ArgumentList -join ' ')")
@@ -1256,7 +1726,7 @@ function Start-StatusWorker { param($Directory, $StdInPath, $ScriptPath, $Argume
     return $Case.Launch }
 # Answers each record attempt from RecordReplies in order (saved, refused or
 # throw), then saved.
-function Set-HostRefreshStartCycleLaunch { param($OperationId, $Generation, $Outcome, $Launch, [switch]$Confirm) $null = $Launch, $Confirm
+function Set-StartCycleLaunch { param($OperationId, $Generation, $Outcome, $Launch, [switch]$Confirm) $null = $Launch, $Confirm
     $calls.Add("record:$OperationId|$Generation|$Outcome")
     $next = 'saved'
     if ($Case.RecordReplies -and $Case.RecordReplies.Count -gt 0) { $next = [string]$Case.RecordReplies[0]; $Case.RecordReplies.RemoveAt(0) }
@@ -1330,7 +1800,7 @@ $text = [System.Text.Encoding]::UTF8.GetString($response.OutputStream.ToArray())
 
     It 'launches and records nothing when the host is busy or admission is unavailable' {
         foreach ($reservation in @(
-                @{ Decision = 'busy'; Generation = $null; ActiveKind = 'host-refresh'; ActiveRequestId = $script:ValidId; Reason = 'host-refresh-active' },
+                @{ Decision = 'busy'; Generation = $null; ActiveKind = 'host-repair'; ActiveRequestId = $script:ValidId; Reason = 'host-operation-active' },
                 @{ Decision = 'busy'; Generation = $null; ActiveKind = 'start-cycle'; ActiveRequestId = $script:ValidId; Reason = 'start-cycle-active' },
                 @{ Decision = 'unavailable'; Generation = $null; ActiveKind = ''; ActiveRequestId = $null; Reason = 'admission-busy' })) {
             $got = & $script:StartCycleHarness (New-StartCycleCase @{ Reservation = $reservation })
@@ -1665,10 +2135,10 @@ Describe 'the listener liveness lease' {
 }
 
 Describe 'the host-address beacon watches the listener' {
-    It 'runs one watch pass per loop and replaces through the refresh-safe start' {
+    It 'runs one watch pass per loop and replaces through the non-destructive start' {
         $beacon = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'test/modules/Invoke-HostAddressBeacon.ps1'))
         $beacon | Should -Match ([regex]::Escape('Invoke-StatusListenerWatch -RuntimeDir $RuntimeDir -State $listenerWatch -Probe $probeListener -Replace $replaceListener'))
-        $beacon | Should -Match ([regex]::Escape("'-RefreshSafe', '-ReplaceWedged'"))
+        $beacon | Should -Match ([regex]::Escape("'-NonDestructive', '-ReplaceWedged'"))
         $beacon | Should -Not -Match 'Start-StatusService\.ps1''\)[^\r\n]*-Restart' -Because 'the replacement must not run the full start''s sweeps'
     }
 }

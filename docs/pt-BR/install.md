@@ -469,9 +469,9 @@ Quando o `git pull --ff-only` não consegue avançar o repositório local
 move o checkout existente para o lado como um `<dir>.backup.<stamp>` com
 data e hora e reclona do zero, em vez de deixar um estado meio atualizado.
 O bloco de resumo final exibe o caminho do backup em destaque para que o
-operador possa salvar edições locais antes de apagá-lo. O estado de runtime
-de `test/status` já foi capturado no TEMP pelo bloco de preservação acima,
-então o histórico de ciclos sobrevive a esse caminho.
+operador possa salvar edições locais antes de apagá-lo. Assim que o novo
+clone está no lugar, o estado de runtime de `test/status` é movido do backup
+para ele (veja abaixo), então o histórico de ciclos sobrevive a esse caminho.
 
 <a id="429fb30b-0011"></a>
 
@@ -513,21 +513,29 @@ pode perder o histórico do dashboard, as transcrições de log de cada ciclo
 nem o estado do diretório de runtime (`status.json` com `history[]`,
 `runner.gating.json`, `runner.quarantine.json`, `runner.pid`, flags de
 controle). Nada disso é rastreado pelo git -- conforme o `.gitignore`, todo
-subdiretório sob `test/status/` é ignorado como estado de runtime. O bloco
-de clone/atualização/renormalização deixa os arquivos não rastreados em paz
+subdiretório sob `test/status/` é ignorado como estado de runtime --, então
+as etapas de fetch, checkout, pull e renormalização os deixam no lugar
 (`git rm -r --cached . && git reset --hard HEAD` só toca os arquivos
-rastreados), mas o instalador reforça esse contrato com um snapshot e uma
-restauração explícitos, para que uma
-regressão futura na lógica de renormalização, ou uma exclusão manual de
-`$YurunaDir` entre tentativas, não possa apagar silenciosamente semanas de
-histórico de ciclos.
+rastreados), e uma atualização no lugar não copia nada.
+
+Só um novo clone começa sem eles. Quando o `git pull --ff-only` não consegue
+avançar, o instalador move o checkout para `<dir>.backup.<stamp>`, clona de
+novo e move cada subdiretório de estado do checkout movido para o novo. O
+backup fica ao lado do clone, então cada movimentação é uma renomeação no
+mesmo disco: não precisa de espaço livre e termina na hora, por maior que
+seja o histórico de ciclos. O git ignora os subdiretórios de estado, então o
+novo clone não tem nenhum deles; um que exista mesmo assim é deixado como
+está, em vez de receber o outro dentro dele. Um subdiretório que não for
+movido é relatado como problema da instalação e continua no backup. Um
+clone que não termina devolve o checkout movido ao lugar, com o estado
+dentro.
 
 Todo o estado de runtime do harness fica sob `test/status/<sub>/`:
 `runtime/`, `perf/`, `log/`,
-`extension/`, `captures/`, `ssh/`. O instalador preserva todos os
+`extension/`, `captures/`, `ssh/`. Um novo clone leva todos os
 subdiretórios, para que o histórico de ciclos, o JSONL de perf, o estado do
 cofre, as capturas de treinamento/sequência e o par de chaves SSH gerado
-sobrevivam todos a um clone/atualização.
+sobrevivam todos a ele.
 
 <a id="429fb30b-0013"></a>
 
@@ -841,9 +849,16 @@ automatizados detectam a falha, e o operador tem tempo para ler sua explicação
 um registro JSON de como a execução correu, para que a automação (um host
 aninhado, um script de provisionamento) leia o resultado em vez de analisar
 o resumo final: `outcome` (`succeeded`, `succeeded-with-issues`,
-`restart-required` no Windows, ou `failed`), `exitCode`, a última `step`
-(macOS, Ubuntu), cada problema adiado em `issues`, a `version` instalada e o
-caminho do `log`. Ele é gravado em `~/.local/state/yuruna/install-result.json`
+`restart-required` no Windows para uma execução que teve sucesso com uma
+reinicialização pendente, ou `failed`), `exitCode`, a última `step`, cada
+problema adiado em `issues`, a `version` instalada e o caminho do `log`. Ele
+também indica o `requestId` e a `attempt` da atualização do host, se a execução
+foi `unattended`, o token `reason` de uma falha não assistida (no macOS também
+`clt_missing` para as Command Line Tools ausentes), uma atualização do PowerShell
+(`pwshUpgrade`), `restartRequired` e, no macOS e no Ubuntu, `remarks`: tokens que uma
+atualização do host relata como suas próprias observações, sempre vazio no Ubuntu e no
+macOS `brew_update_failed` e `utm_upgrade_deferred`, cada um ao lado de seu problema. Uma execução não assistida o grava
+em todos os caminhos, inclusive em uma recusa antes da primeira alteração. Ele é gravado em `~/.local/state/yuruna/install-result.json`
 no macOS e no Ubuntu (`$XDG_STATE_HOME` quando definido) ou em
 `%LOCALAPPDATA%\yuruna\install-result.json` no Windows (a conta elevada), com
 uma cópia ao lado do log da execução como `<log name>.result.json`. A
@@ -1127,7 +1142,7 @@ lock do timestamp enquanto o pós-instalador do brew/cask roda seu próprio
 sudo -- mataria o subshell.
 
 Um único trap de `EXIT` (`yuruna_install_cleanup`) libera o keepalive do
-sudo E qualquer backup temporário de test/status em todo caminho de saída:
+sudo E remove os caminhos temporários da execução em todo caminho de saída:
 conclusão normal, Ctrl+C, aborto por `set -e`.
 
 <a id="429fb30b-002c"></a>
@@ -1490,6 +1505,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.11.16
+Última revisão: 2026.11.23
 
 Voltar para [Yuruna](../../README.md)

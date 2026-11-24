@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 424025fc-72c7-4d6f-8266-32ee055a88e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,8 +28,10 @@
     pin under a coarse pointer, a measured footer height, 100dvh beside every
     100vh, every service table inside a scroll region, an identifier input a
     phone keyboard cannot capitalize, state colors drawn from tokens, a PDF
-    preview embedded only where the browser has an inline viewer, and a phone
-    rule lifting every control a stylesheet sizes under the touch minimum.
+    preview embedded only where the browser has an inline viewer, a phone
+    rule lifting every control a stylesheet sizes under the touch minimum, and
+    the footer IP field and pool-control's host update links at that minimum
+    under any coarse pointer.
 #>
 
 BeforeDiscovery {
@@ -134,9 +136,12 @@ Describe 'Phone rules in the shared chrome' {
         $null = $Name
         # The floor every Yuruna UI shares is --touch-min (44px). A control may
         # size itself under it for a pointer device, as the menu button does,
-        # only while a rule under the phone width and one under a coarse pointer
-        # lift it: a control outside those rules stays small on a phone, and the
-        # paint-based gate flags a box only under 24px, so it never sees one.
+        # only while a rule under the phone width and one under any coarse
+        # pointer lift it: a control outside those rules stays small on a phone,
+        # and the paint-based gate flags a box only under 24px, so it never sees
+        # one. The coarse rule must be any-pointer: a touch screen beside a
+        # mouse reports a fine primary pointer, so a (pointer: coarse) rule
+        # never reaches it at desktop width.
         # A control is a rule that declares cursor: pointer or names a native
         # control or a button/link role; its size is a literal height or
         # min-height, read as a phone reads it (min-height wins).
@@ -153,7 +158,7 @@ Describe 'Phone rules in the shared chrome' {
                 [bool]@($compounds | Where-Object { $_ -match $control })
             if (-not $acts) { continue }
             foreach ($compound in $compounds) {
-                foreach ($phone in @('max-width:\s*600px', 'pointer:\s*coarse')) {
+                foreach ($phone in @('max-width:\s*600px', 'any-pointer:\s*coarse')) {
                     $lifted = @($rules | Where-Object {
                         $_.Media -match $phone -and $_.Media -notmatch 'min-width' -and
                         (Split-CssSelector $_.Selector) -contains $compound -and
@@ -190,6 +195,49 @@ Describe 'Phone rules in the shared chrome' {
             ForEach-Object { Get-CssDeclaration -Body $_.Body -Property 'display' } | Where-Object { $_ })
         @($displays | Where-Object { $_ -match '^(inline-block|inline-flex|inline-grid|block|flex|grid)$' }).Count |
             Should -BeGreaterThan 0 -Because 'an inline span ignores min-height'
+    }
+    It 'gives the footer IP field the touch minimum under any coarse pointer in <Name>' -TestCases $script:SheetCases {
+        param($Name, $Path)
+        $null = $Name
+        # The one-row readonly textarea sizes itself from its small mono font,
+        # declares no height, and so passes the sized-control rule above while
+        # it stays well under the floor on a touch screen. Its base rule sets no
+        # min-height, so a bare textarea floor reaches it as well.
+        $floorValue = '^(var\(--touch-min\)|44px|2\.75rem)$'
+        $rules = Get-CssRuleInMedia -Css ([IO.File]::ReadAllText($Path))
+        @($rules | Where-Object {
+            $_.Media -match 'any-pointer:\s*coarse' -and $_.Media -notmatch 'min-width' -and
+            @(Split-CssSelector $_.Selector | Where-Object { $_ -in 'textarea#footer-ip-list', 'textarea' }).Count -gt 0 -and
+            (Get-CssDeclaration -Body $_.Body -Property 'min-height') -match $floorValue
+        }).Count | Should -BeGreaterThan 0 -Because 'a touch screen taps the footer IP field to select the addresses'
+    }
+    It 'gives the host update links the touch minimum under any coarse pointer' {
+        # Both are plain links the host-update flow adds: the host table's
+        # per-host update link and the update page's Cancel beside its submit
+        # button. The host table's link sits inline in a cell and needs a
+        # display that takes a min-height; the Cancel is already a flex item
+        # of .row, and its display keeps the label centered in the taller box.
+        $floorValue = '^(var\(--touch-min\)|44px|2\.75rem)$'
+        $displayReason = @{
+            'a.host-update'      = 'a.host-update is an inline link in a table cell, and an inline box ignores min-height'
+            '.row > a.secondary' = '.row > a.secondary needs a flex box to center its label in the taller box'
+        }
+        $sheet = Join-Path $script:Root 'test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css'
+        $rules = @(Get-CssRuleInMedia -Css ([IO.File]::ReadAllText($sheet)) |
+            Where-Object { $_.Media -match 'any-pointer:\s*coarse' -and $_.Media -notmatch 'min-width' })
+        foreach ($selector in 'a.host-update', '.row > a.secondary') {
+            $naming = @($rules | Where-Object { (Split-CssSelector $_.Selector) -contains $selector })
+            foreach ($property in 'min-height', 'min-width') {
+                @($naming | Where-Object { (Get-CssDeclaration -Body $_.Body -Property $property) -match $floorValue }).Count |
+                    Should -BeGreaterThan 0 -Because "$selector needs a $property at the touch minimum under a coarse pointer"
+            }
+            @($naming | Where-Object { (Get-CssDeclaration -Body $_.Body -Property 'display') -match '^(inline-block|inline-flex)$' }).Count |
+                Should -BeGreaterThan 0 -Because $displayReason[$selector]
+        }
+        # The selectors above must still name what the pages render.
+        $web = 'test/extension/pool-control-service/server/internal/httpsrv/web'
+        [IO.File]::ReadAllText((Join-Path $script:Root "$web/assets/hosts.js")) | Should -Match "Y\.el\('a', \{ class: 'host-update'"
+        [IO.File]::ReadAllText((Join-Path $script:Root "$web/hostupdate.html")) | Should -Match '(?s)<div class="row">\s*<button type="submit"[^\n]*\n\s*<a href="/hosts" class="secondary"'
     }
     It 'measures the footer in every page script' {
         foreach ($file in @('test/status/yuruna.common.js', 'test/extension/extension-sdk/webui/assets/yuruna.core.js')) {

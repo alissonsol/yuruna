@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 428a3b66-dbc3-5faf-a80e-e2c881bca489
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -467,7 +467,7 @@
     'download.pages' = 'Páginas'
     'download.pause' = 'Pausa'
     'download.pool' = 'Grupo'
-    'download.pool_bytes' = 'bytes de grupo'
+    'download.pool_bytes' = 'Bytes do grupo'
     'download.previous_value1' = @(
         @{
             'arg' = 'value1'

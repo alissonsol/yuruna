@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f3e7ae-0558-4c71-a433-d1496401ace5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,7 +15,7 @@
 .DESCRIPTION
     Run locally after setup. The snapshot remains private and recoverable.
     An existing runner is refused; macOS requires the owner's Aqua session.
-    This action never changes the clean-exit safeguard used by host refresh.
+    This action never changes the clean-exit safeguard used by host repair.
 .PARAMETER SnapshotPath
     Private state.json path printed by the installer before it stopped processes.
 .PARAMETER TimeoutSeconds

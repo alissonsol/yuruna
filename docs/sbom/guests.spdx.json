@@ -3,7 +3,7 @@
   "dataLicense": "CC0-1.0",
   "SPDXID": "SPDXRef-DOCUMENT",
   "name": "yuruna-guests",
-  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/guests/ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34",
+  "documentNamespace": "https://github.com/alissonsol/yuruna/sbom/guests/23dbd3482c1e1de022343aee86401e8a6aecfd2fc869c2d5df2dc698e5467eea",
   "creationInfo": {
     "created": "2026-10-03T16:48:41Z",
     "creators": [
@@ -25,8 +25,8 @@
       "licenseDeclared": "LicenseRef-Yuruna",
       "copyrightText": "NOASSERTION",
       "supplier": "Organization: Alisson Sol et al.",
-      "comment": "Declared guests inventory; source-inputs SHA256 ef43cc786844033358b3e81e6f8e052a931ea6881f6eb52f88dcc2fe74feda34. Not an installed-system scan.",
-      "versionInfo": "2026.11.16"
+      "comment": "Declared guests inventory; source-inputs SHA256 23dbd3482c1e1de022343aee86401e8a6aecfd2fc869c2d5df2dc698e5467eea. Not an installed-system scan.",
+      "versionInfo": "2026.11.23"
     },
     {
       "name": "acl",
@@ -227,7 +227,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=gnupg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 140, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=gnupg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 140, \"path\": \"guest/shared/ubuntu.k8s.sh\"}, {\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=gnupg; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 61, \"path\": \"guest/shared/ubuntu.browser.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
     },
     {
       "name": "golang-go",
@@ -238,6 +238,16 @@
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-server-26; action=apt yuruna_service_packages; requested=golang-go; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=apt yuruna_service_packages; requested=golang-go; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 122, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=apt yuruna_service_packages; requested=golang-go; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 125, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh\"}, {\"detail\": \"target=ubuntu-service-seed; action=cloud-init packages; OS package dependency resolution deferred\", \"line\": 97, \"path\": \"host/vmconfig/caching-proxy-service.base.user-data\"}], \"groups\": [\"yuruna:guests:ubuntu-server-26\", \"yuruna:guests:ubuntu-service-seed\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+    },
+    {
+      "name": "google-chrome-stable",
+      "SPDXID": "SPDXRef-bed2502a0ab43f604650",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=google-chrome-stable; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 80, \"path\": \"guest/shared/ubuntu.browser.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
     },
     {
       "name": "gpg",
@@ -287,7 +297,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=iptables-persistent; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 140, \"path\": \"host/vmconfig/ubuntu.server.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"apt\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=apt-get install; requested=iptables-persistent; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 236, \"path\": \"host/vmconfig/ubuntu.server.base.user-data\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
     },
     {
       "name": "iputils-ping",
@@ -657,7 +667,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 108, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.code.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 45, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 50, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 108, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.code.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 44, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=gnupg2; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 49, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
     },
     {
       "name": "gzip",
@@ -687,7 +697,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 66, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"dnf\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 65, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=amazon-linux-2023; action=dnf install; requested=nodejs; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 70, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}], \"group\": \"yuruna:guests:amazon-linux-2023\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
     },
     {
       "name": "postgresql17-contrib",
@@ -763,14 +773,14 @@
     },
     {
       "name": "opentofu/opentofu",
-      "SPDXID": "SPDXRef-778b1e2f1c87e14db879",
+      "SPDXID": "SPDXRef-07e1654249ea522a1a06",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/opentofu/opentofu/releases/download/v1.13.9/tofu_1.13.9_linux_${TOFU_ARCH}.tar.gz; installed payload dependencies unresolved\", \"line\": 829, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "1.13.9"
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"download\", \"evidence\": [{\"detail\": \"target=ubuntu-shared; action=downloaded provisioning artifact; source=https://github.com/opentofu/opentofu/releases/download/v1.13.10/tofu_1.13.10_linux_${TOFU_ARCH}.tar.gz; installed payload dependencies unresolved\", \"line\": 829, \"path\": \"guest/shared/ubuntu.k8s.sh\"}], \"group\": \"yuruna:guests:ubuntu-shared\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}",
+      "versionInfo": "1.13.10"
     },
     {
       "name": "packages-microsoft-prod.deb",
@@ -878,25 +888,25 @@
     },
     {
       "name": "OpenTofu",
-      "SPDXID": "SPDXRef-c7c28b7316e03a6bb4c9",
+      "SPDXID": "SPDXRef-c29b71f083860867a9da",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_OPENTOFU_VERSION; exact installer pin\", \"line\": 16, \"path\": \"automation/yuruna-versions.sh\"}], \"group\": \"yuruna:guests:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "1.13.9"
+      "versionInfo": "1.13.10"
     },
     {
       "name": "flannel-io/flannel",
-      "SPDXID": "SPDXRef-4a67b9d5883a2eaeb0f1",
+      "SPDXID": "SPDXRef-fdadd6e9fba05d6b3353",
       "downloadLocation": "NOASSERTION",
       "filesAnalyzed": false,
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
       "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"generic\", \"evidence\": [{\"detail\": \"target=shared-or-configured; Central guest provisioning declaration YURUNA_FLANNEL_VERSION; exact installer pin\", \"line\": 30, \"path\": \"automation/yuruna-versions.sh\"}], \"group\": \"yuruna:guests:shared-or-configured\", \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}",
-      "versionInfo": "0.28.10"
+      "versionInfo": "0.28.11"
     },
     {
       "name": "n8n",
@@ -906,7 +916,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 66, \"path\": \"guest/shared/ubuntu.n8n.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 70, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.n8n.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=n8n; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 66, \"path\": \"guest/shared/ubuntu.n8n.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
@@ -923,7 +933,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 76, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/shared/ubuntu.openclaw.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \"latest\"}",
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"npm\", \"evidence\": [{\"detail\": \"target=amazon-linux-2023; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 75, \"path\": \"guest/amazon.linux.2023/amazon.linux.2023.openclaw.sh\"}, {\"detail\": \"target=ubuntu-shared; action=npm install; requested=openclaw@latest; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 71, \"path\": \"guest/shared/ubuntu.openclaw.sh\"}], \"groups\": [\"yuruna:guests:amazon-linux-2023\", \"yuruna:guests:ubuntu-shared\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\", \"versionConstraint\": \"latest\"}",
       "externalRefs": [
         {
           "referenceCategory": "PACKAGE_MANAGER",
@@ -970,7 +980,7 @@
       "licenseConcluded": "NOASSERTION",
       "licenseDeclared": "NOASSERTION",
       "copyrightText": "NOASSERTION",
-      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=macos; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 122, \"path\": \"guest/macos.26/macos.26.update.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 184, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 114, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}], \"groups\": [\"yuruna:guests:macos\", \"yuruna:guests:ubuntu-server-26\", \"yuruna:guests:windows\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
+      "comment": "{\"completeness\": \"source-declared\", \"ecosystem\": \"psgallery\", \"evidence\": [{\"detail\": \"target=macos; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 122, \"path\": \"guest/macos.26/macos.26.update.sh\"}, {\"detail\": \"target=ubuntu-server-26; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 185, \"path\": \"guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 113, \"path\": \"guest/windows.11/windows.11.update.ps1\"}, {\"detail\": \"target=windows; action=psgallery Install-Module; requested=powershell-yaml; conditional provisioning input; installed version and transitive dependencies unresolved\", \"line\": 114, \"path\": \"guest/windows.11/windows.11.k8s.ps1\"}], \"groups\": [\"yuruna:guests:macos\", \"yuruna:guests:ubuntu-server-26\", \"yuruna:guests:windows\"], \"notes\": [\"Conditional source declaration; installed state and transitive dependencies are not resolved.\"], \"scope\": \"runtime\"}"
     },
     {
       "name": "Amazon.AWSCLI",
@@ -1213,6 +1223,11 @@
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
       "relatedSpdxElement": "SPDXRef-6967bb8dc07c9eb6b95e"
+    },
+    {
+      "spdxElementId": "SPDXRef-Repository",
+      "relationshipType": "DEPENDS_ON",
+      "relatedSpdxElement": "SPDXRef-bed2502a0ab43f604650"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1477,7 +1492,7 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-778b1e2f1c87e14db879"
+      "relatedSpdxElement": "SPDXRef-07e1654249ea522a1a06"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1532,12 +1547,12 @@
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-c7c28b7316e03a6bb4c9"
+      "relatedSpdxElement": "SPDXRef-c29b71f083860867a9da"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
       "relationshipType": "DEPENDS_ON",
-      "relatedSpdxElement": "SPDXRef-4a67b9d5883a2eaeb0f1"
+      "relatedSpdxElement": "SPDXRef-fdadd6e9fba05d6b3353"
     },
     {
       "spdxElementId": "SPDXRef-Repository",
@@ -1639,7 +1654,7 @@
     {
       "licenseId": "LicenseRef-Yuruna",
       "name": "LicenseRef-Yuruna",
-      "extractedText": "# Yuruna License\n\nThis is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## No Warranty / \"As Is\"\n\n**There is no warranty of any kind.** The Software is provided **\"as is\"**,\nwithout any guarantees -- express or implied -- including but not limited to\ncorrectness, completeness, fitness for a particular purpose, merchantability,\nor non-infringement. You assume the entire risk of using it.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n## <span style=\"color:red;\">Administrator Risk Warning</span>\n\nPortions of this Software are designed to run with **elevated / administrator\nprivileges** (e.g., as Administrator on Windows, or via `sudo` / root on\nLinux and macOS). Running code at this privilege level is **inherently\nrisky**: it can modify system configuration, create or destroy virtual\nmachines, alter networking, install or remove packages, and read or write\narbitrary files. Mistakes -- whether in the Software, in the operator's\ninput, or in the surrounding environment -- **may lead to data loss, system\ninstability, or unrecoverable changes**.\n\nBy executing any part of the Software with administrator or root permissions,\nyou acknowledge this risk and accept full responsibility for the outcome.\nReview the code, take backups, and test in an isolated environment before\nrunning anything privileged against systems you cannot afford to lose.\n\n---\n\nLICENSEURI https://yuruna.link/license\n\nCopyright (c) 2019-2026 by Alisson Sol et al.\n\nLast review: 2026.11.16\n\nBack to [Yuruna](README.md)\n",
+      "extractedText": "# Yuruna License\n\nThis is the **Yuruna License**, based on the [MIT License](https://opensource.org/license/mit/).\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\n## No Warranty / \"As Is\"\n\n**There is no warranty of any kind.** The Software is provided **\"as is\"**,\nwithout any guarantees -- express or implied -- including but not limited to\ncorrectness, completeness, fitness for a particular purpose, merchantability,\nor non-infringement. You assume the entire risk of using it.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n\n## <span style=\"color:red;\">Administrator Risk Warning</span>\n\nPortions of this Software are designed to run with **elevated / administrator\nprivileges** (e.g., as Administrator on Windows, or via `sudo` / root on\nLinux and macOS). Running code at this privilege level is **inherently\nrisky**: it can modify system configuration, create or destroy virtual\nmachines, alter networking, install or remove packages, and read or write\narbitrary files. Mistakes -- whether in the Software, in the operator's\ninput, or in the surrounding environment -- **may lead to data loss, system\ninstability, or unrecoverable changes**.\n\nBy executing any part of the Software with administrator or root permissions,\nyou acknowledge this risk and accept full responsibility for the outcome.\nReview the code, take backups, and test in an isolated environment before\nrunning anything privileged against systems you cannot afford to lose.\n\n---\n\nLICENSEURI https://yuruna.link/license\n\nCopyright (c) 2019-2026 by Alisson Sol et al.\n\nLast review: 2026.11.23\n\nBack to [Yuruna](README.md)\n",
       "seeAlsos": [
         "https://github.com/alissonsol/yuruna/blob/main/LICENSE.md"
       ]

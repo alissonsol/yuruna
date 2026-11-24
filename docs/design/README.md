@@ -14,12 +14,12 @@ the sibling local checkout during regeneration.
 | View | What it shows | Primary source paths |
 | --- | --- | --- |
 | [01 Context and components](01-context-and-components.md) | Seven responsibility boundaries and their dependencies. | [install/](../../install/), [automation/](../../automation/), [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [host/](../../host/), [guest/](../../guest/). |
-| [02 Component breakdown](02-component-breakdown.md) | The scripts, modules, and directories inside each boundary. | [automation/](../../automation/), [test/modules/](../../test/modules/), [test/extension/](../../test/extension/), [source selection](../../test/modules/Test.SourceSelection.psm1), [host contract](../../host/Yuruna.Host.Contract.psm1), [tools/](../../tools/). |
-| [03 Data flows](03-data-flows.md) | Phase execution and its retry ledger, VM test cycles, advisory restart accounting, startup cold restarts, events queued between cycles, GUI transport recovery, source selection through the Git mirror, guest archive verification, pool telemetry through the Loki outbox, cache/stash fetches, GitHub release-asset caching, pool and stash share layouts, and configuration synchronization. | [phase modules](../../automation/), [runner modules](../../test/modules/), [SSH readiness](../../test/modules/Test.Ssh.psm1), [restart evidence](../../test/modules/Test.Diagnostic.psm1), [source selection](../../test/modules/Test.SourceSelection.psm1), [Git mirror](../../test/extension/caching-proxy-service/), [guest fetch](../../automation/fetch-and-execute.sh), [guest retry library](../../automation/yuruna-retry.sh), [pool administration](../../test/pool/), [extension services](../../test/extension/), [service seeds](../../host/vmconfig/). |
-| [04 Lifecycle state](04-lifecycle-state.md) | Runner and VM transitions, supervisor re-entry and framework rescue, runner session and exit records, host and OCR admission, failure evidence and installer causes, host-restart evidence, diagnostic holds, watchdog and cycle-ceiling recovery, startup login and uncommitted-password retries, livelock and display-stall early ends, UTM install power-off and bounded serial capture stop, and host refresh. | [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.RunnerState](../../test/modules/Test.RunnerState.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1). |
-| [05 Configuration data model](05-data-model.md) | Configuration scopes, phase list entries, output references, project selection, and separate test identities. | [project configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config), [project template](https://github.com/alissonsol/yuruna-project/tree/main/template), [validation](../../automation/Yuruna.Validation.psm1), [variable expansion](../../automation/Yuruna.VariableExpansion.psm1), [sequence resolution](../../test/modules/Test.SequenceResolve.psm1), [authentication](../../test/extension/authentication/), [schemas](../../test/schemas/), [test configuration template](../../test/test.config.yml.template). |
-| [06 Deployment topology](06-deployment.md) | Hosts, guests, services, shares, network links, Git mirror source routing, CA enrollment, service credentials, pool status codes, host memory readings, and the deep diagnostics netconsole. | [host providers](../../host/), [service launchers](../../test/service/), [extension daemons](../../test/extension/), [caching proxy and Git mirror](../../test/extension/caching-proxy-service/), [CA trust recovery](../../test/modules/Test.CachingProxyService.psm1), [guest setup](../../guest/ubuntu.server.26/). |
-| [07 Globalization](07-globalization.md) | Catalog production, request locale selection, browser rendering, response caching, and example service diagnostics. | [locale manifest](../../globalization/locale-manifest.json), [Test.Locale](../../test/modules/Test.Locale.psm1), [Go i18n SDK](../../test/extension/extension-sdk/i18n/), [browser kernel](../../globalization/kernel/yuruna.i18n.js), [example request localization](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Program.cs). |
+| [02 Component breakdown](02-component-breakdown.md) | The scripts, modules, and directories inside each boundary. | [automation/](../../automation/), [test/modules/](../../test/modules/), [test/extension/](../../test/extension/), [source selection](../../test/modules/Test.SourceSelection.psm1), [workload MCP server](../../test/service/Start-WorkloadMcpServer.ps1), [host update](../../test/modules/Test.HostUpdate.psm1), [host contract](../../host/Yuruna.Host.Contract.psm1), [tools/](../../tools/). |
+| [03 Data flows](03-data-flows.md) | Phase execution and its retry ledger, VM test cycles, advisory restart accounting, startup cold restarts, events queued between cycles, GUI transport recovery, source selection through the Git mirror, guest archive verification, pool telemetry through the Loki outbox, cache/stash fetches, GitHub release-asset caching, pool and stash share layouts, configuration synchronization, page steps, and host updates. | [phase modules](../../automation/), [runner modules](../../test/modules/), [SSH readiness](../../test/modules/Test.Ssh.psm1), [restart evidence](../../test/modules/Test.Diagnostic.psm1), [source selection](../../test/modules/Test.SourceSelection.psm1), [Git mirror](../../test/extension/caching-proxy-service/), [guest fetch](../../automation/fetch-and-execute.sh), [guest retry library](../../automation/yuruna-retry.sh), [pool administration](../../test/pool/), [extension services](../../test/extension/), [service seeds](../../host/vmconfig/), [web session](../../test/modules/Test.WebSession.psm1), [host update](../../test/modules/Test.HostUpdate.psm1). |
+| [04 Lifecycle state](04-lifecycle-state.md) | Runner and VM transitions, supervisor re-entry and framework rescue, runner session and exit records, host and OCR admission, failure evidence and installer causes, host-restart evidence, diagnostic holds, watchdog and cycle-ceiling recovery, startup login and uncommitted-password retries, livelock and display-stall early ends, UTM install power-off and bounded serial capture stop, host repair and its runner gate, workload-session leases, SSH start password rotation, installer progress, and host update. | [Test.RunnerOuterLoop](../../test/modules/Test.RunnerOuterLoop.psm1), [Test.RunnerInnerLoop](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.RunnerWatchdog](../../test/modules/Test.RunnerWatchdog.psm1), [Test.RunnerState](../../test/modules/Test.RunnerState.psm1), [Test.DiagnosticPreservation](../../test/modules/Test.DiagnosticPreservation.psm1), [Test.SequenceHandler](../../test/modules/Test.SequenceHandler.psm1), [Test.SequenceEngine](../../test/modules/Test.SequenceEngine.psm1), [Test.SingleInstance](../../test/modules/Test.SingleInstance.psm1), [Test.HostUpdate](../../test/modules/Test.HostUpdate.psm1). |
+| [05 Configuration data model](05-data-model.md) | Configuration scopes, phase list entries, output references, project selection, separate test identities, and sentence steps. | [project configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config), [project template](https://github.com/alissonsol/yuruna-project/tree/main/template), [validation](../../automation/Yuruna.Validation.psm1), [variable expansion](../../automation/Yuruna.VariableExpansion.psm1), [sequence resolution](../../test/modules/Test.SequenceResolve.psm1), [authentication](../../test/extension/authentication/), [schemas](../../test/schemas/), [phrase reader](../../test/modules/Test.StepPhrase.psm1), [test configuration template](../../test/test.config.yml.template). |
+| [06 Deployment topology](06-deployment.md) | Hosts, guests, services, shares, network links, Git mirror source routing, CA enrollment, service credentials, pool status codes, host memory readings, the host controller, and the deep diagnostics netconsole. | [host providers](../../host/), [service launchers](../../test/service/), [extension daemons](../../test/extension/), [caching proxy and Git mirror](../../test/extension/caching-proxy-service/), [CA trust recovery](../../test/modules/Test.CachingProxyService.psm1), [guest setup](../../guest/ubuntu.server.26/), [host controller unit](../../host/ubuntu.kvm/host-controller/yuruna-host-controller.service). |
+| [07 Globalization](07-globalization.md) | Catalog production, request locale selection, browser rendering, response caching, MCP server language, sentence steps, and example service diagnostics. | [locale manifest](../../globalization/locale-manifest.json), [Test.Locale](../../test/modules/Test.Locale.psm1), [Go i18n SDK](../../test/extension/extension-sdk/i18n/), [browser kernel](../../globalization/kernel/yuruna.i18n.js), [workload MCP server](../../test/service/Start-WorkloadMcpServer.ps1), [example request localization](https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/components/frontend/text-to-sql-ui/Program.cs). |
 
 <a id="425aae9a-0002"></a>
 
@@ -62,6 +62,14 @@ participants, and installer failure uploads, runner session and exit records,
 and the serial reader stop appear in their prose. Guest shell helpers form one
 shared-module box, while validation and requirement modules stay with the
 deploy engine that alone imports them.
+The workload MCP server, step sentences, and page steps join the sequence
+execution aggregate, and host update joins runner supervision beside host
+repair, so no breakdown adds a box. The page-step flow keeps the browser
+launcher and the guest browser as separate participants and groups the page
+verbs with the session closes. The host update flow stays at seven
+participants by grouping the phase child with its module, the resident runner
+with its gate, the status listener with route validation and journal
+admission, and the Diagnostics page with pool-control's signed remote relay.
 The configuration views split filesystem scopes, phase records, and test
 identities. Deployment separates runner endpoints, service VMs and storage,
 cache processes, Git mirror source routing, service credentials, the deep
@@ -73,6 +81,9 @@ fetches `/v1/nas/stash`, and the other two fetch `/v1/nas/pool`. Its pool view
 draws the host-address
 lookup from the workload guest box, which also stands for the service VMs that
 make the same query.
+The runner endpoints view reaches seven boxes with the host controller, whose
+edges are dashed because a host runs it only once Enable-TestAutomation has
+set it up, and a macOS host only after an ordinary runner start started it.
 The pool view keeps the aggregator's host status codes, including a runner
 lost mid-cycle, in prose beside its existing poll edge, and the cache-process
 view lists the release-asset learner in its Squid, Zot, and self-tests family.
@@ -84,6 +95,11 @@ participant to the guest cycle.
 Runner session and exit records, the display-stall early end, declared
 `startVm` failure patterns, installer failure causes, and the bounded UTM
 serial-capture stop ride existing lifecycle states and edges.
+The host update view takes preflight as its entry guard and folds the listener
+and runner starts into the transitions out of its source update, so it stays at
+six states.
+The phrase library and `defaultSurface` stay in prose because the guest
+sequence view and its sequence entity are already at seven.
 Localization separates catalog delivery, resolver precedence, status requests,
 Go page responses, and the example's diagnostic resources.
 A box may represent a role or code family; it does not always imply a separate
@@ -119,6 +135,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 [Architecture](../architecture.md) | [Design overview](README.md)

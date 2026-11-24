@@ -638,7 +638,7 @@ const DataptBRexceptions = `{
     }
   ],
   "exceptions.host_ffd2efb19a40de43": "Enable-TestAutomation.ps1 (host/windows.hyper-v) só é executado no Windows.",
-  "exceptions.host_refresh_auth_authority_incomplete": [
+  "exceptions.host_repair_auth_authority_incomplete": [
     {
       "arg": "path",
       "type": "detail",
@@ -658,8 +658,8 @@ const DataptBRexceptions = `{
     },
     "); execute -NewAuthority -Rotate para gravar os dois novamente."
   ],
-  "exceptions.host_refresh_auth_authority_missing": [
-    "Nenhuma autoridade de atualização foi encontrada em ",
+  "exceptions.host_repair_auth_authority_missing": [
+    "Nenhuma autoridade de reparo foi encontrada em ",
     {
       "arg": "path",
       "type": "detail",
@@ -667,8 +667,8 @@ const DataptBRexceptions = `{
     },
     "; primeiro, crie uma com -NewAuthority."
   ],
-  "exceptions.host_refresh_auth_host_id_mismatch": [
-    "A chave de atualização foi emitida para o hospedeiro ",
+  "exceptions.host_repair_auth_host_id_mismatch": [
+    "A chave de verificação de reparo foi emitida para o hospedeiro ",
     {
       "arg": "keyHostId",
       "type": "identifier",
@@ -682,7 +682,7 @@ const DataptBRexceptions = `{
     },
     "; em vez disso, exporte uma chave para este hospedeiro."
   ],
-  "exceptions.host_refresh_auth_host_id_unavailable": [
+  "exceptions.host_repair_auth_host_id_unavailable": [
     "Este hospedeiro ainda não tem um id de hospedeiro (",
     {
       "arg": "path",
@@ -691,22 +691,22 @@ const DataptBRexceptions = `{
     },
     " não existe); inicie o executor de testes uma vez para que o arquivo host.uuid seja criado e tente novamente."
   ],
-  "exceptions.host_refresh_auth_invalid_claim": [
+  "exceptions.host_repair_auth_invalid_claim": [
     "O campo ",
     {
       "arg": "field",
       "type": "identifier",
       "trust": "internal"
     },
-    " da prova de atualização não é válido."
+    " da prova de reparo não é válido."
   ],
-  "exceptions.host_refresh_auth_key_malformed": [
+  "exceptions.host_repair_auth_key_malformed": [
     {
       "arg": "path",
       "type": "detail",
       "trust": "internal"
     },
-    " não é um arquivo de chave de atualização (era esperada uma única linha iniciada por ",
+    " não é um arquivo de autoridade ou de chave de verificação de reparo (era esperada uma única linha iniciada por ",
     {
       "arg": "prefix",
       "type": "token",
@@ -714,7 +714,7 @@ const DataptBRexceptions = `{
     },
     ")."
   ],
-  "exceptions.host_refresh_auth_key_permissions_open": [
+  "exceptions.host_repair_auth_key_permissions_open": [
     {
       "arg": "path",
       "type": "detail",
@@ -722,8 +722,8 @@ const DataptBRexceptions = `{
     },
     " pode ser lido por outros usuários; restrinja o acesso ao proprietário (chmod 600) e tente novamente."
   ],
-  "exceptions.host_refresh_auth_key_unusable": [
-    "O arquivo de chave de atualização ",
+  "exceptions.host_repair_auth_key_unusable": [
+    "O arquivo de autoridade ou de chave de verificação de reparo ",
     {
       "arg": "path",
       "type": "detail",
@@ -737,7 +737,7 @@ const DataptBRexceptions = `{
     },
     ")."
   ],
-  "exceptions.host_refresh_auth_key_write_failed": [
+  "exceptions.host_repair_auth_key_write_failed": [
     "Não foi possível gravar ",
     {
       "arg": "path",
@@ -752,16 +752,16 @@ const DataptBRexceptions = `{
     },
     ")."
   ],
-  "exceptions.host_refresh_auth_private_root_unavailable": [
+  "exceptions.host_repair_auth_private_root_unavailable": [
     "Não foi possível proteger a raiz de estado privada (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    "); nenhuma chave de atualização foi gravada."
+    "); nenhum segredo de reparo foi gravado."
   ],
-  "exceptions.host_refresh_relaunch_parameter_unsupported": [
+  "exceptions.host_repair_relaunch_parameter_unsupported": [
     "O parâmetro ",
     {
       "arg": "name",
@@ -776,14 +776,14 @@ const DataptBRexceptions = `{
     },
     ", que não pode atravessar o relançamento do grupo libvirt."
   ],
-  "exceptions.host_refresh_worker_argument_invalid": [
+  "exceptions.host_repair_worker_argument_invalid": [
     "O argumento ",
     {
       "arg": "name",
       "type": "identifier",
       "trust": "internal"
     },
-    " do worker de host-refresh não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria."
+    " do worker de host-repair não corresponde aos parâmetros do script de entrada; recusando iniciar um worker que o ponto de entrada não aceitaria."
   ],
   "exceptions.host_signature_could_not_be_checked": [
     "A assinatura GPG do SHA256SUMS não pôde ser verificada para ",
@@ -792,6 +792,30 @@ const DataptBRexceptions = `{
       "type": "detail",
       "trust": "external"
     }
+  ],
+  "exceptions.host_update_auth_public_key_invalid": "A chave pública do pool-control deve ser a única linha yupk1 que -NewUpdateSigningKey imprimiu, contendo uma chave RSA de pelo menos 3072 bits.",
+  "exceptions.host_update_auth_signing_key_unusable": [
+    "A chave de assinatura de atualização de hospedeiro ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " não pode ser usada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "); crie uma com -NewUpdateSigningKey."
+  ],
+  "exceptions.host_update_auth_url_invalid": [
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    " não é um endereço do pool-control: informe uma URL http ou https absoluta de no máximo 256 bytes, sem nome de usuário, consulta ou fragmento."
   ],
   "exceptions.host_utm_sudo_requires_noninteractive": "Invoke-UtmHostTool: o sudo deve ser chamado com -n como primeiro argumento, para que nunca fique bloqueado em uma solicitação de senha.",
   "exceptions.host_utmctl_kill_requires_stop": [

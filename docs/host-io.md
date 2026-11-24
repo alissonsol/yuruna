@@ -21,7 +21,7 @@ is enumerable at startup.
 |------------|--------------------------------------------------------------------|---------|
 | `Send-Key`   | `-HostType -VMName -KeyName`                                     | sequence engine, `Yuruna.Host\Send-Key` contract |
 | `Send-Text`  | `-HostType -VMName -Text -CharDelayMs [-ShellEscape]`            | sequence engine, `Yuruna.Host\Send-Text` contract |
-| `Send-Click` | `-HostType -VMName -X -Y [-Capture]`                             | sequence engine, `Yuruna.Host\Send-Click` contract |
+| `Send-Click` | `-HostType -VMName -X -Y [-Capture] [-Click]`                    | sequence engine, `Yuruna.Host\Send-Click` contract |
 
 Each dispatcher is a five-line `try { Invoke-HostIOAction ... } catch
 { Write-Warning; return $false }` wrapper over `Test.HostIO`.
@@ -59,7 +59,7 @@ eviction-safe global-anchor pattern but is hand-rolled in
 |----------------------|-------------------|-------------------|------------------|
 | `host.windows.hyper-v` | `Send-KeyHyperV` (PS/2 scancodes via WMI Msvm_Keyboard) | `Send-TextHyperV` (per-char scancodes with modifier-reset prefix) | `Send-ClickHyperV` (SendInput) |
 | `host.macos.utm`     | VNC first, then AppleScript fallback | VNC first, then JXA/CGEvent | `Send-ClickUtm` (CGEvent in window coords) |
-| `host.ubuntu.kvm`    | `Send-KeyKvm` (`virsh send-key`) | `Send-TextKvm` (one libvirt connection per burst) | _(not implemented -- KVM guests use SSH after GUI bring-up)_ |
+| `host.ubuntu.kvm`    | `Send-KeyKvm` (`virsh send-key`) | `Send-TextKvm` (one libvirt connection per burst) | `Send-ClickKvm` (QEMU monitor `input-send-event` through `virsh`) |
 
 KVM text uses `/usr/bin/python3` with its optional system `libvirt` binding
 to avoid starting a process for every character. Each character still sends
@@ -73,6 +73,23 @@ and key RPCs, including cleanup. Numeric chords and the literal VM name pass
 through a temporary file created with owner-only permissions. A missing
 interpreter or binding falls back to `virsh` before any key RPC; a runtime
 failure or timeout fails the send without replaying potentially delivered text.
+
+KVM clicks go through the QEMU monitor: `Send-ClickKvm` runs
+`virsh --connect qemu:///system qemu-monitor-command <vm> <json>` with QEMU's
+`input-send-event` command, the VM name and the JSON passed as one argument
+each. A click is four calls: a move, a press, a release, and a park that moves
+the pointer to the right edge at middle height, so the pointer is not drawn
+over the next frame's text; a double click sends a second press and release
+before the park. `X` and `Y` are pixels of the frame that `Capture` describes
+by `Width` and `Height`, and each is sent as the center of its pixel on the
+monitor's 0 to 32767 axis. The guest needs an absolute pointer device (the USB
+tablet `virt-install` adds); without one QEMU refuses the move and nothing is
+sent. On KVM `-Click` takes `left`, `right` and `double`. Each call has a
+5-second cap; the move, the presses and the park share a 15-second budget, a
+button that may be held is released in a `finally` block, and nothing re-sends
+a press. A domain that has received a monitor command shows
+`tainted: custom monitor control commands issued` in `virsh dominfo` until it
+is shut off.
 
 The macOS Send-Key VNC-first / AppleScript-fallback decision lives in
 the registered scriptblock, in one place -- not a branch repeated across
@@ -124,7 +141,20 @@ write, an `osascript` that did not finish), with the count of characters
 written before the failure. A text backend checks the whole text against its map before it
 types anything, so a character with no key refuses the send instead of being
 dropped from it; the warning names characters by code point and position,
-never by value. The `Send-Key` / `Send-Text` / `Send-Click` dispatchers in
+never by value. A `Send-Click` provider receives the click kind as `Click`
+(`left`, `right` or `double`); one that lacks the kind refuses it before
+anything is sent, as a deterministic fault with the reason
+`click-kind-unsupported` (the Hyper-V and UTM providers send `left` only).
+A KVM click records `invalid-frame` (no usable frame size in the capture) and
+`no-absolute-pointer` (the guest has no absolute pointer device) as
+deterministic, and `send-failed` and `delivery-unknown` as transient. For a
+click, `delivered` counts the button events (a press or a release) QEMU
+acknowledged, out of 2, or 4 for a double click, and is -1 when a press may
+have reached the guest unconfirmed. `send-failed` means the failing monitor
+call sent nothing, while `delivered` keeps the events acknowledged before it:
+a double click that fails at its second press reports `send-failed` with
+`delivered` 2.
+The `Send-Key` / `Send-Text` / `Send-Click` dispatchers in
 `Test.SequenceEngine` copy the fault of a step's last failed send into its
 failure state, where it reclassifies a deterministic fault as `plan_invalid`
 and stops a `retry` around it (see `hostInputFault` in
@@ -337,7 +367,7 @@ per-host I/O backends consumed by the registry:
   `Test-HardCharsInText` + `ConvertTo-ShellEscapedText` helpers used
   only by `Send-TextUTM`.
 - **Send-Click backends** -- `Initialize-HyperVMouseType`,
-  `Send-ClickHyperV`, `Send-ClickUtm`.
+  `Send-ClickHyperV`, `Send-ClickUtm`, `Send-ClickKvm`.
 - **Send-ScanCode** -- Hyper-V PS/2 scancode-burst primitive.
 
 `Test.SequenceEngine.psm1` exports the three dispatchers (`Send-Key`,
@@ -390,6 +420,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

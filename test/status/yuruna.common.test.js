@@ -2,7 +2,7 @@
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
   GUID: 42bcedaf-cf56-4cdd-a7de-021f1addaedb
-  Version: 2026.11.16
+  Version: 2026.11.23
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -349,7 +349,7 @@ assert.strictEqual(pbt(true, false, 'running', pausedAction, false, [], ageMinut
 assert.strictEqual(pbt(true, false, 'running',
     { code: 'sequence_paused_waiting_resume', line: 'Pausado, aguardando retomada.' }, false, [], ageMinutes(0)),
   'Test paused',
-  'the code decides, so a translated sentence is still a recognised pause');
+  'the code decides, so a translated sentence is still a recognized pause');
 assert.strictEqual(pbt(true, false, 'running',
     { code: 'step_running', line: '[3/9] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
   'Test pausing (after step)',
@@ -483,18 +483,20 @@ var commitsForTest = new Function('escHtml', 'window', commitSource + '\nreturn 
 var legacyCommit = commitsForTest([{sha:'abcd1234'}]);
 assert.strictEqual(legacyCommit, 'abcd1234', 'legacy commit records keep rendering');
 [
-  {verification:'mirror-fresh', key:'status.git_source_mirror_fresh', label:'mirror.fresh'},
-  {verification:'origin-direct', key:'status.git_source_origin_direct', label:'remote.origin'},
-  {verification:'mirror-confirmed', key:'status.git_source_mirror_confirmed', label:'mirror.origin'},
-  {verification:'mirror-stale', key:'status.git_source_mirror_stale', label:'mirror.stale'},
-  {verification:'not-applicable', key:'status.git_source_not_applicable', label:'not.applicable'}
+  {verification:'mirror-fresh', key:'status.git_source_mirror_fresh', label:'mirror fresh'},
+  {verification:'origin-direct', key:'status.git_source_origin_direct', label:'remote'},
+  {verification:'mirror-confirmed', key:'status.git_source_mirror_confirmed', label:'mirror'},
+  {verification:'mirror-stale', key:'status.git_source_mirror_stale', label:'mirror stale'},
+  {verification:'not-applicable', key:'status.git_source_not_applicable', label:'not applicable'}
 ].forEach(function (expected) {
   var record = {sha:'abcd1234ef567890', repoUrl:'https://github.com/example/project', verification:expected.verification,
     source:'mirror', repository:'example/project', ref:'main', selectedSha:'abcd1234ef567890'};
   var stored = JSON.stringify(record);
   sourceTranslationCalls = [];
   var rendered = commitsForTest([record]);
-  assert.ok(rendered.indexOf('>' + expected.label + '</small>') >= 0, expected.verification + ' displays its current source name');
+  assert.ok(rendered.indexOf('abcd1234</a><small') >= 0, expected.verification + ' label follows its commit inline');
+  assert.ok(rendered.indexOf('>&nbsp;[' + expected.label + ']</small>') >= 0, expected.verification + ' displays its current source name in brackets');
+  assert.ok(/^<bdi dir="ltr">[\s\S]*<\/small><\/bdi>$/.test(rendered), expected.verification + ' isolates the commit and its label as one left-to-right unit');
   assert.deepStrictEqual(sourceTranslationCalls, [expected.key], 'display names come from the stable localization key');
   assert.ok(rendered.indexOf('verification=' + expected.verification) >= 0, 'diagnostics retain the stored verification code');
   assert.ok(rendered.indexOf('href="https://github.com/example/project/commit/abcd1234ef567890"') >= 0, 'source labels preserve commit links');
@@ -510,7 +512,7 @@ assert.strictEqual(commitsForTest(unclassified), 'abcd1234, ef567890, 12345678',
 assert.deepStrictEqual(sourceTranslationCalls, [], 'unknown source codes are not presented as a known verification state');
 assert.strictEqual(JSON.stringify(unclassified), unclassifiedStored, 'unclassified input remains unchanged');
 var staleCommit = commitsForTest([{sha:'abcd1234',verification:'mirror-stale',source:'mirror',originCheckedAt:'2026-10-20T00:00:00Z',keyId:'<untrusted>',fallbackReason:'mirror-upstream-unreachable'}]);
-assert.ok(staleCommit.indexOf('>mirror.stale</small>') >= 0, 'stale source is visibly distinguished');
+assert.ok(staleCommit.indexOf('>&nbsp;[mirror stale]</small>') >= 0, 'stale source is visibly distinguished');
 assert.ok(staleCommit.indexOf('fallbackReason=mirror-upstream-unreachable') >= 0, 'fallback reason is available in the source detail');
 assert.ok(staleCommit.indexOf('&lt;untrusted>') >= 0, 'source metadata is escaped');
 assert.ok(staleCommit.indexOf('keyId=<untrusted>') < 0, 'untrusted metadata cannot become markup');

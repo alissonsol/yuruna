@@ -27,7 +27,7 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 `test/` itself holds the seven entry points an operator reaches for daily. The
 rest are grouped by what they act on: `test/lab/` (standing a lab up on this
 host -- the four host-neutral entry points, lab creation, local storage, token
-enrollment, host refresh and its remote-refresh credentials), `test/pool/` (the pool-admin CLI and the sample intent files),
+enrollment, host repair and its remote-repair credentials), `test/pool/` (the pool-admin CLI and the sample intent files),
 `test/service/` (service VM and host-service lifecycle, plus the
 caching-proxy-service operations), `test/check/` (standalone sanity checks), `test/modules/` (harness
 internals, not invoked directly). The repo-wide encoding gate lives at
@@ -50,7 +50,7 @@ nothing in that case. **Exit-code contract:** `0` means success; preflight failu
 use `1`; `2` means a gate could not produce a verdict (VM admission that
 cannot tell whether other guests are running), and `Invoke-TestProject`
 reports the exit code of the cycle it dispatched, or `2` when the cycle did not
-run (a drained or paused pool, a host refresh, Ctrl+C).
+run (a drained or paused pool, a host operation, Ctrl+C).
 Distinct preflight failures surface through the `Stop-WithReason` banner
 text -- an operator or a CI parser reads "STOP (exit 1) at &lt;Step&gt;"
 and the reason to distinguish them.
@@ -135,12 +135,19 @@ cycle runs:
 |--------|---------|
 | `Test.SequenceEngine`  | Engine driver: the step loop, `Wait-ForText`, and context callbacks for registered handlers -- see [Sequence engine layering](#sequence-engine-layering) |
 | `Test.SequenceHandler` | Catalog of built-in verb Handler scriptblocks |
+| `Test.WebHandler`      | Handler scriptblocks of the seven page verbs (webOpen to webClose), imported last by Test.SequenceHandler |
 | `Test.SequenceAction`  | Per-verb metadata registry (FailureLabel, capability requirements, engine-behavior flags) consumed by the engine and the capability gate |
 | `Test.SequenceVariable`| `${var}` and `${ext:area.Method(...)}` substitution in step text |
 | `Test.SequenceResolve` | Parses a sequence YAML and resolves a sequence name to a file across the flat search path |
+| `Test.StepPhrase`     | Reads `_phrases.yml` libraries and turns a step sentence into action steps |
 | `Test.SequencePlanner` | Builds the per-cycle plan from `test.runner.yml` plus each sequence's `resource` chain |
 | `Test.SequenceRunner`  | Chain planning + chain execution helpers for `Debug-TestSequence.ps1` |
 | `Test.SequenceFailureState` | The single `$global:`-anchored failure-slot store that the engine and the handler catalog both read and write |
+| `Test.SequenceSecret`  | Values a run resolved as secrets and the text filter over them, on only when `YURUNA_SECRET_FILTER` is `1` |
+| `Test.WorkloadProtocol` | The frames, limits, operation ids and snapshot text shared by the workload MCP server and its worker |
+| `Test.WorkloadSession` | The workload session worker's executor, variables, journal and validation |
+| `Test.WorkloadRuntime` | Runtime ownership of a workload session: the lease, the owner cycle and the replay child |
+| `Test.WorkloadSequenceFile` | The text of a saved sequence and its publication without overwrite |
 | `Test.Orchestrator`    | Runs an orchestration sequence's inner sequences in-process under one `status.json` cycle |
 | `Test.Start-GuestOS` / `Test.Start-GuestWorkload` | The two runner tiles: the planner walks each top-level resource chain, sends `start.*` sequences to the first, and sends everything else to the second |
 | `Test.Capability`      | [Capability matrix](#capability-matrix-and-cycle-plan-gate) and cycle-plan gate (refuses cycles whose sequences need an unwired host I/O backend) |
@@ -163,7 +170,8 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.OcrEngine` / `Test.Tesseract` | Pluggable [OCR providers](ocr.md) and the Tesseract locate / install / invoke helpers |
 | `Test.OcrMatch`        | OCR-tolerant normalization and matching (confusion groups) + the multi-engine combiner |
 | `Test.OcrPath`         | `Resolve-OcrImagePath` -- copies a capture to a short temporary path when the real one is past a native OCR engine's path ceiling; shared by the Tesseract and WinRT providers |
-| `Test.Ssh`             | Per-guest SSH keys, the mandatory host-key options, and the `ssh` / `scp` helpers |
+| `Test.Ssh`             | Per-guest SSH keys, the mandatory host-key options, and the `ssh` / `scp` helpers, and the tunnel a web session keeps open (`Start-GuestSshTunnel`, `Stop-GuestSshTunnel`) |
+| `Test.WebSession`      | Web sessions: the launcher command for the browser in the guest, the session table (`Open-GuestWebSession`, `Close-GuestWebSession`) and where a session ends; the DevTools protocol client, the page reader and locator, and the page operations the page verbs call (Connect-WebCdp, Read-WebPageForest, Invoke-WebPageClick) |
 
 **Host platform** -- what this machine is, and what it must be for a cycle to run:
 
@@ -186,11 +194,11 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.HostAddressBeacon` | Push half of address discovery: re-announces this host when its address changes instead of waiting for the aggregator's pull |
 | `Test.VMUtility`       | Cross-host VM helpers shared by every Yuruna.Host driver |
 | `Test.ServiceVm`       | Service-VM roster and the reachability probe that brings them back after a host reboot; the Preserve/Repair policy that decides what an unknown state means (`Test-YurunaServiceVmRunning`), and restoration that carries each probe's reason, skips a service an operator stopped, and verifies the consumer endpoint within a shared deadline |
-| `Test.ServiceCensus`   | Passive service-VM census written by the address beacon without a single Apple Events call, the stop/start intents the service scripts publish, per-service-key operation locks, and the identity rows a host refresh captures before it disrupts anything |
+| `Test.ServiceCensus`   | Passive service-VM census written by the address beacon without a single Apple Events call, the stop/start intents the service scripts publish, per-service-key operation locks, and the identity rows a host repair captures before it disrupts anything |
 | `Test.SingleFlightLock` | Cross-process exclusive lock backed by an OS file lock held open for a whole operation's lifetime, not just its metadata write: bounded waits, lock ranks (HostOperation, then ServiceKey, then one of Admission, CensusMerge or Gate), self-verified exclusion, and state, ownership and file-system qualification checks |
-| `Test.HostRefresh`     | Host-refresh repair worker and its host-neutral pieces: the rung declaration (`Get-VirtualizationRepairRung`, available only where an executor exists and the platform is qualified), the 915-second budget and its phases, the verdict and exit-code table, the public `host-refresh.state.json` projection and its heartbeat publisher, the capability summary, and the worker argument vector. Holds no driver import, so the status service can load it |
-| `Test.HostRefreshIntent` | The host-refresh request journal (a critical record under the private root): admission under its own lock, claim, retry and abandonment, recovery records and the obligations a repair must discharge, the start-cycle reservation, and the recorded automation-grant subjects |
-| `Test.HostRefreshAuth` | Remote host-refresh authorization: versioned proof mint and verify with an explicit clock and skew, per-host verifier-key storage and checks (owner-only, no links, host match), the listener's `Test-YurunaHostRefreshAuthorization` layer, the remote-state summary and the provisioning primitives behind `test/lab/Set-HostRefreshCredential.ps1`, including `ConvertTo-YurunaHostRefreshHostKeyLine`, which formats a host verifier key as its one-line secret. Imports only `Yuruna.Globalization`; its suite pins the vectors shared with the Go verifier |
+| `Test.HostRepair`     | Host-repair worker and its host-neutral pieces: the rung declaration (`Get-VirtualizationRepairRung`, available only where an executor exists and the platform is qualified), the 915-second budget and its phases, the verdict and exit-code table, the public `host-repair.state.json` projection and its heartbeat publisher, the capability summary, and the worker argument vector. Holds no driver import, so the status service can load it |
+| `Test.HostOperationJournal` | The host-operation request journal (a critical record under the private root): admission under its own lock, claim, retry and abandonment, recovery records and the obligations a repair must discharge, the start-cycle reservation, and the recorded automation-grant subjects |
+| `Test.HostRepairAuth` | Remote host-repair authorization: versioned proof mint and verify with an explicit clock and skew, per-host verifier-key storage and checks (owner-only, no links, host match), the listener's `Test-YurunaHostRepairAuthorization` layer, the remote-state summary and the provisioning primitives behind `test/lab/Set-HostRepairCredential.ps1`, including `ConvertTo-YurunaHostRepairHostKeyLine`, which formats a host verifier key as its one-line secret. Imports only `Yuruna.Globalization`; its suite pins the vectors shared with the Go verifier |
 | `Test.StatusFirewall`  | Per-OS allow rule that makes the status-service port reachable from the LAN |
 | `Test.RootArtifact`    | Finds and clears the root-owned state a `sudo` run of an entry point leaves behind (Unix only) |
 
@@ -208,11 +216,11 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.RunnerAttemptHistory` | Per-attempt evidence directories under `runner-attempts/`, outer-loop fault artifacts, and the bounded history index rebuilt from retained evidence (`Update-RunnerAttemptHistory`) |
 | `Test.RunnerElevation` | Launch-time elevation contract: resolve it once while an operator is present, or refuse to start |
 | `Test.PrivateStateRepair` | `Repair-YurunaStartupPrivateState` -- recovers private-state permissions at runner or status-service startup; elevates only on an explicit interactive request and never prompts an unattended caller |
-| `Test.SingleInstance`  | Pidfile guard shared by the runner trio (`Get-RunnerInstanceState`, `Stop-StaleRunner`); the process-table builder and identity classifier that decide which runner processes a repair may stop, the refresh gate that holds spawns during a repair, the handoff token and readiness acknowledgment that bring the runner back, and the persisted launch record a resumed runner starts from |
+| `Test.SingleInstance`  | Pidfile guard shared by the runner trio (`Get-RunnerInstanceState`, `Stop-StaleRunner`); the process-table builder and identity classifier that decide which runner processes a repair may stop, the runner gate that holds spawns during a repair, the handoff token and readiness acknowledgment that bring the runner back, and the persisted launch record a resumed runner starts from |
 | `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- type-preserving `pwsh -Command` argv builder for the outer->inner spawn; `Start-YurunaDetachedProcess`, which starts a worker that outlives its launcher and confirms it with a handshake |
-| `Test.Recovery`        | Boot-time sweep that detects and archives every stale state class a crashed cycle left behind; its refresh-preservation mode keeps operator controls and the reclaimed runner's records when a repair restarts the runner |
-| `Test.HostRefreshTrigger` | Automatic host-refresh policy: per-cycle hypervisor-timeout evidence, the persisted count, the UTC-day attempt budget and the resident runner's post-cycle repair decision -- see [testCycle.autoRefreshAfterStalls](test-config.md) |
-| `Test.OuterLog`        | Timestamped `outer.log` writer shared by the outer loop and the host-refresh worker; never throws when the runtime directory is unset |
+| `Test.Recovery`        | Boot-time sweep that detects and archives every stale state class a crashed cycle left behind; its handoff-preservation mode keeps operator controls and the reclaimed runner's records when a repair restarts the runner |
+| `Test.HostRepairTrigger` | Automatic host-repair policy: per-cycle hypervisor-timeout evidence, the persisted count, the UTC-day attempt budget and the resident runner's post-cycle repair decision -- see [testCycle.autoRepairAfterStalls](test-config.md) |
+| `Test.OuterLog`        | Timestamped `outer.log` writer shared by the outer loop and the host-repair worker; never throws when the runtime directory is unset |
 
 **Configuration**:
 
@@ -246,7 +254,7 @@ source searches and status-UI click-throughs land on their exported entry point.
 | `Test.FrameworkSource` | Which framework snapshot a service VM was built from, and whether the guest fell back to the public mirror |
 | `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
 | `Test.Notify`          | Thin dispatcher to the active notification extension(s) (`Send-Notification -EventCode -EventMessage -EventNote`); the default extension delivers email via Resend |
-| `Test.StatusControlRoute` | Driver-free helpers behind the status service's host-refresh, start-cycle and host-diagnostic routes: the bounded request-body reader, request validation, the admission replies and the `refresh` summary in `/control/control-status` |
+| `Test.StatusControlRoute` | Driver-free helpers behind the status service's host-repair, start-cycle and host-diagnostic routes: the bounded request-body reader, request validation, the admission replies and the `repair` summary in `/control/control-status` |
 | `Invoke-StartCycleWorker.ps1` / `Invoke-HostDiagnosticWorker.ps1` | Detached workers the status service launches for *Save and start cycle* and for the host diagnostic, so a slow cleanup or a hung probe never blocks the listener |
 
 **Failure classification and recovery**:
@@ -380,6 +388,7 @@ test/
 +-- sequences/
 |   +-- actions.yml             Action catalog (YAML, machine-readable)
 |   +-- _snippets.yml           Shared step snippets
+|   +-- _phrases.yml            Step sentence phrases
 |   +-- <name>[.ssh].yml        Flat sequence files (SSH variant = .ssh.yml suffix)
 +-- schemas/                    JSON Schema files (YAML-encoded) for extension/* configs + vault
 +-- extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
@@ -841,6 +850,9 @@ Three modules share the sequence-engine surface:
   and supplies the recursive `InvokeStepBlock` callback through `$Context`.
   Both modules read and write one shared failure-slot store, so handlers
   can coordinate retry and recovery without engine-owned verb branches.
+  `Invoke-Sequence` also runs an in-memory definition (`-Definition`)
+  against a caller-owned variable table (`-VariableScope`), which is how a
+  workload session runs one step at a time.
 
 <a id="42d38664-000f"></a>
 
@@ -897,18 +909,22 @@ After printing the banner the inner calls
 2. For each verb, looks up its requirements via
    [`Test.SequenceAction\Get-SequenceActionRequirementMap`](../test/modules/Test.SequenceAction.psm1) --
    each verb declares which host I/O actions it needs, which host
-   commands its handler runs, and whether OCR is required.
+   commands its handler runs, which OCR engines its handler calls by
+   name, and whether OCR is required.
 3. Cross-references the requirements against the live
    `Test.HostIO`/`Test.OcrEngine` matrices, and looks each host command
    up the way the handlers launch it (`Get-Command -CommandType Application`,
    so on Windows `ssh` is the OpenSSH client's `ssh.exe`). The command
-   itself never runs.
+   itself never runs. Each OCR engine a handler calls by name is asked of
+   `Test-OcrProviderAvailable`, which also finds a Tesseract install that is
+   not on `PATH`; whether some other provider is enabled does not answer for
+   it.
 
 When a required host I/O action is missing the cycle aborts with:
 
 ```
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  CAPABILITY GATE FAILED -- cycle aborted on 'host.ubuntu.kvm'.
+  CAPABILITY GATE FAILED -- cycle aborted on 'host.your.new.host'.
   Sequences reference host I/O actions this host has no backend for:
     - Send-Click
   Wire a backend via Register-HostIOProvider in Test.SequenceEngine.psm1,
@@ -936,13 +952,25 @@ the command and every step that runs it, by sequence and step number
   Install the missing commands on this host, or drop the steps that run them from the cycle's sequence YAMLs.
 ```
 
+A step whose handler calls an OCR engine this host does not have, such as a
+`tapOn` step on a host without Tesseract, names the engine and every step
+that needs it the same way:
+
+```
+  Sequences locate text through OCR engines this host does not have:
+    - tesseract
+        workload.guest.ubuntu.server.24, step 2: tapOn
+  Install the missing engine on this host, or drop the steps that need it from the cycle's sequence YAMLs.
+```
+
 The cycle does NOT spin up a VM after a capability-gate failure;
 `$GuestList` is emptied so the per-guest loop runs zero iterations,
 and the cycle finalizes with `$OverallPassed=false`. This bumps
 `ConsecutiveFailures` and fires notifications on the same threshold
 as any other failure. The failure record is `plan_invalid` from the
 `Test-CyclePlanCapability` stage, and its message lists every gap the
-gate found, each missing host command with the steps that run it.
+gate found, each missing host command with the steps that run it, and each
+missing OCR engine with the steps that need it.
 
 <a id="42d38664-0012"></a>
 
@@ -961,7 +989,8 @@ before the slow path.
 ### What's in the requirements table
 
 Today (see the `Register-SequenceAction` calls in
-[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)):
+[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1) and
+[`Test.WebHandler.psm1`](../test/modules/Test.WebHandler.psm1)):
 
 | Verb                     | HostIO required           | Host commands       | OCR required |
 |--------------------------|---------------------------|---------------------|--------------|
@@ -976,12 +1005,18 @@ Today (see the `Register-SequenceAction` calls in
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | _(none)_            | yes          |
 | `networkRelease`         | `Send-Text`, `Send-Key`   | _(none)_            | no           |
 | `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(none)_ | `ssh`, `ssh-keygen` | no |
+| `webOpen` / `webClick` / `webFill` / `webSelect` / `webPress` / `webExpect` / `webClose` | _(none)_ | `ssh`, `ssh-keygen` | no |
 | `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | _(none)_ | no |
 
 The ssh verbs run `ssh-keygen` through the harness key check on the first
 ssh call of each runner process. `fetchAndExecute` and `saveSystemDiagnostic`
 use ssh when the host has it but do not need it: the first types its command
 on the console, and the second's diagnostic ladder goes on without it.
+
+`tapOn` also needs Tesseract itself, whatever OCR providers are enabled: it
+locates words with Tesseract alone and declares
+`-OcrEngineRequirement @('tesseract')`, so the gate refuses a plan that clicks
+on a host without it.
 
 Adding a new verb means one `Register-SequenceAction` call that
 declares its capabilities -- the gate picks it up on the next cycle.
@@ -1283,7 +1318,7 @@ from.
 Each history entry's `guestSummary` is an `[ordered]@{}` so the JSON
 preserves `guestSequence` order. A plain `@{}` is a `[hashtable]`
 whose enumeration is bucketed and arbitrary, which would scramble the
-pill order in the dashboard's "Recent Cycles" table even though the
+pill order in the dashboard's "Recent cycles" table even though the
 cycle ran in order.
 
 Per-guest value shape (backward-compatible):
@@ -1307,7 +1342,7 @@ the whole value as a string, so both shapes still render.
 Each history entry also carries a `sequenceSummary` array --
 `[{ name, status, folderUrl }]`, one element per test.runner.yml
 sequence the cycle ran, in runner-list order. The dashboard's "Recent
-Cycles" table renders one button per element, linking `folderUrl` to
+cycles" table renders one button per element, linking `folderUrl` to
 that sequence's results folder (the driven guest's per-VM folder for a
 1:1 sequence; the cycle folder when a sequence fans out to more than
 one guest). `status` is the worst of the sequence's guests
@@ -1541,7 +1576,7 @@ log-stream visibility is controlled by [Log levels](loglevels.md).
 
 **`test/test.config.yml.template`.**
 
-Automatic host refresh. 0 (the default) keeps it off; the recommended
+Automatic host repair. 0 (the default) keeps it off; the recommended
 opt-in is 2, and 1 is treated as 2 because one timeout is not proof.
 Counts only completed cycles whose service-vm-restore sweep saw the
 hypervisor control channel time out with no service answering. A denial,
@@ -1608,6 +1643,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

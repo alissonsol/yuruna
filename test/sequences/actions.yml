@@ -6,6 +6,8 @@
 # Action names follow the Register-SequenceAction registry; see
 # https://yuruna.link/428e4df6-0001 for the catalog contract and host notes.
 # Snippet references use a separate step form; see https://yuruna.link/428e4df6-000a.
+# test/modules/Test.SequenceCatalogParity.Tests.ps1 fails when the keys below
+# and the registered verbs differ.
 
 # Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
 # and ${hostname} are built-in; ${hostname} is seeded from the VM name and
@@ -128,6 +130,21 @@ actions:
     optional -- console text on a saved frame that ends the wait as a
     pattern_matched_failure, because the VM will not stop on its own after it).
 
+  stopVm: >
+    Request a guest shutdown through the host driver and wait for the VM to
+    report stopped, instead of typing a power-off command into a console that
+    may no longer be listening. A VM that is already stopped passes at once;
+    a VM in any state other than running fails at once. While it waits, the
+    step polls the host state and saves a console frame every
+    frameIntervalSeconds. A VM that never reports stopped fails the step as
+    vm_not_stopped, with the last frame, its OCR text and the observed state
+    on the failure record -- unless forceOnTimeout is true: the step then
+    turns the VM off from the host, records a degradation event, and passes
+    once the host reports the VM stopped. Parameters: timeoutSeconds (integer,
+    default 120, must be >= 1 -- time to wait for the stopped state after the
+    request), forceOnTimeout (boolean, default false), frameIntervalSeconds
+    (integer, default 30; 0 saves no frame during the wait).
+
   inputText: >
     Type a text string. Parameters: text (string), sensitive
     (boolean, masks output), charDelayMs (number, delay between chars
@@ -137,6 +154,11 @@ actions:
     Type a text string, wait, then press Enter. Parameters: text
     (string), sensitive (boolean, masks output), charDelayMs (number,
     default = vmCommunication.charDelayMs), delaySeconds (number, default 2).
+
+  typeAndEnter: >
+    Deprecated alias of inputTextAndEnter: both names run the same handler
+    and take the same parameters. It is kept so that sequences that use the
+    earlier name still run; write inputTextAndEnter in new sequences.
 
   networkRelease: >
     Release the guest DHCP lease / network resources at end of sequence so
@@ -202,6 +224,17 @@ actions:
     Parameters: id (string, REQUIRED -- snapshot name previously
     written by saveDiskSnapshot).
 
+  recoverFromSnapshot: >
+    Restore a saved disk snapshot and start the VM, but only when an earlier
+    step of the running sequence has failed; when none has, the step does
+    nothing and succeeds. After a failure it runs the same restore as
+    loadDiskSnapshot -- the snapshot must exist, and must match its manifest
+    when one was written -- and then clears the engine's record of the failed
+    step, so the steps after it run against the restored guest. A restore
+    that fails fails this step and leaves that record in place.
+    Parameters: id (string, REQUIRED -- snapshot name previously written by
+    saveDiskSnapshot; ${var} is expanded).
+
   saveSystemDiagnostic: >
     Mid-sequence checkpoint dump. SSHes into the guest, runs
     automation/Get-SystemDiagnostic.ps1, and writes the captured text
@@ -252,7 +285,21 @@ actions:
     auto-retry in Invoke-TestRunnerInnerLoop: a transient installer flake
     fails fast, then the next cycle auto-retries on a fresh VM. When
     omitted (default) the action retains its original single-shot
-    Wait-SshReady contract with no OCR overhead.
+    Wait-SshReady contract with no OCR overhead. currentPassword and
+    newPassword (strings, given together, secrets: write a reference such
+    as ${currentPassword}): when the guest answers that the account's
+    password has expired, the step changes it once over SSH on a forced
+    terminal (current password, then the new one twice) and goes on
+    waiting within the same timeout. A failed change, or an expired
+    password after the change, fails the step at once. When the login
+    reaches a shell without an expired password (a replay on a guest
+    provisioned already), the step sets the password to newPassword over
+    SSH with sudo -n chpasswd, the password only on its standard input,
+    and a failed set fails the step, so a step that passes always leaves
+    newPassword in place. The step stores nothing: a later callExtension
+    authentication.SetPassword commits the new password once a login has
+    proved it. Without the two fields an expired password is waited out
+    like any other answer.
 
   tapOn: >
     Wait for a button label to appear on the VM screen via OCR, then
@@ -260,7 +307,19 @@ actions:
     string-array of candidate labels), timeoutSeconds (number,
     default = vmCommunication.timeoutSeconds), pollSeconds (number,
     default = vmCommunication.pollSeconds), offsetX (number,
-    pixel offset from center, default 0), offsetY (number, default 0).
+    pixel offset from center, default 0), offsetY (number, default 0),
+    match (contains or word, default contains), nth (whole number from 1,
+    which match of the label to click), click (left, right or double,
+    default left). Both match modes compare literally and ignore case, so
+    [, ], * and ? are ordinary characters; contains finds the label word
+    inside a word read, word needs the whole word once leading and trailing
+    punctuation is stripped (Next finds Next. but not Nextcloud), and two
+    whole-word matches without nth fail the step. A label of several words
+    matches adjacent words on one line. Words are located with Tesseract
+    alone, whatever OCR providers are enabled; after a miss the frame is
+    read again as a copy doubled in both directions, and a match there is
+    clicked at the coordinates of the frame as captured. A host whose
+    pointer provider cannot send the requested click kind fails the step.
     Hyper-V: clicks the vmconnect window (SetCursorPos + mouse_event); vmconnect
     must be open. UTM: CGEvent click in the UTM window; needs Accessibility permission.
 
@@ -313,3 +372,70 @@ actions:
     waitForText's set plus nudgeKey (required key name) and
     nudgeIntervalSeconds (required integer >= 1). Canonical use: redraw an
     agetty login prompt that late console output can scroll off screen.
+
+  webClick: >
+    Click the page element found by role and name (or by css in the top
+    document) in the browser the guest runs, after it is visible, enabled,
+    still and not covered; with checked, set a check box to that state and
+    read it back. Parameters: role (string, accessibility role such as
+    button or link), name (string, accessible name, compared without case
+    and with white space collapsed), match (exact or contains, default
+    exact), nth (whole number from 1, which match to click), css (string,
+    a selector of the top document, instead of role and name),
+    timeoutSeconds (whole number from 1, default =
+    vmCommunication.timeoutSeconds), checked (boolean, the check box state
+    to set; a box already in that state gets no click). Fails when more
+    than one element matches and nth is not given. Uses ${var} substitution
+    in name and css.
+
+  webClose: >
+    Close the guest's browser page, its connection and the SSH tunnel, and
+    stop the browser in the guest. Takes no parameter. Succeeds when no page
+    is open; a sequence needs no closing step, because its page ends with it.
+
+  webExpect: >
+    Wait until an element or a text is on the page, or with gone until it is
+    no longer there. Parameters: role, name, match (exact or contains,
+    default exact), nth and css as on webClick, or text (string, rendered
+    text anywhere on the page, compared as contains without case, field
+    values excluded) instead of a locator; gone (boolean, default false,
+    wait for absence), sensitive (boolean, shows *** in place of the text
+    in labels and logs), timeoutSeconds (whole number from 1, default =
+    vmCommunication.timeoutSeconds). More than one match is not an error
+    here. Uses ${var} substitution in name, css and text.
+
+  webFill: >
+    Replace the content of a text field on the page with text and read the
+    value back. Parameters: role, name, match (exact or contains, default
+    exact), nth and css as on webClick, text (string, required; may be
+    empty to clear the field), sensitive (boolean, shows *** in place of the
+    text in logs), timeoutSeconds (whole number from 1, default =
+    vmCommunication.timeoutSeconds). Fails when more than one element
+    matches and nth is not given. Uses ${var} substitution in name, css and
+    text.
+
+  webOpen: >
+    Open a URL in the browser page of the guest and wait for it to load. The
+    first webOpen of a guest starts a headless Google Chrome there through
+    SSH (install it once with sshFetchAndExecute of
+    guest/shared/ubuntu.browser.sh), so http://localhost:8080/ names the
+    guest. Parameters: url (string, required, about:blank or an absolute
+    http or https URL), timeoutSeconds (whole number from 1, default =
+    vmCommunication.timeoutSeconds). The HTTP status is not read. Uses
+    ${var} substitution in url.
+
+  webPress: >
+    Press one key in the page, sent to whatever has focus. Parameters: key
+    (required; Enter, Tab, Space, Escape, Up, Down, Left, Right or F1 to
+    F12), timeoutSeconds (whole number from 1, default =
+    vmCommunication.timeoutSeconds).
+
+  webSelect: >
+    Choose an option of a native, single-choice select on the page by its
+    label, compared without case and with white space collapsed.
+    Parameters: role, name, match (exact or contains, default exact), nth
+    and css as on webClick, option (string, required, the option label),
+    timeoutSeconds (whole number from 1, default =
+    vmCommunication.timeoutSeconds). Fails when more than one element
+    matches and nth is not given. Uses ${var} substitution in name, css and
+    option.

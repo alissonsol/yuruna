@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -302,6 +302,73 @@ Describe 'VNC sends never leave a key held in the guest' {
     }
 }
 
+Describe 'Successful GUI input dispatch evidence' {
+    BeforeEach {
+        Reset-KeyRecording
+        Clear-HostInputFault
+        & $script:TransportModule { $script:VncConnectionEvents.Clear() }
+        Mock Invoke-OsaScriptFile -ModuleName Test.Transport { 'ok' }
+    }
+
+    It 'records VNC text and normal or chord keys without recording the text' {
+        Send-TextVNC -VMName 'vm' -Text 'private-token' -CharDelayMs 0 | Should -BeTrue
+        Send-KeyVNC -VMName 'vm' -KeyName 'Enter' | Should -BeTrue
+        Send-KeyVNC -VMName 'vm' -KeyName 'CtrlU' | Should -BeTrue
+        $events = @(Get-VncConnectionEvent -VMName 'vm')
+        ($events.Kind -join ',') | Should -BeExactly 'text-dispatched,key-dispatched,key-dispatched'
+        ($events.Detail -join '|') | Should -BeExactly 'backend=VNC chars=13 charDelayMs=0|backend=VNC keyName=Enter|backend=VNC keyName=CtrlU'
+        ($events | ConvertTo-Json -Depth 3) | Should -Not -Match 'private-token|delivered'
+    }
+
+    It 'distinguishes UTM text and chord CGEvent dispatches from AppleScript keys' {
+        Send-TextUTM -VMName 'vm' -Text 'private-token' -CharDelayMs 17 | Should -BeTrue
+        Send-KeyUTM -VMName 'vm' -KeyName 'Enter' | Should -BeTrue
+        Send-KeyUTM -VMName 'vm' -KeyName 'CtrlU' | Should -BeTrue
+        $events = @(Get-VncConnectionEvent -VMName 'vm')
+        ($events.Kind -join ',') | Should -BeExactly 'text-dispatched,key-dispatched,key-dispatched'
+        ($events.Detail -join '|') | Should -BeExactly 'backend=JXA/CGEvent chars=13 charDelayMs=17|backend=AppleScript keyName=Enter|backend=JXA/CGEvent keyName=CtrlU'
+        ($events | ConvertTo-Json -Depth 3) | Should -Not -Match 'private-token|delivered'
+    }
+
+    It 'records no successful dispatch for interrupted VNC or failed UTM sends' {
+        Reset-KeyRecording -FailAt 2
+        Send-TextVNC -VMName 'vm' -Text 'ab' -CharDelayMs 0 3>$null | Should -BeFalse
+        Reset-KeyRecording -FailAt 2
+        Send-KeyVNC -VMName 'vm' -KeyName 'Enter' 3>$null | Should -BeFalse
+        Mock Invoke-OsaScriptFile -ModuleName Test.Transport { 'window_not_found' }
+        Send-TextUTM -VMName 'vm' -Text 'ab' -CharDelayMs 0 | Should -BeFalse
+        Send-KeyUTM -VMName 'vm' -KeyName 'Enter' | Should -BeFalse
+        Send-KeyUTM -VMName 'vm' -KeyName 'CtrlU' | Should -BeFalse
+        Send-KeyVNC -VMName 'vm' -KeyName 'NoSuchKey' 3>$null | Should -BeFalse
+        Send-KeyUTM -VMName 'vm' -KeyName 'NoSuchKey' 3>$null | Should -BeFalse
+        Send-ChordUTM -VMName 'vm' -KeyName 'CtrlNope' 3>$null | Should -BeFalse
+        @(Get-VncConnectionEvent -VMName 'vm' | Where-Object Kind -Like '*-dispatched').Count | Should -Be 0
+    }
+
+    It 'keeps successful dispatch evidence in the existing bounded VM-filtered ring' {
+        foreach ($index in 1..70) {
+            Send-TextVNC -VMName "vm-$index" -Text 'a' -CharDelayMs 0 | Should -BeTrue
+        }
+        $events = @(& $script:TransportModule { $script:VncConnectionEvents.ToArray() })
+        $events.Count | Should -Be 64
+        $events[0].VMName | Should -BeExactly 'vm-7'
+        $events[-1].VMName | Should -BeExactly 'vm-70'
+        @(Get-VncConnectionEvent -VMName 'vm-7').Count | Should -Be 1
+        @(Get-VncConnectionEvent -VMName 'vm-1').Count | Should -Be 0
+    }
+
+    It 'does not turn successful sends into failures when evidence recording fails' {
+        Mock Add-VncConnectionEvent -ModuleName Test.Transport { throw 'injected diagnostic failure' }
+        Send-TextVNC -VMName 'vm' -Text 'ab' -CharDelayMs 0 | Should -BeTrue
+        Send-KeyVNC -VMName 'vm' -KeyName 'Enter' | Should -BeTrue
+        Send-KeyVNC -VMName 'vm' -KeyName 'CtrlU' | Should -BeTrue
+        Send-TextUTM -VMName 'vm' -Text 'ab' -CharDelayMs 0 | Should -BeTrue
+        Send-KeyUTM -VMName 'vm' -KeyName 'Enter' | Should -BeTrue
+        Send-KeyUTM -VMName 'vm' -KeyName 'CtrlU' | Should -BeTrue
+        Get-HostInputFault | Should -BeNullOrEmpty
+    }
+}
+
 Describe 'VNC key taps reach the server with their release' {
     # A release that trails its press by more than the guest's autorepeat delay
     # types the key twice. Nagle holds a small second write until the first is
@@ -405,7 +472,7 @@ function Format-YurunaOperatorMessage { param($Key, $Arguments) $null = $Argumen
             Assert-Equal -Expected '040100000000FF0D040000000000FF0D|040100000000FF0D040000000000FF0D' -Actual ($taps.ToArray() -join '|') `
                 -Because "the second Enter reaches the server on a new connection; server errors: $($server.Streams.Error -join '; ')"
             $kinds = @(& $script:wireModule { Get-VncConnectionEvent -VMName 'vm' } | ForEach-Object Kind)
-            Assert-Equal -Expected 'opened,server-closed,opened' -Actual ($kinds -join ',') -Because 'the closed connection is recorded between the two opens'
+            Assert-Equal -Expected 'opened,key-dispatched,server-closed,opened,key-dispatched' -Actual ($kinds -join ',') -Because 'the closed connection is recorded between the two opens and successful dispatches'
         } finally {
             $listener.Stop()
             & $script:wireModule { Disconnect-VNC }

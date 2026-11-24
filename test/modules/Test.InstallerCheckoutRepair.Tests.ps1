@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42bf15a1-0a45-4de9-b937-54eada83f868
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ BeforeAll {
     $script:RepoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
     Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-    $script:SharedHelpers = @('group_names', 'unique_backup_path', 'reclone_checkout', 'renormalize_checkout')
+    $script:SharedHelpers = @('group_names', 'unique_backup_path', 'carry_test_status', 'reclone_checkout', 'renormalize_checkout')
     $script:Bodies = @{}
     $script:Texts = @{}
     foreach ($installer in @('install/ubuntu.kvm.sh', 'install/macos.utm.sh')) {
@@ -58,7 +58,18 @@ BeforeAll {
             $script:Bodies[$installer][$name] = Get-YurunaTestShellFunction -Text $text -Name $name
         }
     }
-    $script:Lifted = ($script:SharedHelpers | ForEach-Object { $script:Bodies['install/ubuntu.kvm.sh'][$_] }) -join "`n"
+    # The folder list carry_test_status walks is a top-level array, lifted with it.
+    $script:StatusSubdirLines = @{}
+    foreach ($installer in $script:Texts.Keys) {
+        $script:StatusSubdirLines[$installer] = [regex]::Match($script:Texts[$installer], '(?m)^TEST_STATUS_SUBDIRS=\(.*\)$').Value
+    }
+    # Each installer's own copy, so a case that runs per installer exercises the
+    # bytes that installer ships, not only the copy the equality check compares.
+    $script:LiftedBy = @{}
+    foreach ($installer in $script:Texts.Keys) {
+        $script:LiftedBy[$installer] = (@($script:StatusSubdirLines[$installer]) +
+            ($script:SharedHelpers | ForEach-Object { $script:Bodies[$installer][$_] })) -join "`n"
+    }
 
     # The Ubuntu installer's strict mode and an ERR trap that marks any firing,
     # inside a substitution or not.
@@ -73,14 +84,14 @@ die()  { printf 'DIE %s\n' "$*"; exit 1; }
 '@
 
     function Invoke-HelperShell {
-        param([Parameter(Mandatory)][string]$Body, [hashtable]$Environment = @{})
+        param([Parameter(Mandatory)][string]$Body, [hashtable]$Environment = @{}, [string]$Installer = 'install/ubuntu.kvm.sh')
         $sandboxHome = Join-Path $TestDrive 'home'
         New-Item -ItemType Directory -Path $sandboxHome -Force | Out-Null
         # A private HOME and no system config keep the operator's git settings
         # (signing, hooks, aliases) out of the repositories these tests build.
         $env = @{ HOME = $sandboxHome; GIT_CONFIG_NOSYSTEM = '1'; GIT_TERMINAL_PROMPT = '0' }
         foreach ($key in $Environment.Keys) { $env[$key] = $Environment[$key] }
-        return Invoke-YurunaTestShell -Body (@($script:Prelude, $script:Lifted, $Body) -join "`n") -Environment $env -TimeoutSeconds 60
+        return Invoke-YurunaTestShell -Body (@($script:Prelude, $script:LiftedBy[$Installer], $Body) -join "`n") -Environment $env -TimeoutSeconds 60
     }
 
     # A bare remote with one commit on main, and a working clone of it.
@@ -102,6 +113,26 @@ git clone -q '$Root/remote.git' '$Root/checkout'
 "@
         return $Root
     }
+
+    # A checkout with runtime state in three of the folders, a hidden file and
+    # a nested cycle folder among them, as a host that has run cycles has.
+    function Add-StatusFixture {
+        param([Parameter(Mandatory)][string]$Checkout)
+        $status = Join-Path $Checkout 'test/status'
+        foreach ($file in 'log/010438.2026-11-20.13-24-18.h/cycle.events.ndjson', 'runtime/poolstorage.state.json', 'ssh/.known') {
+            $path = Join-Path $status $file
+            New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force | Out-Null
+            Set-Content -LiteralPath $path -Value "state of $file" -NoNewline
+        }
+    }
+    function Get-StatusFile {
+        param([Parameter(Mandatory)][string]$Checkout)
+        $status = Join-Path $Checkout 'test/status'
+        if (-not (Test-Path -LiteralPath $status)) { return @() }
+        return @(Get-ChildItem -LiteralPath $status -Recurse -File -Force | ForEach-Object {
+            [IO.Path]::GetRelativePath($status, $_.FullName) -replace '\\', '/' } | Sort-Object)
+    }
+    $script:StatusFiles = @('log/010438.2026-11-20.13-24-18.h/cycle.events.ndjson', 'runtime/poolstorage.state.json', 'ssh/.known')
 }
 
 Describe 'shared checkout helpers' {
@@ -112,6 +143,9 @@ Describe 'shared checkout helpers' {
             Assert-Equal -Expected $script:Bodies['install/ubuntu.kvm.sh'][$name] -Actual $script:Bodies['install/macos.utm.sh'][$name] `
                 "$name differs between the macOS and Ubuntu installers"
         }
+        Assert-Match '^TEST_STATUS_SUBDIRS=\(runtime perf log extension captures ssh\)$' $script:StatusSubdirLines['install/ubuntu.kvm.sh'] 'the Ubuntu installer names the state folders'
+        Assert-Equal -Expected $script:StatusSubdirLines['install/ubuntu.kvm.sh'] -Actual $script:StatusSubdirLines['install/macos.utm.sh'] `
+            'the state folder list differs between the macOS and Ubuntu installers'
     }
 }
 
@@ -243,6 +277,241 @@ echo SHOULD-NOT-REACH
     }
 }
 
+Describe 'test/status runtime state folders' {
+    It 'are folders git ignores and the repository tracks nothing in' {
+        # Every installer renames each folder into the fresh clone, which is safe
+        # only while the clone cannot bring one of its own to collide with.
+        $subs = [regex]::Match($script:StatusSubdirLines['install/ubuntu.kvm.sh'], '\((.*)\)').Groups[1].Value -split ' '
+        Assert-Equal -Expected 6 -Actual $subs.Count 'the state folder list is read'
+        foreach ($sub in $subs) {
+            $null = & git -C $script:RepoRoot check-ignore -q --no-index "test/status/$sub/probe"
+            Assert-Equal -Expected 0 -Actual $LASTEXITCODE "git does not ignore test/status/$sub/"
+            $tracked = @(& git -C $script:RepoRoot ls-files -- "test/status/$sub")
+            Assert-Equal -Expected 0 -Actual $tracked.Count "the repository tracks files in test/status/$sub/"
+        }
+    }
+}
+
+Describe 'test/status runtime state across a checkout update (<Installer>)' -ForEach @(
+    @{ Installer = 'install/ubuntu.kvm.sh'; Slug = 'ubuntu' }
+    @{ Installer = 'install/macos.utm.sh'; Slug = 'macos' }
+) {
+    It 'is moved into a fresh clone, never copied, leaving no second copy in the moved checkout' {
+        $root = New-GitFixture -Root (Join-Path $TestDrive "status-reclone-$Slug")
+        Add-StatusFixture -Checkout (Join-Path $root 'checkout')
+        $r = Invoke-HelperShell -Installer $Installer -Body @"
+YURUNA_DIR='$root/checkout'; YURUNA_BRANCH='main'; YURUNA_BACKUP_CREATED='$root/checkout.backup'
+mv '$root/checkout' '$root/checkout.backup'
+before="`$(ls -di '$root/checkout.backup/test/status/log' | awk '{print `$1}')"
+cp() { echo COPY-CALLED; return 1; }
+reclone_checkout '$root/checkout.backup' '$root/remote.git'
+after="`$(ls -di '$root/checkout/test/status/log' | awk '{print `$1}')"
+[[ -n "`$before" && "`$before" == "`$after" ]] && echo SAME-FOLDER
+echo "AFTER backup-created=[`$YURUNA_BACKUP_CREATED]"
+"@
+        Assert-Equal -Expected ($script:StatusFiles -join ',') -Actual ((Get-StatusFile -Checkout (Join-Path $root 'checkout')) -join ',') 'the fresh clone carries every state file, hidden and nested ones included'
+        Assert-Equal -Expected 'state of runtime/poolstorage.state.json' -Actual (Get-Content -Raw -LiteralPath (Join-Path $root 'checkout/test/status/runtime/poolstorage.state.json')) 'the moved file holds the same content'
+        Assert-Equal -Expected '' -Actual ((Get-StatusFile -Checkout (Join-Path $root 'checkout.backup')) -join ',') 'the moved checkout keeps no second copy'
+        Assert-Match 'SAME-FOLDER' $r.Output 'the folder in the clone is the same folder, renamed, not a new one filled by a copy'
+        Assert-True (Test-Path -LiteralPath (Join-Path $root 'checkout.backup/marker.txt')) 'the moved checkout stays for the backup notice'
+        Assert-Match ([regex]::Escape("AFTER backup-created=[$root/checkout.backup]")) $r.Output 'the backup notice still has its path'
+        Assert-Match 'LOG Moving test/status runtime state from' $r.Output 'the move is announced'
+        Assert-True ($r.Output -notmatch 'COPY-CALLED|ISSUE|ERR-TRAP-FIRED|DIE') 'a move that works copies nothing and reports nothing'
+    }
+    It 'stays inside the checkout put back after a clone that cannot finish' {
+        $root = New-GitFixture -Root (Join-Path $TestDrive "status-putback-$Slug")
+        Add-StatusFixture -Checkout (Join-Path $root 'checkout')
+        $r = Invoke-HelperShell -Installer $Installer -Body @"
+YURUNA_DIR='$root/checkout'; YURUNA_BRANCH='2099.01.01'; YURUNA_BACKUP_CREATED='$root/checkout.backup'
+mv '$root/checkout' '$root/checkout.backup'
+reclone_checkout '$root/checkout.backup' '$root/remote.git'
+"@
+        Assert-Equal -Expected ($script:StatusFiles -join ',') -Actual ((Get-StatusFile -Checkout (Join-Path $root 'checkout')) -join ',') 'the put-back checkout still has its state'
+        Assert-True ($r.Output -notmatch 'Moving test/status') 'nothing is moved when the checkout itself comes back'
+        Assert-True ($r.Output -notmatch 'ERR-TRAP-FIRED|DIE') 'the run continues'
+    }
+    It 'leaves a folder the fresh clone already has in the moved checkout, never inside the clone''s' {
+        # mv onto an existing directory would move the folder inside it, where
+        # the harness never looks.
+        $root = New-GitFixture -Root (Join-Path $TestDrive "status-occupied-$Slug")
+        Add-StatusFixture -Checkout (Join-Path $root 'checkout')
+        $r = Invoke-HelperShell -Installer $Installer -Body @"
+YURUNA_DIR='$root/checkout'; YURUNA_BRANCH='main'; YURUNA_BACKUP_CREATED='$root/checkout.backup'
+mv '$root/checkout' '$root/checkout.backup'
+git() { command git "`$@"; if [[ "`$1" == clone ]]; then mkdir -p '$root/checkout/test/status/log' && printf 'clone\n' > '$root/checkout/test/status/log/placeholder'; fi; }
+reclone_checkout '$root/checkout.backup' '$root/remote.git'
+echo "AFTER issues=`${#YURUNA_ISSUES[@]}"
+"@
+        Assert-Match 'AFTER issues=1' $r.Output 'one folder was not moved, one issue'
+        Assert-Match ([regex]::Escape("ISSUE Did not move test/status/log from $root/checkout.backup: the fresh clone already has $root/checkout/test/status/log. The state is still at $root/checkout.backup/test/status/log.")) $r.Output 'the issue names the folder, the collision and where the state still is'
+        Assert-True (Test-Path -LiteralPath (Join-Path $root 'checkout.backup/test/status/log/010438.2026-11-20.13-24-18.h/cycle.events.ndjson')) 'the state stays complete in the moved checkout'
+        Assert-Equal -Expected 'placeholder' -Actual ((Get-ChildItem -LiteralPath (Join-Path $root 'checkout/test/status/log') -Force).Name -join ',') 'the clone''s folder is untouched, with nothing nested inside it'
+        Assert-Equal -Expected 'runtime/poolstorage.state.json,ssh/.known' -Actual (@((Get-StatusFile -Checkout (Join-Path $root 'checkout')) -ne 'log/placeholder') -join ',') 'the other folders are still moved'
+        Assert-True ($r.Output -notmatch 'ERR-TRAP-FIRED|DIE') 'the run continues'
+    }
+    It 'records a folder that does not move and moves the rest' {
+        $root = New-GitFixture -Root (Join-Path $TestDrive "status-movefail-$Slug")
+        Add-StatusFixture -Checkout (Join-Path $root 'checkout')
+        $r = Invoke-HelperShell -Installer $Installer -Body @"
+YURUNA_DIR='$root/checkout'; YURUNA_BRANCH='main'; YURUNA_BACKUP_CREATED='$root/checkout.backup'
+mv '$root/checkout' '$root/checkout.backup'
+mv() { if [[ "`$1" == */test/status/log ]]; then echo 'mv: Device or resource busy' >&2; return 1; fi; command mv "`$@"; }
+reclone_checkout '$root/checkout.backup' '$root/remote.git'
+echo "AFTER issues=`${#YURUNA_ISSUES[@]}"
+"@
+        Assert-Match 'AFTER issues=1' $r.Output 'one folder failed, one issue'
+        Assert-Match ([regex]::Escape("ISSUE Could not move test/status/log from $root/checkout.backup into the fresh clone; it is still at $root/checkout.backup/test/status/log.")) $r.Output 'the issue names the folder and where it still is'
+        Assert-True (Test-Path -LiteralPath (Join-Path $root 'checkout.backup/test/status/log/010438.2026-11-20.13-24-18.h/cycle.events.ndjson')) 'the folder that did not move is intact in the moved checkout'
+        Assert-Equal -Expected 'runtime/poolstorage.state.json,ssh/.known' -Actual ((Get-StatusFile -Checkout (Join-Path $root 'checkout')) -join ',') 'the other folders are still moved'
+        Assert-True ($r.Output -notmatch 'ERR-TRAP-FIRED|DIE') 'the run continues'
+    }
+    It 'moves a state folder that is a link as the link, leaving its target where it is' -Skip:$IsWindows {
+        # An operator who points test/status/log at another disk keeps it there;
+        # following the link would fill the clone's disk with the history.
+        $root = New-GitFixture -Root (Join-Path $TestDrive "status-link-$Slug")
+        Add-StatusFixture -Checkout (Join-Path $root 'checkout')
+        $elsewhere = Join-Path $root 'elsewhere-log'
+        Move-Item -LiteralPath (Join-Path $root 'checkout/test/status/log') -Destination $elsewhere
+        New-Item -ItemType SymbolicLink -Path (Join-Path $root 'checkout/test/status/log') -Target $elsewhere | Out-Null
+        $r = Invoke-HelperShell -Installer $Installer -Body @"
+YURUNA_DIR='$root/checkout'; YURUNA_BRANCH='main'; YURUNA_BACKUP_CREATED='$root/checkout.backup'
+mv '$root/checkout' '$root/checkout.backup'
+reclone_checkout '$root/checkout.backup' '$root/remote.git'
+"@
+        $link = Get-Item -LiteralPath (Join-Path $root 'checkout/test/status/log') -Force
+        Assert-Equal -Expected 'SymbolicLink' -Actual $link.LinkType 'the clone holds the link itself'
+        Assert-Equal -Expected $elsewhere -Actual $link.Target 'the link still points at the other disk'
+        Assert-True (Test-Path -LiteralPath (Join-Path $elsewhere '010438.2026-11-20.13-24-18.h/cycle.events.ndjson')) 'the target keeps its files'
+        Assert-True ($r.Output -notmatch 'ISSUE|ERR-TRAP-FIRED|DIE') 'the link moves without an issue'
+    }
+    It 'is never moved by an update in place' {
+        # git ignores test/status/*/, so fetch, checkout, pull and the renormalize
+        # leave the state where it is.
+        $callers = $script:Texts[$Installer]
+        foreach ($name in $script:SharedHelpers) { $callers = $callers.Replace($script:Bodies[$Installer][$name], '') }
+        $callers = (($callers -split "`n") | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+        Assert-True ($callers -notmatch 'carry_test_status') "$Installer moves test/status outside reclone_checkout"
+        Assert-True ($callers -notmatch 'TEST_STATUS_SUBDIRS\[') "$Installer walks the state folders outside carry_test_status"
+        Assert-True ($callers -notmatch 'YURUNA_STATUS_BACKUP|preserve_test_status|restore_test_status') "$Installer still snapshots test/status"
+        Assert-Match '(?s)if git clone --branch "\$YURUNA_BRANCH" "\$remote" "\$YURUNA_DIR"; then\s*\n\s*carry_test_status "\$backup"' `
+            $script:Bodies[$Installer]['reclone_checkout'] "$Installer does not carry the state after a re-clone"
+        Assert-True ($script:Bodies[$Installer]['carry_test_status'] -notmatch '(?m)^\s*[^#\n]*\bcp\b') "$Installer copies the state instead of moving it"
+    }
+}
+
+Describe 'Windows installer test/status runtime state' {
+    BeforeAll {
+        $winText = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'install/windows.hyper-v.ps1') -Raw
+        $script:WinStatusText = $winText
+        $ast = [Management.Automation.Language.Parser]::ParseInput($winText, [ref]$null, [ref]$null)
+        $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Move-YurunaStatusFromCheckout' }, $true)
+        $rename = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Move-YurunaDirectory' }, $true)
+        $list = $ast.Find({ param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and $n.Left.Extent.Text -eq '$TestStatusSubdirs' }, $true)
+        $script:WinMoveText = $fn.Extent.Text
+        . ([scriptblock]::Create($list.Extent.Text))
+        . ([scriptblock]::Create($fn.Extent.Text))
+        . ([scriptblock]::Create($rename.Extent.Text))
+        $script:WinIssues = [System.Collections.Generic.List[string]]::new()
+        $script:WinSteps = [System.Collections.Generic.List[string]]::new()
+        function Write-Step { param([string]$m) $script:WinSteps.Add($m) }
+        function Add-InstallIssue { param([string]$m) $script:WinIssues.Add($m) }
+        # The state is renamed, never duplicated: a copy fails the case.
+        Mock Copy-Item { throw "Copy-Item was called for $LiteralPath$Path" }
+        # A fresh clone: test/status holds only tracked files.
+        function New-WinClone {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                Justification = 'Test fixture: builds folders under TestDrive, which Pester removes; not user-facing state.')]
+            param([Parameter(Mandatory)][string]$Path)
+            New-Item -ItemType Directory -Path (Join-Path $Path 'test/status') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $Path 'test/status/index.html') -Value 'tracked'
+        }
+    }
+    BeforeEach { $script:WinIssues.Clear(); $script:WinSteps.Clear() }
+    It 'moves every state file into the fresh clone and leaves no second copy in the moved checkout' {
+        $from = Join-Path $TestDrive 'win-from'; $to = Join-Path $TestDrive 'win-to'
+        New-WinClone -Path $to
+        Add-StatusFixture -Checkout $from
+        Move-YurunaStatusFromCheckout -From $from -To $to
+        Assert-Equal -Expected (@('index.html') + $script:StatusFiles -join ',') -Actual ((Get-StatusFile -Checkout $to) -join ',') 'the fresh clone carries every state file, hidden and nested ones included'
+        Assert-Equal -Expected 'state of runtime/poolstorage.state.json' -Actual (Get-Content -Raw -LiteralPath (Join-Path $to 'test/status/runtime/poolstorage.state.json')) 'the moved file holds the same content'
+        Assert-Equal -Expected '' -Actual ((Get-StatusFile -Checkout $from) -join ',') 'the moved checkout keeps no second copy'
+        Assert-Equal -Expected 0 -Actual $script:WinIssues.Count 'a move that works copies nothing and reports nothing'
+        Assert-Equal -Expected "Moving test/status runtime state from $from" -Actual ($script:WinSteps -join '|') 'the move is announced'
+    }
+    It 'renames each folder in place, so the clone holds the same folder' -Skip:$IsWindows {
+        $from = Join-Path $TestDrive 'win-inode-from'; $to = Join-Path $TestDrive 'win-inode-to'
+        New-WinClone -Path $to
+        Add-StatusFixture -Checkout $from
+        $before = (Get-Item -LiteralPath (Join-Path $from 'test/status/log')).UnixStat.Inode
+        Move-YurunaStatusFromCheckout -From $from -To $to
+        Assert-Equal -Expected $before -Actual (Get-Item -LiteralPath (Join-Path $to 'test/status/log')).UnixStat.Inode 'the folder is renamed, not rebuilt by a copy'
+    }
+    It 'creates test/status in a clone that has none' {
+        $from = Join-Path $TestDrive 'win-bare-from'; $to = Join-Path $TestDrive 'win-bare-to'
+        New-Item -ItemType Directory -Path $to -Force | Out-Null
+        Add-StatusFixture -Checkout $from
+        Move-YurunaStatusFromCheckout -From $from -To $to
+        Assert-Equal -Expected ($script:StatusFiles -join ',') -Actual ((Get-StatusFile -Checkout $to) -join ',') 'every state file arrives'
+        Assert-Equal -Expected 0 -Actual $script:WinIssues.Count 'nothing is reported'
+    }
+    It 'leaves a folder the fresh clone already has in the moved checkout, never inside the clone''s' {
+        $from = Join-Path $TestDrive 'win-occupied-from'; $to = Join-Path $TestDrive 'win-occupied-to'
+        New-WinClone -Path $to
+        Add-StatusFixture -Checkout $from
+        New-Item -ItemType Directory -Path (Join-Path $to 'test/status/log') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $to 'test/status/log/placeholder') -Value 'clone'
+        Move-YurunaStatusFromCheckout -From $from -To $to
+        Assert-Equal -Expected 1 -Actual $script:WinIssues.Count 'one folder was not moved, one issue'
+        Assert-Equal -Expected "Did not move test\status\log from ${from}: the fresh clone already has $(Join-Path (Join-Path $to 'test/status') 'log'). The state is still at $(Join-Path (Join-Path $from 'test/status') 'log')." -Actual $script:WinIssues[0] 'the issue names the folder, the collision and where the state still is'
+        Assert-True (Test-Path -LiteralPath (Join-Path $from 'test/status/log/010438.2026-11-20.13-24-18.h/cycle.events.ndjson')) 'the state stays complete in the moved checkout'
+        Assert-Equal -Expected 'placeholder' -Actual ((Get-ChildItem -LiteralPath (Join-Path $to 'test/status/log') -Force).Name -join ',') 'the clone''s folder is untouched, with nothing nested inside it'
+        Assert-True (Test-Path -LiteralPath (Join-Path $to 'test/status/runtime/poolstorage.state.json')) 'the other folders are still moved'
+    }
+    It 'records a folder that does not move and moves the rest' {
+        $from = Join-Path $TestDrive 'win-fail-from'; $to = Join-Path $TestDrive 'win-fail-to'
+        New-WinClone -Path $to
+        Add-StatusFixture -Checkout $from
+        # A file held open inside the folder fails the rename on Windows; the
+        # other folders reach the real rename.
+        $realRename = Get-Command Move-YurunaDirectory -CommandType Function
+        Mock Move-YurunaDirectory { & $realRename @PesterBoundParameters }
+        Mock Move-YurunaDirectory { throw [IO.IOException]::new('The process cannot access the file because it is being used by another process.') } -ParameterFilter { (Split-Path -Leaf "$From") -eq 'log' }
+        Move-YurunaStatusFromCheckout -From $from -To $to
+        Assert-Equal -Expected 1 -Actual $script:WinIssues.Count "one folder failed, one issue: $($script:WinIssues -join ' / ')"
+        Assert-Match '^Could not move test\\status\\log from .* \(The process cannot access the file' $script:WinIssues[0] 'the issue names the folder and the reason'
+        Assert-Match ([regex]::Escape("it is still at $(Join-Path (Join-Path $from 'test/status') 'log').")) $script:WinIssues[0] 'the issue says where the folder still is'
+        Assert-True (Test-Path -LiteralPath (Join-Path $from 'test/status/log/010438.2026-11-20.13-24-18.h/cycle.events.ndjson')) 'the folder that did not move is intact in the moved checkout'
+        Assert-True (Test-Path -LiteralPath (Join-Path $to 'test/status/runtime/poolstorage.state.json')) 'the other folders are still moved'
+        Assert-False (Test-Path -LiteralPath (Join-Path $from 'test/status/runtime')) 'and are gone from the moved checkout'
+    }
+    It 'moves a state folder that is a link as the link, leaving its target where it is' -Skip:$IsWindows {
+        $from = Join-Path $TestDrive 'win-link-from'; $to = Join-Path $TestDrive 'win-link-to'
+        New-WinClone -Path $to
+        Add-StatusFixture -Checkout $from
+        $elsewhere = Join-Path $TestDrive 'win-elsewhere-log'
+        Move-Item -LiteralPath (Join-Path $from 'test/status/log') -Destination $elsewhere
+        New-Item -ItemType SymbolicLink -Path (Join-Path $from 'test/status/log') -Target $elsewhere | Out-Null
+        Move-YurunaStatusFromCheckout -From $from -To $to
+        $link = Get-Item -LiteralPath (Join-Path $to 'test/status/log') -Force
+        Assert-Equal -Expected 'SymbolicLink' -Actual $link.LinkType 'the clone holds the link itself'
+        Assert-Equal -Expected $elsewhere -Actual $link.Target 'the link still points where it did'
+        Assert-True (Test-Path -LiteralPath (Join-Path $elsewhere '010438.2026-11-20.13-24-18.h/cycle.events.ndjson')) 'the target keeps its files'
+        Assert-Equal -Expected 0 -Actual $script:WinIssues.Count 'the link moves without an issue'
+    }
+    It 'walks the same state folders as the bash installers' {
+        Assert-Equal -Expected ([regex]::Match($script:StatusSubdirLines['install/ubuntu.kvm.sh'], '\((.*)\)').Groups[1].Value) -Actual ($TestStatusSubdirs -join ' ') 'the Windows state folder list differs from the bash one'
+    }
+    It 'moves the state only after a successful re-clone, never on an update in place' {
+        $calls = [regex]::Matches($script:WinStatusText, '(?m)^\s*Move-YurunaStatusFromCheckout\b')
+        Assert-Equal -Expected 1 -Actual $calls.Count 'one call site'
+        Assert-Match '(?s)if \(\$cloneExit -ne 0\) \{.*?\$script:YurunaBackupCreated = \$null\s*\n\s*\} else \{\s*\n\s*Move-YurunaStatusFromCheckout -From \$YurunaBackupDir -To \$YurunaDir' `
+            $script:WinStatusText 'the call sits in the branch where the re-clone succeeded'
+        Assert-True ($script:WinStatusText -notmatch 'Backup-YurunaStatus|Restore-YurunaStatus|YurunaStatusBackup|Copy-YurunaStatusFromCheckout') 'the installer no longer snapshots or copies test/status'
+        Assert-True ($script:WinMoveText -notmatch 'Copy-Item|Move-Item') 'the state is renamed, never copied'
+        Assert-Match '\$null = Move-YurunaDirectory -From \$bsub -To \$dsub' $script:WinMoveText 'each folder moves through the rename-only helper'
+    }
+}
+
 Describe 'renormalize_checkout' {
     It 'rebuilds a clean checkout' {
         $root = New-GitFixture -Root (Join-Path $TestDrive 'renorm-ok')
@@ -300,7 +569,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
             param([int]$Code, [string[]]$Issue = @(), [string]$Installer = 'ubuntu.kvm')
             $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
             $null = New-Item -ItemType Directory -Path (Join-Path $root 'state'), (Join-Path $root 'checkout'), (Join-Path $root 'logs') -Force
-            Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.11.16'
+            Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.11.23'
             $issueLines = ($Issue | ForEach-Object { "YURUNA_ISSUES+=('" + $_.Replace("'", "'\''") + "')" }) -join "`n"
             $body = @(
                 'set -euo pipefail', 'YURUNA_ISSUES=()', $issueLines,
@@ -327,7 +596,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
         $record = Get-Content -LiteralPath $r.File -Raw | ConvertFrom-Json
         $record.outcome | Should -Be 'succeeded'
         $record.exitCode | Should -Be 0
-        $record.version | Should -Be '2026.11.16'
+        $record.version | Should -Be '2026.11.23'
         $record.step | Should -Be 'Installing libvirt'
         @($record.issues).Count | Should -Be 0
         Test-Path -LiteralPath (Join-Path $r.Root 'logs/ubuntu.kvm.install.1.result.json') | Should -BeTrue
@@ -350,6 +619,79 @@ Describe 'installer outcome record' -Skip:$IsWindows {
         $record.installer | Should -Be 'macos.utm'
     }
 
+    # The writer region as each installer carries it, from its outcome comment
+    # to the exit handler, run as an unattended run reaches it: from the exit
+    # trap, with nothing else of the file defined. A helper the writer calls
+    # that the region does not define ends the trap with exit 127 and no record.
+    It 'writes the unattended record from <Installer>''s own writer region, with the PowerShell the run moved' -ForEach @(
+        @{ Installer = 'install/ubuntu.kvm.sh'; Name = 'ubuntu.kvm' }, @{ Installer = 'install/macos.utm.sh'; Name = 'macos.utm' }
+    ) {
+        $text = $script:Texts[$Installer]
+        $start = $text.IndexOf('# --- REGION: Machine-readable outcome', [StringComparison]::Ordinal)
+        $end = $text.IndexOf('yuruna_install_cleanup() {', [StringComparison]::Ordinal)
+        Assert-True ($start -ge 0 -and $end -gt $start) 'fixture sanity: the writer region is found'
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path (Join-Path $root 'state'), (Join-Path $root 'checkout'), (Join-Path $root 'bin') -Force
+        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.11.23'
+        # A pwsh that answers the version the test last wrote: the region asks
+        # once when it is read and once more from the writer.
+        Set-Content -LiteralPath (Join-Path $root 'pwsh.version') -Value '7.7.0' -NoNewline
+        $pwsh = Join-Path $root 'bin/pwsh'
+        [IO.File]::WriteAllText($pwsh, "#!/bin/sh`ncat '$root/pwsh.version'`n")
+        [IO.File]::SetUnixFileMode($pwsh, [IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+        $body = @(
+            'set -euo pipefail', 'YURUNA_ISSUES=()', 'YURUNA_UNATTENDED=1',
+            "YURUNA_REQUEST_ID='0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90'; YURUNA_REQUEST_ATTEMPT=2; YURUNA_RESULT_REASON=not_provisioned",
+            "XDG_STATE_HOME='$root/state'; YURUNA_DIR='$root/checkout'; YURUNA_INSTALL_LOG=''",
+            '_yuruna_step="Checking the unattended preconditions"',
+            $text.Substring($start, $end - $start),
+            "printf '7.7.1' > '$root/pwsh.version'",
+            "write_install_result 1 '$Name'; echo rc=`$?"
+        ) -join "`n"
+        $run = Invoke-YurunaTestShell -Body $body -Environment @{ PATH = "$root/bin:/usr/bin:/bin" }
+        $run.Output | Should -Match 'rc=0' -Because $run.Output
+        $file = Join-Path $root 'state/yuruna/install-result.json'
+        Test-Path -LiteralPath $file | Should -BeTrue -Because "the writer must leave a record: $($run.Output)"
+        $record = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json -AsHashtable
+        $record['installer'] | Should -Be $Name
+        $record['outcome'] | Should -Be 'failed'
+        $record['reason'] | Should -Be 'not_provisioned'
+        $record['requestId'] | Should -Be '0b6f3c2e-8a51-4d0e-9f4c-2d7a1e6b5c90'
+        $record['attempt'] | Should -Be 2
+        $record['unattended'] | Should -BeTrue
+        $record['step'] | Should -Be 'Checking the unattended preconditions'
+        $record['pwshUpgrade']['from'] | Should -Be '7.7.0'
+        $record['pwshUpgrade']['to'] | Should -Be '7.7.1'
+        $record['pwshUpgrade']['pending'] | Should -BeFalse
+        $record.Contains('remarks') | Should -BeTrue
+        @($record['remarks']).Count | Should -Be 0 -Because 'an installer that records no remark writes an empty list'
+    }
+
+    It 'carries remark tokens beside the issue text' {
+        $root = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $null = New-Item -ItemType Directory -Path (Join-Path $root 'state') -Force
+        $body = @(
+            'set -euo pipefail', "YURUNA_ISSUES=('brew update exited non-zero')", 'YURUNA_REMARKS=(brew_update_failed utm_upgrade_deferred)',
+            "XDG_STATE_HOME='$root/state'; YURUNA_INSTALL_LOG=''", '_yuruna_step="Installing / upgrading required casks"',
+            $script:OutcomeBodies['install/macos.utm.sh'],
+            "write_install_result 0 'macos.utm'; echo rc=`$?"
+        ) -join "`n"
+        $run = Invoke-YurunaTestShell -Body $body
+        $run.Output | Should -Match 'rc=0'
+        $record = Get-Content -LiteralPath (Join-Path $root 'state/yuruna/install-result.json') -Raw | ConvertFrom-Json -AsHashtable
+        $record['outcome'] | Should -Be 'succeeded-with-issues'
+        @($record['remarks']) | Should -Be @('brew_update_failed', 'utm_upgrade_deferred')
+        @($record['issues']) | Should -Be @('brew update exited non-zero')
+    }
+
+    It 'has the unattended helpers word for word in both bash installers' {
+        foreach ($name in @('yuruna_pwsh_version', 'yuruna_runner_alive', 'pid_file_owner_ok', 'yuruna_epoch_from_utc', 'yuruna_process_start_epoch')) {
+            $kvm = Get-YurunaTestShellFunction -Text $script:Texts['install/ubuntu.kvm.sh'] -Name $name
+            $mac = Get-YurunaTestShellFunction -Text $script:Texts['install/macos.utm.sh'] -Name $name
+            $mac | Should -BeExactly $kvm -Because "$name is shared by both installers"
+        }
+    }
+
     It 'has the Windows installer write the same record at its end and from its trap' {
         $text = Get-Content -LiteralPath (Join-Path $script:RepoRoot 'install/windows.hyper-v.ps1') -Raw
         $text | Should -Match 'Write-InstallResult\r?\n# Close the transcript'
@@ -358,7 +700,7 @@ Describe 'installer outcome record' -Skip:$IsWindows {
         $fn = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Write-InstallResult' }, $true)
         $root = Join-Path $TestDrive 'win'
         $null = New-Item -ItemType Directory -Path (Join-Path $root 'checkout'), (Join-Path $root 'local') -Force
-        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.11.16'
+        Set-Content -LiteralPath (Join-Path $root 'checkout/VERSION') -Value '2026.11.23'
         $saved = Save-YurunaTestEnvironment -Name 'LOCALAPPDATA'
         try {
             $env:LOCALAPPDATA = Join-Path $root 'local'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42f65e66-8ecf-5728-a2d5-83dd16a2a464
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -578,8 +578,8 @@
             'trust' = 'external'
         }
     )
-    'pool.host_refresh_body_invalid' = @(
-        'בקשת הרענון חייבת להיות אובייקט JSON עם ערכי מחרוזת ורק השדות hostId, requestId, tier ו-maxRung ('
+    'pool.host_repair_body_invalid' = @(
+        'בקשת התיקון חייבת להיות אובייקט JSON עם ערכי מחרוזת ורק השדות hostId, requestId, tier ו-maxRung ('
         @{
             'arg' = 'detail'
             'type' = 'identifier'
@@ -587,14 +587,14 @@
         }
         ').'
     )
-    'pool.host_refresh_busy' = @(
+    'pool.host_repair_busy' = @(
         'המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' כבר מטפל בבקשת הרענון '
+        ' כבר מטפל בבקשת התיקון '
         @{
             'arg' = 'activeRequestId'
             'type' = 'identifier'
@@ -602,7 +602,7 @@
         }
         '; עקבו אחר בקשה זו במקום להתחיל בקשה נוספת.'
     )
-    'pool.host_refresh_control_proof_unavailable' = @(
+    'pool.host_repair_control_proof_unavailable' = @(
         'לא ניתן להשיג הוכחת שליטה עבור המארח '
         @{
             'arg' = 'hostId'
@@ -617,8 +617,8 @@
         }
         ').'
     )
-    'pool.host_refresh_field_unsupported' = @(
-        'בקשת הרענון כללה את השדה הלא נתמך '
+    'pool.host_repair_field_unsupported' = @(
+        'בקשת התיקון כללה את השדה הלא נתמך '
         @{
             'arg' = 'field'
             'type' = 'identifier'
@@ -626,7 +626,7 @@
         }
         '; אפשרויות כפייה ועצירה כפויה אינן מתקבלות לעולם מרחוק.'
     )
-    'pool.host_refresh_host_address_unknown' = @(
+    'pool.host_repair_host_address_unknown' = @(
         'מרכז נתוני המאגר מכיר את המארח '
         @{
             'arg' = 'hostId'
@@ -635,15 +635,15 @@
         }
         ' אך אין לו כתובת עבורו.'
     )
-    'pool.host_refresh_host_id_invalid' = 'hostId חייב להיות מזהה מארח הקסדצימלי באורך 32 תווים.'
-    'pool.host_refresh_host_refused' = @(
+    'pool.host_repair_host_id_invalid' = 'hostId חייב להיות מזהה מארח הקסדצימלי באורך 32 תווים.'
+    'pool.host_repair_host_refused' = @(
         'המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' סירב לרענון (HTTP '
+        ' סירב לתיקון (HTTP '
         @{
             'arg' = 'status'
             'type' = 'integer'
@@ -657,14 +657,14 @@
         }
         ').'
     )
-    'pool.host_refresh_host_unavailable' = @(
+    'pool.host_repair_host_unavailable' = @(
         'המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' לא הצליח להתחיל ברענון (HTTP '
+        ' לא הצליח להתחיל בתיקון (HTTP '
         @{
             'arg' = 'status'
             'type' = 'integer'
@@ -684,7 +684,7 @@
         }
         '.'
     )
-    'pool.host_refresh_host_unknown' = @(
+    'pool.host_repair_host_unknown' = @(
         'מרכז נתוני המאגר אינו מכיר את המארח '
         @{
             'arg' = 'hostId'
@@ -693,7 +693,7 @@
         }
         '.'
     )
-    'pool.host_refresh_host_unreachable' = @(
+    'pool.host_repair_host_unreachable' = @(
         'המארח '
         @{
             'arg' = 'hostId'
@@ -708,8 +708,8 @@
         }
         '.'
     )
-    'pool.host_refresh_mint_failed' = @(
-        'שירות זה לא הצליח לחתום על בקשת הרענון עבור המארח '
+    'pool.host_repair_mint_failed' = @(
+        'שירות זה לא הצליח לחתום על בקשת התיקון עבור המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
@@ -717,7 +717,7 @@
         }
         '.'
     )
-    'pool.host_refresh_reply_invalid' = @(
+    'pool.host_repair_reply_invalid' = @(
         'המארח '
         @{
             'arg' = 'hostId'
@@ -732,7 +732,7 @@
         }
         ').'
     )
-    'pool.host_refresh_request_closed' = @(
+    'pool.host_repair_request_closed' = @(
         'הבקשה '
         @{
             'arg' = 'requestId'
@@ -757,9 +757,9 @@
             'type' = 'identifier'
             'trust' = 'external'
         }
-        '); צרו מזהה בקשה חדש כדי לרענן שוב.'
+        '); צרו מזהה בקשה חדש כדי לתקן שוב.'
     )
-    'pool.host_refresh_request_conflict' = @(
+    'pool.host_repair_request_conflict' = @(
         'הבקשה '
         @{
             'arg' = 'requestId'
@@ -768,10 +768,10 @@
         }
         ' כבר שימשה עם דרגה או גבול עליון אחרים; שלחו שוב את המדיניות המקורית או צרו מזהה בקשה חדש.'
     )
-    'pool.host_refresh_request_id_invalid' = 'requestId חייב להיות UUID באותיות קטנות (8-4-4-4-12) שהגורם הקורא יוצר פעם אחת ומשתמש בו שוב בכל ניסיון חוזר.'
-    'pool.host_refresh_rung_unsupported' = 'maxRung חייב להיות probe, reclaim, start-if-stopped, restart-if-hung או restart-broker.'
-    'pool.host_refresh_signing_unconfigured' = @(
-        'רענון מארח מרחוק מושבת: שירות זה אינו מחזיק בהרשאת חתימה לרענון ('
+    'pool.host_repair_request_id_invalid' = 'requestId חייב להיות UUID באותיות קטנות (8-4-4-4-12) שהגורם הקורא יוצר פעם אחת ומשתמש בו שוב בכל ניסיון חוזר.'
+    'pool.host_repair_rung_unsupported' = 'maxRung חייב להיות probe, reclaim, start-if-stopped, restart-if-hung או restart-broker.'
+    'pool.host_repair_signing_unconfigured' = @(
+        'תיקון מארח מרחוק מושבת: שירות זה אינו מחזיק בסמכות חתימה לתיקון ('
         @{
             'arg' = 'path'
             'type' = 'detail'
@@ -779,15 +779,245 @@
         }
         ').'
     )
-    'pool.host_refresh_tier_unsupported' = 'ניתן לבקש מרחוק רק את הדרגה restart; הדרגה full זמינה מקומית בלבד.'
-    'pool.host_refresh_unavailable' = @(
+    'pool.host_repair_tier_unsupported' = 'ניתן לבקש מרחוק רק את הדרגה restart; הדרגה full זמינה מקומית בלבד.'
+    'pool.host_repair_unavailable' = @(
         'המארח '
         @{
             'arg' = 'hostId'
             'type' = 'identifier'
             'trust' = 'external'
         }
-        ' אינו מפרסם יכולת רענון מרחוק ('
+        ' אינו מפרסם יכולת תיקון מרחוק ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_action' = 'עדכון המארח'
+    'pool.host_update_body_invalid' = @(
+        'בקשת העדכון חייבת להיות אובייקט JSON יחיד עם השדות hostId, requestId, scope, drainSeconds ו-expectCommit בלבד, כל אחד פעם אחת ('
+        @{
+            'arg' = 'detail'
+            'type' = 'identifier'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'pool.host_update_busy' = @(
+        'המארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' עסוק בבקשה '
+        @{
+            'arg' = 'activeRequestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; עקבו אחר בקשה זו במקום להתחיל בקשה נוספת.'
+    )
+    'pool.host_update_commit_invalid' = 'הערך של expectCommit חייב להיות 7 עד 40 ספרות הקסדצימליות באותיות קטנות.'
+    'pool.host_update_commit_label' = 'commit צפוי'
+    'pool.host_update_completed' = @(
+        'הבקשה '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' כבר הסתיימה במארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' ('
+        @{
+            'arg' = 'verdict'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_credential_label' = 'פרטי הזיהוי של המפעיל'
+    'pool.host_update_credential_missing' = 'הזינו את פרטי הזיהוי של המפעיל.'
+    'pool.host_update_drain_invalid' = 'הערך של drainSeconds חייב להיות מספר שלם בין 60 ל-21600.'
+    'pool.host_update_drain_label' = 'מגבלת המתנה'
+    'pool.host_update_drain_now_label' = 'כדי לסיים את המחזור הנוכחי עכשיו'
+    'pool.host_update_drain_value' = @(
+        @{
+            'arg' = 'seconds'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' שניות ('
+        @{
+            'arg' = 'minutes'
+            'type' = 'integer'
+            'trust' = 'internal'
+        }
+        ' דקות)'
+    )
+    'pool.host_update_field_forbidden' = @(
+        'בקשת העדכון כללה את '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; אף בקשה משירות זה אינה מסיימת מחזור שרץ. כדי לסיים מחזור, הריצו ⁦Invoke-HostUpdate.ps1 -Drain now⁩ במעטפת במארח.'
+    )
+    'pool.host_update_field_unsupported' = @(
+        'בקשת העדכון כללה את השדה הלא נתמך '
+        @{
+            'arg' = 'field'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.host_update_heading' = 'עדכון המארח'
+    'pool.host_update_host_refused' = @(
+        'המארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' דחה את העדכון (HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ', '
+        @{
+            'arg' = 'hostReason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_host_unavailable' = @(
+        'המארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' לא הצליח להוסיף את העדכון לתור (HTTP '
+        @{
+            'arg' = 'status'
+            'type' = 'integer'
+            'trust' = 'external'
+        }
+        ', '
+        @{
+            'arg' = 'hostReason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '); נסו שוב עם אותו מזהה בקשה '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.host_update_intro' = 'דף זה חותם על עדכון מארח אחד עבור המארח שלהלן ושולח אותו אליו. המארח ממתין לסיום המחזור הנוכחי, ואז עוצר את רכיב ההרצה, מעדכן את עותק הקוד שלו ומפעיל שוב את רכיב ההרצה; הוא מוותר לאחר מגבלת ההמתנה בלי לשנות דבר. אף בקשה מדף זה אינה מסיימת מחזור שרץ: כדי לסיים מחזור, הריצו את הפקודה שמוצגת למטה במעטפת במארח.'
+    'pool.host_update_loading' = 'קורא את המארח…'
+    'pool.host_update_mint_failed' = @(
+        'שירות זה לא הצליח לחתום על בקשת העדכון עבור המארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '.'
+    )
+    'pool.host_update_not_offered' = @(
+        'המארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' אינו יכול לקבל כעת עדכון מארח מרחוק ('
+        @{
+            'arg' = 'reason'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ').'
+    )
+    'pool.host_update_open_diagnostics' = 'פתיחת דף האבחון של המארח'
+    'pool.host_update_page_title' = 'עדכון המארח — Yuruna Pool Control'
+    'pool.host_update_request_conflict' = @(
+        'הבקשה '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' כבר שימשה עם היקף, מגבלת המתנה או commit צפוי אחרים; שלחו שוב את הבקשה המקורית או התחילו בקשה חדשה.'
+    )
+    'pool.host_update_request_label' = 'מזהה בקשה'
+    'pool.host_update_scope' = @{
+        'kind' = 'select'
+        'selector' = 'scope'
+        'variants' = @{
+            'full' = 'התקנה מחדש של תלויות והגדרות, ואז הפעלה מחדש'
+            'other' = @(
+                @{
+                    'arg' = 'scope'
+                    'type' = 'token'
+                    'trust' = 'external'
+                }
+            )
+            'restart' = 'הפעלה מחדש של רכיב ההרצה על הקוד הנוכחי'
+        }
+    }
+    'pool.host_update_scope_invalid' = 'הערך של scope חייב להיות restart או full.'
+    'pool.host_update_scope_label' = 'היקף'
+    'pool.host_update_sending' = 'חותם על העדכון ושולח אותו…'
+    'pool.host_update_sent' = @(
+        'המארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' הוסיף לתור את העדכון '
+        @{
+            'arg' = 'requestId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        '; פותח את דף האבחון שלו.'
+    )
+    'pool.host_update_signing_unconfigured' = @(
+        'עדכון מארח מרחוק מושבת: שירות זה אינו מחזיק במפתח חתימה לעדכון או בפרטי זיהוי של מפעיל ('
+        @{
+            'arg' = 'path'
+            'type' = 'detail'
+            'trust' = 'internal'
+        }
+        ').'
+    )
+    'pool.host_update_submit' = 'שליחת העדכון'
+    'pool.host_update_unavailable' = @(
+        'המארח '
+        @{
+            'arg' = 'hostId'
+            'type' = 'identifier'
+            'trust' = 'external'
+        }
+        ' אינו יכול לקבל כעת עדכון מארח מרחוק ('
         @{
             'arg' = 'reason'
             'type' = 'identifier'
@@ -1090,7 +1320,7 @@
     'pool.paused_after_cycle_and_step' = 'מושהה לאחר מחזור ושלב'
     'pool.persisted_health' = 'מצב תקינות שנשמר'
     'pool.persistence_disabled' = '(שמירה מתמשכת מושבתת)'
-    'pool.pid' = 'מזהה תהליך (pid)'
+    'pool.pid' = 'מזהה תהליך (PID)'
     'pool.platform' = 'פלטפורמה'
     'pool.pool' = 'מאגר'
     'pool.pool_for_host_value1' = @(

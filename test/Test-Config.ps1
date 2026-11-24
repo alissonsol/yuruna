@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1075,34 +1075,34 @@ if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycl
     Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_0c04aa1d42c0413b')
 }
 
-if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("autoRefreshAfterStalls")) {
+if ($Config.testCycle -is [System.Collections.IDictionary] -and $Config.testCycle.Contains("autoRepairAfterStalls")) {
     # TryParse, not an [int] cast: a cast throws on a non-number and ends the
     # whole check over one knob, while the runner reads the same value as 0
     # and keeps cycling -- so this reports what the runner will do instead.
-    $arasRaw = $Config.testCycle.autoRefreshAfterStalls
+    $arasRaw = $Config.testCycle.autoRepairAfterStalls
     $arasVal = 0
     if (-not [int]::TryParse("$arasRaw".Trim(), [System.Globalization.NumberStyles]::Integer, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$arasVal)) {
-        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_refresh_auto_value_not_integer' -Arguments @{ value = "$arasRaw" })
+        Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_repair_auto_value_not_integer' -Arguments @{ value = "$arasRaw" })
     } elseif ($arasVal -lt 0) {
         Write-Warn (Format-YurunaOperatorMessage -Key 'runner.operator_fffaa1debcc46863' -Arguments @{ arasVal = "$arasVal" })
     } else {
-        Write-Pass "'testCycle.autoRefreshAfterStalls' = $arasVal"
+        Write-Pass "'testCycle.autoRepairAfterStalls' = $arasVal"
         if ($arasVal -eq 1) {
-            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_refresh_auto_threshold_raised')
+            Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_repair_auto_threshold_raised')
         }
         # The knob is honored only where automatic repair has been qualified
         # on real hardware; elsewhere the runner counts the evidence and says
         # why it does not act, and this check says so up front.
-        $triggerModule = Join-Path $ModulesDir 'Test.HostRefreshTrigger.psm1'
+        $triggerModule = Join-Path $ModulesDir 'Test.HostRepairTrigger.psm1'
         if ($arasVal -gt 0 -and $HostType -and (Test-Path -LiteralPath $triggerModule)) {
             try {
                 Import-Module -Name $triggerModule -Global -Force -DisableNameChecking -ErrorAction Stop
-                $arasSupport = Get-HostRefreshAutoTriggerSupport -HostType $HostType
+                $arasSupport = Get-HostRepairAutoTriggerSupport -HostType $HostType
                 if (-not $arasSupport.Available) {
-                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_refresh_auto_unavailable_on_host' -Arguments @{ value = "$arasVal"; reason = "$($arasSupport.Reason)" })
+                    Write-Warn (Format-YurunaOperatorMessage -Key 'runner.host_repair_auto_unavailable_on_host' -Arguments @{ value = "$arasVal"; reason = "$($arasSupport.Reason)" })
                 }
             } catch {
-                Write-Verbose "autoRefreshAfterStalls availability check skipped: $($_.Exception.Message)"
+                Write-Verbose "autoRepairAfterStalls availability check skipped: $($_.Exception.Message)"
             }
         }
     }
@@ -1152,6 +1152,32 @@ if (-not (Test-Path $NotificationCfgPath)) {
         -SchemaPath (Join-Path $SchemasRoot "notification.transports.schema.yml")
 }
 
+# An empty or unparseable vault.yml or users.yml fails every check below, and
+# no cycle ever writes it back into shape. Loading the authentication area
+# before either is validated lets it move such a file aside and start it over.
+$AuthAreaLoaded = $false
+try {
+    $authExtMod = Join-Path $ModulesDir 'Test.Extension.psm1'
+    if ((Test-Path $authExtMod) -and -not (Get-Command Import-Extension -ErrorAction SilentlyContinue)) {
+        Import-Module $authExtMod -Force -DisableNameChecking -ErrorAction SilentlyContinue
+    }
+    if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+        $null = Import-Extension -Area 'authentication' -RequireSingle
+        $AuthAreaLoaded = $true
+    }
+} catch { Write-Verbose "authentication area load skipped: $($_.Exception.Message)" }
+if ($AuthAreaLoaded -and (Get-Command Repair-AuthenticationStateFile -ErrorAction SilentlyContinue)) {
+    try {
+        foreach ($repair in @(Repair-AuthenticationStateFile -Confirm:$false)) {
+            if ($repair.Name -eq 'vault.yml') {
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.auth_state_vault_restarted' -Arguments @{ problem = "$($repair.Problem)"; vaultPath = "$($repair.Path)"; backupPath = "$($repair.BackupPath)" })
+            } else {
+                Write-Warn (Format-YurunaOperatorMessage -Key 'runner.auth_state_users_restarted' -Arguments @{ problem = "$($repair.Problem)"; usersPath = "$($repair.Path)"; backupPath = "$($repair.BackupPath)" })
+            }
+        }
+    } catch { Write-Verbose "authentication state repair skipped: $($_.Exception.Message)" }
+}
+
 $VaultPath = Join-Path $ExtensionStateRoot "authentication/vault.yml"
 if (Test-Path $VaultPath) {
     Test-AgainstSchema -Label "vault.yml" `
@@ -1180,19 +1206,11 @@ if (-not (Test-Path $UsersPath)) {
 
 # A runtime users.yml that predates a service VM lacks that service's logical
 # user, and the template is copied only when the file is absent -- so the strict
-# scan below would refuse a name the operator was never asked about. Loading the
-# authentication area reconciles the file first, using the same guarded import
-# this script applies to the vault cross-checks further down.
-if (Test-Path $UsersPath) {
+# scan below would refuse a name the operator was never asked about. The
+# authentication area loaded above reconciles the file first.
+if ($AuthAreaLoaded -and (Test-Path $UsersPath)) {
     try {
-        $authExtMod = Join-Path $ModulesDir 'Test.Extension.psm1'
-        if ((Test-Path $authExtMod) -and -not (Get-Command Import-Extension -ErrorAction SilentlyContinue)) {
-            Import-Module $authExtMod -Force -DisableNameChecking -ErrorAction SilentlyContinue
-        }
-        if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
-            $null = Import-Extension -Area 'authentication' -RequireSingle
-            if (Get-Command Read-UsersConfig -ErrorAction SilentlyContinue) { $null = Read-UsersConfig }
-        }
+        if (Get-Command Read-UsersConfig -ErrorAction SilentlyContinue) { $null = Read-UsersConfig }
     } catch { Write-Verbose "users.yml reconcile skipped: $($_.Exception.Message)" }
 }
 
@@ -1349,7 +1367,7 @@ if (-not (Test-Path $seqResolveMod)) {
         if (-not (Test-Path -LiteralPath $sd)) { continue }
         $seqDirsScanned++
         Get-ChildItem -LiteralPath $sd -File -Filter '*.yml' -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -notin @('_snippets.yml', 'actions.yml') } |
+            Where-Object { $_.Name -notin @('_snippets.yml', 'actions.yml', '_phrases.yml') } |
             ForEach-Object {
                 $sequenceFile = $_
                 try {
@@ -1380,6 +1398,19 @@ if (-not (Test-Path $seqResolveMod)) {
                 }
             } catch {
                 Write-Fail (Format-YurunaOperatorMessage -Key 'runner.operator_28e8e9b79ddad7c6' -Arguments @{ message = "$($_.Exception.Message)" }) -FullPath $libPath
+            }
+        }
+        # Validate the phrase library in this dir with every other library in
+        # force for it, even when no sequence uses a sentence yet.
+        $phraseLibPath = Join-Path $sd '_phrases.yml'
+        if (Test-Path -LiteralPath $phraseLibPath) {
+            try {
+                $phraseLibrary = Get-SequencePhraseLibrary -SequencePath $phraseLibPath
+                $phraseFile = (Resolve-Path -LiteralPath $phraseLibPath).Path
+                $phraseCount = @($phraseLibrary.Phrases | Where-Object { $_.File -eq $phraseFile }).Count
+                Write-Pass (Format-YurunaOperatorMessage -Key 'runner.phrase_library_valid' -Arguments @{ count = "$phraseCount"; path = "$sd" })
+            } catch {
+                Write-Fail (Format-YurunaOperatorMessage -Key 'runner.phrase_library_invalid' -Arguments @{ message = "$($_.Exception.Message)" }) -FullPath $phraseLibPath
             }
         }
     }

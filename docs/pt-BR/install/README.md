@@ -283,7 +283,7 @@ bloco é uma única instrução, então uma verificação que falha o interrompe
 quando o console executa as linhas coladas uma de cada vez:
 
 ```
-& { $ErrorActionPreference='Stop'; $base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.11.16'; $t=Join-Path $env:TEMP ('yuruna-install-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force $t|Out-Null
+& { $ErrorActionPreference='Stop'; $base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.11.23'; $t=Join-Path $env:TEMP ('yuruna-install-'+[guid]::NewGuid().ToString('N')); New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -295,7 +295,7 @@ $ErrorActionPreference='Continue'; & "$t\windows.hyper-v.ps1" }
 defina `S=install/ubuntu.kvm.sh` na primeira linha:
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.11.16'; S=install/macos.utm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.11.23'; S=install/macos.utm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")" || { echo "DOWNLOAD FAILED: $f -- do not run"; exit 1; }; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 got=$(openssl dgst -sha256 -r "$t/$(basename "$S")" | cut -d' ' -f1); want=$(awk -v p="$S" 'NF == 2 && $2 == p { print $1; n++ } END { if (n != 1) exit 1 }' "$t/install.sha256") || want=''
@@ -312,27 +312,30 @@ concessões TCC, etc.).
 
 <a id="420f54a5-0008"></a>
 
-## Refresh de um hospedeiro macOS instalado
+## Reparo de um hospedeiro macOS instalado
 
-`macos.utm.sh --refresh` não instala nada. Ele repassa a execução ao script de
-entrada de refresh do checkout que já está na máquina,
-`test/lab/Invoke-HostRefresh.ps1`, que sonda o hipervisor e repara o que
+`macos.utm.sh --repair` não instala nada. Ele repassa a execução ao script de
+entrada de reparo do checkout que já está na máquina,
+`test/lab/Invoke-HostRepair.ps1`, que sonda o hipervisor e repara o que
 conseguir dentro de um limite de tempo. Verificar a assinatura do instalador
 autentica apenas este despachante, não o checkout e os módulos que ele executa
 em seguida; portanto, esta não é uma forma de reparar um checkout em que você
 não confia -- para isso, reinstale.
 
-Os dois sinais são obrigatórios: o argumento `--refresh` e `YURUNA_REFRESH=1`.
+Os dois sinais são obrigatórios: o argumento `--repair` e `YURUNA_REPAIR=1`.
 Qualquer um deles sozinho é recusado e nada é alterado, de modo que uma
 variável esquecida no ambiente não transforma uma instalação comum em um
-refresh, nem um refresh em uma instalação.
+reparo, nem um reparo em uma instalação. Releases anteriores à 2026.11.23
+chamavam esses sinais de `--refresh` e `YURUNA_REFRESH=1`; o instalador agora
+recusa qualquer um deles com uma mensagem que cita `--repair`, e não aceita
+nenhum dos dois em seu lugar.
 
 Forma de conveniência (não verificada), fixada em uma tag de release. O `_`
 ocupa a posição de `$0` que o `bash -c` dá ao texto do script, para que
-`--refresh` chegue como argumento:
+`--repair` chegue como argumento:
 
 ```
-YURUNA_REFRESH=1 /bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.11.16/install/macos.utm.sh')" _ --refresh
+YURUNA_REPAIR=1 /bin/bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.11.23/install/macos.utm.sh')" _ --repair
 ```
 
 Forma verificada: execute o bloco **macOS UTM / Ubuntu KVM** de **Instalação
@@ -340,25 +343,25 @@ verificada** acima com `S=install/macos.utm.sh`, substituindo a última linha
 por:
 
 ```
-YURUNA_REFRESH=1 bash "$t/$(basename "$S")" --refresh
+YURUNA_REPAIR=1 bash "$t/$(basename "$S")" --repair
 ```
 
 > Use a tag mostrada aqui ou uma mais recente. Um instalador de um release
-> anterior ao primeiro com suporte a refresh não conhece `--refresh`: ele
+> anterior ao primeiro com suporte a reparo não conhece `--repair`: ele
 > ignora o argumento e executa uma **instalação completa**, incluindo a
 > redefinição que remove as VMs de teste.
 
 O código de saída é o do script de entrada: `0` quando o hospedeiro estava
-saudável ou foi reparado, `1` quando o refresh foi recusado ou falhou antes de
+saudável ou foi reparado, `1` quando o reparo foi recusado ou falhou antes de
 alterar qualquer coisa (incluindo as recusas do próprio despachante) e `2`
 quando o hospedeiro ainda precisa de atenção. Qualquer outro código é uma falha
 que o próprio script de entrada não relatou. Um despachante que não consegue
 iniciar o `pwsh`, por exemplo, termina com o código do próprio shell, como
-`126` ou `127`, antes de qualquer alteração. Para ver o que um refresh faria
+`126` ou `127`, antes de qualquer alteração. Para ver o que um reparo faria
 sem alterar nada, execute o script de entrada a partir da raiz do checkout:
 
 ```
-pwsh -NoProfile -File test/lab/Invoke-HostRefresh.ps1 -WhatIf
+pwsh -NoProfile -File test/lab/Invoke-HostRepair.ps1 -WhatIf
 ```
 
 O despachante existe apenas no macOS; nos outros hospedeiros, execute o script
@@ -387,6 +390,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.11.16
+Última revisão: 2026.11.23
 
 Voltar para [Yuruna](../../../README.md)

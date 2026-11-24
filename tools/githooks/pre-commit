@@ -35,6 +35,42 @@ DOTNET_MultiCoreJitProfile='(D)'
 export DOTNET_MultiCoreJitProfile
 
 repo_root=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+# --- REGION: Closed review records
+# WARN only: a tracked record under dev-only/review.history/ keeps the wording
+# it was closed with, and a bulk edit (a version sweep, a spelling or naming
+# rename) rewrites it without anything failing. The one line expected to
+# change is the 'Last review:' footer; a new record is an addition and a pure
+# move keeps every line, so neither is reported. Warn rather than block: a
+# correction the operator asked for is legitimate, and only the author can
+# tell. It needs only git and awk, so it runs before any pass that can end
+# the hook early. The diff options pin the output this parser reads whatever
+# the user's diff configuration says; core.quotepath=false prints a non-ASCII
+# file name as UTF-8 rather than octal escapes.
+git -c core.quotepath=false diff --cached -U0 -M --text --no-color --no-ext-diff --no-textconv \
+    --src-prefix=a/ --dst-prefix=b/ --diff-filter=MRD -- dev-only/review.history/ |
+    awk '
+        /^diff --git / { hunk = 0; name = ""; next }
+        !hunk && /^(---|\+\+\+) / {
+            path = substr($0, 5)
+            if (path != "/dev/null") {
+                # Git ends a header path that contains a space with a tab.
+                sub(/\t$/, "", path)
+                gsub(/^"|"$/, "", path)
+                name = substr(path, 3)
+            }
+            next
+        }
+        /^@@/ { hunk = 1; next }
+        hunk && /^[-+]/ && substr($0, 2) !~ /^Last review:/ && !(name in shown) {
+            if (!any) {
+                printf "pre-commit: WARNING: closed record(s) changed beyond the %cLast review:%c line; a closed record keeps the wording it was closed with (this commit goes ahead):\n", 39, 39
+                any = 1
+            }
+            shown[name] = 1
+            printf "  %s\n", name
+        }
+    ' >&2
+
 # --- REGION: run_sbom
 # See https://yuruna.link/427fb0be
 run_sbom() {

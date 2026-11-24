@@ -31,8 +31,8 @@ arquitetura de todo o projeto e [Yuruna Test ...](../../test/README.md) para o u
 O próprio `test/` contém os sete pontos de entrada que o operador usa no dia a dia. Os
 demais são agrupados pelo que controlam: `test/lab/` (montagem de um laboratório neste
 hospedeiro -- os quatro pontos de entrada independentes do hospedeiro, criação do laboratório,
-armazenamento local, registro de tokens, atualização do hospedeiro e suas credenciais
-de atualização remota), `test/pool/` (a CLI de pool-admin e os arquivos de intenção de exemplo),
+armazenamento local, registro de tokens, reparo do hospedeiro e suas credenciais
+de reparo remoto), `test/pool/` (a CLI de pool-admin e os arquivos de intenção de exemplo),
 `test/service/` (ciclo de vida das VMs de serviços e dos serviços no hospedeiro, além das
 operações do caching-proxy-service), `test/check/` (verificações independentes), `test/modules/`
 (componentes internos da infraestrutura de testes, que não são chamados diretamente). A
@@ -56,8 +56,8 @@ iniciar um ponto de entrada cujo conjunto de módulos esteja incompleto
 verificação prévia usam `1`; `2` significa que uma barreira não conseguiu produzir
 um veredito (a admissão de VMs não consegue determinar se há outros convidados em execução),
 e `Invoke-TestProject` informa o código de saída do ciclo que despachou, ou `2`
-quando o ciclo não foi executado (um pool drenado ou pausado, uma atualização do
-host, Ctrl+C).
+quando o ciclo não foi executado (um pool drenado ou pausado, uma operação do
+hospedeiro, Ctrl+C).
 Falhas distintas na verificação prévia aparecem no texto da faixa `Stop-WithReason`
 -- o operador ou um analisador de CI lê "STOP (exit 1) at &lt;Step&gt;"
 e o motivo para distingui-las.
@@ -149,12 +149,19 @@ ciclo executa:
 |--------|---------|
 | `Test.SequenceEngine`  | Controlador do mecanismo: o laço de etapas, `Wait-ForText` e callbacks de contexto para os manipuladores registrados -- consulte [Camadas do mecanismo de sequências](#sequence-engine-layering) |
 | `Test.SequenceHandler` | Catálogo de scriptblocks Handler dos verbos integrados |
+| `Test.WebHandler`      | Scriptblocks Handler dos sete verbos de página (webOpen a webClose), importado por último por Test.SequenceHandler |
 | `Test.SequenceAction`  | Registro de metadados por verbo (FailureLabel, requisitos de capacidade, sinalizadores de comportamento do mecanismo), consumido pelo mecanismo e pela barreira de capacidades |
 | `Test.SequenceVariable`| Substituição de `${var}` e `${ext:area.Method(...)}` no texto das etapas |
 | `Test.SequenceResolve` | Analisa o YAML de uma sequência e resolve um nome de sequência para um arquivo no caminho plano de busca |
+| `Test.StepPhrase`     | Lê as bibliotecas `_phrases.yml` e transforma uma sentença de etapa em etapas de ação |
 | `Test.SequencePlanner` | Constrói o plano por ciclo a partir de `test.runner.yml` e da cadeia de `resource` de cada sequência |
 | `Test.SequenceRunner`  | Auxiliares de planejamento + execução de cadeias para `Debug-TestSequence.ps1` |
 | `Test.SequenceFailureState` | O armazenamento único de slots de falha ancorado em `$global:`, lido e gravado tanto pelo mecanismo quanto pelo catálogo de manipuladores |
+| `Test.SequenceSecret`  | Os valores que uma execução resolveu como segredos e o filtro de texto sobre eles, ativo somente quando `YURUNA_SECRET_FILTER` é `1` |
+| `Test.WorkloadProtocol` | Os quadros, limites, ids de operação e o texto de instantâneo compartilhados pelo servidor MCP de cargas de trabalho e seu worker |
+| `Test.WorkloadSession` | O executor, as variáveis, o diário e a validação do worker de uma sessão de carga de trabalho |
+| `Test.WorkloadRuntime` | A posse do runtime por uma sessão de carga de trabalho: a concessão, o ciclo proprietário e o processo filho de reexecução |
+| `Test.WorkloadSequenceFile` | O texto de uma sequência salva e sua publicação sem sobrescrita |
 | `Test.Orchestrator`    | Executa as sequências internas de uma sequência de orquestração no mesmo processo, sob um único ciclo de `status.json` |
 | `Test.Start-GuestOS` / `Test.Start-GuestWorkload` | Os dois blocos do executor: o planejador percorre cada cadeia de recursos de nível superior, envia as sequências `start.*` para o primeiro e todas as demais para o segundo |
 | `Test.Capability`      | [Matriz de capacidades](#capability-matrix-and-cycle-plan-gate) e barreira do plano de ciclo (recusa ciclos cujas sequências precisam de um backend de E/S do hospedeiro não conectado) |
@@ -177,7 +184,8 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.OcrEngine` / `Test.Tesseract` | [Provedores OCR](../ocr.md) intercambiáveis e os auxiliares para localizar / instalar / chamar o Tesseract |
 | `Test.OcrMatch`        | Normalização e correspondência tolerantes ao OCR (grupos de confusão) + o combinador de múltiplos mecanismos |
 | `Test.OcrPath`         | `Resolve-OcrImagePath` -- copia uma captura para um caminho temporário curto quando o caminho real ultrapassa o limite de caminho de um mecanismo de OCR nativo; compartilhado pelos provedores Tesseract e WinRT |
-| `Test.Ssh`             | Chaves SSH por convidado, as opções obrigatórias de chave do hospedeiro e os auxiliares `ssh` / `scp` |
+| `Test.Ssh`             | Chaves SSH por convidado, as opções obrigatórias de chave do hospedeiro e os auxiliares `ssh` / `scp`, e o túnel que uma sessão web mantém aberto (`Start-GuestSshTunnel`, `Stop-GuestSshTunnel`) |
+| `Test.WebSession`      | Sessões web: o comando de lançamento do navegador no convidado, a tabela de sessões (`Open-GuestWebSession`, `Close-GuestWebSession`) e onde uma sessão termina; o cliente do protocolo DevTools, o leitor e o localizador de página, e as operações de página que os verbos de página chamam (Connect-WebCdp, Read-WebPageForest, Invoke-WebPageClick) |
 
 **Plataforma do hospedeiro** -- o que esta máquina é e quais condições precisa atender para um ciclo executar:
 
@@ -200,11 +208,11 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.HostAddressBeacon` | Parte de envio da descoberta de endereços: anuncia novamente este hospedeiro quando seu endereço muda, em vez de esperar pela consulta do agregador |
 | `Test.VMUtility`       | Auxiliares de VM entre hospedeiros, compartilhados por todos os drivers Yuruna.Host |
 | `Test.ServiceVm`       | Relação de VMs de serviço e a sondagem de acessibilidade que as traz de volta após uma reinicialização do hospedeiro; a política Preserve/Repair que decide o significado de um estado desconhecido (`Test-YurunaServiceVmRunning`), e a restauração que contém o motivo de cada sondagem, ignora um serviço parado pelo operador e verifica o endpoint do consumidor dentro de um prazo compartilhado |
-| `Test.ServiceCensus`   | Inventário passivo de VMs de serviço gravado pelo sinalizador de endereço sem nenhuma chamada a Apple Events, as intenções de parada/início publicadas pelos scripts de serviço, bloqueios de operação por chave de serviço e as linhas de identidade capturadas pela atualização do hospedeiro antes de interromper qualquer coisa |
+| `Test.ServiceCensus`   | Inventário passivo de VMs de serviço gravado pelo sinalizador de endereço sem nenhuma chamada a Apple Events, as intenções de parada/início publicadas pelos scripts de serviço, bloqueios de operação por chave de serviço e as linhas de identidade capturadas pelo reparo do hospedeiro antes de interromper qualquer coisa |
 | `Test.SingleFlightLock` | Bloqueio exclusivo entre processos baseado em um bloqueio de arquivo do sistema operacional mantido aberto durante toda a operação, não apenas na gravação de seus metadados: esperas limitadas, ordem de bloqueios (HostOperation, depois ServiceKey e depois um de Admission, CensusMerge ou Gate), exclusão verificada pelo próprio mecanismo e verificações de qualificação do estado, propriedade e sistema de arquivos |
-| `Test.HostRefresh`     | Worker de reparo de atualização do hospedeiro e suas partes independentes de hospedeiro: a declaração de nível de reparo (`Get-VirtualizationRepairRung`, disponível apenas onde existe executor e a plataforma é qualificada), o orçamento de 915 segundos e suas fases, a tabela de vereditos e códigos de saída, a projeção pública `host-refresh.state.json` e seu publicador de heartbeat, o resumo de capacidades e o vetor de argumentos do worker. Não importa drivers, para que o status service possa carregá-lo |
-| `Test.HostRefreshIntent` | O diário de solicitações de atualização do hospedeiro (um registro crítico na raiz privada): admissão sob seu próprio bloqueio, reivindicação, nova tentativa e abandono, registros de recuperação e as obrigações que um reparo precisa cumprir, a reserva para início de ciclo e os sujeitos registrados da concessão de automação |
-| `Test.HostRefreshAuth` | Autorização de atualização remota do hospedeiro: criação e verificação de provas versionadas com relógio e tolerância de desvio explícitos, armazenamento e verificações da chave verificadora por hospedeiro (apenas proprietário, sem links, correspondência do hospedeiro), a camada `Test-YurunaHostRefreshAuthorization` do listener, o resumo do estado remoto e as primitivas de provisionamento por trás de `test/lab/Set-HostRefreshCredential.ps1`, incluindo `ConvertTo-YurunaHostRefreshHostKeyLine`, que formata uma chave verificadora do hospedeiro como seu segredo de uma linha. Importa apenas `Yuruna.Globalization`; sua suíte fixa os vetores compartilhados com o verificador Go |
+| `Test.HostRepair`     | Worker de reparo do hospedeiro e suas partes independentes de hospedeiro: a declaração de nível de reparo (`Get-VirtualizationRepairRung`, disponível apenas onde existe executor e a plataforma é qualificada), o orçamento de 915 segundos e suas fases, a tabela de vereditos e códigos de saída, a projeção pública `host-repair.state.json` e seu publicador de heartbeat, o resumo de capacidades e o vetor de argumentos do worker. Não importa drivers, para que o status service possa carregá-lo |
+| `Test.HostOperationJournal` | O diário de solicitações de operações do hospedeiro (um registro crítico na raiz privada): admissão sob seu próprio bloqueio, reivindicação, nova tentativa e abandono, registros de recuperação e as obrigações que um reparo precisa cumprir, a reserva para início de ciclo e os sujeitos registrados da concessão de automação |
+| `Test.HostRepairAuth` | Autorização de reparo remoto do hospedeiro: criação e verificação de provas versionadas com relógio e tolerância de desvio explícitos, armazenamento e verificações da chave verificadora por hospedeiro (apenas proprietário, sem links, correspondência do hospedeiro), a camada `Test-YurunaHostRepairAuthorization` do listener, o resumo do estado remoto e as primitivas de provisionamento por trás de `test/lab/Set-HostRepairCredential.ps1`, incluindo `ConvertTo-YurunaHostRepairHostKeyLine`, que formata uma chave verificadora do hospedeiro como seu segredo de uma linha. Importa apenas `Yuruna.Globalization`; sua suíte fixa os vetores compartilhados com o verificador Go |
 | `Test.StatusFirewall`  | Regra de permissão por sistema operacional que torna a porta do status-service acessível pela LAN |
 | `Test.RootArtifact`    | Encontra e limpa o estado pertencente ao root deixado por uma execução de um ponto de entrada com `sudo` (apenas Unix) |
 
@@ -222,11 +230,11 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.RunnerAttemptHistory` | Diretórios de evidências por tentativa em `runner-attempts/`, artefatos de falha do laço externo e o índice limitado do histórico, reconstruído a partir das evidências retidas (`Update-RunnerAttemptHistory`) |
 | `Test.RunnerElevation` | Contrato de elevação no lançamento: resolvê-la uma vez enquanto um operador está presente, ou recusar o início |
 | `Test.PrivateStateRepair` | `Repair-YurunaStartupPrivateState` -- recupera as permissões do estado privado na inicialização do executor ou do status-service; eleva privilégios apenas sob solicitação interativa explícita e nunca solicita nada a um chamador não assistido |
-| `Test.SingleInstance`  | Proteção por pidfile compartilhada pelo trio de executores (`Get-RunnerInstanceState`, `Stop-StaleRunner`); o construtor da tabela de processos e o classificador de identidades que decidem quais processos executores um reparo pode parar, a barreira de atualização que suspende novas criações durante um reparo, o token de transferência e a confirmação de prontidão que trazem o executor de volta, e o registro persistido de lançamento do qual parte um executor retomado |
+| `Test.SingleInstance`  | Proteção por pidfile compartilhada pelo trio de executores (`Get-RunnerInstanceState`, `Stop-StaleRunner`); o construtor da tabela de processos e o classificador de identidades que decidem quais processos executores um reparo pode parar, a barreira do executor que suspende novas criações durante um reparo, o token de transferência e a confirmação de prontidão que trazem o executor de volta, e o registro persistido de lançamento do qual parte um executor retomado |
 | `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- construtor de argv para `pwsh -Command` que preserva tipos na criação do processo externo->interno; `Start-YurunaDetachedProcess`, que inicia um worker que sobrevive ao processo que o lançou e o confirma com um handshake |
-| `Test.Recovery`        | Varredura na inicialização que detecta e arquiva cada classe de estado obsoleto deixada por um ciclo que travou; seu modo de preservação durante atualização mantém os controles do operador e os registros do executor recuperado quando um reparo reinicia o executor |
-| `Test.HostRefreshTrigger` | Política de atualização automática do hospedeiro: evidências de tempo limite do hipervisor por ciclo, a contagem persistida, o orçamento de tentativas por dia UTC e a decisão de reparo pós-ciclo do executor residente -- consulte [testCycle.autoRefreshAfterStalls](../test-config.md) |
-| `Test.OuterLog`        | Gravador de `outer.log` com carimbo de data/hora, compartilhado pelo laço externo e pelo worker de atualização do hospedeiro; nunca lança exceção quando o diretório de execução não está definido |
+| `Test.Recovery`        | Varredura na inicialização que detecta e arquiva cada classe de estado obsoleto deixada por um ciclo que travou; seu modo de preservação durante a transferência mantém os controles do operador e os registros do executor recuperado quando um reparo reinicia o executor |
+| `Test.HostRepairTrigger` | Política de reparo automático do hospedeiro: evidências de tempo limite do hipervisor por ciclo, a contagem persistida, o orçamento de tentativas por dia UTC e a decisão de reparo pós-ciclo do executor residente -- consulte [testCycle.autoRepairAfterStalls](../test-config.md) |
+| `Test.OuterLog`        | Gravador de `outer.log` com carimbo de data/hora, compartilhado pelo laço externo e pelo worker de reparo do hospedeiro; nunca lança exceção quando o diretório de execução não está definido |
 
 **Configuração**:
 
@@ -260,7 +268,7 @@ buscas no código e links da interface de status cheguem ao ponto de entrada exp
 | `Test.FrameworkSource` | De qual snapshot do framework uma VM de serviço foi construída e se o convidado recorreu ao espelho público |
 | `Test.PortOwner`       | `Get-PortListenerPid` (HTTP.sys do Windows + lsof do Unix) + `Resolve-PortOrphan` para a porta do status-service |
 | `Test.Notify`          | Despachante fino para as extensões de notificação ativas (`Send-Notification -EventCode -EventMessage -EventNote`); a extensão padrão entrega e-mails pelo Resend |
-| `Test.StatusControlRoute` | Auxiliares sem driver por trás das rotas de atualização do hospedeiro, início de ciclo e diagnóstico do hospedeiro do status service: leitor limitado do corpo da solicitação, validação da solicitação, respostas de admissão e o resumo `refresh` em `/control/control-status` |
+| `Test.StatusControlRoute` | Auxiliares sem driver por trás das rotas de reparo do hospedeiro, início de ciclo e diagnóstico do hospedeiro do status service: leitor limitado do corpo da solicitação, validação da solicitação, respostas de admissão e o resumo `repair` em `/control/control-status` |
 | `Invoke-StartCycleWorker.ps1` / `Invoke-HostDiagnosticWorker.ps1` | Workers independentes que o status service lança para *Save and start cycle* e para o diagnóstico do hospedeiro, para que uma limpeza lenta ou uma sondagem travada nunca bloqueie o listener |
 
 **Classificação de falhas e recuperação**:
@@ -399,6 +407,7 @@ test/
 +-- sequences/
 |   +-- actions.yml             Action catalog (YAML, machine-readable)
 |   +-- _snippets.yml           Shared step snippets
+|   +-- _phrases.yml            Step sentence phrases
 |   +-- <name>[.ssh].yml        Flat sequence files (SSH variant = .ssh.yml suffix)
 +-- schemas/                    JSON Schema files (YAML-encoded) for extension/* configs + vault
 +-- extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
@@ -897,6 +906,9 @@ Três módulos compartilham a interface do motor de sequências:
   Ambos os módulos leem e gravam um único armazenamento compartilhado de slots
   de falha, permitindo que os manipuladores coordenem novas tentativas e
   recuperação sem ramificações por verbo no motor.
+  `Invoke-Sequence` também executa uma definição em memória (`-Definition`)
+  contra uma tabela de variáveis do chamador (`-VariableScope`), que é como
+  uma sessão de carga de trabalho executa um passo de cada vez.
 
 <a id="42d38664-000f"></a>
 
@@ -959,18 +971,22 @@ Depois de imprimir o banner, o executor interno chama
 2. Para cada verbo, consulta seus requisitos por meio de
    [`Test.SequenceAction\Get-SequenceActionRequirementMap`](../../test/modules/Test.SequenceAction.psm1) --
    cada verbo declara quais ações de E/S do hospedeiro precisa, quais comandos
-   do hospedeiro seu handler executa e se OCR é necessário.
+   do hospedeiro seu handler executa, quais motores de OCR seu handler chama
+   pelo nome e se OCR é necessário.
 3. Cruza os requisitos com as matrizes ativas de
    `Test.HostIO`/`Test.OcrEngine` e procura cada comando do hospedeiro da mesma
    forma que os handlers o iniciam (`Get-Command -CommandType Application`; no
    Windows, `ssh` é o `ssh.exe` do cliente OpenSSH). O comando em si nunca é
-   executado.
+   executado. Cada motor de OCR que um handler chama pelo nome é consultado em
+   `Test-OcrProviderAvailable`, que também encontra uma instalação do Tesseract
+   fora do `PATH`; o fato de outro provedor estar habilitado não responde por
+   ele.
 
 Quando uma ação de E/S do hospedeiro exigida está ausente, o ciclo é abortado com:
 
 ```
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-  CAPABILITY GATE FAILED -- cycle aborted on 'host.ubuntu.kvm'.
+  CAPABILITY GATE FAILED -- cycle aborted on 'host.your.new.host'.
   Sequences reference host I/O actions this host has no backend for:
     - Send-Click
   Wire a backend via Register-HostIOProvider in Test.SequenceEngine.psm1,
@@ -998,13 +1014,25 @@ número que um registro de falha traz):
   Install the missing commands on this host, or drop the steps that run them from the cycle's sequence YAMLs.
 ```
 
+Uma etapa cujo handler chama um motor de OCR que este hospedeiro não tem, como
+uma etapa `tapOn` em um hospedeiro sem Tesseract, identifica da mesma forma o
+motor e todas as etapas que precisam dele:
+
+```
+  Sequences locate text through OCR engines this host does not have:
+    - tesseract
+        workload.guest.ubuntu.server.24, step 2: tapOn
+  Install the missing engine on this host, or drop the steps that need it from the cycle's sequence YAMLs.
+```
+
 O ciclo NÃO inicia uma VM após uma falha na barreira de capacidades;
 `$GuestList` é esvaziado para que o laço por convidado execute zero iterações,
 e o ciclo é finalizado com `$OverallPassed=false`. Isso incrementa
 `ConsecutiveFailures` e dispara notificações no mesmo limite usado
 para qualquer outra falha. O registro de falha é `plan_invalid`, da etapa
 `Test-CyclePlanCapability`, e sua mensagem lista todas as lacunas que a barreira
-encontrou, cada comando do hospedeiro ausente com as etapas que o executam.
+encontrou, cada comando do hospedeiro ausente com as etapas que o executam e
+cada motor de OCR ausente com as etapas que precisam dele.
 
 <a id="42d38664-0012"></a>
 
@@ -1026,7 +1054,8 @@ novo verbo em desenvolvimento antes do caminho lento.
 ### Conteúdo da tabela de requisitos
 
 Atualmente (consulte as chamadas a `Register-SequenceAction` em
-[`Test.SequenceHandler.psm1`](../../test/modules/Test.SequenceHandler.psm1)):
+[`Test.SequenceHandler.psm1`](../../test/modules/Test.SequenceHandler.psm1) e
+[`Test.WebHandler.psm1`](../../test/modules/Test.WebHandler.psm1)):
 
 | Verbo                    | HostIO exigido            | Comandos do hospedeiro | OCR exigido  |
 |--------------------------|---------------------------|------------------------|--------------|
@@ -1041,6 +1070,7 @@ Atualmente (consulte as chamadas a `Register-SequenceAction` em
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | _(nenhum)_             | sim          |
 | `networkRelease`         | `Send-Text`, `Send-Key`   | _(nenhum)_             | não          |
 | `sshExec` / `sshFetchAndExecute` / `sshWaitReady` | _(nenhum)_ | `ssh`, `ssh-keygen` | não |
+| `webOpen` / `webClick` / `webFill` / `webSelect` / `webPress` / `webExpect` / `webClose` | _(nenhum)_ | `ssh`, `ssh-keygen` | não |
 | `startVm` / `stopVm` / `saveDiskSnapshot` / `loadDiskSnapshot` / `saveGuestClockSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(nenhum)_ | _(nenhum)_ | não |
 
 Os verbos ssh executam `ssh-keygen` por meio da verificação da chave do ambiente
@@ -1048,6 +1078,11 @@ de testes na primeira chamada ssh de cada processo do executor.
 `fetchAndExecute` e `saveSystemDiagnostic` usam ssh quando o hospedeiro o tem,
 mas não precisam dele: o primeiro digita seu comando no console, e a sequência
 de tentativas de diagnóstico do segundo continua sem ele.
+
+`tapOn` também precisa do próprio Tesseract, quaisquer que sejam os provedores
+de OCR habilitados: ele localiza palavras apenas com o Tesseract e declara
+`-OcrEngineRequirement @('tesseract')`, de modo que a barreira recusa um plano
+que clica em um hospedeiro sem ele.
 
 Adicionar um novo verbo exige uma chamada a `Register-SequenceAction` que
 declare suas capacidades -- a barreira o reconhece no próximo ciclo.
@@ -1374,7 +1409,7 @@ com um deles excluindo pastas locais de onde o outro ainda está copiando.
 O `guestSummary` de cada entrada do histórico é um `[ordered]@{}`, para que o
 JSON preserve a ordem de `guestSequence`. Um `@{}` simples é uma `[hashtable]`
 cuja enumeração é agrupada em buckets e arbitrária, o que embaralharia a ordem
-dos indicadores na tabela "Recent Cycles" do painel, mesmo que o ciclo tenha
+dos indicadores na tabela "Recent cycles" do painel, mesmo que o ciclo tenha
 sido executado na ordem correta.
 
 Estrutura do valor por convidado (compatível com versões anteriores):
@@ -1398,7 +1433,7 @@ inteiro como string, para que ambas as estruturas continuem sendo renderizadas.
 Cada entrada do histórico também contém um array `sequenceSummary` --
 `[{ name, status, folderUrl }]`, um elemento por sequência de test.runner.yml
 executada pelo ciclo, na ordem da lista do executor. A tabela "Recent
-Cycles" do painel renderiza um botão por elemento, vinculando `folderUrl` à
+cycles" do painel renderiza um botão por elemento, vinculando `folderUrl` à
 pasta de resultados dessa sequência (a pasta por VM do convidado controlado
 para uma sequência 1:1; a pasta do ciclo quando uma sequência abrange mais de
 um convidado). `status` é o pior resultado entre os convidados da sequência
@@ -1655,7 +1690,7 @@ do fluxo de logs por etapa é controlada por [Níveis de log](../loglevels.md).
 
 **`test/test.config.yml.template`.**
 
-Atualização automática do hospedeiro: 0, o padrão, mantém o recurso desativado;
+Reparo automático do hospedeiro: 0, o padrão, mantém o recurso desativado;
 a ativação recomendada usa 2, e 1 é tratado como 2 porque um único tempo limite
 não comprova o problema. Contam apenas ciclos concluídos cuja varredura de
 restauração das VMs de serviço encontrou o canal de controle do hipervisor sem
@@ -1729,6 +1764,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Voltar para [Yuruna](../../README.md)

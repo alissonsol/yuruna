@@ -282,15 +282,16 @@ módulo Go próprio. Os pacotes usados diretamente por um serviço:
 | `pool` | Cliente de leitura para o **provedor de informações**: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz` e `Get`/`GetURL` para rotas sem tipagem. |
 | `labgate` | Controle de escrita: `Require`, `RequireBearer`, `HandleLogin`, `Session`. |
 | `hostcheck` | A lista de nomes permitidos no cabeçalho Host contra DNS rebinding, aplicada a todo o mux de um daemon: qualquer endereço, `localhost`, o nome de host da máquina e seu primeiro rótulo, e os nomes configurados para o serviço são aceitos; qualquer outro nome recebe `421` (`auth.host_not_served`) antes que uma rota seja executada. Os nomes em `X-Forwarded-Host` vindos de um par de loopback, que um proxy reverso na mesma máquina encaminha, também são avaliados. |
-| `hostrefresh` | Autorização de atualização remota do hospedeiro: a prova de atualização versionada (`Proof`, `Verify` com relógio explícito e tolerância temporal em ambas as direções), o `Signer` que a emite a partir da autoridade de assinatura, o carregador do arquivo secreto e o `Gate` da credencial de atualização, que lê apenas `X-Yuruna-Refresh-Credential`. Apenas pool-control o importa; consulte [Atualização remota do hospedeiro](../pool-admin.md#remote-host-refresh). |
+| `hostrepair` | Autorização de reparo remoto do hospedeiro: a prova de reparo versionada (`Proof`, `Verify` com relógio explícito e tolerância temporal em ambas as direções), o `Signer` que a emite a partir da autoridade de assinatura, o carregador do arquivo secreto e o `Gate` da credencial do operador, que lê apenas `X-Yuruna-Operator-Credential`. Apenas pool-control o importa; consulte [Reparo remoto do hospedeiro](../pool-admin.md#remote-host-repair). |
+| `hostupdate` | Autorização de atualização remota do hospedeiro: a prova `yup1` (`Proof`, `Verify` com relógio explícito e tolerância temporal em ambas as direções) assinada com RSA PKCS#1 v1.5 e SHA-256, o `Signer` que a emite a partir da chave de assinatura de atualização do pool-control, o carregador da chave restrito ao dono e a linha de chave pública `yupk1` que o registro do pool-control de um hospedeiro contém. Seus vetores de referência em `hostupdate/testdata` são compartilhados com o verificador em PowerShell. |
 
-`pool.Host` também contém `Refresh`, a capacidade de atualização do
-hospedeiro conforme a última avaliação do agregador (`pool.HostRefresh`:
+`pool.Host` também contém `Repair`, a capacidade de reparo do
+hospedeiro conforme a última avaliação do agregador (`pool.HostRepair`:
 protocolo, disponibilidade, limite, motivo, estado da chave remota, estado
 da solicitação e idade da observação). `Status` a normaliza para seu
 vocabulário limitado; um agregador anterior a essa capacidade retorna o
 valor de nunca observada, e `RemoteUsable()` é a única verificação que o
-chamador aplica antes de enviar uma atualização remota.
+chamador aplica antes de enviar um reparo remoto.
 
 Três decisões ficam em `pool` para que não variem entre consumidores: a
 política de TLS da LAN confiável (o certificado final do agregador é
@@ -674,9 +675,10 @@ daemon verificam que as duas respostas são iguais.
 | `pool-aggregator-service` | `POST :9400/mcp` | `pool_status`, `pool_extension_hosts`, `pool_stats`, `pool_incidents`, `pool_cycle_links`, `pool_health` |
 | `caching-proxy-service` | `POST :9310/mcp` | `caching_proxy_status`, `caching_proxy_recent_requests`, `caching_proxy_switches`, `caching_proxy_hostinfo` e as ferramentas com controle de acesso `caching_proxy_set_offline` / `caching_proxy_set_no_upstream` |
 | `stash-service` | `POST :80/mcp` | `stash_list`, `stash_get`, `stash_host`, `stash_hostinfo`, `stash_session` e a ferramenta com controle de acesso `stash_refresh` |
-| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo`, `pool_control_scan_status`, `pool_control_host_control_state` e as ferramentas com controle de acesso `pool_control_add_host`, `pool_control_move_host`, `pool_control_remove_host`, `pool_control_set_host_control`, `pool_control_set_pool_repositories` e `pool_control_refresh_host` (listada apenas enquanto a atualização remota está provisionada) |
+| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo`, `pool_control_scan_status`, `pool_control_host_control_state` e as ferramentas com controle de acesso `pool_control_add_host`, `pool_control_move_host`, `pool_control_remove_host`, `pool_control_set_host_control`, `pool_control_set_pool_repositories` `pool_control_repair_host` (listada apenas enquanto o reparo remoto está provisionado) e `pool_control_update_host` (listada apenas enquanto a atualização remota do hospedeiro está provisionada) |
 | `download-agent-service` | `POST :80/mcp` | `download_agent_status`, `download_agent_images`, `download_agent_image`, `download_agent_session`, `download_agent_diagnostics`, `download_agent_hostinfo` e as ferramentas com controle de acesso `download_agent_refresh_image` / `download_agent_prune_image` |
 | framework central | `test/service/Start-McpServer.ps1` (stdio) | os dez pontos de entrada de `automation/` |
+| autoria de cargas de trabalho | `test/service/Start-WorkloadMcpServer.ps1` (stdio) | as onze ferramentas `workload_*` |
 
 `caching-proxy-parser-service` fica deliberadamente de fora: ele não possui
 nenhum mecanismo de autenticação; portanto, não há um controle a ser herdado
@@ -723,7 +725,8 @@ A anotação de cada ferramenta faz a mesma declaração que sua rota:
   ambos precisam permitir o acesso, portanto o segundo só pode restringir.
   O handler executa uma solicitação sintetizada sem credencial; por isso,
   uma credencial específica da rota só pode ser verificada aqui.
-  `pool_control_refresh_host` o usa para a credencial de atualização, e
+  `pool_control_repair_host` e `pool_control_update_host` o usam para a
+  credencial do operador, e
   uma ferramenta de somente leitura não pode ter esse controle.
 - **Uma recusa de domínio mantém seu próprio token.** Um daemon caching-proxy
   em modo remoto recusa `caching_proxy_set_offline` com
@@ -767,6 +770,40 @@ e `Set-HostAlias` não grava transcript, de modo que uma exceção é seu único
 sinal de falha. Interpretar qualquer um deles apenas pelo código de saída
 informa o resultado errado.
 
+<a id="42fffc2c-001f"></a>
+
+### O servidor MCP de cargas de trabalho
+
+`test/service/Start-WorkloadMcpServer.ps1` é um segundo servidor stdio, para
+escrever testes contra um convidado em execução. Ele oferece onze ferramentas
+`workload_*` e mantém no máximo uma sessão. Ele roda em dois processos. O
+front-end responde ao cliente e nunca toca uma VM; o worker,
+`test/service/Invoke-WorkloadSession.ps1`, inicia em `workload_session_start`,
+termina em `workload_session_end`, detém nesse intervalo a concessão avulsa
+do runtime e executa cada passo. Um worker que encerra, trava ou escreve um
+quadro malformado encerra a sessão, e o front-end continua respondendo.
+
+Toda chamada é respondida dentro do orçamento de resposta, `-MaxCallSeconds`
+(padrão 50, de 30 a 600), que fica abaixo dos 60 segundos após os quais
+clientes MCP comuns desistem de uma requisição. As três ferramentas que
+executam algo, `workload_step`, `workload_action` e `workload_run_sequence`,
+recebem um `operationId`: uma chamada com os campos de execução inicia a
+operação, uma chamada apenas com o `operationId` a consulta, e uma chamada
+com o `operationId` e `cancel` true a cancela. Uma operação que ultrapassa o
+orçamento continua em execução e recebe a resposta `workload_still_waiting`,
+e o mesmo `operationId` com a mesma entrada nunca roda duas vezes.
+`notifications/cancelled` abandona apenas a requisição que nomeia: um cliente
+que desiste de uma chamada lenta envia a mesma notificação que uma pessoa que
+a interrompe, de modo que a operação continua em execução e acessível pelo
+seu id.
+
+O resultado de `initialize` traz as regras de trabalho para um cliente de
+autoria como `instructions`, renderizadas a partir do catálogo `runner`. Cada
+sessão grava seu diário, seus logs, os textos dos instantâneos e as visões de
+falha em uma pasta própria sob o diretório de logs,
+`test/status/log/workload-mcp/<session id>/`, e o servidor mantém as 20 pastas
+de sessão mais recentes. O servidor fala MCP `2025-06-18`.
+
 <a id="42fffc2c-0012"></a>
 
 <a id="connecting-a-client"></a>
@@ -780,6 +817,7 @@ informa o resultado errado.
       "command": "pwsh",
       "args": ["-NoProfile", "-File", "test/service/Start-McpServer.ps1"]
     },
+    "yuruna-workload": { "command": "pwsh", "args": ["-NoProfile", "-File", "test/service/Start-WorkloadMcpServer.ps1"] },
     "yuruna-pool": { "url": "http://<proxy>:9400/mcp" },
     "yuruna-cache": { "url": "http://<proxy>:9310/mcp" }
   }
@@ -1317,6 +1355,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Voltar a [Yuruna](../../README.md)

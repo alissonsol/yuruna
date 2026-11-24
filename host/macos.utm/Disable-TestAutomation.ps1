@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42d0dcad-5f1c-4177-8e40-8f43c9920e55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,12 @@
     removes Yuruna-owned additions. Missing captured values are reported and
     left unchanged. Refuses to restore settings during an active test cycle.
     Service shutdown is opt-in. See https://yuruna.link/42e220c4-0004.
+
+    The host controller is removed with or without a capture: its session
+    yuruna-controller is ended, its files are removed once nobody holds its
+    lock, and then a temporary sudo rule a host update left and the sudoers
+    entry /etc/sudoers.d/yuruna-host-update-access. Refuses while a host
+    update is claimed, and when one is claimed while the session ends.
 
 .PARAMETER StopServices
     Also stop the caching-proxy, stash, pool-control and download-agent VMs
@@ -55,6 +61,30 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1')             
 
 if (-not (Assert-SafeToDisable)) { exit 1 }
 
+# --- REGION: Host update in progress
+# A claimed host update has stopped the runner, or is about to start it, and
+# only its controller finishes that. Ending the controller here would leave
+# the host with no runner and nothing to start one. A queued update is no
+# reason to refuse: once the controller is gone nothing claims it, and it
+# expires on its own. The controller can still claim it before its session
+# ends, so the queue is read again after that. A journal that cannot be read
+# can hide a claimed update, so it refuses too.
+# A module imported inside another one is not visible here, so each module
+# this script calls is imported by name.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.SingleFlightLock.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostOperationJournal.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostUpdate.psm1') -Force -DisableNameChecking
+$journalReadable = @('ok', 'absent', 'recovered-previous')
+$queue = Get-HostUpdateQueue
+if ($queue.Status -notin $journalReadable) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_unknown' -Arguments @{ status = "$($queue.Status)" })
+    exit 1
+}
+if ($queue.Claimed) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_claimed' -Arguments @{ requestId = "$($queue.Claimed['requestId'])" })
+    exit 1
+}
+
 # --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if (-not $state) {
@@ -85,13 +115,69 @@ function Restore-Knob {
 # --- REGION: Prime sudo
 # Prime sudo once, before the run, with the reasons visible -- the same posture
 # Enable uses. Under -WhatIf nothing elevated actually runs, so skip the prompt.
-if ($state -and -not $WhatIfPreference) {
+# The sudoers entry and a rule a host update left are removed with or without
+# a capture, and the entry does not allow its own removal.
+if (-not $WhatIfPreference) {
     [void](Initialize-SudoCache -Reasons @(
         'pmset (display sleep, system sleep, power-nap, hibernation)',
         'defaults write /Library/Preferences (auto-logout delay)',
         'sysadminctl -screenLock (Sonoma+ unified screen lock)',
-        'systemsetup -setusingnetworktime (host clock)'
+        'systemsetup -setusingnetworktime (host clock)',
+        'rm -f /etc/sudoers.d/yuruna-host-update-access and /etc/sudoers.d/yuruna-host-update (the host update elevation)'
     ))
+}
+
+# --- REGION: Host controller
+# See https://yuruna.link/42f909ad-002b
+# Removed with or without a capture: Enable deploys the controller files and
+# the sudoers entry, so nothing of the operator's is in them. macOS registers
+# no job: the controller runs in the session yuruna-controller that a runner
+# start created, and ending the session ends it. Nothing here can start a
+# controller again (only a runner start from the desktop session can), so an
+# update claimed while the session ends keeps every file and refuses. The
+# temporary rule and the entry go only once no controller runs: a running
+# one could claim an update that needs them.
+$controllerRoot = Get-HostUpdateControllerRoot -NoCreate
+if ($PSCmdlet.ShouldProcess('yuruna-controller', (Format-YurunaOperatorMessage -Key 'host.operator_f61cceb0afee5ae4'))) {
+    $session = Stop-HostUpdateControllerSession -Confirm:$false
+    if ($session.Reason -eq 'ended') { $restored.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_session_ended')) }
+    elseif (-not $session.Ended) { $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_session_not_ended')) }
+    $queueNow = Get-HostUpdateQueue
+    if ($queueNow.Status -notin $journalReadable) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_unknown_session_ended' -Arguments @{ status = "$($queueNow.Status)" })
+        exit 1
+    }
+    if ($queueNow.Claimed) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_claimed_session_ended' -Arguments @{ requestId = "$($queueNow.Claimed['requestId'])" })
+        exit 1
+    }
+    $lockState = Get-HostUpdateControllerLockState
+    for ($i = 0; $i -lt 60 -and $lockState -notin @('free', 'absent'); $i++) {
+        Start-Sleep -Milliseconds 500
+        $lockState = Get-HostUpdateControllerLockState
+    }
+    $controllerGone = [bool]$session.Ended -and $lockState -in @('free', 'absent')
+    if ($lockState -notin @('free', 'absent')) {
+        $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_kept' -Arguments @{ path = "$controllerRoot" }))
+    } elseif ($controllerRoot -and [System.IO.Directory]::Exists($controllerRoot)) {
+        try {
+            [System.IO.Directory]::Delete($controllerRoot, $true)
+            $restored.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_removed' -Arguments @{ path = "$controllerRoot" }))
+        } catch {
+            $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_not_removed' -Arguments @{ path = "$controllerRoot"; message = "$($_.Exception.Message)" }))
+        }
+    }
+    if ($controllerGone) {
+        # rm -f also succeeds when there is no such file, which a test
+        # account cannot see in /etc/sudoers.d.
+        if (-not (Remove-HostUpdateSudoRule -HostType 'host.macos.utm' -Confirm:$false)) {
+            $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_update_rule_not_removed'))
+        }
+        if (Remove-HostUpdateAccessEntry -Confirm:$false) { $restored.Add((Format-YurunaOperatorMessage -Key 'host.host_update_access_entry_removed')) }
+        else { $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_update_access_entry_not_removed')) }
+    } else {
+        $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_update_access_entry_kept'))
+    }
 }
 
 # --- REGION: pmset display/system/disk sleep, per power source

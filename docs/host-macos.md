@@ -42,6 +42,20 @@ restart a crashed runner or survive logout or a host reboot. Keep the desktop
 account logged in and the host awake, and start the session again after a
 reboot.
 
+That start also starts the host controller, which carries out a host update
+(**Update host** on the Diagnostics page), when no controller is running and
+`Enable-TestAutomation.ps1` has deployed it. The controller gets a detached
+session of its own, `yuruna-controller`, on a `tmux` server of its own
+(`-L yuruna-controller`, without your `tmux` configuration), or under `screen`
+on a host without `tmux`; your own session is never used. Leave it running.
+Read it with `tmux -L yuruna-controller attach -t yuruna-controller` or
+`screen -r yuruna-controller`. A runner a host update starts runs in yet
+another session, its console:
+`tmux -S ~/.yuruna/host-repair/host-controller/runner-console.sock attach`.
+After a logout or a reboot the controller is back only once you start the
+runner again from the desktop session; a start over SSH starts none. See
+[Host update and the runner's console](runner-outer-loop.md#host-update-and-the-runners-console).
+
 <a id="42885ada-0002"></a>
 
 ## Packages, PATH, and Homebrew issues
@@ -190,6 +204,23 @@ entry is for `pwsh` rather than the terminal app; Screen Recording was granted
 without fully quitting the terminal afterward; or the check is running in an
 SSH session, which cannot hold these grants at all (the gate says so instead of
 failing, since it is describing the wrong session).
+
+The host controller reads the grants that have a silent probe in its own
+session when it starts. When one reads as denied, or its session is an SSH
+login or not the desktop session, a host update is refused with
+`session_unusable` before anything stops: end its session
+(`tmux -L yuruna-controller kill-session -t yuruna-controller`, or
+`screen -S <pid>.yuruna-controller -X quit` from `screen -ls`), stop a running runner
+after its cycle, and start the runner again from the terminal application that holds the
+grants.
+
+The `full` scope of a host update needs root for the installer and the
+settings. `Enable-TestAutomation.ps1` installs, with the password it already
+asks for, `/etc/sudoers.d/yuruna-host-update-access`, which lets the test
+account write and remove one file, `/etc/sudoers.d/yuruna-host-update`, and
+nothing else. During those two phases that file holds a temporary rule that
+expires by its own date (`NOTAFTER`); `Disable-TestAutomation.ps1` removes both.
+To see what is there: `sudo ls /etc/sudoers.d | grep yuruna`.
 
 <a id="42885ada-0005"></a>
 
@@ -371,6 +402,12 @@ If that prints `true`, the grant is in place. Workaround:
 export YURUNA_SKIP_SCREEN_RECORDING_CHECK=1
 pwsh test/Start-TestRunner.ps1
 ```
+
+The host controller's session keeps the `YURUNA_SKIP_*` variables of the start
+that created it, so the override also holds for the controller's reading of its
+own session and for the runner a host update starts. A controller already
+running keeps the environment it started with: set the override before the
+start that creates the controller session.
 
 Open an issue with:
 - `sw_vers -productVersion`
@@ -652,7 +689,7 @@ What the framework does about it:
   over the last half hour.
 
 What to do: quit UTM.app from the desktop session (or run
-`test/lab/Invoke-HostRefresh.ps1`), confirm `utmctl stop` on a stopped VM
+`test/lab/Invoke-HostRepair.ps1`), confirm `utmctl stop` on a stopped VM
 returns immediately, then resume the runner. Read the snapshot before
 restarting if the cause matters: the process census tells a crash from a
 wedge, and the log excerpt names what preceded it.
@@ -853,6 +890,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

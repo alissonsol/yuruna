@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4200f649-efda-4869-a307-3b20e9e7843e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -210,8 +210,8 @@ Describe 'the cycle-time budget' {
         $failed = Write-OuterCyclePhase -Cycle 12 -Outcome 'completed' -ExitCode 1 -StartedAtUtc $end.AddSeconds(-900) -EndedAtUtc $end 3>$null
         Assert-Equal -Expected 'fail' -Actual $failed.Outcome
         Assert-False $failed.OverBudget 'a failed cycle is not budget-checked'
-        $gated = Write-OuterCyclePhase -Cycle 13 -Outcome 'refresh-gated' -StartedAtUtc $end -EndedAtUtc $end 3>$null
-        Assert-Equal -Expected 'refresh-gated' -Actual $gated.Outcome
+        $gated = Write-OuterCyclePhase -Cycle 13 -Outcome 'gate-held' -StartedAtUtc $end -EndedAtUtc $end 3>$null
+        Assert-Equal -Expected 'gate-held' -Actual $gated.Outcome
         Should -Invoke -ModuleName Test.RunnerOuterLoop Write-OuterLog -Times 0 -Exactly
     }
 }

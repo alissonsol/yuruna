@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 421020da-84c1-40cb-8831-6d1e4c24a63f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,7 @@ BeforeAll {
                     $path = "$($_.id)-$($_.platform).json"
                     $hash = (Get-FileHash (Join-Path $TestDrive $path)).Hash.ToLowerInvariant()
                     @{ id = $_.id; platform = $_.platform; phase = $_.phase; result = 'pass'
-                        sessionKind = 'Aqua'; refreshVerdict = 'restarted'; durationSeconds = 361
+                        sessionKind = 'Aqua'; repairVerdict = 'restarted'; durationSeconds = 361
                         executionSha256 = $hash
                         artifacts = @(@{ path = 'native.log'; sha256 = $script:ArtifactHash }, @{ path = $path; sha256 = $hash }) }
                 })

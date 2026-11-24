@@ -6,7 +6,7 @@ package catalog
 var Catalogs = map[string]map[string]string{
 	"en-US": {
 		"pool": `{
-  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool Status reads what the members are doing now — choosing a value applies it to every member.",
+  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool. Pool status reads what the members are doing now — choosing a value applies it to every member.",
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "A scan of ",
     {
@@ -58,7 +58,7 @@ var Catalogs = map[string]map[string]string{
     },
     "); control state is unknown. Moving hosts still works."
   ],
-  "pool.aggregator_url": "aggregator URL",
+  "pool.aggregator_url": "Aggregator URL",
   "pool.all_checks_passed_pool_control_service_value1_value2_collected_va": [
     "All checks passed. pool-control-service ",
     {
@@ -158,7 +158,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.configuration_git_url": "configuration git URL",
+  "pool.configuration_git_url": "Configuration git URL",
   "pool.configuration_read_raw_invocation": "Configuration read — raw invocation",
   "pool.continue": "Continue",
   "pool.control": "Control",
@@ -463,7 +463,7 @@ var Catalogs = map[string]map[string]string{
     }
   ],
   "pool.display_name": "Display name",
-  "pool.duration": "duration",
+  "pool.duration": "Duration",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "Each of the four numbers must be 0 to 255.",
   "pool.empty": "(empty)",
   "pool.enrollment_target": [
@@ -519,7 +519,7 @@ var Catalogs = map[string]map[string]string{
     },
     " means it cannot read the one configured. A re-keyed row is one machine's old identity: it was reimaged or re-cloned, so the live host answers under the id shown beside it while any pool membership stays on the old one — hand it over from that row. Hostnames appear once this browser is unlocked."
   ],
-  "pool.exit_code": "exit code",
+  "pool.exit_code": "Exit code",
   "pool.fail": "FAIL",
   "pool.failed": "failed",
   "pool.first_seen": "First seen",
@@ -537,11 +537,11 @@ var Catalogs = map[string]map[string]string{
   "pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r": "Found by scanning the network; it belongs to no pool and has not registered with the aggregator.",
   "pool.framework": "Framework",
   "pool.framework_project": "Framework / Project",
-  "pool.framework_revision": "framework revision",
+  "pool.framework_revision": "Framework revision",
   "pool.framework_url": "Framework URL",
-  "pool.framework_version": "framework version",
-  "pool.free_storage": "Free Storage",
-  "pool.go": "go",
+  "pool.framework_version": "Framework version",
+  "pool.free_storage": "Free storage",
+  "pool.go": "Go",
   "pool.guide": "Guide",
   "pool.hand_over": "Hand over",
   "pool.hand_over_failed_value1": [
@@ -557,7 +557,7 @@ var Catalogs = map[string]map[string]string{
   "pool.home": "HOME",
   "pool.host": "+ host",
   "pool.host_id": "Host ID",
-  "pool.host_id_7b624c8f": "host id",
+  "pool.host_id_7b624c8f": "Host ID",
   "pool.host_id_to_add_to_pool_value1": [
     "Host id to add to pool ",
     {
@@ -566,8 +566,8 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "pool.host_refresh_body_invalid": [
-    "The refresh request must be a JSON object of strings with only hostId, requestId, tier and maxRung (",
+  "pool.host_repair_body_invalid": [
+    "The repair request must be a JSON object of strings with only hostId, requestId, tier and maxRung (",
     {
       "arg": "detail",
       "type": "identifier",
@@ -575,14 +575,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "Host ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " is already handling refresh request ",
+    " is already handling repair request ",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -590,7 +590,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; follow that request instead of starting another."
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "No control proof could be obtained for host ",
     {
       "arg": "hostId",
@@ -605,8 +605,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_field_unsupported": [
-    "The refresh request carried the unsupported field ",
+  "pool.host_repair_field_unsupported": [
+    "The repair request carried the unsupported field ",
     {
       "arg": "field",
       "type": "identifier",
@@ -614,7 +614,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; force and hard-stop options are never accepted remotely."
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "The pool aggregator knows host ",
     {
       "arg": "hostId",
@@ -623,15 +623,15 @@ var Catalogs = map[string]map[string]string{
     },
     " but has no address for it."
   ],
-  "pool.host_refresh_host_id_invalid": "hostId must be a 32-character hexadecimal host id.",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "hostId must be a 32-character hexadecimal host id.",
+  "pool.host_repair_host_refused": [
     "Host ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " refused the refresh (HTTP ",
+    " refused the repair (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -645,14 +645,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "Host ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " could not start the refresh (HTTP ",
+    " could not start the repair (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -672,7 +672,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "The pool aggregator does not know host ",
     {
       "arg": "hostId",
@@ -681,7 +681,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "Host ",
     {
       "arg": "hostId",
@@ -696,8 +696,8 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_mint_failed": [
-    "This service could not sign the refresh request for host ",
+  "pool.host_repair_mint_failed": [
+    "This service could not sign the repair request for host ",
     {
       "arg": "hostId",
       "type": "identifier",
@@ -705,7 +705,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "Host ",
     {
       "arg": "hostId",
@@ -720,7 +720,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "Request ",
     {
       "arg": "requestId",
@@ -745,9 +745,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); generate a new request id to refresh again."
+    "); generate a new request id to repair again."
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "Request ",
     {
       "arg": "requestId",
@@ -756,10 +756,10 @@ var Catalogs = map[string]map[string]string{
     },
     " was already used with a different tier or ceiling; resend the original policy or generate a new request id."
   ],
-  "pool.host_refresh_request_id_invalid": "requestId must be a lowercase UUID (8-4-4-4-12) that the caller generates once and reuses on every retry.",
-  "pool.host_refresh_rung_unsupported": "maxRung must be probe, reclaim, start-if-stopped, restart-if-hung or restart-broker.",
-  "pool.host_refresh_signing_unconfigured": [
-    "Remote host refresh is disabled: this service holds no refresh signing authority (",
+  "pool.host_repair_request_id_invalid": "requestId must be a lowercase UUID (8-4-4-4-12) that the caller generates once and reuses on every retry.",
+  "pool.host_repair_rung_unsupported": "maxRung must be probe, reclaim, start-if-stopped, restart-if-hung or restart-broker.",
+  "pool.host_repair_signing_unconfigured": [
+    "Remote host repair is disabled: this service holds no repair signing authority (",
     {
       "arg": "path",
       "type": "detail",
@@ -767,15 +767,245 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_tier_unsupported": "Only the restart tier can be requested remotely; the full tier is local-only.",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "Only the restart tier can be requested remotely; the full tier is local-only.",
+  "pool.host_repair_unavailable": [
     "Host ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " does not advertise remote refresh (",
+    " does not advertise remote repair (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_action": "Update host",
+  "pool.host_update_body_invalid": [
+    "The update request must be one JSON object with only hostId, requestId, scope, drainSeconds and expectCommit, each once (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_busy": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " is busy with request ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; follow that request instead of starting another."
+  ],
+  "pool.host_update_commit_invalid": "expectCommit must be 7 to 40 lowercase hexadecimal digits.",
+  "pool.host_update_commit_label": "Expected commit",
+  "pool.host_update_completed": [
+    "Request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " already ended on host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_credential_label": "Operator credential",
+  "pool.host_update_credential_missing": "Enter the operator credential.",
+  "pool.host_update_drain_invalid": "drainSeconds must be a whole number from 60 to 21600.",
+  "pool.host_update_drain_label": "Drain bound",
+  "pool.host_update_drain_now_label": "To end the running cycle now",
+  "pool.host_update_drain_value": [
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s (",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " min)"
+  ],
+  "pool.host_update_field_forbidden": [
+    "The update request carried ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; no request from this service ends a running cycle. To end one, run Invoke-HostUpdate.ps1 -Drain now in a shell on the host."
+  ],
+  "pool.host_update_field_unsupported": [
+    "The update request carried the unsupported field ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_heading": "Update host",
+  "pool.host_update_host_refused": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " refused the update (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_host_unavailable": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " could not queue the update (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); retry with the same request id ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_intro": "This page signs one host update for the host below and sends it there. The host waits for its running cycle to end, then stops its runner, brings its checkout current and starts the runner again; it gives up after the drain bound with nothing changed. No request from this page ends a running cycle: to end one, run the command shown below in a shell on the host.",
+  "pool.host_update_loading": "Reading the host…",
+  "pool.host_update_mint_failed": [
+    "This service could not sign the update request for host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_not_offered": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " cannot take a remote host update now (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_open_diagnostics": "Open the host's Diagnostics page",
+  "pool.host_update_page_title": "Update host — Yuruna Pool Control",
+  "pool.host_update_request_conflict": [
+    "Request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " was already used with a different scope, drain bound or expected commit; resend the original request or start a new one."
+  ],
+  "pool.host_update_request_label": "Request ID",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstall dependencies and settings, then restart",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Restart the runner on current code"
+    }
+  },
+  "pool.host_update_scope_invalid": "scope must be restart or full.",
+  "pool.host_update_scope_label": "Scope",
+  "pool.host_update_sending": "Signing and sending the update…",
+  "pool.host_update_sent": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " queued update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; opening its Diagnostics page."
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "Remote host update is disabled: this service holds no update signing key or no operator credential (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_submit": "Send the update",
+  "pool.host_update_unavailable": [
+    "Host ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " cannot take a remote host update now (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -936,7 +1166,7 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "pool.listen_addr": "listen addr",
+  "pool.listen_addr": "Listen addr",
   "pool.loaded": "Loaded:",
   "pool.loading_hosts": "Loading hosts...",
   "pool.loading_pools": "Loading pools...",
@@ -1033,8 +1263,8 @@ var Catalogs = map[string]map[string]string{
   "pool.paused_after_cycle_and_step": "Paused after cycle and step",
   "pool.persisted_health": "Persisted health",
   "pool.persistence_disabled": "(persistence disabled)",
-  "pool.pid": "pid",
-  "pool.platform": "platform",
+  "pool.pid": "PID",
+  "pool.platform": "Platform",
   "pool.pool": "Pool",
   "pool.pool_for_host_value1": [
     "Pool for host ",
@@ -1057,7 +1287,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.pool_project_denied": "The pool assigned this host a project its git credential cannot read. Grant its token access to that repository, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.",
   "pool.pool_project_unreachable": "The project this host's pool assigned did not answer. This is network, not permission, and the clone retries through the normal backoff.",
-  "pool.pool_status": "Pool Status",
+  "pool.pool_status": "Pool status",
   "pool.pool_status_change_failed_value1": [
     "Pool status change failed: ",
     {
@@ -1158,7 +1388,7 @@ var Catalogs = map[string]map[string]string{
       "project": "This host cannot read the project repository it is configured with. Check its git credential and the url in test.config.yml."
     }
   },
-  "pool.repo_dir": "repo dir",
+  "pool.repo_dir": "Repo dir",
   "pool.repo_held_detail": {
     "kind": "select",
     "selector": "repo",
@@ -1420,10 +1650,10 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.scan_yuruna_pool_control": "Scan — Yuruna Pool Control",
   "pool.service_diagnostics": "Service diagnostics",
-  "pool.service_user": "service user",
+  "pool.service_user": "Service user",
   "pool.show_hostnames": "Show hostnames",
-  "pool.started_at": "started at",
-  "pool.state_dir": "state dir",
+  "pool.started_at": "Started at",
+  "pool.state_dir": "State dir",
   "pool.state_fail": "fail",
   "pool.state_idle": "idle",
   "pool.state_mismatch": "mismatch",
@@ -1565,12 +1795,12 @@ var Catalogs = map[string]map[string]string{
   "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": "This id no longer answers at this address; the id beside it does. One machine, two ids -- it was reimaged or re-cloned. Any pool membership is still recorded against THIS id, so the live host is doing the work outside the pool.",
   "pool.time_period": "Time period",
   "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": "Token is right but the clock is off -- fix the host clock.",
-  "pool.total_storage": "Total Storage",
+  "pool.total_storage": "Total storage",
   "pool.type": "Type",
   "pool.unlock": "Unlock",
   "pool.unlock_with_the_lab_token_to_see_hostnames": "Unlock with the Lab token to see hostnames.",
   "pool.unsupported_range": "unsupported range; use 1h, 24h, 7d or 30d",
-  "pool.uptime": "uptime",
+  "pool.uptime": "Uptime",
   "pool.use_this_network": "Use this network",
   "pool.value1_applied_to_value2_host_s_in_pool_value3": [
     {
@@ -1674,7 +1904,7 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "pool.version": "version",
+  "pool.version": "Version",
   "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": "What the daemon was launched with, and the environment its pwsh child processes inherit.",
   "pool.what_to_do": "What to do",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "Which build is actually running, and for how long — establishes whether a fix was deployed at all.",
@@ -1792,8 +2022,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "Forbidden (not a served file)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "forbidden: probe target must be a private (loopback/RFC1918/link-local) address or the configured cache IP",
   "status.api_guest_channel_key_absent": "this host holds no guest-channel key yet; it is created when the host first renders a guest seed",
-  "status.api_host_refresh_authorization_refused": [
-    "refresh authorization refused (",
+  "status.api_host_repair_authorization_refused": [
+    "repair authorization refused (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -1801,8 +2031,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "another host operation is in progress",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "another host operation is in progress",
+  "status.api_host_repair_request_closed": [
     "this request id is already closed (",
     {
       "arg": "state",
@@ -1811,15 +2041,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "this request id was already used with different settings",
-  "status.api_host_refresh_unavailable": [
-    "host refresh is not available on this host (",
+  "status.api_host_repair_request_conflict": "this request id was already used with different settings",
+  "status.api_host_repair_unavailable": [
+    "host repair is not available on this host (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "host update authorization refused (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "a host update is in progress on this host",
+  "status.api_host_update_controller_absent": "no host controller is running on this host; nothing was queued",
+  "status.api_host_update_proof_missing": "a host update from another machine needs an update proof from pool-control; nothing was queued",
+  "status.api_host_update_scope_unavailable": [
+    "the host controller does not run the ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " scope; nothing was queued"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "internal authentication key not configured on this host",
   "status.api_internal_error": "the request failed on the host; see server.err",
@@ -1998,8 +2249,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "Config",
   "status.config_field_alwaysredownload": "alwaysRedownload",
   "status.config_field_armwindowhours": "armWindowHours",
-  "status.config_field_autorefreshafterstalls": "autoRefreshAfterStalls",
   "status.config_field_autoremediation": "autoRemediation",
+  "status.config_field_autorepairafterstalls": "autoRepairAfterStalls",
   "status.config_field_autoseed": "autoSeed",
   "status.config_field_bootdelayseconds": "bootDelaySeconds",
   "status.config_field_cachingproxyip": "cachingProxyIp",
@@ -2109,7 +2360,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.control_host_token_missing": "This host holds no lab token yet.",
+  "status.control_host_token_missing": "This host holds no internal authentication key yet.",
   "status.control_instructions": [
     "This host accepts control only from a browser on the host itself (",
     {
@@ -2117,7 +2368,7 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), or one opened through the Yuruna hosts dashboard link (which grants a short-lived token). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run ",
+    "), or one opened through the Yuruna hosts dashboard link (which grants a short-lived control proof). To drive it from another machine, open it via the dashboard; if this host was never enrolled, run ",
     {
       "arg": "command",
       "type": "detail",
@@ -2125,7 +2376,7 @@ var Catalogs = map[string]map[string]string{
     },
     " with the code from the dashboard’s Lab token tile."
   ],
-  "status.control_proof_expired": "This page’s control token has expired (they last 15 minutes).",
+  "status.control_proof_expired": "This page’s control proof has expired (proofs last 15 minutes).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "Control proof expired -- re-open this host from the dashboard link before saving. Your edits are kept until you do.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "Control proof expires in ",
@@ -2136,12 +2387,12 @@ var Catalogs = map[string]map[string]string{
     },
     "s -- save soon, or re-open this host from the dashboard link for a fresh one."
   ],
-  "status.control_proof_invalid": "This page’s control token does not verify here — this host’s stored lab token likely differs from the lab’s current one, so re-enroll.",
-  "status.control_proof_missing": "This page was opened without a control token, so none was sent.",
+  "status.control_proof_invalid": "This page’s control proof does not verify here — this host’s internal authentication key likely differs from the lab’s current one, so re-enroll with a Lab token.",
+  "status.control_proof_missing": "This page was opened without a control proof, so none was sent.",
   "status.control_refused": "Control refused.",
   "status.control_routes": "control-route setup",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "This host has no lab-auth-token, so remote control is loopback-only. Open this page as ",
+    "This host has no internal authentication key, so remote control is loopback-only. Open this page as ",
     {
       "arg": "address",
       "type": "token",
@@ -2394,11 +2645,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "mirror.origin",
-  "status.git_source_mirror_fresh": "mirror.fresh",
-  "status.git_source_mirror_stale": "mirror.stale",
-  "status.git_source_not_applicable": "not.applicable",
-  "status.git_source_origin_direct": "remote.origin",
+  "status.git_source_mirror_confirmed": "mirror",
+  "status.git_source_mirror_fresh": "mirror fresh",
+  "status.git_source_mirror_stale": "mirror stale",
+  "status.git_source_not_applicable": "not applicable",
+  "status.git_source_origin_direct": "remote",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -2462,24 +2713,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
-  "status.host_refresh_action_elevate": "Next step: the repair needs administrator rights; run it on the host from an elevated session.",
-  "status.host_refresh_action_grant_automation": "Next step: allow this host's automation access to UTM, then refresh again.",
-  "status.host_refresh_action_gui_session": "Next step: sign in to a desktop session on the host, then refresh again.",
-  "status.host_refresh_action_install_client": "Next step: install the hypervisor's command-line client on the host, then refresh again.",
-  "status.host_refresh_action_resume_request": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
-  "status.host_refresh_action_start_runner": "Next step: start the runner on the host; no recorded launch could be reused to restart it.",
-  "status.host_refresh_authorization_refused": [
-    "This refresh needs a refresh proof that this page does not have (",
+  "status.host_repair_action_dispose_obligations": "Next step: review the outstanding recovery items on the host and dispose of them with pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.",
+  "status.host_repair_action_elevate": "Next step: the repair needs administrator rights; run it on the host from an elevated session.",
+  "status.host_repair_action_grant_automation": "Next step: allow this host's automation access to UTM, then repair again.",
+  "status.host_repair_action_gui_session": "Next step: sign in to a desktop session on the host, then repair again.",
+  "status.host_repair_action_install_client": "Next step: install the hypervisor's command-line client on the host, then repair again.",
+  "status.host_repair_action_resume_request": "Next step: resume this request on the host with pwsh test/lab/Invoke-HostRepair.ps1 -Resume.",
+  "status.host_repair_action_start_runner": "Next step: start the runner on the host; no recorded launch could be reused to restart it.",
+  "status.host_repair_authorization_refused": [
+    "This repair needs a repair proof that this page does not have (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Use the status page on the host itself, or the pool-control refresh action."
+    "). Use the status page on the host itself, or the pool-control repair action."
   ],
-  "status.host_refresh_busy": [
-    "Another host refresh (",
+  "status.host_repair_busy": [
+    "Another host repair (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2487,8 +2738,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") is in progress; showing its progress."
   ],
-  "status.host_refresh_check_host": "On the host, run pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf to see the current state.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "On the host, run pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf to see the current state.",
+  "status.host_repair_closed": [
     "Request ",
     {
       "arg": "requestId",
@@ -2501,10 +2752,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); start a new refresh."
+    "); start a new repair."
   ],
-  "status.host_refresh_confirm": [
-    "Refresh this host, up to the ",
+  "status.host_repair_confirm": [
+    "Repair this host, up to the ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -2518,18 +2769,9 @@ var Catalogs = map[string]map[string]string{
     },
     " minutes."
   ],
-  "status.host_refresh_conflict": [
-    "Request ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " was already sent with different settings; start a new refresh."
-  ],
-  "status.host_refresh_launcher_failed": "The host could not start the refresh worker. The request is kept; select Retry to start it again.",
-  "status.host_refresh_lost": [
-    "Refresh ",
+  "status.host_repair_launcher_failed": "The host could not start the repair worker. The request is kept; select Retry to start it again.",
+  "status.host_repair_lost": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2541,11 +2783,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Refresh host to start a new one."
+    " seconds, or a later request has replaced its report. Select Retry to ask the host how it ended, or Repair host to start a new one."
   ],
-  "status.host_refresh_note": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.",
-  "status.host_refresh_progress": [
-    "Refresh ",
+  "status.host_repair_note": "Repairs a stalled runner or hypervisor on this host. Guest VMs on this host can be suspended or restarted while the hypervisor recovers.",
+  "status.host_repair_progress": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2577,19 +2819,11 @@ var Catalogs = map[string]map[string]string{
     },
     " seconds left."
   ],
-  "status.host_refresh_recovery_pending": "Services or the runner still need restoring. Retry resumes the same request.",
-  "status.host_refresh_rejected": [
-    "The host rejected the refresh request: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "This page is open from another machine, so it can watch a host refresh but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRefresh.ps1.",
-  "status.host_refresh_retry": "Retry",
-  "status.host_refresh_stale": [
-    "Refresh ",
+  "status.host_repair_recovery_pending": "Services or the runner still need restoring. Retry resumes the same request.",
+  "status.host_repair_remote_viewer": "This page is open from another machine, so it can watch a host repair but not start one. Start it on the host: its own dashboard, or pwsh test/lab/Invoke-HostRepair.ps1.",
+  "status.host_repair_retry": "Retry",
+  "status.host_repair_stale": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2603,12 +2837,11 @@ var Catalogs = map[string]map[string]string{
     },
     " seconds. The worker may have stopped; check the host before starting another repair."
   ],
-  "status.host_refresh_start": "Refresh host",
-  "status.host_refresh_start_cycle_busy": "A start-cycle request is in progress; try again when it finishes.",
-  "status.host_refresh_submitting": "Sending the refresh request...",
-  "status.host_refresh_title": "Host refresh",
-  "status.host_refresh_unavailable": [
-    "Host refresh is not available on this host (",
+  "status.host_repair_start": "Repair host",
+  "status.host_repair_start_cycle_busy": "A start-cycle request is in progress; try again when it finishes.",
+  "status.host_repair_title": "Host repair",
+  "status.host_repair_unavailable": [
+    "Host repair is not available on this host (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -2616,8 +2849,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "Refresh ",
+  "status.host_repair_verdict_abandoned": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2625,8 +2858,8 @@ var Catalogs = map[string]map[string]string{
     },
     " was abandoned after repeated attempts; its recovery record is kept on the host."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "Refresh ",
+  "status.host_repair_verdict_already_healthy": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2634,8 +2867,8 @@ var Catalogs = map[string]map[string]string{
     },
     " finished: the host was already healthy, so nothing was changed."
   ],
-  "status.host_refresh_verdict_failed": [
-    "Refresh ",
+  "status.host_repair_verdict_failed": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2649,8 +2882,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "Refresh ",
+  "status.host_repair_verdict_partial": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2664,8 +2897,8 @@ var Catalogs = map[string]map[string]string{
     },
     "); some services or the runner still need attention."
   ],
-  "status.host_refresh_verdict_refused": [
-    "Refresh ",
+  "status.host_repair_verdict_refused": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2679,8 +2912,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "Refresh ",
+  "status.host_repair_verdict_repaired": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2688,8 +2921,8 @@ var Catalogs = map[string]map[string]string{
     },
     " finished: the host was repaired and the runner is ready."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "Refresh ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2697,8 +2930,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ended: the hypervisor still does not respond."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "Refresh ",
+  "status.host_repair_verdict_unknown": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2712,8 +2945,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "Refresh ",
+  "status.host_repair_waiting": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2721,8 +2954,8 @@ var Catalogs = map[string]map[string]string{
     },
     " was accepted; waiting for the worker's first report."
   ],
-  "status.host_refresh_waiting_long": [
-    "Refresh ",
+  "status.host_repair_waiting_long": [
+    "Repair ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -2736,6 +2969,543 @@ var Catalogs = map[string]map[string]string{
     },
     " seconds. The worker may have failed to start; check the host."
   ],
+  "status.host_request_conflict": [
+    "Request ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " was already sent with different settings; start a new request."
+  ],
+  "status.host_request_rejected": [
+    "The host rejected the request: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "Sending the request...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "Next step: check the host and act there.",
+      "end_one_shot": "Next step: end the one-shot session on the host, then press again.",
+      "other": [
+        "Next step: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "Next step: give the runner its sudo rule on the host, then press again.",
+      "provision_elevation_macos": [
+        "Next step: on the host, run ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " from a terminal of the desktop session and answer its prompts; it installs the sudoers entry host updates use. Then press again."
+      ],
+      "read_remarks": "Next step: read the remarks.",
+      "reboot_host": "Next step: restart Windows on the host, then start the runner.",
+      "release": [
+        "Next step: to end it, run on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "Next step: release the VM kept for diagnosis, then press again.",
+      "repair_checkout": "Next step: repair the checkout on the host; the host keeps trying.",
+      "retry_or_drain_now": [
+        "Next step: press again, or end the cycle now on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "Next step: start the runner on the host.",
+      "stop_runner_by_hand": "Next step: stop the runner on the host by hand."
+    }
+  },
+  "status.host_update_blocks": [
+    "A host update (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") is in progress; try again when it finishes."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "A host repair (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") is in progress; try again when it finishes."
+      ],
+      "host_update": [
+        "Another host update (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") is in progress; showing its progress."
+      ],
+      "other": "A start-cycle request is in progress; try again when it finishes."
+    }
+  },
+  "status.host_update_confirm": [
+    "Update host (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? The runner stops when the running cycle ends and restarts on current code; the update gives up after ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutes. To end the cycle now instead, run on the host: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "The runner started without a console.",
+      "other": [
+        "The runner's console: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "To open the runner's console, run on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "The runner's console is a window of its own on the desktop of the test account: open it at the machine, or over a remote desktop connection to that session."
+    }
+  },
+  "status.host_update_countdown": [
+    "The status service is restarting; expected back in ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " seconds."
+  ],
+  "status.host_update_cycle_time": [
+    "The running cycle has run ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; recent cycles took about ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "Still owed on the host: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "The first cycle after the update failed.",
+      "other": "Waiting for the first cycle after the update.",
+      "pass": "The first cycle after the update passed."
+    }
+  },
+  "status.host_update_lost": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": the host no longer reports it, so its outcome is unknown here; check the host."
+  ],
+  "status.host_update_note": [
+    "Updates this host's code and restarts the runner when the running cycle ends, giving up after ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutes. To end the cycle now, run on the host: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": phase ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " of ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), bounded at ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " is queued; it starts when the running cycle ends."
+  ],
+  "status.host_update_remarks": [
+    "Remarks: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "Update host opens pool-control at ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", which signs the request and brings you back here."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstall dependencies and settings, then restart",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Restart the runner on current code"
+    }
+  },
+  "status.host_update_stale": [
+    "Host update ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": no report for ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " seconds; check the host."
+  ],
+  "status.host_update_start": "Update host",
+  "status.host_update_title": "Host update",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "No host controller runs on this host. To set one up, run on the host: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "A host update holds this host's runner and no host controller is running. Run ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " once more from a terminal of the desktop session and leave a runner that is running alone: that start stops at the runner gate and starts the controller, which continues the update."
+      ],
+      "controller_absent_macos": [
+        "No host controller runs on this host. On macOS the runner's start starts it: run ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " from a terminal of the desktop session, or stop a running runner after its cycle and start it again that way. On a host never set up for host updates, run ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " first."
+      ],
+      "host_type": "Host updates are not yet available on this host type.",
+      "journal_unreadable": "The host cannot read its operation journal; check the host.",
+      "listener_dependency_missing": "The status service could not load what host updates need; restart it on the host.",
+      "other": [
+        "Host updates are not available on this host (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "From another machine this page can only watch a host update; until ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " is installed on the host, press Update host there."
+      ],
+      "scope_unavailable": "This host cannot run the chosen scope now.",
+      "session_unusable": [
+        "The host controller's session cannot start a working runner: it is not the desktop session, or a privacy grant is missing there. On the host, end the session yuruna-controller with ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (under screen, quit the yuruna-controller session that ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " lists), stop a running runner after its cycle, and start the runner again from a terminal of the desktop session that holds the grants."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " gave up: the running cycle outlasted the wait. Nothing changed."
+      ],
+      "failed_restored": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " did not complete (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); the host was restored."
+      ],
+      "other": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ended with an outcome this page does not recognize (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished, but Windows must restart before the hypervisor can run, so the runner was not started."
+      ],
+      "recovering": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": the runner is not running yet; the host keeps trying (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": the runner is not running yet (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), and no host controller is running to try again."
+      ],
+      "refused": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " was refused; nothing changed (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " was released on the host."
+      ],
+      "stop_failed": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": the runner could not be stopped, so nothing was started."
+      ],
+      "superseded": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " was taken over by ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished; the runner runs current code."
+      ],
+      "updated_not_started": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished; the runner was stopped before it, so it was not started."
+      ],
+      "updated_with_remarks": [
+        "Host update ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " finished with remarks; the runner runs current code."
+      ]
+    }
+  },
   "status.host_value1": [
     "Host: ",
     {
@@ -2764,7 +3534,7 @@ var Catalogs = map[string]map[string]string{
     }
   ],
   "status.lab_hold_unspecified": "Lab hold -- waiting for a lab service",
-  "status.latest_cycle": "Latest Cycle",
+  "status.latest_cycle": "Latest cycle",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -2987,7 +3757,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "New VM",
   "status.pill_start_guestos": "Start OS",
   "status.pill_start_guestworkload": "Workload",
-  "status.preflight_failed": "PREFLIGHT FAILED",
+  "status.preflight_failed": "Preflight failed",
   "status.process_environment_value_the_status_service_inherited_at_startup": "Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.",
   "status.quarantine_pinned": [
     "Quarantined after repeated same-class failures (skipped until a new commit; pinned at ",
@@ -3004,7 +3774,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "Recalculate",
   "status.recalculating": "Recalculating…",
   "status.recalculating_perf_aggregates": "Recalculating perf aggregates…",
-  "status.recent_cycles": "Recent Cycles",
+  "status.recent_cycles": "Recent cycles",
   "status.refresh": "Refresh",
   "status.results_folder": [
     "Open results folder for ",
@@ -3160,8 +3930,8 @@ var Catalogs = map[string]map[string]string{
     },
     ", restart the VM, then resume the sequence"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "A host refresh (",
+  "status.start_cycle_blocked_by_repair": [
+    "A host repair (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -3251,7 +4021,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "Testing caching-proxy service from host…",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "The archive is built from server logs only and downloaded to this machine. No data from this browsing session is included.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "The control proof expired. Re-open this host from the dashboard link to get a fresh one.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "The control proof was rejected. It may have been minted with a different lab-auth-token than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "The control proof was rejected. It may have been minted with a different internal authentication key than this host holds; re-enrolling with test/lab/Set-LabToken.ps1 realigns them.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "The host could not load its control-proof verifier; check the status service log.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "The share sheet expired while the host packed the folder. ",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "This browser could not attach the file to a message itself. ",
@@ -3433,7 +4203,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "status.working": "Working...",
   "status.yuruna_host_status": "Yuruna host status",
-  "status.yuruna_status": "Yuruna Status"
+  "status.yuruna_status": "Yuruna status"
 }
 `,
 	},
@@ -3998,8 +4768,8 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "pool.host_refresh_body_invalid": [
-    "בקשת הרענון חייבת להיות אובייקט JSON עם ערכי מחרוזת ורק השדות hostId, requestId, tier ו-maxRung (",
+  "pool.host_repair_body_invalid": [
+    "בקשת התיקון חייבת להיות אובייקט JSON עם ערכי מחרוזת ורק השדות hostId, requestId, tier ו-maxRung (",
     {
       "arg": "detail",
       "type": "identifier",
@@ -4007,14 +4777,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "המארח ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " כבר מטפל בבקשת הרענון ",
+    " כבר מטפל בבקשת התיקון ",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -4022,7 +4792,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; עקבו אחר בקשה זו במקום להתחיל בקשה נוספת."
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "לא ניתן להשיג הוכחת שליטה עבור המארח ",
     {
       "arg": "hostId",
@@ -4037,8 +4807,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_field_unsupported": [
-    "בקשת הרענון כללה את השדה הלא נתמך ",
+  "pool.host_repair_field_unsupported": [
+    "בקשת התיקון כללה את השדה הלא נתמך ",
     {
       "arg": "field",
       "type": "identifier",
@@ -4046,7 +4816,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; אפשרויות כפייה ועצירה כפויה אינן מתקבלות לעולם מרחוק."
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "מרכז נתוני המאגר מכיר את המארח ",
     {
       "arg": "hostId",
@@ -4055,15 +4825,15 @@ var Catalogs = map[string]map[string]string{
     },
     " אך אין לו כתובת עבורו."
   ],
-  "pool.host_refresh_host_id_invalid": "hostId חייב להיות מזהה מארח הקסדצימלי באורך 32 תווים.",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "hostId חייב להיות מזהה מארח הקסדצימלי באורך 32 תווים.",
+  "pool.host_repair_host_refused": [
     "המארח ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " סירב לרענון (HTTP ",
+    " סירב לתיקון (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -4077,14 +4847,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "המארח ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " לא הצליח להתחיל ברענון (HTTP ",
+    " לא הצליח להתחיל בתיקון (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -4104,7 +4874,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "מרכז נתוני המאגר אינו מכיר את המארח ",
     {
       "arg": "hostId",
@@ -4113,7 +4883,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "המארח ",
     {
       "arg": "hostId",
@@ -4128,8 +4898,8 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_mint_failed": [
-    "שירות זה לא הצליח לחתום על בקשת הרענון עבור המארח ",
+  "pool.host_repair_mint_failed": [
+    "שירות זה לא הצליח לחתום על בקשת התיקון עבור המארח ",
     {
       "arg": "hostId",
       "type": "identifier",
@@ -4137,7 +4907,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "המארח ",
     {
       "arg": "hostId",
@@ -4152,7 +4922,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "הבקשה ",
     {
       "arg": "requestId",
@@ -4177,9 +4947,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); צרו מזהה בקשה חדש כדי לרענן שוב."
+    "); צרו מזהה בקשה חדש כדי לתקן שוב."
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "הבקשה ",
     {
       "arg": "requestId",
@@ -4188,10 +4958,10 @@ var Catalogs = map[string]map[string]string{
     },
     " כבר שימשה עם דרגה או גבול עליון אחרים; שלחו שוב את המדיניות המקורית או צרו מזהה בקשה חדש."
   ],
-  "pool.host_refresh_request_id_invalid": "requestId חייב להיות UUID באותיות קטנות (8-4-4-4-12) שהגורם הקורא יוצר פעם אחת ומשתמש בו שוב בכל ניסיון חוזר.",
-  "pool.host_refresh_rung_unsupported": "maxRung חייב להיות probe, reclaim, start-if-stopped, restart-if-hung או restart-broker.",
-  "pool.host_refresh_signing_unconfigured": [
-    "רענון מארח מרחוק מושבת: שירות זה אינו מחזיק בהרשאת חתימה לרענון (",
+  "pool.host_repair_request_id_invalid": "requestId חייב להיות UUID באותיות קטנות (8-4-4-4-12) שהגורם הקורא יוצר פעם אחת ומשתמש בו שוב בכל ניסיון חוזר.",
+  "pool.host_repair_rung_unsupported": "maxRung חייב להיות probe, reclaim, start-if-stopped, restart-if-hung או restart-broker.",
+  "pool.host_repair_signing_unconfigured": [
+    "תיקון מארח מרחוק מושבת: שירות זה אינו מחזיק בסמכות חתימה לתיקון (",
     {
       "arg": "path",
       "type": "detail",
@@ -4199,15 +4969,245 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_tier_unsupported": "ניתן לבקש מרחוק רק את הדרגה restart; הדרגה full זמינה מקומית בלבד.",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "ניתן לבקש מרחוק רק את הדרגה restart; הדרגה full זמינה מקומית בלבד.",
+  "pool.host_repair_unavailable": [
     "המארח ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " אינו מפרסם יכולת רענון מרחוק (",
+    " אינו מפרסם יכולת תיקון מרחוק (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_action": "עדכון המארח",
+  "pool.host_update_body_invalid": [
+    "בקשת העדכון חייבת להיות אובייקט JSON יחיד עם השדות hostId, requestId, scope, drainSeconds ו-expectCommit בלבד, כל אחד פעם אחת (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_busy": [
+    "המארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " עסוק בבקשה ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; עקבו אחר בקשה זו במקום להתחיל בקשה נוספת."
+  ],
+  "pool.host_update_commit_invalid": "הערך של expectCommit חייב להיות 7 עד 40 ספרות הקסדצימליות באותיות קטנות.",
+  "pool.host_update_commit_label": "commit צפוי",
+  "pool.host_update_completed": [
+    "הבקשה ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " כבר הסתיימה במארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_credential_label": "פרטי הזיהוי של המפעיל",
+  "pool.host_update_credential_missing": "הזינו את פרטי הזיהוי של המפעיל.",
+  "pool.host_update_drain_invalid": "הערך של drainSeconds חייב להיות מספר שלם בין 60 ל-21600.",
+  "pool.host_update_drain_label": "מגבלת המתנה",
+  "pool.host_update_drain_now_label": "כדי לסיים את המחזור הנוכחי עכשיו",
+  "pool.host_update_drain_value": [
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " שניות (",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות)"
+  ],
+  "pool.host_update_field_forbidden": [
+    "בקשת העדכון כללה את ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; אף בקשה משירות זה אינה מסיימת מחזור שרץ. כדי לסיים מחזור, הריצו ⁦Invoke-HostUpdate.ps1 -Drain now⁩ במעטפת במארח."
+  ],
+  "pool.host_update_field_unsupported": [
+    "בקשת העדכון כללה את השדה הלא נתמך ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_heading": "עדכון המארח",
+  "pool.host_update_host_refused": [
+    "המארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " דחה את העדכון (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_host_unavailable": [
+    "המארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " לא הצליח להוסיף את העדכון לתור (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); נסו שוב עם אותו מזהה בקשה ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_intro": "דף זה חותם על עדכון מארח אחד עבור המארח שלהלן ושולח אותו אליו. המארח ממתין לסיום המחזור הנוכחי, ואז עוצר את רכיב ההרצה, מעדכן את עותק הקוד שלו ומפעיל שוב את רכיב ההרצה; הוא מוותר לאחר מגבלת ההמתנה בלי לשנות דבר. אף בקשה מדף זה אינה מסיימת מחזור שרץ: כדי לסיים מחזור, הריצו את הפקודה שמוצגת למטה במעטפת במארח.",
+  "pool.host_update_loading": "קורא את המארח…",
+  "pool.host_update_mint_failed": [
+    "שירות זה לא הצליח לחתום על בקשת העדכון עבור המארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_not_offered": [
+    "המארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " אינו יכול לקבל כעת עדכון מארח מרחוק (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_open_diagnostics": "פתיחת דף האבחון של המארח",
+  "pool.host_update_page_title": "עדכון המארח — Yuruna Pool Control",
+  "pool.host_update_request_conflict": [
+    "הבקשה ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " כבר שימשה עם היקף, מגבלת המתנה או commit צפוי אחרים; שלחו שוב את הבקשה המקורית או התחילו בקשה חדשה."
+  ],
+  "pool.host_update_request_label": "מזהה בקשה",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "התקנה מחדש של תלויות והגדרות, ואז הפעלה מחדש",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "הפעלה מחדש של רכיב ההרצה על הקוד הנוכחי"
+    }
+  },
+  "pool.host_update_scope_invalid": "הערך של scope חייב להיות restart או full.",
+  "pool.host_update_scope_label": "היקף",
+  "pool.host_update_sending": "חותם על העדכון ושולח אותו…",
+  "pool.host_update_sent": [
+    "המארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " הוסיף לתור את העדכון ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; פותח את דף האבחון שלו."
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "עדכון מארח מרחוק מושבת: שירות זה אינו מחזיק במפתח חתימה לעדכון או בפרטי זיהוי של מפעיל (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_submit": "שליחת העדכון",
+  "pool.host_update_unavailable": [
+    "המארח ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " אינו יכול לקבל כעת עדכון מארח מרחוק (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -4510,7 +5510,7 @@ var Catalogs = map[string]map[string]string{
   "pool.paused_after_cycle_and_step": "מושהה לאחר מחזור ושלב",
   "pool.persisted_health": "מצב תקינות שנשמר",
   "pool.persistence_disabled": "(שמירה מתמשכת מושבתת)",
-  "pool.pid": "מזהה תהליך (pid)",
+  "pool.pid": "מזהה תהליך (PID)",
   "pool.platform": "פלטפורמה",
   "pool.pool": "מאגר",
   "pool.pool_for_host_value1": [
@@ -5389,8 +6389,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "אסור (אינו קובץ שמוגש)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "אסור: יעד הבדיקה חייב להיות כתובת פרטית (loopback⁦/RFC1918/link-local⁩) או כתובת IP המוגדרת עבור המטמון",
   "status.api_guest_channel_key_absent": "למארח זה אין עדיין מפתח ערוץ אורחים; הוא נוצר כשהמארח מייצר לראשונה seed של אורח",
-  "status.api_host_refresh_authorization_refused": [
-    "ההרשאה לרענון נדחתה (",
+  "status.api_host_repair_authorization_refused": [
+    "ההרשאה לתיקון נדחתה (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -5398,8 +6398,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "פעולה אחרת במארח נמצאת בביצוע",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "פעולה אחרת במארח נמצאת בביצוע",
+  "status.api_host_repair_request_closed": [
     "מזהה הבקשה הזה כבר סגור (",
     {
       "arg": "state",
@@ -5408,15 +6408,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "מזהה הבקשה הזה כבר שימש עם הגדרות אחרות",
-  "status.api_host_refresh_unavailable": [
-    "רענון המארח אינו זמין במארח זה (",
+  "status.api_host_repair_request_conflict": "מזהה הבקשה הזה כבר שימש עם הגדרות אחרות",
+  "status.api_host_repair_unavailable": [
+    "תיקון המארח אינו זמין במארח זה (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "הרשאת עדכון המארח נדחתה (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "עדכון מארח מתבצע במארח זה",
+  "status.api_host_update_controller_absent": "אין בקר מארח פועל במארח זה; דבר לא נוסף לתור",
+  "status.api_host_update_proof_missing": "עדכון מארח ממכונה אחרת דורש הוכחת עדכון מ-pool-control; דבר לא נוסף לתור",
+  "status.api_host_update_scope_unavailable": [
+    "בקר המארח אינו מריץ את ההיקף ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; דבר לא נוסף לתור"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "מפתח אימות פנימי אינו מוגדר במארח זה",
   "status.api_internal_error": "הבקשה נכשלה במארח; עיינו בקובץ ⁦server.err⁩",
@@ -5595,8 +6616,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "תצורה",
   "status.config_field_alwaysredownload": "הורדה מחדש תמיד (alwaysRedownload)",
   "status.config_field_armwindowhours": "חלון דריכה בשעות",
-  "status.config_field_autorefreshafterstalls": "רענון אוטומטי לאחר תקיעות (autoRefreshAfterStalls)",
   "status.config_field_autoremediation": "תיקון אוטומטי (autoRemediation)",
+  "status.config_field_autorepairafterstalls": "תיקון אוטומטי לאחר תקיעות (autoRepairAfterStalls)",
   "status.config_field_autoseed": "הזנה ראשונית אוטומטית",
   "status.config_field_bootdelayseconds": "השהיית אתחול בשניות (bootDelaySeconds)",
   "status.config_field_cachingproxyip": "כתובת IP של שרת מתווך עם מטמון (cachingProxyIp)",
@@ -5706,7 +6727,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.control_host_token_missing": "למארח זה אין עדיין אסימון מעבדה.",
+  "status.control_host_token_missing": "למארח זה אין עדיין מפתח אימות פנימי.",
   "status.control_instructions": [
     "מארח זה מקבל פקודות שליטה רק מדפדפן במארח עצמו (",
     {
@@ -5714,7 +6735,7 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק אסימון לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו ",
+    "), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק הוכחת שליטה לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו ",
     {
       "arg": "command",
       "type": "detail",
@@ -5722,7 +6743,7 @@ var Catalogs = map[string]map[string]string{
     },
     " עם הקוד מאריח אסימון המעבדה בלוח הבקרה."
   ],
-  "status.control_proof_expired": "פג תוקפו של אסימון השליטה בדף זה (תוקף האסימונים הוא 15 דקות).",
+  "status.control_proof_expired": "פג תוקפה של הוכחת השליטה בדף זה (תוקף ההוכחות הוא 15 דקות).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "פג תוקפה של הוכחת השליטה -- פתחו מחדש את המארח דרך הקישור בלוח הבקרה לפני השמירה. העריכות שלכם נשמרות עד שתעשו זאת.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "תוקפה של הוכחת השליטה יפוג בעוד ",
@@ -5733,12 +6754,12 @@ var Catalogs = map[string]map[string]string{
     },
     "s -- שמרו בקרוב, או פתחו מחדש את המארח דרך הקישור בלוח הבקרה לקבלת הוכחה חדשה."
   ],
-  "status.control_proof_invalid": "לא ניתן לאמת כאן את אסימון השליטה של דף זה — אסימון המעבדה השמור במארח כנראה שונה מהאסימון הנוכחי של המעבדה, לכן רשמו את המארח מחדש.",
-  "status.control_proof_missing": "דף זה נפתח ללא אסימון שליטה, ולכן לא נשלח אסימון.",
+  "status.control_proof_invalid": "לא ניתן לאמת כאן את הוכחת השליטה של דף זה — מפתח האימות הפנימי של מארח זה כנראה שונה מהמפתח הנוכחי של המעבדה, לכן רשמו את המארח מחדש באמצעות אסימון מעבדה.",
+  "status.control_proof_missing": "דף זה נפתח ללא הוכחת שליטה, ולכן לא נשלחה הוכחה.",
   "status.control_refused": "בקשת השליטה נדחתה.",
   "status.control_routes": "הגדרת נתיבי שליטה",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "למארח זה אין lab-auth-token, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת ",
+    "למארח זה אין מפתח אימות פנימי, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת ",
     {
       "arg": "address",
       "type": "token",
@@ -5995,11 +7016,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "⁦mirror.origin⁩",
-  "status.git_source_mirror_fresh": "⁦mirror.fresh⁩",
-  "status.git_source_mirror_stale": "⁦mirror.stale⁩",
-  "status.git_source_not_applicable": "⁦not.applicable⁩",
-  "status.git_source_origin_direct": "⁦remote.origin⁩",
+  "status.git_source_mirror_confirmed": "⁦mirror⁩",
+  "status.git_source_mirror_fresh": "⁦mirror fresh⁩",
+  "status.git_source_mirror_stale": "⁦mirror stale⁩",
+  "status.git_source_not_applicable": "⁦not applicable⁩",
+  "status.git_source_origin_direct": "⁦remote⁩",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -6072,24 +7093,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-DisposeObligation⁩.",
-  "status.host_refresh_action_elevate": "השלב הבא: התיקון דורש הרשאות מנהל; הריצו אותו במארח מתוך הפעלה עם הרשאות מוגברות.",
-  "status.host_refresh_action_grant_automation": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז רעננו שוב.",
-  "status.host_refresh_action_gui_session": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז רעננו שוב.",
-  "status.host_refresh_action_install_client": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז רעננו שוב.",
-  "status.host_refresh_action_resume_request": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩.",
-  "status.host_refresh_action_start_runner": "השלב הבא: הפעילו את רכיב ההרצה במארח; לא נמצאה הפעלה מתועדת שניתן להשתמש בה להפעלתו מחדש.",
-  "status.host_refresh_authorization_refused": [
-    "רענון זה דורש הוכחת הרשאה לרענון שאינה קיימת בדף זה (",
+  "status.host_repair_action_dispose_obligations": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-DisposeObligation⁩.",
+  "status.host_repair_action_elevate": "השלב הבא: התיקון דורש הרשאות מנהל; הריצו אותו במארח מתוך הפעלה עם הרשאות מוגברות.",
+  "status.host_repair_action_grant_automation": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז תקנו שוב.",
+  "status.host_repair_action_gui_session": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז תקנו שוב.",
+  "status.host_repair_action_install_client": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז תקנו שוב.",
+  "status.host_repair_action_resume_request": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩.",
+  "status.host_repair_action_start_runner": "השלב הבא: הפעילו את רכיב ההרצה במארח; לא נמצאה הפעלה מתועדת שניתן להשתמש בה להפעלתו מחדש.",
+  "status.host_repair_authorization_refused": [
+    "תיקון זה דורש הוכחת תיקון שאינה קיימת בדף זה (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). השתמשו בדף המצב במארח עצמו, או בפעולת הרענון של בקרת המאגר."
+    "). השתמשו בדף המצב במארח עצמו, או בפעולת התיקון של בקרת המאגר."
   ],
-  "status.host_refresh_busy": [
-    "רענון מארח אחר (",
+  "status.host_repair_busy": [
+    "תיקון מארח אחר (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6097,8 +7118,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") מתבצע כעת; התקדמותו מוצגת."
   ],
-  "status.host_refresh_check_host": "הריצו במארח pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "הריצו במארח pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי.",
+  "status.host_repair_closed": [
     "בקשה ",
     {
       "arg": "requestId",
@@ -6111,16 +7132,16 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); התחילו רענון חדש."
+    "); התחילו תיקון חדש."
   ],
-  "status.host_refresh_confirm": [
+  "status.host_repair_confirm": [
     "מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש, ורכיב ההרצה מופעל מחדש. התהליך עשוי להימשך עד ",
     {
       "arg": "minutes",
       "type": "integer",
       "trust": "internal"
     },
-    " דקות. לרענן מארח זה עד לשלב ",
+    " דקות. לתקן מארח זה עד לשלב ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -6128,18 +7149,9 @@ var Catalogs = map[string]map[string]string{
     },
     "?"
   ],
-  "status.host_refresh_conflict": [
-    "בקשה ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " כבר נשלחה עם הגדרות שונות; התחילו רענון חדש."
-  ],
-  "status.host_refresh_launcher_failed": "המארח לא הצליח להפעיל את תהליך הרענון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב.",
-  "status.host_refresh_lost": [
-    "רענון ",
+  "status.host_repair_launcher_failed": "המארח לא הצליח להפעיל את תהליך התיקון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב.",
+  "status.host_repair_lost": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6151,11 +7163,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או ברענון המארח כדי להתחיל רענון חדש."
+    " שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או בתיקון המארח כדי להתחיל תיקון חדש."
   ],
-  "status.host_refresh_note": "מתקן רכיב הרצה או מנהל מכונות וירטואליות שנתקע במארח זה. מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש.",
-  "status.host_refresh_progress": [
-    "רענון ",
+  "status.host_repair_note": "מתקן רכיב הרצה או מנהל מכונות וירטואליות שנתקע במארח זה. מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש.",
+  "status.host_repair_progress": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6187,19 +7199,11 @@ var Catalogs = map[string]map[string]string{
     },
     " שניות."
   ],
-  "status.host_refresh_recovery_pending": "עדיין נדרש שחזור של שירותים או של רכיב ההרצה. ניסיון חוזר ממשיך את אותה בקשה.",
-  "status.host_refresh_rejected": [
-    "המארח דחה את בקשת הרענון: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו ברענון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩.",
-  "status.host_refresh_retry": "ניסיון חוזר",
-  "status.host_refresh_stale": [
-    "רענון ",
+  "status.host_repair_recovery_pending": "עדיין נדרש שחזור של שירותים או של רכיב ההרצה. ניסיון חוזר ממשיך את אותה בקשה.",
+  "status.host_repair_remote_viewer": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו בתיקון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩.",
+  "status.host_repair_retry": "ניסיון חוזר",
+  "status.host_repair_stale": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6211,14 +7215,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות. ייתכן שתהליך הרענון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
+    " שניות. ייתכן שתהליך התיקון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
   ],
-  "status.host_refresh_start": "רענון המארח",
-  "status.host_refresh_start_cycle_busy": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים.",
-  "status.host_refresh_submitting": "בקשת הרענון נשלחת...",
-  "status.host_refresh_title": "רענון המארח",
-  "status.host_refresh_unavailable": [
-    "רענון המארח אינו זמין במארח זה (",
+  "status.host_repair_start": "תיקון המארח",
+  "status.host_repair_start_cycle_busy": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים.",
+  "status.host_repair_title": "תיקון המארח",
+  "status.host_repair_unavailable": [
+    "תיקון המארח אינו זמין במארח זה (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -6226,8 +7229,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "רענון ",
+  "status.host_repair_verdict_abandoned": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6235,8 +7238,8 @@ var Catalogs = map[string]map[string]string{
     },
     " נזנח לאחר ניסיונות חוזרים; רשומת השחזור שלו נשמרת במארח."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "רענון ",
+  "status.host_repair_verdict_already_healthy": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6244,8 +7247,8 @@ var Catalogs = map[string]map[string]string{
     },
     " הסתיים: המארח כבר היה תקין, ולכן לא בוצעו שינויים."
   ],
-  "status.host_refresh_verdict_failed": [
-    "רענון ",
+  "status.host_repair_verdict_failed": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6259,8 +7262,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "רענון ",
+  "status.host_repair_verdict_partial": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6274,8 +7277,8 @@ var Catalogs = map[string]map[string]string{
     },
     "); חלק מהשירותים או רכיב ההרצה עדיין דורשים טיפול."
   ],
-  "status.host_refresh_verdict_refused": [
-    "רענון ",
+  "status.host_repair_verdict_refused": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6289,8 +7292,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "רענון ",
+  "status.host_repair_verdict_repaired": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6298,8 +7301,8 @@ var Catalogs = map[string]map[string]string{
     },
     " הסתיים: המארח תוקן ורכיב ההרצה מוכן."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "רענון ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6307,8 +7310,8 @@ var Catalogs = map[string]map[string]string{
     },
     " הסתיים: מנהל המכונות הווירטואליות עדיין אינו מגיב."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "רענון ",
+  "status.host_repair_verdict_unknown": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6322,17 +7325,17 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "רענון ",
+  "status.host_repair_waiting": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " התקבל; ממתינים לדיווח הראשון מתהליך הרענון."
+    " התקבל; ממתינים לדיווח הראשון מתהליך התיקון."
   ],
-  "status.host_refresh_waiting_long": [
-    "רענון ",
+  "status.host_repair_waiting_long": [
+    "תיקון ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6344,8 +7347,545 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " שניות. ייתכן שהפעלת תהליך הרענון נכשלה; בדקו את המארח."
+    " שניות. ייתכן שהפעלת תהליך התיקון נכשלה; בדקו את המארח."
   ],
+  "status.host_request_conflict": [
+    "בקשה ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " כבר נשלחה עם הגדרות שונות; התחילו בקשה חדשה."
+  ],
+  "status.host_request_rejected": [
+    "המארח דחה את הבקשה: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "הבקשה נשלחת...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "הצעד הבא: בדקו את המארח ופעלו בו.",
+      "end_one_shot": "הצעד הבא: סיימו את ההפעלה החד-פעמית במארח, ואז לחצו שוב.",
+      "other": [
+        "הצעד הבא: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "הצעד הבא: תנו לרכיב ההרצה את כלל ה-sudo שלו במארח, ואז לחצו שוב.",
+      "provision_elevation_macos": [
+        "הצעד הבא: במארח, הריצו ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ממסוף של הפעלת שולחן העבודה וענו על השאלות שלו; הוא מתקין את רשומת ה-sudoers שעדכוני מארח משתמשים בה. לאחר מכן לחצו שוב."
+      ],
+      "read_remarks": "הצעד הבא: קראו את ההערות.",
+      "reboot_host": "הצעד הבא: הפעילו מחדש את Windows במארח, ואז הפעילו את רכיב ההרצה.",
+      "release": [
+        "הצעד הבא: כדי לסיים אותו, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "הצעד הבא: שחררו את ה-VM שנשמרה לאבחון, ואז לחצו שוב.",
+      "repair_checkout": "הצעד הבא: תקנו את עותק הקוד במארח; המארח ממשיך לנסות.",
+      "retry_or_drain_now": [
+        "הצעד הבא: לחצו שוב, או סיימו את המחזור עכשיו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "הצעד הבא: הפעילו את רכיב ההרצה במארח.",
+      "stop_runner_by_hand": "הצעד הבא: עצרו את רכיב ההרצה במארח ידנית."
+    }
+  },
+  "status.host_update_blocks": [
+    "עדכון מארח (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") מתבצע; נסו שוב לאחר שיסתיים."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "תיקון מארח (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") מתבצע; נסו שוב לאחר שיסתיים."
+      ],
+      "host_update": [
+        "עדכון מארח אחר (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") מתבצע; מוצגת ההתקדמות שלו."
+      ],
+      "other": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים."
+    }
+  },
+  "status.host_update_confirm": [
+    "לעדכן את המארח (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? רכיב ההרצה ייעצר כשהמחזור הנוכחי יסתיים ויופעל מחדש על הקוד הנוכחי; העדכון מוותר לאחר ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "רכיב ההרצה הופעל ללא מסוף.",
+      "other": [
+        "המסוף של רכיב ההרצה: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "כדי לפתוח את המסוף של רכיב ההרצה, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "המסוף של רכיב ההרצה הוא חלון משלו בשולחן העבודה של חשבון הבדיקה: פתחו אותו ליד המכונה, או דרך חיבור לשולחן עבודה מרוחק להפעלה זו."
+    }
+  },
+  "status.host_update_countdown": [
+    "שירות הסטטוס מופעל מחדש; צפוי לחזור בעוד ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " שניות."
+  ],
+  "status.host_update_cycle_time": [
+    "המחזור הנוכחי רץ כבר ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; מחזורים אחרונים נמשכו כ-",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "עדיין נדרש במארח: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "המחזור הראשון לאחר העדכון נכשל.",
+      "other": "ממתין למחזור הראשון לאחר העדכון.",
+      "pass": "המחזור הראשון לאחר העדכון עבר."
+    }
+  },
+  "status.host_update_lost": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": המארח כבר אינו מדווח עליו, ולכן תוצאתו אינה ידועה כאן; בדקו את המארח."
+  ],
+  "status.host_update_note": [
+    "מעדכן את הקוד של מארח זה ומפעיל מחדש את רכיב ההרצה כשהמחזור הנוכחי מסתיים, ומוותר לאחר ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": שלב ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " מתוך ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), מוגבל ל-",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ממתין בתור; הוא יתחיל כשהמחזור הנוכחי יסתיים."
+  ],
+  "status.host_update_remarks": [
+    "הערות: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "עדכון המארח פותח את pool-control בכתובת ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", שחותם על הבקשה ומחזיר אתכם לכאן."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "התקנה מחדש של תלויות והגדרות, ואז הפעלה מחדש",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "הפעלה מחדש של רכיב ההרצה על הקוד הנוכחי"
+    }
+  },
+  "status.host_update_stale": [
+    "עדכון המארח ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": אין דיווח זה ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " שניות; בדקו את המארח."
+  ],
+  "status.host_update_start": "עדכון המארח",
+  "status.host_update_title": "עדכון המארח",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "אין בקר מארח שרץ במארח זה. כדי להגדיר אחד, הריצו במארח: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "עדכון מארח מחזיק את רכיב ההרצה של מארח זה ואין בקר מארח פועל. הריצו ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " פעם נוספת ממסוף של הפעלת שולחן העבודה והשאירו כמו שהוא רכיב הרצה שפועל: הפעלה זו נעצרת בשער המריץ ומפעילה את הבקר, שממשיך את העדכון."
+      ],
+      "controller_absent_macos": [
+        "אין בקר מארח שרץ במארח זה. ב-macOS הפעלת רכיב ההרצה מפעילה אותו: הריצו ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ממסוף של הפעלת שולחן העבודה, או עצרו רכיב הרצה פועל אחרי המחזור שלו והפעילו אותו שוב בדרך זו. במארח שמעולם לא הוכן לעדכוני מארח, הריצו קודם את ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "."
+      ],
+      "host_type": "עדכוני מארח עדיין אינם זמינים בסוג מארח זה.",
+      "journal_unreadable": "המארח אינו יכול לקרוא את יומן הפעולות שלו; בדקו את המארח.",
+      "listener_dependency_missing": "שירות הסטטוס לא טען את מה שעדכוני מארח צריכים; הפעילו אותו מחדש במארח.",
+      "other": [
+        "עדכוני מארח אינם זמינים במארח זה (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "ממכונה אחרת הדף הזה רק עוקב אחר עדכון מארח; עד ש-",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " יותקן במארח, לחצו שם על עדכון המארח."
+      ],
+      "scope_unavailable": "המארח אינו יכול להריץ כעת את ההיקף שנבחר.",
+      "session_unusable": [
+        "ההפעלה של בקר המארח אינה יכולה להפעיל רכיב הרצה תקין: היא אינה הפעלת שולחן העבודה, או שחסרה בה הרשאת פרטיות. במארח, סיימו את ההפעלה yuruna-controller באמצעות ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (תחת screen, סיימו את ההפעלה yuruna-controller ש-",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " מציג), עצרו רכיב הרצה פועל אחרי המחזור שלו, והפעילו שוב את רכיב ההרצה ממסוף של הפעלת שולחן העבודה שיש לו את ההרשאות."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ויתר: המחזור הנוכחי נמשך יותר מזמן ההמתנה. דבר לא השתנה."
+      ],
+      "failed_restored": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " לא הושלם (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); המארח שוחזר."
+      ],
+      "other": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים בתוצאה שהדף הזה אינו מזהה (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים, אבל יש להפעיל מחדש את Windows לפני שה-hypervisor יוכל לרוץ, ולכן רכיב ההרצה לא הופעל."
+      ],
+      "recovering": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": רכיב ההרצה עדיין אינו רץ; המארח ממשיך לנסות (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": רכיב ההרצה עדיין אינו רץ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), ואין בקר מארח פועל שינסה שוב."
+      ],
+      "refused": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " נדחה; דבר לא השתנה (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " שוחרר במארח."
+      ],
+      "stop_failed": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": לא ניתן היה לעצור את רכיב ההרצה, ולכן דבר לא הופעל."
+      ],
+      "superseded": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הוחלף על ידי ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים; רכיב ההרצה מריץ את הקוד הנוכחי."
+      ],
+      "updated_not_started": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים; רכיב ההרצה נעצר לפניו, ולכן לא הופעל."
+      ],
+      "updated_with_remarks": [
+        "עדכון המארח ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " הסתיים עם הערות; רכיב ההרצה מריץ את הקוד הנוכחי."
+      ]
+    }
+  },
   "status.host_value1": [
     "מארח: ",
     {
@@ -6822,8 +8362,8 @@ var Catalogs = map[string]map[string]string{
     },
     ", הפעילו מחדש את המכונה הווירטואלית ואז המשיכו את הרצף"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "רענון מארח (",
+  "status.start_cycle_blocked_by_repair": [
+    "תיקון מארח (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -6913,7 +8453,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "מתבצעת בדיקת שירות מתווך המטמון מהמארח…",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "הארכיון נבנה מיומני השרת בלבד ומורד למחשב זה. לא נכללים נתונים מהפעלת הגלישה הנוכחית.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "תוקף הוכחת השליטה פג. פתחו מחדש את המארח הזה דרך הקישור בלוח הבקרה כדי לקבל הוכחה חדשה.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות lab-auth-token שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות מפתח אימות פנימי שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "המארח לא הצליח לטעון את מאמת הוכחת השליטה שלו; בדקו את היומן של status service.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "תוקף חלונית השיתוף פג בזמן שהמארח ארז את התיקייה. ",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "הדפדפן הזה לא הצליח לצרף את הקובץ להודעה בעצמו. ",
@@ -7109,7 +8649,7 @@ var Catalogs = map[string]map[string]string{
 	},
 	"pt-BR": {
 		"pool": `{
-  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "Um grupo reúne hosts sob um ID estável (GUID); cada host pertence a no máximo um grupo. O Status do Grupo mostra o que os membros estão fazendo agora — escolher um valor o aplica a todos os membros.",
+  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "Um grupo reúne hospedeiros sob um ID do grupo (um GUID estável); cada hospedeiro pertence a no máximo um grupo. O estado do grupo mostra o que os membros estão fazendo agora — escolher um valor o aplica a todos os membros.",
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "Uma verificação do ",
     {
@@ -7566,7 +9106,7 @@ var Catalogs = map[string]map[string]string{
     }
   ],
   "pool.display_name": "Mostrar o nome",
-  "pool.duration": "duração",
+  "pool.duration": "Duração",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "Cada um dos quatro números deve ser de 0 a 255.",
   "pool.empty": "(vazio)",
   "pool.enrollment_target": [
@@ -7622,7 +9162,7 @@ var Catalogs = map[string]map[string]string{
     },
     " significa que ela não pode ler o configurado. Uma linha re-chaveada é a de uma máquina identidade antiga: foi reimaged ou re-cloned, de modo que o host live responde sob o id mostrado ao lado dele enquanto qualquer membro do pool permanece no antigo — entregue-o a partir dessa linha. Hostnames aparece uma vez que este navegador é Destrancada."
   ],
-  "pool.exit_code": "código de saída",
+  "pool.exit_code": "Código de saída",
   "pool.fail": "FALHA",
   "pool.failed": "falhou",
   "pool.first_seen": "Primeiro visto",
@@ -7640,11 +9180,11 @@ var Catalogs = map[string]map[string]string{
   "pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r": "Encontrado digitalizando a rede; ele pertence a nenhum pool e não se registrou com o agregador.",
   "pool.framework": "Quadro",
   "pool.framework_project": "Framework / Projeto",
-  "pool.framework_revision": "revisão do quadro",
+  "pool.framework_revision": "Revisão do framework",
   "pool.framework_url": "URL do framework",
-  "pool.framework_version": "versão do framework",
-  "pool.free_storage": "Armazenamento Livre",
-  "pool.go": "Vai.",
+  "pool.framework_version": "Versão do framework",
+  "pool.free_storage": "Armazenamento livre",
+  "pool.go": "Go",
   "pool.guide": "Guia",
   "pool.hand_over": "Entrega",
   "pool.hand_over_failed_value1": [
@@ -7659,18 +9199,18 @@ var Catalogs = map[string]map[string]string{
   "pool.holds_this_lab_s_token_clock_agrees": "O relógio concorda.",
   "pool.home": "HOME",
   "pool.host": "+ máquina",
-  "pool.host_id": "ID da máquina",
-  "pool.host_id_7b624c8f": "ID da máquina",
+  "pool.host_id": "ID do hospedeiro",
+  "pool.host_id_7b624c8f": "ID do hospedeiro",
   "pool.host_id_to_add_to_pool_value1": [
-    "ID da máquina a adicionar ao pool ",
+    "ID do hospedeiro a adicionar ao grupo ",
     {
       "arg": "value1",
       "type": "detail",
       "trust": "external"
     }
   ],
-  "pool.host_refresh_body_invalid": [
-    "A solicitação de atualização deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung (",
+  "pool.host_repair_body_invalid": [
+    "A solicitação de reparo deve ser um objeto JSON de strings contendo apenas hostId, requestId, tier e maxRung (",
     {
       "arg": "detail",
       "type": "identifier",
@@ -7678,14 +9218,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " já está processando a solicitação de atualização ",
+    " já está processando a solicitação de reparo ",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -7693,7 +9233,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; acompanhe essa solicitação em vez de iniciar outra."
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "Não foi possível obter uma prova de controle para o hospedeiro ",
     {
       "arg": "hostId",
@@ -7708,16 +9248,16 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_field_unsupported": [
-    "A solicitação de atualização contém o campo não suportado ",
+  "pool.host_repair_field_unsupported": [
+    "A solicitação de reparo contém o campo não suportado ",
     {
       "arg": "field",
       "type": "identifier",
       "trust": "external"
     },
-    "; as opções de atualização forçada e de parada forçada nunca são aceitas remotamente."
+    "; as opções de reparo forçado e de parada forçada nunca são aceitas remotamente."
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "O agregador do grupo conhece o hospedeiro ",
     {
       "arg": "hostId",
@@ -7726,15 +9266,15 @@ var Catalogs = map[string]map[string]string{
     },
     ", mas não tem um endereço para ele."
   ],
-  "pool.host_refresh_host_id_invalid": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais.",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "O hostId deve ser um id de hospedeiro de 32 caracteres hexadecimais.",
+  "pool.host_repair_host_refused": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " recusou a atualização (HTTP ",
+    " recusou o reparo (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -7748,14 +9288,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " não conseguiu iniciar a atualização (HTTP ",
+    " não conseguiu iniciar o reparo (HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -7775,7 +9315,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "O agregador do grupo não conhece o hospedeiro ",
     {
       "arg": "hostId",
@@ -7784,7 +9324,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "O hospedeiro ",
     {
       "arg": "hostId",
@@ -7799,8 +9339,8 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_mint_failed": [
-    "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro ",
+  "pool.host_repair_mint_failed": [
+    "Este serviço não conseguiu assinar a solicitação de reparo para o hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
@@ -7808,7 +9348,7 @@ var Catalogs = map[string]map[string]string{
     },
     "."
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "O hospedeiro ",
     {
       "arg": "hostId",
@@ -7823,7 +9363,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "A solicitação ",
     {
       "arg": "requestId",
@@ -7848,9 +9388,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); gere um novo id de solicitação para atualizar novamente."
+    "); gere um novo id de solicitação para reparar novamente."
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "A solicitação ",
     {
       "arg": "requestId",
@@ -7859,10 +9399,10 @@ var Catalogs = map[string]map[string]string{
     },
     " já foi usada com outro nível ou outro teto; reenvie a política original ou gere um novo id de solicitação."
   ],
-  "pool.host_refresh_request_id_invalid": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa.",
-  "pool.host_refresh_rung_unsupported": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker.",
-  "pool.host_refresh_signing_unconfigured": [
-    "A atualização remota do hospedeiro está desativada: este serviço não possui autoridade de assinatura de atualização (",
+  "pool.host_repair_request_id_invalid": "O requestId deve ser um UUID em minúsculas (8-4-4-4-12) que o chamador gera uma vez e reutiliza em cada nova tentativa.",
+  "pool.host_repair_rung_unsupported": "O maxRung deve ser probe, reclaim, start-if-stopped, restart-if-hung ou restart-broker.",
+  "pool.host_repair_signing_unconfigured": [
+    "O reparo remoto do hospedeiro está desativado: este serviço não possui autoridade de assinatura de reparo (",
     {
       "arg": "path",
       "type": "detail",
@@ -7870,15 +9410,245 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "pool.host_refresh_tier_unsupported": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local.",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "Somente o nível restart pode ser solicitado remotamente; o nível full é apenas local.",
+  "pool.host_repair_unavailable": [
     "O hospedeiro ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " não anuncia suporte à atualização remota (",
+    " não anuncia suporte ao reparo remoto (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_action": "Atualizar hospedeiro",
+  "pool.host_update_body_invalid": [
+    "A solicitação de atualização deve ser um único objeto JSON com apenas hostId, requestId, scope, drainSeconds e expectCommit, cada um uma vez (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_busy": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " está ocupado com a solicitação ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; acompanhe essa solicitação em vez de iniciar outra."
+  ],
+  "pool.host_update_commit_invalid": "expectCommit deve ter de 7 a 40 dígitos hexadecimais minúsculos.",
+  "pool.host_update_commit_label": "Commit esperado",
+  "pool.host_update_completed": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já terminou no hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_credential_label": "Credencial do operador",
+  "pool.host_update_credential_missing": "Informe a credencial do operador.",
+  "pool.host_update_drain_invalid": "drainSeconds deve ser um número inteiro de 60 a 21600.",
+  "pool.host_update_drain_label": "Limite de drenagem",
+  "pool.host_update_drain_now_label": "Para encerrar o ciclo em execução agora",
+  "pool.host_update_drain_value": [
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " s (",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " min)"
+  ],
+  "pool.host_update_field_forbidden": [
+    "A solicitação de atualização trouxe ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; nenhuma solicitação deste serviço encerra um ciclo em execução. Para encerrar um, execute Invoke-HostUpdate.ps1 -Drain now em um shell no hospedeiro."
+  ],
+  "pool.host_update_field_unsupported": [
+    "A solicitação de atualização trouxe o campo não suportado ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_heading": "Atualizar hospedeiro",
+  "pool.host_update_host_refused": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " recusou a atualização (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_host_unavailable": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não conseguiu enfileirar a atualização (HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); tente novamente com o mesmo id de solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_intro": "Esta página assina uma atualização para o hospedeiro abaixo e a envia para ele. O hospedeiro espera o ciclo em execução terminar, então para o executor, atualiza seu checkout e inicia o executor de novo; ele desiste após o limite de drenagem sem mudar nada. Nenhuma solicitação desta página encerra um ciclo em execução: para encerrar um, execute o comando mostrado abaixo em um shell no hospedeiro.",
+  "pool.host_update_loading": "Lendo o hospedeiro…",
+  "pool.host_update_mint_failed": [
+    "Este serviço não conseguiu assinar a solicitação de atualização para o hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "."
+  ],
+  "pool.host_update_not_offered": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não pode aceitar uma atualização remota agora (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ")."
+  ],
+  "pool.host_update_open_diagnostics": "Abrir a página Diagnósticos do hospedeiro",
+  "pool.host_update_page_title": "Atualizar hospedeiro — Yuruna Pool Control",
+  "pool.host_update_request_conflict": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já foi usada com outro escopo, limite de drenagem ou commit esperado; reenvie a solicitação original ou inicie uma nova."
+  ],
+  "pool.host_update_request_label": "ID da solicitação",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstalar dependências e configurações, depois reiniciar",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Reiniciar o executor no código atual"
+    }
+  },
+  "pool.host_update_scope_invalid": "scope deve ser restart ou full.",
+  "pool.host_update_scope_label": "Escopo",
+  "pool.host_update_sending": "Assinando e enviando a atualização…",
+  "pool.host_update_sent": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " enfileirou a atualização ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; abrindo a página Diagnósticos dele."
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "A atualização remota de hospedeiro está desativada: este serviço não possui chave de assinatura de atualização ou credencial de operador (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ")."
+  ],
+  "pool.host_update_submit": "Enviar a atualização",
+  "pool.host_update_unavailable": [
+    "O hospedeiro ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " não pode aceitar uma atualização remota agora (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -8085,7 +9855,7 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "pool.listen_addr": "ouvir addr",
+  "pool.listen_addr": "Endereço de escuta",
   "pool.loaded": "Carregado:",
   "pool.loading_hosts": "Carregando máquinas...",
   "pool.loading_pools": "Carregando grupos...",
@@ -8182,8 +9952,8 @@ var Catalogs = map[string]map[string]string{
   "pool.paused_after_cycle_and_step": "Pausa após ciclo e passo",
   "pool.persisted_health": "Saúde persistente",
   "pool.persistence_disabled": "(persistência deficiente)",
-  "pool.pid": "pid",
-  "pool.platform": "plataforma",
+  "pool.pid": "PID",
+  "pool.platform": "Plataforma",
   "pool.pool": "Grupo",
   "pool.pool_for_host_value1": [
     "Pool para a máquina ",
@@ -8194,7 +9964,7 @@ var Catalogs = map[string]map[string]string{
     }
   ],
   "pool.pool_id": "ID do grupo",
-  "pool.pool_id_66d3d3f3": "ID do conjunto",
+  "pool.pool_id_66d3d3f3": "ID do grupo",
   "pool.pool_membership_moved_to_value1": [
     "Os membros do grupo mudaram-se para ",
     {
@@ -8206,7 +9976,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.pool_project_denied": "O pool atribuiu a esta máquina um projecto que a sua credencial git não consegue ler. Conceda o seu acesso ao repositório, ou reatribua o pool a cada membro que possa ler. Os seus ciclos falham até então, e nenhuma repetição poderá corrigi-lo.",
   "pool.pool_project_unreachable": "O projecto que esta máquina atribuiu não respondeu. Esta é a rede, não a permissão, e o clone volta a tentar através do backoff normal.",
-  "pool.pool_status": "Estado do Grupo",
+  "pool.pool_status": "Estado do grupo",
   "pool.pool_status_change_failed_value1": [
     "Falha na alteração do estado do grupo: ",
     {
@@ -8307,7 +10077,7 @@ var Catalogs = map[string]map[string]string{
       "project": "Esta máquina não consegue ler o repositório do projecto com o qual está configurado. Verifique a sua credencial git e o URL no test.config.yml."
     }
   },
-  "pool.repo_dir": "repo dir",
+  "pool.repo_dir": "Pasta do repositório",
   "pool.repo_held_detail": {
     "kind": "select",
     "selector": "repo",
@@ -8627,10 +10397,10 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.scan_yuruna_pool_control": "Controle de grupos de Yuruna",
   "pool.service_diagnostics": "Diagnóstico de serviço",
-  "pool.service_user": "usuário de serviço",
+  "pool.service_user": "Usuário do serviço",
   "pool.show_hostnames": "Mostrar os nomes das máquinas",
-  "pool.started_at": "iniciado em",
-  "pool.state_dir": "pasta de estado",
+  "pool.started_at": "Iniciado em",
+  "pool.state_dir": "Pasta de estado",
   "pool.state_fail": "falha",
   "pool.state_idle": "ocioso",
   "pool.state_mismatch": "desfasamento",
@@ -8814,12 +10584,12 @@ var Catalogs = map[string]map[string]string{
   "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": "Este ID não responde mais neste endereço; o ID ao lado responde. Um host, dois IDs — a máquina foi recriada a partir de uma imagem ou clonada novamente. A associação ao grupo ainda está registrada no ID antigo, então o host ativo trabalha fora do grupo.",
   "pool.time_period": "Período",
   "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": "O Token está certo, mas o relógio está desligado. Conserte o relógio do hospedeiro.",
-  "pool.total_storage": "Armazenamento Total",
+  "pool.total_storage": "Armazenamento total",
   "pool.type": "Tipo",
   "pool.unlock": "Desbloquear",
   "pool.unlock_with_the_lab_token_to_see_hostnames": "Desbloqueie com o token do laboratório para ver os nomes das máquinas.",
   "pool.unsupported_range": "intervalo não suportado; use 1h, 24h, 7d ou 30d",
-  "pool.uptime": "tempo de execução",
+  "pool.uptime": "Tempo de atividade",
   "pool.use_this_network": "Usar esta rede",
   "pool.value1_applied_to_value2_host_s_in_pool_value3": [
     {
@@ -8923,7 +10693,7 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "pool.version": "versão",
+  "pool.version": "Versão",
   "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": "O que o daemon foi lançado com, eo ambiente seus processos pwsh filho herdar.",
   "pool.what_to_do": "O que fazer",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "Que construção está realmente em execução, e por quanto tempo — estabelece se uma correção foi implementada em tudo.",
@@ -9062,8 +10832,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "Proibido (não é um arquivo servido)",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "proibido: o alvo da sonda deve ser um endereço privado (loopback/RFC1918/link-local) ou o IP de cache configurado",
   "status.api_guest_channel_key_absent": "este host ainda não possui chave do canal de convidados; ela é criada quando o host gera a primeira seed de convidado",
-  "status.api_host_refresh_authorization_refused": [
-    "autorização de atualização recusada (",
+  "status.api_host_repair_authorization_refused": [
+    "autorização de reparo recusada (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -9071,8 +10841,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_busy": "outra operação do hospedeiro está em andamento",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "outra operação do hospedeiro está em andamento",
+  "status.api_host_repair_request_closed": [
     "este ID de solicitação já foi encerrado (",
     {
       "arg": "state",
@@ -9081,15 +10851,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.api_host_refresh_request_conflict": "este ID de solicitação já foi usado com configurações diferentes",
-  "status.api_host_refresh_unavailable": [
-    "a atualização do hospedeiro não está disponível neste hospedeiro (",
+  "status.api_host_repair_request_conflict": "este ID de solicitação já foi usado com configurações diferentes",
+  "status.api_host_repair_unavailable": [
+    "o reparo do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     ")"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "autorização de atualização do hospedeiro recusada (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")"
+  ],
+  "status.api_host_update_busy": "uma atualização do hospedeiro está em andamento neste hospedeiro",
+  "status.api_host_update_controller_absent": "nenhum controlador do hospedeiro está em execução neste hospedeiro; nada foi enfileirado",
+  "status.api_host_update_proof_missing": "uma atualização de hospedeiro vinda de outra máquina precisa de uma prova de atualização do pool-control; nada foi enfileirado",
+  "status.api_host_update_scope_unavailable": [
+    "o controlador do hospedeiro não executa o escopo ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "; nada foi enfileirado"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "chave de autenticação interna não configurada nesta máquina",
   "status.api_internal_error": "a solicitação falhou no hospedeiro; consulte server.err",
@@ -9268,8 +11059,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "Configuração",
   "status.config_field_alwaysredownload": "sempreRedownload",
   "status.config_field_armwindowhours": "BraçoWindowHours",
-  "status.config_field_autorefreshafterstalls": "AutoRefreshAfterStalls",
   "status.config_field_autoremediation": "AutoRemediação",
+  "status.config_field_autorepairafterstalls": "AutoRepairAfterStalls",
   "status.config_field_autoseed": "AutoSeed",
   "status.config_field_bootdelayseconds": "bootDelaySeconds",
   "status.config_field_cachingproxyip": "cachingProxyIp",
@@ -9379,23 +11170,23 @@ var Catalogs = map[string]map[string]string{
     },
     ")"
   ],
-  "status.control_host_token_missing": "Este hospedeiro ainda não tem ficha de laboratório.",
+  "status.control_host_token_missing": "Este hospedeiro ainda não tem chave de autenticação interna.",
   "status.control_instructions": [
-    "Esta máquina só aceita o controle a partir de um navegador na própria máquina (",
+    "Este hospedeiro só aceita controle de um navegador no próprio hospedeiro (",
     {
       "arg": "address",
       "type": "detail",
       "trust": "external"
     },
-    "), ou um aberto através do link do painel de máquinas Yuruna (que concede um token de curta duração). o painel; se este host nunca foi matriculado, execute ",
+    ") ou de um navegador aberto pelo link do painel de hospedeiros Yuruna (que concede uma prova de controle de curta duração). Para controlá-lo de outra máquina, abra-o pelo painel; se este hospedeiro nunca foi inscrito, execute ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "external"
     },
-    " com o código do ladrilho de token Lab do painel."
+    " com o código do bloco do token do laboratório no painel."
   ],
-  "status.control_proof_expired": "O token de controle desta página expirou (duram 15 minutos).",
+  "status.control_proof_expired": "A prova de controle desta página expirou (as provas duram 15 minutos).",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "A prova de controle expirou -- reabrir esta máquina do link do painel antes de salvar. Suas edições são mantidas até que você o faça.",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "A prova de controle expira em ",
@@ -9406,12 +11197,12 @@ var Catalogs = map[string]map[string]string{
     },
     "s -- salvar em breve, ou reabrir este host do link do painel para um novo."
   ],
-  "status.control_proof_invalid": "O token de controle desta página não verifica aqui – o token do laboratório armazenado deste hospedeiro provavelmente difere do atual do laboratório, então re-introduza.",
-  "status.control_proof_missing": "Esta página foi aberta sem um token de controle, então nenhuma foi enviada.",
+  "status.control_proof_invalid": "A prova de controle desta página não é verificada aqui – a chave de autenticação interna deste hospedeiro provavelmente difere da atual do laboratório, então inscreva-o novamente com um token do laboratório.",
+  "status.control_proof_missing": "Esta página foi aberta sem uma prova de controle, então nenhuma foi enviada.",
   "status.control_refused": "Controle recusado.",
   "status.control_routes": "configuração da rota de controlo",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "Esta máquina não tem nenhum lab-auth-token, então o controle remoto é somente loopback. Abra esta página como ",
+    "Esta máquina não tem chave de autenticação interna, então o controle remoto é somente loopback. Abra esta página como ",
     {
       "arg": "address",
       "type": "token",
@@ -9664,11 +11455,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "mirror.origin",
-  "status.git_source_mirror_fresh": "mirror.fresh",
-  "status.git_source_mirror_stale": "mirror.stale",
-  "status.git_source_not_applicable": "not.applicable",
-  "status.git_source_origin_direct": "remote.origin",
+  "status.git_source_mirror_confirmed": "mirror",
+  "status.git_source_mirror_fresh": "mirror fresh",
+  "status.git_source_mirror_stale": "mirror stale",
+  "status.git_source_not_applicable": "not applicable",
+  "status.git_source_origin_direct": "remote",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -9741,33 +11532,33 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation.",
-  "status.host_refresh_action_elevate": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada.",
-  "status.host_refresh_action_grant_automation": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e atualize novamente.",
-  "status.host_refresh_action_gui_session": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e atualize novamente.",
-  "status.host_refresh_action_install_client": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e atualize novamente.",
-  "status.host_refresh_action_resume_request": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRefresh.ps1 -Resume.",
-  "status.host_refresh_action_start_runner": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo.",
-  "status.host_refresh_authorization_refused": [
-    "Esta atualização exige uma prova de atualização que esta página não tem (",
+  "status.host_repair_action_dispose_obligations": "Próxima etapa: revise os itens de recuperação pendentes no hospedeiro e descarte-os com pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation.",
+  "status.host_repair_action_elevate": "Próxima etapa: o reparo exige direitos de administrador; execute-o no hospedeiro em uma sessão elevada.",
+  "status.host_repair_action_grant_automation": "Próxima etapa: permita o acesso de automação deste hospedeiro ao UTM e repare novamente.",
+  "status.host_repair_action_gui_session": "Próxima etapa: entre em uma sessão de área de trabalho no hospedeiro e repare novamente.",
+  "status.host_repair_action_install_client": "Próxima etapa: instale o cliente de linha de comando do hipervisor no hospedeiro e repare novamente.",
+  "status.host_repair_action_resume_request": "Próxima etapa: retome esta solicitação no hospedeiro com pwsh test/lab/Invoke-HostRepair.ps1 -Resume.",
+  "status.host_repair_action_start_runner": "Próxima etapa: inicie o executor no hospedeiro; nenhuma inicialização registrada pôde ser reutilizada para reiniciá-lo.",
+  "status.host_repair_authorization_refused": [
+    "Este reparo exige uma prova de reparo que esta página não tem (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Use a página de status no próprio hospedeiro ou a ação de atualização do controle do grupo."
+    "). Use a página de status no próprio hospedeiro ou a ação de reparo do controle do grupo."
   ],
-  "status.host_refresh_busy": [
-    "Outra atualização do hospedeiro (",
+  "status.host_repair_busy": [
+    "Outro reparo do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") está em andamento; exibindo o progresso dela."
+    ") está em andamento; exibindo o progresso dele."
   ],
-  "status.host_refresh_check_host": "No hospedeiro, execute pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf para ver o estado atual.",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "No hospedeiro, execute pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf para ver o estado atual.",
+  "status.host_repair_closed": [
     "A solicitação ",
     {
       "arg": "requestId",
@@ -9780,10 +11571,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); inicie uma nova atualização."
+    "); inicie um novo reparo."
   ],
-  "status.host_refresh_confirm": [
-    "Atualizar este hospedeiro, até a etapa ",
+  "status.host_repair_confirm": [
+    "Reparar este hospedeiro, até a etapa ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -9797,18 +11588,9 @@ var Catalogs = map[string]map[string]string{
     },
     " minutos."
   ],
-  "status.host_refresh_conflict": [
-    "A solicitação ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " já foi enviada com configurações diferentes; inicie uma nova atualização."
-  ],
-  "status.host_refresh_launcher_failed": "O hospedeiro não pôde iniciar o processo de atualização. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo.",
-  "status.host_refresh_lost": [
-    "Atualização ",
+  "status.host_repair_launcher_failed": "O hospedeiro não pôde iniciar o processo de reparo. A solicitação foi mantida; selecione Tentar novamente para iniciá-la de novo.",
+  "status.host_repair_lost": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9820,11 +11602,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " segundos, ou uma solicitação posterior substituiu o relatório dela. Selecione Tentar novamente para perguntar ao hospedeiro como ela terminou, ou Atualizar hospedeiro para iniciar uma nova."
+    " segundos, ou uma solicitação posterior substituiu o relatório dele. Selecione Tentar novamente para perguntar ao hospedeiro como ele terminou, ou Reparar hospedeiro para iniciar um novo."
   ],
-  "status.host_refresh_note": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera.",
-  "status.host_refresh_progress": [
-    "Atualização ",
+  "status.host_repair_note": "Repara um executor ou hipervisor travado neste hospedeiro. As VMs convidadas neste hospedeiro podem ser suspensas ou reiniciadas enquanto o hipervisor se recupera.",
+  "status.host_repair_progress": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9856,19 +11638,11 @@ var Catalogs = map[string]map[string]string{
     },
     " segundos restantes."
   ],
-  "status.host_refresh_recovery_pending": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação.",
-  "status.host_refresh_rejected": [
-    "O hospedeiro rejeitou a solicitação de atualização: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "Esta página está aberta em outra máquina, então ela pode acompanhar uma atualização do hospedeiro, mas não iniciá-la. Inicie-a no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRefresh.ps1.",
-  "status.host_refresh_retry": "Tentar novamente",
-  "status.host_refresh_stale": [
-    "Atualização ",
+  "status.host_repair_recovery_pending": "Serviços ou o executor ainda precisam ser restaurados. Tentar novamente retoma a mesma solicitação.",
+  "status.host_repair_remote_viewer": "Esta página está aberta em outra máquina, então ela pode acompanhar um reparo do hospedeiro, mas não iniciá-lo. Inicie-o no próprio hospedeiro: pelo painel dele, ou com pwsh test/lab/Invoke-HostRepair.ps1.",
+  "status.host_repair_retry": "Tentar novamente",
+  "status.host_repair_stale": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9882,12 +11656,11 @@ var Catalogs = map[string]map[string]string{
     },
     " segundos. O processo de trabalho pode ter parado; verifique o hospedeiro antes de iniciar outro reparo."
   ],
-  "status.host_refresh_start": "Atualizar hospedeiro",
-  "status.host_refresh_start_cycle_busy": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar.",
-  "status.host_refresh_submitting": "Enviando a solicitação de atualização...",
-  "status.host_refresh_title": "Atualização do hospedeiro",
-  "status.host_refresh_unavailable": [
-    "A atualização do hospedeiro não está disponível neste hospedeiro (",
+  "status.host_repair_start": "Reparar hospedeiro",
+  "status.host_repair_start_cycle_busy": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar.",
+  "status.host_repair_title": "Reparo do hospedeiro",
+  "status.host_repair_unavailable": [
+    "O reparo do hospedeiro não está disponível neste hospedeiro (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -9895,26 +11668,26 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "A atualização ",
+  "status.host_repair_verdict_abandoned": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi abandonada após tentativas repetidas; o registro de recuperação dela é mantido no hospedeiro."
+    " foi abandonado após tentativas repetidas; o registro de recuperação dele é mantido no hospedeiro."
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "Atualização ",
+  "status.host_repair_verdict_already_healthy": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " concluída: o hospedeiro já estava íntegro, então nada foi alterado."
+    " concluído: o hospedeiro já estava íntegro, então nada foi alterado."
   ],
-  "status.host_refresh_verdict_failed": [
-    "A atualização ",
+  "status.host_repair_verdict_failed": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9928,14 +11701,14 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_partial": [
-    "A atualização ",
+  "status.host_repair_verdict_partial": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " terminou incompleta (",
+    " terminou incompleto (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -9943,14 +11716,14 @@ var Catalogs = map[string]map[string]string{
     },
     "); alguns serviços ou o executor ainda precisam de atenção."
   ],
-  "status.host_refresh_verdict_refused": [
-    "A atualização ",
+  "status.host_repair_verdict_refused": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi recusada antes de qualquer alteração (",
+    " foi recusado antes de qualquer alteração (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -9958,26 +11731,26 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_verdict_repaired": [
-    "Atualização ",
+  "status.host_repair_verdict_repaired": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " concluída: o hospedeiro foi reparado e o executor está pronto."
+    " concluído: o hospedeiro foi reparado e o executor está pronto."
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "Atualização ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " encerrada: o hipervisor ainda não responde."
+    " encerrado: o hipervisor ainda não responde."
   ],
-  "status.host_refresh_verdict_unknown": [
-    "A atualização ",
+  "status.host_repair_verdict_unknown": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -9991,17 +11764,17 @@ var Catalogs = map[string]map[string]string{
     },
     ")."
   ],
-  "status.host_refresh_waiting": [
-    "A atualização ",
+  "status.host_repair_waiting": [
+    "O reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " foi aceita; aguardando o primeiro relatório do worker."
+    " foi aceito; aguardando o primeiro relatório do worker."
   ],
-  "status.host_refresh_waiting_long": [
-    "Atualização ",
+  "status.host_repair_waiting_long": [
+    "Reparo ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -10015,6 +11788,543 @@ var Catalogs = map[string]map[string]string{
     },
     " segundos. O worker pode ter falhado ao iniciar; verifique o hospedeiro."
   ],
+  "status.host_request_conflict": [
+    "A solicitação ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " já foi enviada com configurações diferentes; inicie uma nova solicitação."
+  ],
+  "status.host_request_rejected": [
+    "O hospedeiro rejeitou a solicitação: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "Enviando a solicitação...",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "Próxima etapa: verifique o hospedeiro e aja nele.",
+      "end_one_shot": "Próxima etapa: encerre a sessão avulsa no hospedeiro e pressione novamente.",
+      "other": [
+        "Próxima etapa: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "provision_elevation": "Próxima etapa: dê ao executor sua regra de sudo no hospedeiro e pressione novamente.",
+      "provision_elevation_macos": [
+        "Próxima etapa: no hospedeiro, execute ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " em um terminal da sessão da área de trabalho e responda às perguntas; ele instala a entrada de sudoers que as atualizações de hospedeiro usam. Depois pressione novamente."
+      ],
+      "read_remarks": "Próxima etapa: leia as observações.",
+      "reboot_host": "Próxima etapa: reinicie o Windows no hospedeiro e depois inicie o executor.",
+      "release": [
+        "Próxima etapa: para encerrá-la, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "Próxima etapa: libere a VM mantida para diagnóstico e pressione novamente.",
+      "repair_checkout": "Próxima etapa: repare o checkout no hospedeiro; o hospedeiro continua tentando.",
+      "retry_or_drain_now": [
+        "Próxima etapa: pressione novamente, ou encerre o ciclo agora no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "Próxima etapa: inicie o executor no hospedeiro.",
+      "stop_runner_by_hand": "Próxima etapa: pare o executor no hospedeiro manualmente."
+    }
+  },
+  "status.host_update_blocks": [
+    "Uma atualização de hospedeiro (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") está em andamento; tente novamente quando ela terminar."
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "Um reparo do hospedeiro (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") está em andamento; tente novamente quando ele terminar."
+      ],
+      "host_update": [
+        "Outra atualização de hospedeiro (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") está em andamento; mostrando o progresso dela."
+      ],
+      "other": "Uma solicitação de início de ciclo está em andamento; tente novamente quando ela terminar."
+    }
+  },
+  "status.host_update_confirm": [
+    "Atualizar hospedeiro (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? O executor para quando o ciclo em execução termina e reinicia no código atual; a atualização desiste após ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos. Para encerrar o ciclo agora, execute no hospedeiro: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "O executor foi iniciado sem console.",
+      "other": [
+        "Console do executor: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "."
+      ],
+      "tmux": [
+        "Para abrir o console do executor, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "O console do executor é uma janela própria na área de trabalho da conta de teste: abra-a na máquina ou por uma conexão de área de trabalho remota a essa sessão."
+    }
+  },
+  "status.host_update_countdown": [
+    "O serviço de status está reiniciando; previsto de volta em ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " segundos."
+  ],
+  "status.host_update_cycle_time": [
+    "O ciclo em execução já dura ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; ciclos recentes levaram cerca de ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "."
+  ],
+  "status.host_update_debt": [
+    "Ainda pendente no hospedeiro: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "O primeiro ciclo após a atualização falhou.",
+      "other": "Aguardando o primeiro ciclo após a atualização.",
+      "pass": "O primeiro ciclo após a atualização passou."
+    }
+  },
+  "status.host_update_lost": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": o hospedeiro não a reporta mais, então o resultado é desconhecido aqui; verifique o hospedeiro."
+  ],
+  "status.host_update_note": [
+    "Atualiza o código deste hospedeiro e reinicia o executor quando o ciclo em execução termina, desistindo após ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " minutos. Para encerrar o ciclo agora, execute no hospedeiro: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": fase ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " de ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), limitada a ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_queued": [
+    "A atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " está na fila; ela começa quando o ciclo em execução termina."
+  ],
+  "status.host_update_remarks": [
+    "Observações: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "."
+  ],
+  "status.host_update_remote_hint": [
+    "Atualizar hospedeiro abre o pool-control em ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", que assina a solicitação e traz você de volta aqui."
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "Reinstalar dependências e configurações, depois reiniciar",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "Reiniciar o executor no código atual"
+    }
+  },
+  "status.host_update_stale": [
+    "Atualização de hospedeiro ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": nenhum relatório há ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " segundos; verifique o hospedeiro."
+  ],
+  "status.host_update_start": "Atualizar hospedeiro",
+  "status.host_update_title": "Atualização do hospedeiro",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "Nenhum controlador de hospedeiro está em execução aqui. Para configurar um, execute no hospedeiro: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "Uma atualização de hospedeiro retém o executor deste hospedeiro e nenhum controlador de hospedeiro está em execução. Execute ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " mais uma vez em um terminal da sessão da área de trabalho e deixe como está um executor em execução: esse início para no portão do executor e inicia o controlador, que continua a atualização."
+      ],
+      "controller_absent_macos": [
+        "Nenhum controlador de hospedeiro está em execução aqui. No macOS, o início do executor o inicia: execute ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " em um terminal da sessão da área de trabalho, ou pare um executor em execução após seu ciclo e inicie-o de novo dessa forma. Em um hospedeiro nunca preparado para atualizações de hospedeiro, execute ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " primeiro."
+      ],
+      "host_type": "Atualizações de hospedeiro ainda não estão disponíveis neste tipo de hospedeiro.",
+      "journal_unreadable": "O hospedeiro não consegue ler seu diário de operações; verifique o hospedeiro.",
+      "listener_dependency_missing": "O serviço de status não carregou o que as atualizações de hospedeiro exigem; reinicie-o no hospedeiro.",
+      "other": [
+        "Atualizações de hospedeiro não estão disponíveis neste hospedeiro (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "remote": [
+        "De outra máquina, esta página só acompanha uma atualização de hospedeiro; até que ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " esteja instalado no hospedeiro, pressione Atualizar hospedeiro lá."
+      ],
+      "scope_unavailable": "Este hospedeiro não pode executar o escopo escolhido agora.",
+      "session_unusable": [
+        "A sessão do controlador do hospedeiro não consegue iniciar um executor funcional: ela não é a sessão da área de trabalho, ou falta ali uma permissão de privacidade. No hospedeiro, encerre a sessão yuruna-controller com ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (no screen, encerre a sessão yuruna-controller que ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " lista), pare um executor em execução após seu ciclo e inicie o executor de novo em um terminal da sessão da área de trabalho que tenha as permissões."
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " desistiu: o ciclo em execução durou mais que a espera. Nada mudou."
+      ],
+      "failed_restored": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " não foi concluída (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); o hospedeiro foi restaurado."
+      ],
+      "other": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou com um resultado que esta página não reconhece (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "reboot_required": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou, mas o Windows precisa reiniciar antes que o hipervisor possa ser executado, então o executor não foi iniciado."
+      ],
+      "recovering": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": o executor ainda não está em execução; o hospedeiro continua tentando (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "recovering_without_controller": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": o executor ainda não está em execução (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), e nenhum controlador de hospedeiro está em execução para tentar de novo."
+      ],
+      "refused": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi recusada; nada mudou (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ")."
+      ],
+      "released": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi liberada no hospedeiro."
+      ],
+      "stop_failed": [
+        "Atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": não foi possível parar o executor, então nada foi iniciado."
+      ],
+      "superseded": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " foi assumida por ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "."
+      ],
+      "updated": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou; o executor executa o código atual."
+      ],
+      "updated_not_started": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou; o executor estava parado antes dela, então não foi iniciado."
+      ],
+      "updated_with_remarks": [
+        "A atualização de hospedeiro ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " terminou com observações; o executor executa o código atual."
+      ]
+    }
+  },
   "status.host_value1": [
     "Máquina: ",
     {
@@ -10031,7 +12341,7 @@ var Catalogs = map[string]map[string]string{
       "trust": "external"
     }
   ],
-  "status.images_refresh": "Actualizar as Imagens",
+  "status.images_refresh": "Atualização das imagens",
   "status.invocation_inferred_from_legacy_step_order_concurrent_or_incomple": "Invocação inferida da ordem de passos legada; corridas simultâneas ou incompletas podem permanecer combinadas.",
   "status.ips": "IPs:",
   "status.lab_hold": [
@@ -10043,7 +12353,7 @@ var Catalogs = map[string]map[string]string{
     }
   ],
   "status.lab_hold_unspecified": "Lab hold -- esperando por um serviço de laboratório",
-  "status.latest_cycle": "Último Ciclo",
+  "status.latest_cycle": "Último ciclo",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -10320,7 +12630,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "Nova VM",
   "status.pill_start_guestos": "Iniciar o SO",
   "status.pill_start_guestworkload": "Carga de trabalho",
-  "status.preflight_failed": "FALHA NA VERIFICAÇÃO PRÉVIA",
+  "status.preflight_failed": "Falha na verificação prévia",
   "status.process_environment_value_the_status_service_inherited_at_startup": "O valor do ambiente do processo do serviço de estado herdado na inicialização. Somente para leitura aqui; fonte de retorno somente: no início do ciclo o campo vmStart.cachingProxyIp acima é pesquisado primeiro e ganha quando suas respostas de 3128. Exportar isso no shell que lança o Start-TestRunner.ps1 para hosts cujo campo de configuração está vazio.",
   "status.quarantine_pinned": [
     "Quarentenado após falhas repetidas da mesma classe (esqueceu até um novo commit; fixado em ",
@@ -10337,7 +12647,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "Recalcular",
   "status.recalculating": "Recalculando...",
   "status.recalculating_perf_aggregates": "Recalculando os agregados perf...",
-  "status.recent_cycles": "Ciclos Recentes",
+  "status.recent_cycles": "Ciclos recentes",
   "status.refresh": "Actualizar",
   "status.results_folder": [
     "Abrir pasta de resultados para ",
@@ -10492,14 +12802,14 @@ var Catalogs = map[string]map[string]string{
     },
     ", reiniciar a VM e, em seguida, retomar a sequência"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "Uma atualização do hospedeiro (",
+  "status.start_cycle_blocked_by_repair": [
+    "Um reparo do hospedeiro (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") está em andamento; o ciclo não pode iniciar até que ela termine."
+    ") está em andamento; o ciclo não pode iniciar até que ele termine."
   ],
   "status.start_cycle_cycle_restarted": "Ciclo reiniciado",
   "status.start_cycle_failed": [
@@ -10583,7 +12893,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "Testando o serviço de cache-proxy da máquina...",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "O arquivo é construído apenas a partir de registros do servidor e baixado para esta máquina. Nenhum dado desta sessão de navegação está incluído.",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "A prova de controlo expirou.",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com um lab-auth-token diferente do que este host mantém; o re-introdução com test/lab/Set-LabToken.ps1 realinha-os.",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "A prova de controle foi rejeitada. Ela pode ter sido cunhada com uma chave de autenticação interna diferente da que este hospedeiro mantém; a nova inscrição com test/lab/Set-LabToken.ps1 as realinha.",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "A máquina não pôde carregar o seu verificador à prova de controlo; verifique o registro do serviço de estado.",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "A folha de partilha expirou enquanto a máquina embalava a pasta.",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "Este navegador não pôde anexar o arquivo a uma mensagem propriamente dita.",
@@ -10779,7 +13089,7 @@ var Catalogs = map[string]map[string]string{
 	},
 	"qps-Ploc": {
 		"pool": `{
-  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "[Á ƥóóļ ğřóúƥš ħóšţš úñďéř á šţáƀļé Ƥóóļ ÍĎ (ĞÚÍĎ); á ħóšţ ƀéļóñğš ţó áţ ɱóšţ óñé ƥóóļ. Ƥóóļ Šţáţúš řéáďš ŵħáţ ţħé ɱéɱƀéřš ářé ďóíñğ ñóŵ — çħóóšíñğ á ṽáļúé áƥƥļíéš íţ ţó éṽéřý ɱéɱƀéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "[Á ƥóóļ ğřóúƥš ħóšţš úñďéř á šţáƀļé Ƥóóļ ÍĎ (ĞÚÍĎ); á ħóšţ ƀéļóñğš ţó áţ ɱóšţ óñé ƥóóļ. Ƥóóļ šţáţúš řéáďš ŵħáţ ţħé ɱéɱƀéřš ářé ďóíñğ ñóŵ — çħóóšíñğ á ṽáļúé áƥƥļíéš íţ ţó éṽéřý ɱéɱƀéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "[Á šçáñ óƒ ",
     {
@@ -10833,7 +13143,7 @@ var Catalogs = map[string]map[string]string{
     },
     "); çóñţřóļ šţáţé íš úñķñóŵñ. Ɱóṽíñğ ħóšţš šţíļļ ŵóřķš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.aggregator_url": "[áğğřéğáţóř ÚŘĻ ~~~~~~]",
+  "pool.aggregator_url": "[Áğğřéğáţóř ÚŘĻ ~~~~~~]",
   "pool.all_checks_passed_pool_control_service_value1_value2_collected_va": [
     "[Áļļ çħéçķš ƥáššéď. ƥóóļ-çóñţřóļ-šéřṽíçé ",
     {
@@ -10935,7 +13245,7 @@ var Catalogs = map[string]map[string]string{
     },
     ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.configuration_git_url": "[çóñƒíğúřáţíóñ ğíţ ÚŘĻ ~~~~~~~~~]",
+  "pool.configuration_git_url": "[Çóñƒíğúřáţíóñ ğíţ ÚŘĻ ~~~~~~~~~]",
   "pool.configuration_read_raw_invocation": "[Çóñƒíğúřáţíóñ řéáď — řáŵ íñṽóçáţíóñ ~~~~~~~~~~~~~~]",
   "pool.continue": "[Çóñţíñúé ~~~~]",
   "pool.control": "[Çóñţřóļ ~~~]",
@@ -11264,7 +13574,7 @@ var Catalogs = map[string]map[string]string{
     " ~~~~~~~~~~~~~~~~~~~]"
   ],
   "pool.display_name": "[Ďíšƥļáý ñáɱé ~~~~~]",
-  "pool.duration": "[ďúřáţíóñ ~~~~]",
+  "pool.duration": "[Ďúřáţíóñ ~~~~]",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "[Éáçħ óƒ ţħé ƒóúř ñúɱƀéřš ɱúšţ ƀé 0 ţó 255. ~~~~~~~~~~~~~~~~~]",
   "pool.empty": "[(éɱƥţý) ~~~]",
   "pool.enrollment_target": [
@@ -11321,7 +13631,7 @@ var Catalogs = map[string]map[string]string{
     },
     " ɱéáñš íţ çáññóţ řéáď ţħé óñé çóñƒíğúřéď. Á řé-ķéýéď řóŵ íš óñé ɱáçħíñé'š óļď íďéñţíţý: íţ ŵáš řéíɱáğéď óř řé-çļóñéď, šó ţħé ļíṽé ħóšţ áñšŵéřš úñďéř ţħé íď šħóŵñ ƀéšíďé íţ ŵħíļé áñý ƥóóļ ɱéɱƀéřšħíƥ šţáýš óñ ţħé óļď óñé — ħáñď íţ óṽéř ƒřóɱ ţħáţ řóŵ. Ħóšţñáɱéš áƥƥéář óñçé ţħíš ƀřóŵšéř íš úñļóçķéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.exit_code": "[éẋíţ çóďé ~~~~]",
+  "pool.exit_code": "[Éẋíţ çóďé ~~~~]",
   "pool.fail": "[ƑÁÍĻ ~~]",
   "pool.failed": "[ƒáíļéď ~~~]",
   "pool.first_seen": "[Ƒířšţ šééñ ~~~~]",
@@ -11340,11 +13650,11 @@ var Catalogs = map[string]map[string]string{
   "pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r": "[Ƒóúñď ƀý šçáññíñğ ţħé ñéţŵóřķ; íţ ƀéļóñğš ţó ñó ƥóóļ áñď ħáš ñóţ řéğíšţéřéď ŵíţħ ţħé áğğřéğáţóř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.framework": "[Ƒřáɱéŵóřķ ~~~~]",
   "pool.framework_project": "[Ƒřáɱéŵóřķ / Ƥřóĵéçţ ~~~~~~~~]",
-  "pool.framework_revision": "[ƒřáɱéŵóřķ řéṽíšíóñ ~~~~~~~~]",
+  "pool.framework_revision": "[Ƒřáɱéŵóřķ řéṽíšíóñ ~~~~~~~~]",
   "pool.framework_url": "[Ƒřáɱéŵóřķ ÚŘĻ ~~~~~~]",
-  "pool.framework_version": "[ƒřáɱéŵóřķ ṽéřšíóñ ~~~~~~~]",
-  "pool.free_storage": "[Ƒřéé Šţóřáğé ~~~~~]",
-  "pool.go": "[ğó ~]",
+  "pool.framework_version": "[Ƒřáɱéŵóřķ ṽéřšíóñ ~~~~~~~]",
+  "pool.free_storage": "[Ƒřéé šţóřáğé ~~~~~]",
+  "pool.go": "[Ğó ~]",
   "pool.guide": "[Ğúíďé ~~]",
   "pool.hand_over": "[Ħáñď óṽéř ~~~~]",
   "pool.hand_over_failed_value1": [
@@ -11361,7 +13671,7 @@ var Catalogs = map[string]map[string]string{
   "pool.home": "[ĦÓⱮÉ ~~]",
   "pool.host": "[+ ħóšţ ~~~]",
   "pool.host_id": "[Ħóšţ ÍĎ ~~~]",
-  "pool.host_id_7b624c8f": "[ħóšţ íď ~~~]",
+  "pool.host_id_7b624c8f": "[Ħóšţ ÍĎ ~~~]",
   "pool.host_id_to_add_to_pool_value1": [
     "[Ħóšţ íď ţó áďď ţó ƥóóļ ",
     {
@@ -11371,8 +13681,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_body_invalid": [
-    "[Ţħé řéƒřéšħ řéʠúéšţ ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ óƒ šţříñğš ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, ţíéř áñď ɱáẋŘúñğ (",
+  "pool.host_repair_body_invalid": [
+    "[Ţħé řéƥáíř řéʠúéšţ ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ óƒ šţříñğš ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, ţíéř áñď ɱáẋŘúñğ (",
     {
       "arg": "detail",
       "type": "identifier",
@@ -11380,14 +13690,14 @@ var Catalogs = map[string]map[string]string{
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "[Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " íš áļřéáďý ħáñďļíñğ řéƒřéšħ řéʠúéšţ ",
+    " íš áļřéáďý ħáñďļíñğ řéƥáíř řéʠúéšţ ",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -11395,7 +13705,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; ƒóļļóŵ ţħáţ řéʠúéšţ íñšţéáď óƒ šţářţíñğ áñóţħéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "[Ñó çóñţřóļ ƥřóóƒ çóúļď ƀé óƀţáíñéď ƒóř ħóšţ ",
     {
       "arg": "hostId",
@@ -11410,8 +13720,8 @@ var Catalogs = map[string]map[string]string{
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_field_unsupported": [
-    "[Ţħé řéƒřéšħ řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď ",
+  "pool.host_repair_field_unsupported": [
+    "[Ţħé řéƥáíř řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď ",
     {
       "arg": "field",
       "type": "identifier",
@@ -11419,7 +13729,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; ƒóřçé áñď ħářď-šţóƥ óƥţíóñš ářé ñéṽéř áççéƥţéď řéɱóţéļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "[Ţħé ƥóóļ áğğřéğáţóř ķñóŵš ħóšţ ",
     {
       "arg": "hostId",
@@ -11428,15 +13738,15 @@ var Catalogs = map[string]map[string]string{
     },
     " ƀúţ ħáš ñó áďďřéšš ƒóř íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_id_invalid": "[ħóšţÍď ɱúšţ ƀé á 32-çħářáçţéř ħéẋáďéçíɱáļ ħóšţ íď. ~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "[ħóšţÍď ɱúšţ ƀé á 32-çħářáçţéř ħéẋáďéçíɱáļ ħóšţ íď. ~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_host_refused": [
     "[Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " řéƒúšéď ţħé řéƒřéšħ (ĦŢŢƤ ",
+    " řéƒúšéď ţħé řéƥáíř (ĦŢŢƤ ",
     {
       "arg": "status",
       "type": "integer",
@@ -11450,14 +13760,14 @@ var Catalogs = map[string]map[string]string{
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "[Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " çóúļď ñóţ šţářţ ţħé řéƒřéšħ (ĦŢŢƤ ",
+    " çóúļď ñóţ šţářţ ţħé řéƥáíř (ĦŢŢƤ ",
     {
       "arg": "status",
       "type": "integer",
@@ -11475,9 +13785,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "[Ţħé ƥóóļ áğğřéğáţóř ďóéš ñóţ ķñóŵ ħóšţ ",
     {
       "arg": "hostId",
@@ -11486,7 +13796,7 @@ var Catalogs = map[string]map[string]string{
     },
     ". ~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "[Ħóšţ ",
     {
       "arg": "hostId",
@@ -11501,16 +13811,16 @@ var Catalogs = map[string]map[string]string{
     },
     ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_mint_failed": [
-    "[Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé řéƒřéšħ řéʠúéšţ ƒóř ħóšţ ",
+  "pool.host_repair_mint_failed": [
+    "[Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé řéƥáíř řéʠúéšţ ƒóř ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "[Ħóšţ ",
     {
       "arg": "hostId",
@@ -11525,7 +13835,7 @@ var Catalogs = map[string]map[string]string{
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "[Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -11550,9 +13860,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); ğéñéřáţé á ñéŵ řéʠúéšţ íď ţó řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); ğéñéřáţé á ñéŵ řéʠúéšţ íď ţó řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "[Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -11561,10 +13871,10 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áļřéáďý úšéď ŵíţħ á ďíƒƒéřéñţ ţíéř óř çéíļíñğ; řéšéñď ţħé óříğíñáļ ƥóļíçý óř ğéñéřáţé á ñéŵ řéʠúéšţ íď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_request_id_invalid": "[řéʠúéšţÍď ɱúšţ ƀé á ļóŵéřçášé ÚÚÍĎ (8-4-4-4-12) ţħáţ ţħé çáļļéř ğéñéřáţéš óñçé áñď řéúšéš óñ éṽéřý řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_rung_unsupported": "[ɱáẋŘúñğ ɱúšţ ƀé ƥřóƀé, řéçļáíɱ, šţářţ-íƒ-šţóƥƥéď, řéšţářţ-íƒ-ħúñğ óř řéšţářţ-ƀřóķéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_signing_unconfigured": [
-    "[Řéɱóţé ħóšţ řéƒřéšħ íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó řéƒřéšħ šíğñíñğ áúţħóříţý (",
+  "pool.host_repair_request_id_invalid": "[řéʠúéšţÍď ɱúšţ ƀé á ļóŵéřçášé ÚÚÍĎ (8-4-4-4-12) ţħáţ ţħé çáļļéř ğéñéřáţéš óñçé áñď řéúšéš óñ éṽéřý řéţřý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_rung_unsupported": "[ɱáẋŘúñğ ɱúšţ ƀé ƥřóƀé, řéçļáíɱ, šţářţ-íƒ-šţóƥƥéď, řéšţářţ-íƒ-ħúñğ óř řéšţářţ-ƀřóķéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_signing_unconfigured": [
+    "[Řéɱóţé ħóšţ řéƥáíř íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó řéƥáíř šíğñíñğ áúţħóříţý (",
     {
       "arg": "path",
       "type": "detail",
@@ -11572,21 +13882,254 @@ var Catalogs = map[string]map[string]string{
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_tier_unsupported": "[Óñļý ţħé řéšţářţ ţíéř çáñ ƀé řéʠúéšţéď řéɱóţéļý; ţħé ƒúļļ ţíéř íš ļóçáļ-óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "[Óñļý ţħé řéšţářţ ţíéř çáñ ƀé řéʠúéšţéď řéɱóţéļý; ţħé ƒúļļ ţíéř íš ļóçáļ-óñļý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_unavailable": [
     "[Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " ďóéš ñóţ áďṽéřţíšé řéɱóţé řéƒřéšħ (",
+    " ďóéš ñóţ áďṽéřţíšé řéɱóţé řéƥáíř (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_action": "[Úƥďáţé ħóšţ ~~~~~]",
+  "pool.host_update_body_invalid": [
+    "[Ţħé úƥďáţé řéʠúéšţ ɱúšţ ƀé óñé ĴŠÓÑ óƀĵéçţ ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, šçóƥé, ďřáíñŠéçóñďš áñď éẋƥéçţÇóɱɱíţ, éáçħ óñçé (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_busy": [
+    "[Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ƀúšý ŵíţħ řéʠúéšţ ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; ƒóļļóŵ ţħáţ řéʠúéšţ íñšţéáď óƒ šţářţíñğ áñóţħéř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_commit_invalid": "[éẋƥéçţÇóɱɱíţ ɱúšţ ƀé 7 ţó 40 ļóŵéřçášé ħéẋáďéçíɱáļ ďíğíţš. ~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_update_commit_label": "[Éẋƥéçţéď çóɱɱíţ ~~~~~~]",
+  "pool.host_update_completed": [
+    "[Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " áļřéáďý éñďéď óñ ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_credential_label": "[Óƥéřáţóř çřéďéñţíáļ ~~~~~~~~]",
+  "pool.host_update_credential_missing": "[Éñţéř ţħé óƥéřáţóř çřéďéñţíáļ. ~~~~~~~~~~~~]",
+  "pool.host_update_drain_invalid": "[ďřáíñŠéçóñďš ɱúšţ ƀé á ŵħóļé ñúɱƀéř ƒřóɱ 60 ţó 21600. ~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_update_drain_label": "[Ďřáíñ ƀóúñď ~~~~~]",
+  "pool.host_update_drain_now_label": "[Ţó éñď ţħé řúññíñğ çýçļé ñóŵ ~~~~~~~~~~~~]",
+  "pool.host_update_drain_value": [
+    "[",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " š (",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñ) ~~~~~~~~~~~]"
+  ],
+  "pool.host_update_field_forbidden": [
+    "[Ţħé úƥďáţé řéʠúéšţ çářříéď ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; ñó řéʠúéšţ ƒřóɱ ţħíš šéřṽíçé éñďš á řúññíñğ çýçļé. Ţó éñď óñé, řúñ Invoke-HostUpdate.ps1 -Ďřáíñ ñóŵ íñ á šħéļļ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_field_unsupported": [
+    "[Ţħé úƥďáţé řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_heading": "[Úƥďáţé ħóšţ ~~~~~]",
+  "pool.host_update_host_refused": [
+    "[Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " řéƒúšéď ţħé úƥďáţé (ĦŢŢƤ ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_host_unavailable": [
+    "[Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " çóúļď ñóţ ʠúéúé ţħé úƥďáţé (ĦŢŢƤ ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); řéţřý ŵíţħ ţħé šáɱé řéʠúéšţ íď ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_intro": "[Ţħíš ƥáğé šíğñš óñé ħóšţ úƥďáţé ƒóř ţħé ħóšţ ƀéļóŵ áñď šéñďš íţ ţħéřé. Ţħé ħóšţ ŵáíţš ƒóř íţš řúññíñğ çýçļé ţó éñď, ţħéñ šţóƥš íţš řúññéř, ƀříñğš íţš çħéçķóúţ çúřřéñţ áñď šţářţš ţħé řúññéř áğáíñ; íţ ğíṽéš úƥ áƒţéř ţħé ďřáíñ ƀóúñď ŵíţħ ñóţħíñğ çħáñğéď. Ñó řéʠúéšţ ƒřóɱ ţħíš ƥáğé éñďš á řúññíñğ çýçļé: ţó éñď óñé, řúñ ţħé çóɱɱáñď šħóŵñ ƀéļóŵ íñ á šħéļļ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_update_loading": "[Řéáďíñğ ţħé ħóšţ… ~~~~~~~]",
+  "pool.host_update_mint_failed": [
+    "[Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé úƥďáţé řéʠúéšţ ƒóř ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_not_offered": [
+    "[Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " çáññóţ ţáķé á řéɱóţé ħóšţ úƥďáţé ñóŵ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_open_diagnostics": "[Óƥéñ ţħé ħóšţ'š Ďíáğñóšţíçš ƥáğé ~~~~~~~~~~~~~]",
+  "pool.host_update_page_title": "[Úƥďáţé ħóšţ — Ýúřúñá Ƥóóļ Çóñţřóļ ~~~~~~~~~~~~~~]",
+  "pool.host_update_request_conflict": [
+    "[Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý úšéď ŵíţħ á ďíƒƒéřéñţ šçóƥé, ďřáíñ ƀóúñď óř éẋƥéçţéď çóɱɱíţ; řéšéñď ţħé óříğíñáļ řéʠúéšţ óř šţářţ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_request_label": "[Řéʠúéšţ ÍĎ ~~~~]",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "[Řéíñšţáļļ ďéƥéñďéñçíéš áñď šéţţíñğš, ţħéñ řéšţářţ ~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[",
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        },
+        " ~~~]"
+      ],
+      "restart": "[Řéšţářţ ţħé řúññéř óñ çúřřéñţ çóďé ~~~~~~~~~~~~~~]"
+    }
+  },
+  "pool.host_update_scope_invalid": "[šçóƥé ɱúšţ ƀé řéšţářţ óř ƒúļļ. ~~~~~~~~~~~~]",
+  "pool.host_update_scope_label": "[Šçóƥé ~~]",
+  "pool.host_update_sending": "[Šíğñíñğ áñď šéñďíñğ ţħé úƥďáţé… ~~~~~~~~~~~~~]",
+  "pool.host_update_sent": [
+    "[Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ʠúéúéď úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; óƥéñíñğ íţš Ďíáğñóšţíçš ƥáğé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "[Řéɱóţé ħóšţ úƥďáţé íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó úƥďáţé šíğñíñğ ķéý óř ñó óƥéřáţóř çřéďéñţíáļ (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_submit": "[Šéñď ţħé úƥďáţé ~~~~~~]",
+  "pool.host_update_unavailable": [
+    "[Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " çáññóţ ţáķé á řéɱóţé ħóšţ úƥďáţé ñóŵ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": [
     "[Ħóšţ ",
@@ -11750,7 +14293,7 @@ var Catalogs = map[string]map[string]string{
     },
     " ~~~~~~~~]"
   ],
-  "pool.listen_addr": "[ļíšţéñ áďďř ~~~~~]",
+  "pool.listen_addr": "[Ļíšţéñ áďďř ~~~~~]",
   "pool.loaded": "[Ļóáďéď: ~~~]",
   "pool.loading_hosts": "[Ļóáďíñğ ħóšţš... ~~~~~~~]",
   "pool.loading_pools": "[Ļóáďíñğ ƥóóļš... ~~~~~~~]",
@@ -11849,8 +14392,8 @@ var Catalogs = map[string]map[string]string{
   "pool.paused_after_cycle_and_step": "[Ƥáúšéď áƒţéř çýçļé áñď šţéƥ ~~~~~~~~~~~]",
   "pool.persisted_health": "[Ƥéřšíšţéď ħéáļţħ ~~~~~~~]",
   "pool.persistence_disabled": "[(ƥéřšíšţéñçé ďíšáƀļéď) ~~~~~~~~~]",
-  "pool.pid": "[ƥíď ~~]",
-  "pool.platform": "[ƥļáţƒóřɱ ~~~~]",
+  "pool.pid": "[ƤÍĎ ~~]",
+  "pool.platform": "[Ƥļáţƒóřɱ ~~~~]",
   "pool.pool": "[Ƥóóļ ~~]",
   "pool.pool_for_host_value1": [
     "[Ƥóóļ ƒóř ħóšţ ",
@@ -11874,7 +14417,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.pool_project_denied": "[Ţħé ƥóóļ áššíğñéď ţħíš ħóšţ á ƥřóĵéçţ íţš ğíţ çřéďéñţíáļ çáññóţ řéáď. Ğřáñţ íţš ţóķéñ áççéšš ţó ţħáţ řéƥóšíţóřý, óř řéáššíğñ ţħé ƥóóļ ţó óñé éṽéřý ɱéɱƀéř çáñ řéáď. Íţš çýçļéš ƒáíļ úñţíļ ţħéñ, áñď ñó řéţřý çáñ ƒíẋ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.pool_project_unreachable": "[Ţħé ƥřóĵéçţ ţħíš ħóšţ'š ƥóóļ áššíğñéď ďíď ñóţ áñšŵéř. Ţħíš íš ñéţŵóřķ, ñóţ ƥéřɱíššíóñ, áñď ţħé çļóñé řéţříéš ţħřóúğħ ţħé ñóřɱáļ ƀáçķóƒƒ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.pool_status": "[Ƥóóļ Šţáţúš ~~~~~]",
+  "pool.pool_status": "[Ƥóóļ šţáţúš ~~~~~]",
   "pool.pool_status_change_failed_value1": [
     "[Ƥóóļ šţáţúš çħáñğé ƒáíļéď: ",
     {
@@ -11980,7 +14523,7 @@ var Catalogs = map[string]map[string]string{
       "project": "[Ţħíš ħóšţ çáññóţ řéáď ţħé ƥřóĵéçţ řéƥóšíţóřý íţ íš çóñƒíğúřéď ŵíţħ. Çħéçķ íţš ğíţ çřéďéñţíáļ áñď ţħé úřļ íñ test.config.yml. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
     }
   },
-  "pool.repo_dir": "[řéƥó ďíř ~~~~]",
+  "pool.repo_dir": "[Řéƥó ďíř ~~~~]",
   "pool.repo_held_detail": {
     "kind": "select",
     "selector": "repo",
@@ -12254,10 +14797,10 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.scan_yuruna_pool_control": "[Šçáñ — Ýúřúñá Ƥóóļ Çóñţřóļ ~~~~~~~~~~~]",
   "pool.service_diagnostics": "[Šéřṽíçé ďíáğñóšţíçš ~~~~~~~~]",
-  "pool.service_user": "[šéřṽíçé úšéř ~~~~~]",
+  "pool.service_user": "[Šéřṽíçé úšéř ~~~~~]",
   "pool.show_hostnames": "[Šħóŵ ħóšţñáɱéš ~~~~~~]",
-  "pool.started_at": "[šţářţéď áţ ~~~~]",
-  "pool.state_dir": "[šţáţé ďíř ~~~~]",
+  "pool.started_at": "[Šţářţéď áţ ~~~~]",
+  "pool.state_dir": "[Šţáţé ďíř ~~~~]",
   "pool.state_fail": "[ƒáíļ ~~]",
   "pool.state_idle": "[íďļé ~~]",
   "pool.state_mismatch": "[ɱíšɱáţçħ ~~~~]",
@@ -12399,12 +14942,12 @@ var Catalogs = map[string]map[string]string{
   "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": "[Ţħíš íď ñó ļóñğéř áñšŵéřš áţ ţħíš áďďřéšš; ţħé íď ƀéšíďé íţ ďóéš. Óñé ɱáçħíñé, ţŵó íďš -- íţ ŵáš řéíɱáğéď óř řé-çļóñéď. Áñý ƥóóļ ɱéɱƀéřšħíƥ íš šţíļļ řéçóřďéď áğáíñšţ ŢĦÍŠ íď, šó ţħé ļíṽé ħóšţ íš ďóíñğ ţħé ŵóřķ óúţšíďé ţħé ƥóóļ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.time_period": "[Ţíɱé ƥéříóď ~~~~~]",
   "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": "[Ţóķéñ íš říğħţ ƀúţ ţħé çļóçķ íš óƒƒ -- ƒíẋ ţħé ħóšţ çļóçķ. ~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.total_storage": "[Ţóţáļ Šţóřáğé ~~~~~~]",
+  "pool.total_storage": "[Ţóţáļ šţóřáğé ~~~~~~]",
   "pool.type": "[Ţýƥé ~~]",
   "pool.unlock": "[Úñļóçķ ~~~]",
   "pool.unlock_with_the_lab_token_to_see_hostnames": "[Úñļóçķ ŵíţħ ţħé Ļáƀ ţóķéñ ţó šéé ħóšţñáɱéš. ~~~~~~~~~~~~~~~~~~]",
   "pool.unsupported_range": "[úñšúƥƥóřţéď řáñğé; úšé 1ħ, 24ħ, 7ď óř 30ď ~~~~~~~~~~~~~~~~~]",
-  "pool.uptime": "[úƥţíɱé ~~~]",
+  "pool.uptime": "[Úƥţíɱé ~~~]",
   "pool.use_this_network": "[Úšé ţħíš ñéţŵóřķ ~~~~~~~]",
   "pool.value1_applied_to_value2_host_s_in_pool_value3": [
     "[",
@@ -12514,7 +15057,7 @@ var Catalogs = map[string]map[string]string{
     },
     " ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.version": "[ṽéřšíóñ ~~~]",
+  "pool.version": "[Ṽéřšíóñ ~~~]",
   "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": "[Ŵħáţ ţħé ďáéɱóñ ŵáš ļáúñçħéď ŵíţħ, áñď ţħé éñṽířóñɱéñţ íţš ƥŵšħ çħíļď ƥřóçéššéš íñħéříţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.what_to_do": "[Ŵħáţ ţó ďó ~~~~]",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "[Ŵħíçħ ƀúíļď íš áçţúáļļý řúññíñğ, áñď ƒóř ħóŵ ļóñğ — éšţáƀļíšħéš ŵħéţħéř á ƒíẋ ŵáš ďéƥļóýéď áţ áļļ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -12641,8 +15184,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "[Ƒóřƀíďďéñ (ñóţ á šéřṽéď ƒíļé) ~~~~~~~~~~~~]",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "[ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_guest_channel_key_absent": "[ţħíš ħóšţ ħóļďš ñó ğúéšţ-çħáññéļ ķéý ýéţ; íţ íš çřéáţéď ŵħéñ ţħé ħóšţ ƒířšţ řéñďéřš á ğúéšţ šééď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_authorization_refused": [
-    "[řéƒřéšħ áúţħóřížáţíóñ řéƒúšéď (",
+  "status.api_host_repair_authorization_refused": [
+    "[řéƥáíř áúţħóřížáţíóñ řéƒúšéď (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -12650,8 +15193,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") ~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_busy": "[áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš ~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "[áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš ~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_request_closed": [
     "[ţħíš řéʠúéšţ íď íš áļřéáďý çļóšéď (",
     {
       "arg": "state",
@@ -12660,15 +15203,36 @@ var Catalogs = map[string]map[string]string{
     },
     ") ~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_request_conflict": "[ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš ~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_unavailable": [
-    "[ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.api_host_repair_request_conflict": "[ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš ~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_unavailable": [
+    "[ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    ") ~~~~~~~~~~~~~~~~~~~~~~]"
+    ") ~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "[ħóšţ úƥďáţé áúţħóřížáţíóñ řéƒúšéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ") ~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_busy": "[á ħóšţ úƥďáţé íš íñ ƥřóğřéšš óñ ţħíš ħóšţ ~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_controller_absent": "[ñó ħóšţ çóñţřóļļéř íš řúññíñğ óñ ţħíš ħóšţ; ñóţħíñğ ŵáš ʠúéúéď ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_proof_missing": "[á ħóšţ úƥďáţé ƒřóɱ áñóţħéř ɱáçħíñé ñééďš áñ úƥďáţé ƥřóóƒ ƒřóɱ ƥóóļ-çóñţřóļ; ñóţħíñğ ŵáš ʠúéúéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_scope_unavailable": [
+    "[ţħé ħóšţ çóñţřóļļéř ďóéš ñóţ řúñ ţħé ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " šçóƥé; ñóţħíñğ ŵáš ʠúéúéď ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "[íñţéřñáļ áúţħéñţíçáţíóñ ķéý ñóţ çóñƒíğúřéď óñ ţħíš ħóšţ ~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_internal_error": "[ţħé řéʠúéšţ ƒáíļéď óñ ţħé ħóšţ; šéé server.err ~~~~~~~~~~~~~~~~~~~]",
@@ -12853,8 +15417,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "[Çóñƒíğ ~~~]",
   "status.config_field_alwaysredownload": "[áļŵáýšŘéďóŵñļóáď ~~~~~~~]",
   "status.config_field_armwindowhours": "[ářɱŴíñďóŵĦóúřš ~~~~~~]",
-  "status.config_field_autorefreshafterstalls": "[áúţóŘéƒřéšħÁƒţéřŠţáļļš ~~~~~~~~~]",
   "status.config_field_autoremediation": "[áúţóŘéɱéďíáţíóñ ~~~~~~]",
+  "status.config_field_autorepairafterstalls": "[áúţóŘéƥáířÁƒţéřŠţáļļš ~~~~~~~~~]",
   "status.config_field_autoseed": "[áúţóŠééď ~~~~]",
   "status.config_field_bootdelayseconds": "[ƀóóţĎéļáýŠéçóñďš ~~~~~~~]",
   "status.config_field_cachingproxyip": "[çáçħíñğƤřóẋýÍƥ ~~~~~~]",
@@ -12964,7 +15528,7 @@ var Catalogs = map[string]map[string]string{
     },
     ") ~~~~~~~]"
   ],
-  "status.control_host_token_missing": "[Ţħíš ħóšţ ħóļďš ñó ļáƀ ţóķéñ ýéţ. ~~~~~~~~~~~~~~]",
+  "status.control_host_token_missing": "[Ţħíš ħóšţ ħóļďš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý ýéţ. ~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_instructions": [
     "[Ţħíš ħóšţ áççéƥţš çóñţřóļ óñļý ƒřóɱ á ƀřóŵšéř óñ ţħé ħóšţ íţšéļƒ (",
     {
@@ -12972,15 +15536,15 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď ţóķéñ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
+    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď çóñţřóļ ƥřóóƒ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "external"
     },
-    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_expired": "[Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ħáš éẋƥířéď (ţħéý ļášţ 15 ɱíñúţéš). ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_expired": "[Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ħáš éẋƥířéď (ƥřóóƒš ļášţ 15 ɱíñúţéš). ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "[Çóñţřóļ ƥřóóƒ éẋƥířéď -- řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƀéƒóřé šáṽíñğ. Ýóúř éďíţš ářé ķéƥţ úñţíļ ýóú ďó. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "[Çóñţřóļ ƥřóóƒ éẋƥířéš íñ ",
@@ -12991,12 +15555,12 @@ var Catalogs = map[string]map[string]string{
     },
     "š -- šáṽé šóóñ, óř řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƒóř á ƒřéšħ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_invalid": "[Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š šţóřéď ļáƀ ţóķéñ ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.control_proof_missing": "[Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ţóķéñ, šó ñóñé ŵáš šéñţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_invalid": "[Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š íñţéřñáļ áúţħéñţíçáţíóñ ķéý ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ ŵíţħ á Ļáƀ ţóķéñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_missing": "[Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ƥřóóƒ, šó ñóñé ŵáš šéñţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_refused": "[Çóñţřóļ řéƒúšéď. ~~~~~~~]",
   "status.control_routes": "[çóñţřóļ-řóúţé šéţúƥ ~~~~~~~~]",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "[Ţħíš ħóšţ ħáš ñó ļáƀ-áúţħ-ţóķéñ, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
+    "[Ţħíš ħóšţ ħáš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
     {
       "arg": "address",
       "type": "token",
@@ -13014,7 +15578,7 @@ var Catalogs = map[string]map[string]string{
       "type": "token",
       "trust": "internal"
     },
-    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.control_verifier_unavailable": "[Ţħíš ħóšţ’š šţáţúš šéřṽíçé çóúļď ñóţ ļóáď íţš ţóķéñ ṽéříƒíéř (çħéçķ ţéšţ/status/runtime/server.err óñ ţħé ħóšţ). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.could_not_check_the_cycle_folder_first": "[Çóúļď ñóţ çħéçķ ţħé çýçļé ƒóļďéř ƒířšţ.  ~~~~~~~~~~~~~~~~]",
@@ -13270,11 +15834,11 @@ var Catalogs = map[string]map[string]string{
     },
     " ⱮɃ ~~~~]"
   ],
-  "status.git_source_mirror_confirmed": "[mirror.origin ~~~~~~]",
-  "status.git_source_mirror_fresh": "[mirror.fresh ~~~~~]",
-  "status.git_source_mirror_stale": "[mirror.stale ~~~~~]",
-  "status.git_source_not_applicable": "[not.applicable ~~~~~~]",
-  "status.git_source_origin_direct": "[remote.origin ~~~~~~]",
+  "status.git_source_mirror_confirmed": "[ɱířřóř ~~~]",
+  "status.git_source_mirror_fresh": "[ɱířřóř ƒřéšħ ~~~~~]",
+  "status.git_source_mirror_stale": "[ɱířřóř šţáļé ~~~~~]",
+  "status.git_source_not_applicable": "[ñóţ áƥƥļíçáƀļé ~~~~~~]",
+  "status.git_source_origin_direct": "[řéɱóţé ~~~]",
   "status.guest_not_found": [
     "[",
     {
@@ -13341,24 +15905,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "[Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ĎíšƥóšéÓƀļíğáţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_elevate": "[Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_grant_automation": "[Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_gui_session": "[Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_install_client": "[Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_resume_request": "[Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_start_runner": "[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_authorization_refused": [
-    "[Ţħíš řéƒřéšħ ñééďš á řéƒřéšħ ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
+  "status.host_repair_action_dispose_obligations": "[Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ĎíšƥóšéÓƀļíğáţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_elevate": "[Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_grant_automation": "[Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_gui_session": "[Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_install_client": "[Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_resume_request": "[Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_start_runner": "[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_authorization_refused": [
+    "[Ţħíš řéƥáíř ñééďš á řéƥáíř ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƒřéšħ áçţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƥáíř áçţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_busy": [
-    "[Áñóţħéř ħóšţ řéƒřéšħ (",
+  "status.host_repair_busy": [
+    "[Áñóţħéř ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13366,8 +15930,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_check_host": "[Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "[Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_closed": [
     "[Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -13380,10 +15944,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šţářţ á ñéŵ řéƒřéšħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šţářţ á ñéŵ řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_confirm": [
-    "[Řéƒřéšħ ţħíš ħóšţ, úƥ ţó ţħé ",
+  "status.host_repair_confirm": [
+    "[Řéƥáíř ţħíš ħóšţ, úƥ ţó ţħé ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -13395,20 +15959,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " ɱíñúţéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ɱíñúţéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_conflict": [
-    "[Řéʠúéšţ ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéƒřéšħ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_launcher_failed": "[Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƒřéšħ ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_lost": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_launcher_failed": "[Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƥáíř ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_lost": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13420,11 +15975,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƒřéšħ ħóšţ ţó šţářţ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƥáíř ħóšţ ţó šţářţ á ñéŵ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_note": "[Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_progress": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_note": "[Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_progress": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13454,22 +16009,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "external"
     },
-    " šéçóñďš ļéƒţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš ļéƒţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_recovery_pending": "[Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_rejected": [
-    "[Ţħé ħóšţ řéĵéçţéď ţħé řéƒřéšħ řéʠúéšţ: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    },
-    " ~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_remote_viewer": "[Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƒřéšħ ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_retry": "[Řéţřý ~~]",
-  "status.host_refresh_stale": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_recovery_pending": "[Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_remote_viewer": "[Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƥáíř ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_retry": "[Řéţřý ~~]",
+  "status.host_repair_stale": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13481,14 +16027,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_start": "[Řéƒřéšħ ħóšţ ~~~~~]",
-  "status.host_refresh_start_cycle_busy": "[Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_submitting": "[Šéñďíñğ ţħé řéƒřéšħ řéʠúéšţ... ~~~~~~~~~~~~]",
-  "status.host_refresh_title": "[Ħóšţ řéƒřéšħ ~~~~~]",
-  "status.host_refresh_unavailable": [
-    "[Ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.host_repair_start": "[Řéƥáíř ħóšţ ~~~~~]",
+  "status.host_repair_start_cycle_busy": "[Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_title": "[Ħóšţ řéƥáíř ~~~~~]",
+  "status.host_repair_unavailable": [
+    "[Ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -13496,8 +16041,8 @@ var Catalogs = map[string]map[string]string{
     },
     "). ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_abandoned": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13505,17 +16050,17 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áƀáñďóñéď áƒţéř řéƥéáţéď áţţéɱƥţš; íţš řéçóṽéřý řéçóřď íš ķéƥţ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_already_healthy": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_failed": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_failed": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13527,10 +16072,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "). ~~~~~~~~~~~~~~~~]"
+    "). ~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_partial": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_partial": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13542,10 +16087,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_refused": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_refused": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13557,19 +16102,19 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "). ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_repaired": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_repaired": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13577,8 +16122,8 @@ var Catalogs = map[string]map[string]string{
     },
     " éñďéď: ţħé ħýƥéřṽíšóř šţíļļ ďóéš ñóţ řéšƥóñď. ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_unknown": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_verdict_unknown": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13590,10 +16135,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_waiting": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13601,8 +16146,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áççéƥţéď; ŵáíţíñğ ƒóř ţħé ŵóřķéř'š ƒířšţ řéƥóřţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting_long": [
-    "[Řéƒřéšħ ",
+  "status.host_repair_waiting_long": [
+    "[Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -13614,8 +16159,554 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "status.host_request_conflict": [
+    "[Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéʠúéšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_rejected": [
+    "[Ţħé ħóšţ řéĵéçţéď ţħé řéʠúéšţ: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    " ~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_submitting": "[Šéñďíñğ ţħé řéʠúéšţ... ~~~~~~~~~]",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "[Ñéẋţ šţéƥ: çħéçķ ţħé ħóšţ áñď áçţ ţħéřé. ~~~~~~~~~~~~~~~~]",
+      "end_one_shot": "[Ñéẋţ šţéƥ: éñď ţħé óñé-šħóţ šéššíóñ óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[Ñéẋţ šţéƥ: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        ". ~~~~~~~~]"
+      ],
+      "provision_elevation": "[Ñéẋţ šţéƥ: ğíṽé ţħé řúññéř íţš šúďó řúļé óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "provision_elevation_macos": [
+        "[Ñéẋţ šţéƥ: óñ ţħé ħóšţ, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď áñšŵéř íţš ƥřóɱƥţš; íţ íñšţáļļš ţħé šúďóéřš éñţřý ħóšţ úƥďáţéš úšé. Ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "read_remarks": "[Ñéẋţ šţéƥ: řéáď ţħé řéɱářķš. ~~~~~~~~~~~~]",
+      "reboot_host": "[Ñéẋţ šţéƥ: řéšţářţ Ŵíñďóŵš óñ ţħé ħóšţ, ţħéñ šţářţ ţħé řúññéř. ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "release": [
+        "[Ñéẋţ šţéƥ: ţó éñď íţ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "release_diagnostic_hold": "[Ñéẋţ šţéƥ: řéļéášé ţħé ṼⱮ ķéƥţ ƒóř ďíáğñóšíš, ţħéñ ƥřéšš áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "repair_checkout": "[Ñéẋţ šţéƥ: řéƥáíř ţħé çħéçķóúţ óñ ţħé ħóšţ; ţħé ħóšţ ķééƥš ţřýíñğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "retry_or_drain_now": [
+        "[Ñéẋţ šţéƥ: ƥřéšš áğáíñ, óř éñď ţħé çýçļé ñóŵ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "start_runner": "[Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~]",
+      "stop_runner_by_hand": "[Ñéẋţ šţéƥ: šţóƥ ţħé řúññéř óñ ţħé ħóšţ ƀý ħáñď. ~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_blocks": [
+    "[Á ħóšţ úƥďáţé (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "[Á ħóšţ řéƥáíř (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_update": [
+        "[Áñóţħéř ħóšţ úƥďáţé (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": "[Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_confirm": [
+    "[Úƥďáţé ħóšţ (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? Ţħé řúññéř šţóƥš ŵħéñ ţħé řúññíñğ çýçļé éñďš áñď řéšţářţš óñ çúřřéñţ çóďé; ţħé úƥďáţé ğíṽéš úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ íñšţéáď, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "[Ţħé řúññéř šţářţéď ŵíţħóúţ á çóñšóļé. ~~~~~~~~~~~~~~~]",
+      "other": [
+        "[Ţħé řúññéř'š çóñšóļé: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        ". ~~~~~~~~~~~~~]"
+      ],
+      "tmux": [
+        "[Ţó óƥéñ ţħé řúññéř'š çóñšóļé, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "window": "[Ţħé řúññéř'š çóñšóļé íš á ŵíñďóŵ óƒ íţš óŵñ óñ ţħé ďéšķţóƥ óƒ ţħé ţéšţ áççóúñţ: óƥéñ íţ áţ ţħé ɱáçħíñé, óř óṽéř á řéɱóţé ďéšķţóƥ çóññéçţíóñ ţó ţħáţ šéššíóñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_countdown": [
+    "[Ţħé šţáţúš šéřṽíçé íš řéšţářţíñğ; éẋƥéçţéď ƀáçķ íñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " šéçóñďš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_cycle_time": [
+    "[Ţħé řúññíñğ çýçļé ħáš řúñ ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; řéçéñţ çýçļéš ţóóķ áƀóúţ ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_debt": [
+    "[Šţíļļ óŵéď óñ ţħé ħóšţ: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "[Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƒáíļéď. ~~~~~~~~~~~~~~~~]",
+      "other": "[Ŵáíţíñğ ƒóř ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé. ~~~~~~~~~~~~~~~~~~]",
+      "pass": "[Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƥáššéď. ~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_lost": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ţħé ħóšţ ñó ļóñğéř řéƥóřţš íţ, šó íţš óúţçóɱé íš úñķñóŵñ ħéřé; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_note": [
+    "[Úƥďáţéš ţħíš ħóšţ'š çóďé áñď řéšţářţš ţħé řúññéř ŵħéñ ţħé řúññíñğ çýçļé éñďš, ğíṽíñğ úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_progress": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ƥħášé ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " óƒ ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), ƀóúñďéď áţ ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    ". ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_queued": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ʠúéúéď; íţ šţářţš ŵħéñ ţħé řúññíñğ çýçļé éñďš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_remarks": [
+    "[Řéɱářķš: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    ". ~~~~~~~~]"
+  ],
+  "status.host_update_remote_hint": [
+    "[Úƥďáţé ħóšţ óƥéñš ƥóóļ-çóñţřóļ áţ ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", ŵħíçħ šíğñš ţħé řéʠúéšţ áñď ƀříñğš ýóú ƀáçķ ħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "[Řéíñšţáļļ ďéƥéñďéñçíéš áñď šéţţíñğš, ţħéñ řéšţářţ ~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[",
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        },
+        " ~~~]"
+      ],
+      "restart": "[Řéšţářţ ţħé řúññéř óñ çúřřéñţ çóďé ~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_stale": [
+    "[Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ñó řéƥóřţ ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_start": "[Úƥďáţé ħóšţ ~~~~~]",
+  "status.host_update_title": "[Ħóšţ úƥďáţé ~~~~~]",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "[Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Ţó šéţ óñé úƥ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_gate": [
+        "[Á ħóšţ úƥďáţé ħóļďš ţħíš ħóšţ'š řúññéř áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ. Řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " óñçé ɱóřé ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď ļéáṽé á řúññéř ţħáţ íš řúññíñğ áļóñé: ţħáţ šţářţ šţóƥš áţ ţħé řúññéř ğáţé áñď šţářţš ţħé çóñţřóļļéř, ŵħíçħ çóñţíñúéš ţħé úƥďáţé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_macos": [
+        "[Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Óñ ɱáçÓŠ ţħé řúññéř'š šţářţ šţářţš íţ: řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ, óř šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé áñď šţářţ íţ áğáíñ ţħáţ ŵáý. Óñ á ħóšţ ñéṽéř šéţ úƥ ƒóř ħóšţ úƥďáţéš, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒířšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_type": "[Ħóšţ úƥďáţéš ářé ñóţ ýéţ áṽáíļáƀļé óñ ţħíš ħóšţ ţýƥé. ~~~~~~~~~~~~~~~~~~~~~~]",
+      "journal_unreadable": "[Ţħé ħóšţ çáññóţ řéáď íţš óƥéřáţíóñ ĵóúřñáļ; çħéçķ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "listener_dependency_missing": "[Ţħé šţáţúš šéřṽíçé çóúļď ñóţ ļóáď ŵħáţ ħóšţ úƥďáţéš ñééď; řéšţářţ íţ óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[Ħóšţ úƥďáţéš ářé ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "remote": [
+        "[Ƒřóɱ áñóţħéř ɱáçħíñé ţħíš ƥáğé çáñ óñļý ŵáţçħ á ħóšţ úƥďáţé; úñţíļ ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " íš íñšţáļļéď óñ ţħé ħóšţ, ƥřéšš Úƥďáţé ħóšţ ţħéřé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "scope_unavailable": "[Ţħíš ħóšţ çáññóţ řúñ ţħé çħóšéñ šçóƥé ñóŵ. ~~~~~~~~~~~~~~~~~]",
+      "session_unusable": [
+        "[Ţħé ħóšţ çóñţřóļļéř'š šéššíóñ çáññóţ šţářţ á ŵóřķíñğ řúññéř: íţ íš ñóţ ţħé ďéšķţóƥ šéššíóñ, óř á ƥříṽáçý ğřáñţ íš ɱíššíñğ ţħéřé. Óñ ţħé ħóšţ, éñď ţħé šéššíóñ ýúřúñá-çóñţřóļļéř ŵíţħ ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (úñďéř šçřééñ, ʠúíţ ţħé ýúřúñá-çóñţřóļļéř šéššíóñ ţħáţ ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ļíšţš), šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé, áñď šţářţ ţħé řúññéř áğáíñ ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ ţħáţ ħóļďš ţħé ğřáñţš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ğáṽé úƥ: ţħé řúññíñğ çýçļé óúţļášţéď ţħé ŵáíţ. Ñóţħíñğ çħáñğéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "failed_restored": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ďíď ñóţ çóɱƥļéţé (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); ţħé ħóšţ ŵáš řéšţóřéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " éñďéď ŵíţħ áñ óúţçóɱé ţħíš ƥáğé ďóéš ñóţ řéçóğñížé (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "reboot_required": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď, ƀúţ Ŵíñďóŵš ɱúšţ řéšţářţ ƀéƒóřé ţħé ħýƥéřṽíšóř çáñ řúñ, šó ţħé řúññéř ŵáš ñóţ šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ; ţħé ħóšţ ķééƥš ţřýíñğ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering_without_controller": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ ţó ţřý áğáíñ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "refused": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéƒúšéď; ñóţħíñğ çħáñğéď (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "). ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "released": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéļéášéď óñ ţħé ħóšţ. ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "stop_failed": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř çóúļď ñóţ ƀé šţóƥƥéď, šó ñóţħíñğ ŵáš šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "superseded": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš ţáķéñ óṽéř ƀý ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ". ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř řúñš çúřřéñţ çóďé. ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_not_started": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř ŵáš šţóƥƥéď ƀéƒóřé íţ, šó íţ ŵáš ñóţ šţářţéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_with_remarks": [
+        "[Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď ŵíţħ řéɱářķš; ţħé řúññéř řúñš çúřřéñţ çóďé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
   "status.host_value1": [
     "[Ħóšţ: ",
     {
@@ -13647,7 +16738,7 @@ var Catalogs = map[string]map[string]string{
     " ~~~~~~~~~~~~~]"
   ],
   "status.lab_hold_unspecified": "[Ļáƀ ħóļď -- ŵáíţíñğ ƒóř á ļáƀ šéřṽíçé ~~~~~~~~~~~~~~~]",
-  "status.latest_cycle": "[Ļáţéšţ Çýçļé ~~~~~]",
+  "status.latest_cycle": "[Ļáţéšţ çýçļé ~~~~~]",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -13873,7 +16964,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "[Ñéŵ ṼⱮ ~~~]",
   "status.pill_start_guestos": "[Šţářţ ÓŠ ~~~~]",
   "status.pill_start_guestworkload": "[Ŵóřķļóáď ~~~~]",
-  "status.preflight_failed": "[ƤŘÉƑĻÍĞĦŢ ƑÁÍĻÉĎ ~~~~~~~]",
+  "status.preflight_failed": "[Ƥřéƒļíğħţ ƒáíļéď ~~~~~~~]",
   "status.process_environment_value_the_status_service_inherited_at_startup": "[Ƥřóçéšš-éñṽířóñɱéñţ ṽáļúé ţħé šţáţúš šéřṽíçé íñħéříţéď áţ šţářţúƥ. Řéáď-óñļý ħéřé; ƒáļļƀáçķ šóúřçé óñļý: áţ çýçļé šţářţ ţħé vmStart.cachingProxyIp ƒíéļď áƀóṽé íš ƥřóƀéď ƒířšţ áñď ŵíñš ŵħéñ íţš :3128 áñšŵéřš. Éẋƥóřţ ţħíš íñ ţħé šħéļļ ţħáţ ļáúñçħéš Start-TestRunner.ps1 ƒóř ħóšţš ŵħóšé çóñƒíğ ƒíéļď íš éɱƥţý. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.quarantine_pinned": [
     "[ʠúářáñţíñéď áƒţéř řéƥéáţéď šáɱé-çļášš ƒáíļúřéš (šķíƥƥéď úñţíļ á ñéŵ çóɱɱíţ; ƥíññéď áţ ",
@@ -13890,7 +16981,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "[Řéçáļçúļáţé ~~~~~]",
   "status.recalculating": "[Řéçáļçúļáţíñğ… ~~~~~~]",
   "status.recalculating_perf_aggregates": "[Řéçáļçúļáţíñğ ƥéřƒ áğğřéğáţéš… ~~~~~~~~~~~~]",
-  "status.recent_cycles": "[Řéçéñţ Çýçļéš ~~~~~~]",
+  "status.recent_cycles": "[Řéçéñţ çýçļéš ~~~~~~]",
   "status.refresh": "[Řéƒřéšħ ~~~]",
   "status.results_folder": [
     "[Óƥéñ řéšúļţš ƒóļďéř ƒóř ",
@@ -14053,14 +17144,14 @@ var Catalogs = map[string]map[string]string{
     },
     ", řéšţářţ ţħé ṼⱮ, ţħéñ řéšúɱé ţħé šéʠúéñçé ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "[Á ħóšţ řéƒřéšħ (",
+  "status.start_cycle_blocked_by_repair": [
+    "[Á ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.start_cycle_cycle_restarted": "[Çýçļé řéšţářţéď ~~~~~~]",
   "status.start_cycle_failed": [
@@ -14144,7 +17235,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "[Ţéšţíñğ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ… ~~~~~~~~~~~~~~~~]",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "[Ţħé ářçħíṽé íš ƀúíļţ ƒřóɱ šéřṽéř ļóğš óñļý áñď ďóŵñļóáďéď ţó ţħíš ɱáçħíñé. Ñó ďáţá ƒřóɱ ţħíš ƀřóŵšíñğ šéššíóñ íš íñçļúďéď. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "[Ţħé çóñţřóļ ƥřóóƒ éẋƥířéď. Řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ţó ğéţ á ƒřéšħ óñé. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ ļáƀ-áúţħ-ţóķéñ ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ íñţéřñáļ áúţħéñţíçáţíóñ ķéý ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "[Ţħé ħóšţ çóúļď ñóţ ļóáď íţš çóñţřóļ-ƥřóóƒ ṽéříƒíéř; çħéçķ ţħé šţáţúš šéřṽíçé ļóğ. ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "[Ţħé šħářé šħééţ éẋƥířéď ŵħíļé ţħé ħóšţ ƥáçķéď ţħé ƒóļďéř.  ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "[Ţħíš ƀřóŵšéř çóúļď ñóţ áţţáçħ ţħé ƒíļé ţó á ɱéššáğé íţšéļƒ.  ~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -14344,13 +17435,13 @@ var Catalogs = map[string]map[string]string{
   ],
   "status.working": "[Ŵóřķíñğ... ~~~~]",
   "status.yuruna_host_status": "[Ýúřúñá ħóšţ šţáţúš ~~~~~~~~]",
-  "status.yuruna_status": "[Ýúřúñá Šţáţúš ~~~~~~]"
+  "status.yuruna_status": "[Ýúřúñá šţáţúš ~~~~~~]"
 }
 `,
 	},
 	"qps-Plocm": {
 		"pool": `{
-  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "[!‮Á ƥóóļ ğřóúƥš ħóšţš úñďéř á šţáƀļé Ƥóóļ ÍĎ (ĞÚÍĎ); á ħóšţ ƀéļóñğš ţó áţ ɱóšţ óñé ƥóóļ. Ƥóóļ Šţáţúš řéáďš ŵħáţ ţħé ɱéɱƀéřš ářé ďóíñğ ñóŵ — çħóóšíñğ á ṽáļúé áƥƥļíéš íţ ţó éṽéřý ɱéɱƀéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.a_pool_groups_hosts_under_a_stable_pool_id_guid_a_host_belongs_to": "[!‮Á ƥóóļ ğřóúƥš ħóšţš úñďéř á šţáƀļé Ƥóóļ ÍĎ (ĞÚÍĎ); á ħóšţ ƀéļóñğš ţó áţ ɱóšţ óñé ƥóóļ. Ƥóóļ šţáţúš řéáďš ŵħáţ ţħé ɱéɱƀéřš ářé ďóíñğ ñóŵ — çħóóšíñğ á ṽáļúé áƥƥļíéš íţ ţó éṽéřý ɱéɱƀéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.a_scan_of_value1_is_already_running_following_that_one": [
     "[!‮Á šçáñ óƒ ",
     {
@@ -14404,7 +17495,7 @@ var Catalogs = map[string]map[string]string{
     },
     "); çóñţřóļ šţáţé íš úñķñóŵñ. Ɱóṽíñğ ħóšţš šţíļļ ŵóřķš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.aggregator_url": "[!‮áğğřéğáţóř ÚŘĻ‬ ~~~~~~]",
+  "pool.aggregator_url": "[!‮Áğğřéğáţóř ÚŘĻ‬ ~~~~~~]",
   "pool.all_checks_passed_pool_control_service_value1_value2_collected_va": [
     "[!‮Áļļ çħéçķš ƥáššéď. ƥóóļ-çóñţřóļ-šéřṽíçé ",
     {
@@ -14506,7 +17597,7 @@ var Catalogs = map[string]map[string]string{
     },
     ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.configuration_git_url": "[!‮çóñƒíğúřáţíóñ ğíţ ÚŘĻ‬ ~~~~~~~~~]",
+  "pool.configuration_git_url": "[!‮Çóñƒíğúřáţíóñ ğíţ ÚŘĻ‬ ~~~~~~~~~]",
   "pool.configuration_read_raw_invocation": "[!‮Çóñƒíğúřáţíóñ řéáď — řáŵ íñṽóçáţíóñ‬ ~~~~~~~~~~~~~~]",
   "pool.continue": "[!‮Çóñţíñúé‬ ~~~~]",
   "pool.control": "[!‮Çóñţřóļ‬ ~~~]",
@@ -14835,7 +17926,7 @@ var Catalogs = map[string]map[string]string{
     "‬ ~~~~~~~~~~~~~~~~~~~]"
   ],
   "pool.display_name": "[!‮Ďíšƥļáý ñáɱé‬ ~~~~~]",
-  "pool.duration": "[!‮ďúřáţíóñ‬ ~~~~]",
+  "pool.duration": "[!‮Ďúřáţíóñ‬ ~~~~]",
   "pool.each_of_the_four_numbers_must_be_0_to_255": "[!‮Éáçħ óƒ ţħé ƒóúř ñúɱƀéřš ɱúšţ ƀé 0 ţó 255.‬ ~~~~~~~~~~~~~~~~~]",
   "pool.empty": "[!‮(éɱƥţý)‬ ~~~]",
   "pool.enrollment_target": [
@@ -14892,7 +17983,7 @@ var Catalogs = map[string]map[string]string{
     },
     " ɱéáñš íţ çáññóţ řéáď ţħé óñé çóñƒíğúřéď. Á řé-ķéýéď řóŵ íš óñé ɱáçħíñé'š óļď íďéñţíţý: íţ ŵáš řéíɱáğéď óř řé-çļóñéď, šó ţħé ļíṽé ħóšţ áñšŵéřš úñďéř ţħé íď šħóŵñ ƀéšíďé íţ ŵħíļé áñý ƥóóļ ɱéɱƀéřšħíƥ šţáýš óñ ţħé óļď óñé — ħáñď íţ óṽéř ƒřóɱ ţħáţ řóŵ. Ħóšţñáɱéš áƥƥéář óñçé ţħíš ƀřóŵšéř íš úñļóçķéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.exit_code": "[!‮éẋíţ çóďé‬ ~~~~]",
+  "pool.exit_code": "[!‮Éẋíţ çóďé‬ ~~~~]",
   "pool.fail": "[!‮ƑÁÍĻ‬ ~~]",
   "pool.failed": "[!‮ƒáíļéď‬ ~~~]",
   "pool.first_seen": "[!‮Ƒířšţ šééñ‬ ~~~~]",
@@ -14911,11 +18002,11 @@ var Catalogs = map[string]map[string]string{
   "pool.found_by_scanning_the_network_it_belongs_to_no_pool_and_has_not_r": "[!‮Ƒóúñď ƀý šçáññíñğ ţħé ñéţŵóřķ; íţ ƀéļóñğš ţó ñó ƥóóļ áñď ħáš ñóţ řéğíšţéřéď ŵíţħ ţħé áğğřéğáţóř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.framework": "[!‮Ƒřáɱéŵóřķ‬ ~~~~]",
   "pool.framework_project": "[!‮Ƒřáɱéŵóřķ / Ƥřóĵéçţ‬ ~~~~~~~~]",
-  "pool.framework_revision": "[!‮ƒřáɱéŵóřķ řéṽíšíóñ‬ ~~~~~~~~]",
+  "pool.framework_revision": "[!‮Ƒřáɱéŵóřķ řéṽíšíóñ‬ ~~~~~~~~]",
   "pool.framework_url": "[!‮Ƒřáɱéŵóřķ ÚŘĻ‬ ~~~~~~]",
-  "pool.framework_version": "[!‮ƒřáɱéŵóřķ ṽéřšíóñ‬ ~~~~~~~]",
-  "pool.free_storage": "[!‮Ƒřéé Šţóřáğé‬ ~~~~~]",
-  "pool.go": "[!‮ğó‬ ~]",
+  "pool.framework_version": "[!‮Ƒřáɱéŵóřķ ṽéřšíóñ‬ ~~~~~~~]",
+  "pool.free_storage": "[!‮Ƒřéé šţóřáğé‬ ~~~~~]",
+  "pool.go": "[!‮Ğó‬ ~]",
   "pool.guide": "[!‮Ğúíďé‬ ~~]",
   "pool.hand_over": "[!‮Ħáñď óṽéř‬ ~~~~]",
   "pool.hand_over_failed_value1": [
@@ -14932,7 +18023,7 @@ var Catalogs = map[string]map[string]string{
   "pool.home": "[!‮ĦÓⱮÉ‬ ~~]",
   "pool.host": "[!‮+ ħóšţ‬ ~~~]",
   "pool.host_id": "[!‮Ħóšţ ÍĎ‬ ~~~]",
-  "pool.host_id_7b624c8f": "[!‮ħóšţ íď‬ ~~~]",
+  "pool.host_id_7b624c8f": "[!‮Ħóšţ ÍĎ‬ ~~~]",
   "pool.host_id_to_add_to_pool_value1": [
     "[!‮Ħóšţ íď ţó áďď ţó ƥóóļ ",
     {
@@ -14942,8 +18033,8 @@ var Catalogs = map[string]map[string]string{
     },
     "‬ ~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_body_invalid": [
-    "[!‮Ţħé řéƒřéšħ řéʠúéšţ ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ óƒ šţříñğš ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, ţíéř áñď ɱáẋŘúñğ (",
+  "pool.host_repair_body_invalid": [
+    "[!‮Ţħé řéƥáíř řéʠúéšţ ɱúšţ ƀé á ĴŠÓÑ óƀĵéçţ óƒ šţříñğš ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, ţíéř áñď ɱáẋŘúñğ (",
     {
       "arg": "detail",
       "type": "identifier",
@@ -14951,14 +18042,14 @@ var Catalogs = map[string]map[string]string{
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "[!‮Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " íš áļřéáďý ħáñďļíñğ řéƒřéšħ řéʠúéšţ ",
+    " íš áļřéáďý ħáñďļíñğ řéƥáíř řéʠúéšţ ",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -14966,7 +18057,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; ƒóļļóŵ ţħáţ řéʠúéšţ íñšţéáď óƒ šţářţíñğ áñóţħéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "[!‮Ñó çóñţřóļ ƥřóóƒ çóúļď ƀé óƀţáíñéď ƒóř ħóšţ ",
     {
       "arg": "hostId",
@@ -14981,8 +18072,8 @@ var Catalogs = map[string]map[string]string{
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_field_unsupported": [
-    "[!‮Ţħé řéƒřéšħ řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď ",
+  "pool.host_repair_field_unsupported": [
+    "[!‮Ţħé řéƥáíř řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď ",
     {
       "arg": "field",
       "type": "identifier",
@@ -14990,7 +18081,7 @@ var Catalogs = map[string]map[string]string{
     },
     "; ƒóřçé áñď ħářď-šţóƥ óƥţíóñš ářé ñéṽéř áççéƥţéď řéɱóţéļý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "[!‮Ţħé ƥóóļ áğğřéğáţóř ķñóŵš ħóšţ ",
     {
       "arg": "hostId",
@@ -14999,15 +18090,15 @@ var Catalogs = map[string]map[string]string{
     },
     " ƀúţ ħáš ñó áďďřéšš ƒóř íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_id_invalid": "[!‮ħóšţÍď ɱúšţ ƀé á 32-çħářáçţéř ħéẋáďéçíɱáļ ħóšţ íď.‬ ~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "[!‮ħóšţÍď ɱúšţ ƀé á 32-çħářáçţéř ħéẋáďéçíɱáļ ħóšţ íď.‬ ~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_host_refused": [
     "[!‮Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " řéƒúšéď ţħé řéƒřéšħ (ĦŢŢƤ ",
+    " řéƒúšéď ţħé řéƥáíř (ĦŢŢƤ ",
     {
       "arg": "status",
       "type": "integer",
@@ -15021,14 +18112,14 @@ var Catalogs = map[string]map[string]string{
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "[!‮Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " çóúļď ñóţ šţářţ ţħé řéƒřéšħ (ĦŢŢƤ ",
+    " çóúļď ñóţ šţářţ ţħé řéƥáíř (ĦŢŢƤ ",
     {
       "arg": "status",
       "type": "integer",
@@ -15046,9 +18137,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "[!‮Ţħé ƥóóļ áğğřéğáţóř ďóéš ñóţ ķñóŵ ħóšţ ",
     {
       "arg": "hostId",
@@ -15057,7 +18148,7 @@ var Catalogs = map[string]map[string]string{
     },
     ".‬ ~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "[!‮Ħóšţ ",
     {
       "arg": "hostId",
@@ -15072,16 +18163,16 @@ var Catalogs = map[string]map[string]string{
     },
     ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_mint_failed": [
-    "[!‮Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé řéƒřéšħ řéʠúéšţ ƒóř ħóšţ ",
+  "pool.host_repair_mint_failed": [
+    "[!‮Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé řéƥáíř řéʠúéšţ ƒóř ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "[!‮Ħóšţ ",
     {
       "arg": "hostId",
@@ -15096,7 +18187,7 @@ var Catalogs = map[string]map[string]string{
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "[!‮Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -15121,9 +18212,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); ğéñéřáţé á ñéŵ řéʠúéšţ íď ţó řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); ğéñéřáţé á ñéŵ řéʠúéšţ íď ţó řéƥáíř áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "[!‮Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -15132,10 +18223,10 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áļřéáďý úšéď ŵíţħ á ďíƒƒéřéñţ ţíéř óř çéíļíñğ; řéšéñď ţħé óříğíñáļ ƥóļíçý óř ğéñéřáţé á ñéŵ řéʠúéšţ íď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_request_id_invalid": "[!‮řéʠúéšţÍď ɱúšţ ƀé á ļóŵéřçášé ÚÚÍĎ (8-4-4-4-12) ţħáţ ţħé çáļļéř ğéñéřáţéš óñçé áñď řéúšéš óñ éṽéřý řéţřý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_rung_unsupported": "[!‮ɱáẋŘúñğ ɱúšţ ƀé ƥřóƀé, řéçļáíɱ, šţářţ-íƒ-šţóƥƥéď, řéšţářţ-íƒ-ħúñğ óř řéšţářţ-ƀřóķéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_signing_unconfigured": [
-    "[!‮Řéɱóţé ħóšţ řéƒřéšħ íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó řéƒřéšħ šíğñíñğ áúţħóříţý (",
+  "pool.host_repair_request_id_invalid": "[!‮řéʠúéšţÍď ɱúšţ ƀé á ļóŵéřçášé ÚÚÍĎ (8-4-4-4-12) ţħáţ ţħé çáļļéř ğéñéřáţéš óñçé áñď řéúšéš óñ éṽéřý řéţřý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_rung_unsupported": "[!‮ɱáẋŘúñğ ɱúšţ ƀé ƥřóƀé, řéçļáíɱ, šţářţ-íƒ-šţóƥƥéď, řéšţářţ-íƒ-ħúñğ óř řéšţářţ-ƀřóķéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_signing_unconfigured": [
+    "[!‮Řéɱóţé ħóšţ řéƥáíř íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó řéƥáíř šíğñíñğ áúţħóříţý (",
     {
       "arg": "path",
       "type": "detail",
@@ -15143,21 +18234,254 @@ var Catalogs = map[string]map[string]string{
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.host_refresh_tier_unsupported": "[!‮Óñļý ţħé řéšţářţ ţíéř çáñ ƀé řéʠúéšţéď řéɱóţéļý; ţħé ƒúļļ ţíéř íš ļóçáļ-óñļý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "[!‮Óñļý ţħé řéšţářţ ţíéř çáñ ƀé řéʠúéšţéď řéɱóţéļý; ţħé ƒúļļ ţíéř íš ļóçáļ-óñļý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_repair_unavailable": [
     "[!‮Ħóšţ ",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    " ďóéš ñóţ áďṽéřţíšé řéɱóţé řéƒřéšħ (",
+    " ďóéš ñóţ áďṽéřţíšé řéɱóţé řéƥáíř (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_action": "[!‮Úƥďáţé ħóšţ‬ ~~~~~]",
+  "pool.host_update_body_invalid": [
+    "[!‮Ţħé úƥďáţé řéʠúéšţ ɱúšţ ƀé óñé ĴŠÓÑ óƀĵéçţ ŵíţħ óñļý ħóšţÍď, řéʠúéšţÍď, šçóƥé, ďřáíñŠéçóñďš áñď éẋƥéçţÇóɱɱíţ, éáçħ óñçé (",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_busy": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ƀúšý ŵíţħ řéʠúéšţ ",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; ƒóļļóŵ ţħáţ řéʠúéšţ íñšţéáď óƒ šţářţíñğ áñóţħéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_commit_invalid": "[!‮éẋƥéçţÇóɱɱíţ ɱúšţ ƀé 7 ţó 40 ļóŵéřçášé ħéẋáďéçíɱáļ ďíğíţš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_update_commit_label": "[!‮Éẋƥéçţéď çóɱɱíţ‬ ~~~~~~]",
+  "pool.host_update_completed": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " áļřéáďý éñďéď óñ ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_credential_label": "[!‮Óƥéřáţóř çřéďéñţíáļ‬ ~~~~~~~~]",
+  "pool.host_update_credential_missing": "[!‮Éñţéř ţħé óƥéřáţóř çřéďéñţíáļ.‬ ~~~~~~~~~~~~]",
+  "pool.host_update_drain_invalid": "[!‮ďřáíñŠéçóñďš ɱúšţ ƀé á ŵħóļé ñúɱƀéř ƒřóɱ 60 ţó 21600.‬ ~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_update_drain_label": "[!‮Ďřáíñ ƀóúñď‬ ~~~~~]",
+  "pool.host_update_drain_now_label": "[!‮Ţó éñď ţħé řúññíñğ çýçļé ñóŵ‬ ~~~~~~~~~~~~]",
+  "pool.host_update_drain_value": [
+    "[!‮",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " š (",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñ)‬ ~~~~~~~~~~~]"
+  ],
+  "pool.host_update_field_forbidden": [
+    "[!‮Ţħé úƥďáţé řéʠúéšţ çářříéď ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; ñó řéʠúéšţ ƒřóɱ ţħíš šéřṽíçé éñďš á řúññíñğ çýçļé. Ţó éñď óñé, řúñ Invoke-HostUpdate.ps1 -Ďřáíñ ñóŵ íñ á šħéļļ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_field_unsupported": [
+    "[!‮Ţħé úƥďáţé řéʠúéšţ çářříéď ţħé úñšúƥƥóřţéď ƒíéļď ",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_heading": "[!‮Úƥďáţé ħóšţ‬ ~~~~~]",
+  "pool.host_update_host_refused": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " řéƒúšéď ţħé úƥďáţé (ĦŢŢƤ ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_host_unavailable": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " çóúļď ñóţ ʠúéúé ţħé úƥďáţé (ĦŢŢƤ ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    ", ",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "); řéţřý ŵíţħ ţħé šáɱé řéʠúéšţ íď ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_intro": "[!‮Ţħíš ƥáğé šíğñš óñé ħóšţ úƥďáţé ƒóř ţħé ħóšţ ƀéļóŵ áñď šéñďš íţ ţħéřé. Ţħé ħóšţ ŵáíţš ƒóř íţš řúññíñğ çýçļé ţó éñď, ţħéñ šţóƥš íţš řúññéř, ƀříñğš íţš çħéçķóúţ çúřřéñţ áñď šţářţš ţħé řúññéř áğáíñ; íţ ğíṽéš úƥ áƒţéř ţħé ďřáíñ ƀóúñď ŵíţħ ñóţħíñğ çħáñğéď. Ñó řéʠúéšţ ƒřóɱ ţħíš ƥáğé éñďš á řúññíñğ çýçļé: ţó éñď óñé, řúñ ţħé çóɱɱáñď šħóŵñ ƀéļóŵ íñ á šħéļļ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "pool.host_update_loading": "[!‮Řéáďíñğ ţħé ħóšţ…‬ ~~~~~~~]",
+  "pool.host_update_mint_failed": [
+    "[!‮Ţħíš šéřṽíçé çóúļď ñóţ šíğñ ţħé úƥďáţé řéʠúéšţ ƒóř ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_not_offered": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " çáññóţ ţáķé á řéɱóţé ħóšţ úƥďáţé ñóŵ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_open_diagnostics": "[!‮Óƥéñ ţħé ħóšţ'š Ďíáğñóšţíçš ƥáğé‬ ~~~~~~~~~~~~~]",
+  "pool.host_update_page_title": "[!‮Úƥďáţé ħóšţ — Ýúřúñá Ƥóóļ Çóñţřóļ‬ ~~~~~~~~~~~~~~]",
+  "pool.host_update_request_conflict": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý úšéď ŵíţħ á ďíƒƒéřéñţ šçóƥé, ďřáíñ ƀóúñď óř éẋƥéçţéď çóɱɱíţ; řéšéñď ţħé óříğíñáļ řéʠúéšţ óř šţářţ á ñéŵ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_request_label": "[!‮Řéʠúéšţ ÍĎ‬ ~~~~]",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "[!‮Řéíñšţáļļ ďéƥéñďéñçíéš áñď šéţţíñğš, ţħéñ řéšţářţ‬ ~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮",
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        },
+        "‬ ~~~]"
+      ],
+      "restart": "[!‮Řéšţářţ ţħé řúññéř óñ çúřřéñţ çóďé‬ ~~~~~~~~~~~~~~]"
+    }
+  },
+  "pool.host_update_scope_invalid": "[!‮šçóƥé ɱúšţ ƀé řéšţářţ óř ƒúļļ.‬ ~~~~~~~~~~~~]",
+  "pool.host_update_scope_label": "[!‮Šçóƥé‬ ~~]",
+  "pool.host_update_sending": "[!‮Šíğñíñğ áñď šéñďíñğ ţħé úƥďáţé…‬ ~~~~~~~~~~~~~]",
+  "pool.host_update_sent": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ʠúéúéď úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "; óƥéñíñğ íţš Ďíáğñóšţíçš ƥáğé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "[!‮Řéɱóţé ħóšţ úƥďáţé íš ďíšáƀļéď: ţħíš šéřṽíçé ħóļďš ñó úƥďáţé šíğñíñğ ķéý óř ñó óƥéřáţóř çřéďéñţíáļ (",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "pool.host_update_submit": "[!‮Šéñď ţħé úƥďáţé‬ ~~~~~~]",
+  "pool.host_update_unavailable": [
+    "[!‮Ħóšţ ",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " çáññóţ ţáķé á řéɱóţé ħóšţ úƥďáţé ñóŵ (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "pool.host_value1_no_longer_answers_at_value2_value3_does_move_the_pool": [
     "[!‮Ħóšţ ",
@@ -15321,7 +18645,7 @@ var Catalogs = map[string]map[string]string{
     },
     "‬ ~~~~~~~~]"
   ],
-  "pool.listen_addr": "[!‮ļíšţéñ áďďř‬ ~~~~~]",
+  "pool.listen_addr": "[!‮Ļíšţéñ áďďř‬ ~~~~~]",
   "pool.loaded": "[!‮Ļóáďéď:‬ ~~~]",
   "pool.loading_hosts": "[!‮Ļóáďíñğ ħóšţš...‬ ~~~~~~~]",
   "pool.loading_pools": "[!‮Ļóáďíñğ ƥóóļš...‬ ~~~~~~~]",
@@ -15420,8 +18744,8 @@ var Catalogs = map[string]map[string]string{
   "pool.paused_after_cycle_and_step": "[!‮Ƥáúšéď áƒţéř çýçļé áñď šţéƥ‬ ~~~~~~~~~~~]",
   "pool.persisted_health": "[!‮Ƥéřšíšţéď ħéáļţħ‬ ~~~~~~~]",
   "pool.persistence_disabled": "[!‮(ƥéřšíšţéñçé ďíšáƀļéď)‬ ~~~~~~~~~]",
-  "pool.pid": "[!‮ƥíď‬ ~~]",
-  "pool.platform": "[!‮ƥļáţƒóřɱ‬ ~~~~]",
+  "pool.pid": "[!‮ƤÍĎ‬ ~~]",
+  "pool.platform": "[!‮Ƥļáţƒóřɱ‬ ~~~~]",
   "pool.pool": "[!‮Ƥóóļ‬ ~~]",
   "pool.pool_for_host_value1": [
     "[!‮Ƥóóļ ƒóř ħóšţ ",
@@ -15445,7 +18769,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.pool_project_denied": "[!‮Ţħé ƥóóļ áššíğñéď ţħíš ħóšţ á ƥřóĵéçţ íţš ğíţ çřéďéñţíáļ çáññóţ řéáď. Ğřáñţ íţš ţóķéñ áççéšš ţó ţħáţ řéƥóšíţóřý, óř řéáššíğñ ţħé ƥóóļ ţó óñé éṽéřý ɱéɱƀéř çáñ řéáď. Íţš çýçļéš ƒáíļ úñţíļ ţħéñ, áñď ñó řéţřý çáñ ƒíẋ íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.pool_project_unreachable": "[!‮Ţħé ƥřóĵéçţ ţħíš ħóšţ'š ƥóóļ áššíğñéď ďíď ñóţ áñšŵéř. Ţħíš íš ñéţŵóřķ, ñóţ ƥéřɱíššíóñ, áñď ţħé çļóñé řéţříéš ţħřóúğħ ţħé ñóřɱáļ ƀáçķóƒƒ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.pool_status": "[!‮Ƥóóļ Šţáţúš‬ ~~~~~]",
+  "pool.pool_status": "[!‮Ƥóóļ šţáţúš‬ ~~~~~]",
   "pool.pool_status_change_failed_value1": [
     "[!‮Ƥóóļ šţáţúš çħáñğé ƒáíļéď: ",
     {
@@ -15551,7 +18875,7 @@ var Catalogs = map[string]map[string]string{
       "project": "[!‮Ţħíš ħóšţ çáññóţ řéáď ţħé ƥřóĵéçţ řéƥóšíţóřý íţ íš çóñƒíğúřéď ŵíţħ. Çħéçķ íţš ğíţ çřéďéñţíáļ áñď ţħé úřļ íñ test.config.yml.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
     }
   },
-  "pool.repo_dir": "[!‮řéƥó ďíř‬ ~~~~]",
+  "pool.repo_dir": "[!‮Řéƥó ďíř‬ ~~~~]",
   "pool.repo_held_detail": {
     "kind": "select",
     "selector": "repo",
@@ -15825,10 +19149,10 @@ var Catalogs = map[string]map[string]string{
   ],
   "pool.scan_yuruna_pool_control": "[!‮Šçáñ — Ýúřúñá Ƥóóļ Çóñţřóļ‬ ~~~~~~~~~~~]",
   "pool.service_diagnostics": "[!‮Šéřṽíçé ďíáğñóšţíçš‬ ~~~~~~~~]",
-  "pool.service_user": "[!‮šéřṽíçé úšéř‬ ~~~~~]",
+  "pool.service_user": "[!‮Šéřṽíçé úšéř‬ ~~~~~]",
   "pool.show_hostnames": "[!‮Šħóŵ ħóšţñáɱéš‬ ~~~~~~]",
-  "pool.started_at": "[!‮šţářţéď áţ‬ ~~~~]",
-  "pool.state_dir": "[!‮šţáţé ďíř‬ ~~~~]",
+  "pool.started_at": "[!‮Šţářţéď áţ‬ ~~~~]",
+  "pool.state_dir": "[!‮Šţáţé ďíř‬ ~~~~]",
   "pool.state_fail": "[!‮ƒáíļ‬ ~~]",
   "pool.state_idle": "[!‮íďļé‬ ~~]",
   "pool.state_mismatch": "[!‮ɱíšɱáţçħ‬ ~~~~]",
@@ -15970,12 +19294,12 @@ var Catalogs = map[string]map[string]string{
   "pool.this_id_no_longer_answers_at_this_address_the_id_beside_it_does_o": "[!‮Ţħíš íď ñó ļóñğéř áñšŵéřš áţ ţħíš áďďřéšš; ţħé íď ƀéšíďé íţ ďóéš. Óñé ɱáçħíñé, ţŵó íďš -- íţ ŵáš řéíɱáğéď óř řé-çļóñéď. Áñý ƥóóļ ɱéɱƀéřšħíƥ íš šţíļļ řéçóřďéď áğáíñšţ ŢĦÍŠ íď, šó ţħé ļíṽé ħóšţ íš ďóíñğ ţħé ŵóřķ óúţšíďé ţħé ƥóóļ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.time_period": "[!‮Ţíɱé ƥéříóď‬ ~~~~~]",
   "pool.token_is_right_but_the_clock_is_off_fix_the_host_clock": "[!‮Ţóķéñ íš říğħţ ƀúţ ţħé çļóçķ íš óƒƒ -- ƒíẋ ţħé ħóšţ çļóçķ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "pool.total_storage": "[!‮Ţóţáļ Šţóřáğé‬ ~~~~~~]",
+  "pool.total_storage": "[!‮Ţóţáļ šţóřáğé‬ ~~~~~~]",
   "pool.type": "[!‮Ţýƥé‬ ~~]",
   "pool.unlock": "[!‮Úñļóçķ‬ ~~~]",
   "pool.unlock_with_the_lab_token_to_see_hostnames": "[!‮Úñļóçķ ŵíţħ ţħé Ļáƀ ţóķéñ ţó šéé ħóšţñáɱéš.‬ ~~~~~~~~~~~~~~~~~~]",
   "pool.unsupported_range": "[!‮úñšúƥƥóřţéď řáñğé; úšé 1ħ, 24ħ, 7ď óř 30ď‬ ~~~~~~~~~~~~~~~~~]",
-  "pool.uptime": "[!‮úƥţíɱé‬ ~~~]",
+  "pool.uptime": "[!‮Úƥţíɱé‬ ~~~]",
   "pool.use_this_network": "[!‮Úšé ţħíš ñéţŵóřķ‬ ~~~~~~~]",
   "pool.value1_applied_to_value2_host_s_in_pool_value3": [
     "[!‮",
@@ -16085,7 +19409,7 @@ var Catalogs = map[string]map[string]string{
     },
     "‬ ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "pool.version": "[!‮ṽéřšíóñ‬ ~~~]",
+  "pool.version": "[!‮Ṽéřšíóñ‬ ~~~]",
   "pool.what_the_daemon_was_launched_with_and_the_environment_its_pwsh_ch": "[!‮Ŵħáţ ţħé ďáéɱóñ ŵáš ļáúñçħéď ŵíţħ, áñď ţħé éñṽířóñɱéñţ íţš ƥŵšħ çħíļď ƥřóçéššéš íñħéříţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "pool.what_to_do": "[!‮Ŵħáţ ţó ďó‬ ~~~~]",
   "pool.which_build_is_actually_running_and_for_how_long_establishes_whet": "[!‮Ŵħíçħ ƀúíļď íš áçţúáļļý řúññíñğ, áñď ƒóř ħóŵ ļóñğ — éšţáƀļíšħéš ŵħéţħéř á ƒíẋ ŵáš ďéƥļóýéď áţ áļļ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -16212,8 +19536,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "[!‮Ƒóřƀíďďéñ (ñóţ á šéřṽéď ƒíļé)‬ ~~~~~~~~~~~~]",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "[!‮ƒóřƀíďďéñ: ƥřóƀé ţářğéţ ɱúšţ ƀé á ƥříṽáţé (ļóóƥƀáçķ/RFC1918/link-local) áďďřéšš óř ţħé çóñƒíğúřéď çáçħé ÍƤ‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_guest_channel_key_absent": "[!‮ţħíš ħóšţ ħóļďš ñó ğúéšţ-çħáññéļ ķéý ýéţ; íţ íš çřéáţéď ŵħéñ ţħé ħóšţ ƒířšţ řéñďéřš á ğúéšţ šééď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_authorization_refused": [
-    "[!‮řéƒřéšħ áúţħóřížáţíóñ řéƒúšéď (",
+  "status.api_host_repair_authorization_refused": [
+    "[!‮řéƥáíř áúţħóřížáţíóñ řéƒúšéď (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -16221,8 +19545,8 @@ var Catalogs = map[string]map[string]string{
     },
     ")‬ ~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_busy": "[!‮áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš‬ ~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "[!‮áñóţħéř ħóšţ óƥéřáţíóñ íš íñ ƥřóğřéšš‬ ~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_request_closed": [
     "[!‮ţħíš řéʠúéšţ íď íš áļřéáďý çļóšéď (",
     {
       "arg": "state",
@@ -16231,15 +19555,36 @@ var Catalogs = map[string]map[string]string{
     },
     ")‬ ~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.api_host_refresh_request_conflict": "[!‮ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.api_host_refresh_unavailable": [
-    "[!‮ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.api_host_repair_request_conflict": "[!‮ţħíš řéʠúéšţ íď ŵáš áļřéáďý úšéď ŵíţħ ďíƒƒéřéñţ šéţţíñğš‬ ~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_repair_unavailable": [
+    "[!‮ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
-    ")‬ ~~~~~~~~~~~~~~~~~~~~~~]"
+    ")‬ ~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "[!‮ħóšţ úƥďáţé áúţħóřížáţíóñ řéƒúšéď (",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    ")‬ ~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.api_host_update_busy": "[!‮á ħóšţ úƥďáţé íš íñ ƥřóğřéšš óñ ţħíš ħóšţ‬ ~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_controller_absent": "[!‮ñó ħóšţ çóñţřóļļéř íš řúññíñğ óñ ţħíš ħóšţ; ñóţħíñğ ŵáš ʠúéúéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_proof_missing": "[!‮á ħóšţ úƥďáţé ƒřóɱ áñóţħéř ɱáçħíñé ñééďš áñ úƥďáţé ƥřóóƒ ƒřóɱ ƥóóļ-çóñţřóļ; ñóţħíñğ ŵáš ʠúéúéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.api_host_update_scope_unavailable": [
+    "[!‮ţħé ħóšţ çóñţřóļļéř ďóéš ñóţ řúñ ţħé ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " šçóƥé; ñóţħíñğ ŵáš ʠúéúéď‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "[!‮íñţéřñáļ áúţħéñţíçáţíóñ ķéý ñóţ çóñƒíğúřéď óñ ţħíš ħóšţ‬ ~~~~~~~~~~~~~~~~~~~~~~]",
   "status.api_internal_error": "[!‮ţħé řéʠúéšţ ƒáíļéď óñ ţħé ħóšţ; šéé server.err‬ ~~~~~~~~~~~~~~~~~~~]",
@@ -16424,8 +19769,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "[!‮Çóñƒíğ‬ ~~~]",
   "status.config_field_alwaysredownload": "[!‮áļŵáýšŘéďóŵñļóáď‬ ~~~~~~~]",
   "status.config_field_armwindowhours": "[!‮ářɱŴíñďóŵĦóúřš‬ ~~~~~~]",
-  "status.config_field_autorefreshafterstalls": "[!‮áúţóŘéƒřéšħÁƒţéřŠţáļļš‬ ~~~~~~~~~]",
   "status.config_field_autoremediation": "[!‮áúţóŘéɱéďíáţíóñ‬ ~~~~~~]",
+  "status.config_field_autorepairafterstalls": "[!‮áúţóŘéƥáířÁƒţéřŠţáļļš‬ ~~~~~~~~~]",
   "status.config_field_autoseed": "[!‮áúţóŠééď‬ ~~~~]",
   "status.config_field_bootdelayseconds": "[!‮ƀóóţĎéļáýŠéçóñďš‬ ~~~~~~~]",
   "status.config_field_cachingproxyip": "[!‮çáçħíñğƤřóẋýÍƥ‬ ~~~~~~]",
@@ -16535,7 +19880,7 @@ var Catalogs = map[string]map[string]string{
     },
     ")‬ ~~~~~~~]"
   ],
-  "status.control_host_token_missing": "[!‮Ţħíš ħóšţ ħóļďš ñó ļáƀ ţóķéñ ýéţ.‬ ~~~~~~~~~~~~~~]",
+  "status.control_host_token_missing": "[!‮Ţħíš ħóšţ ħóļďš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý ýéţ.‬ ~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_instructions": [
     "[!‮Ţħíš ħóšţ áççéƥţš çóñţřóļ óñļý ƒřóɱ á ƀřóŵšéř óñ ţħé ħóšţ íţšéļƒ (",
     {
@@ -16543,15 +19888,15 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď ţóķéñ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
+    "), óř óñé óƥéñéď ţħřóúğħ ţħé Ýúřúñá ħóšţš ďášħƀóářď ļíñķ (ŵħíçħ ğřáñţš á šħóřţ-ļíṽéď çóñţřóļ ƥřóóƒ). Ţó ďříṽé íţ ƒřóɱ áñóţħéř ɱáçħíñé, óƥéñ íţ ṽíá ţħé ďášħƀóářď; íƒ ţħíš ħóšţ ŵáš ñéṽéř éñřóļļéď, řúñ ",
     {
       "arg": "command",
       "type": "detail",
       "trust": "external"
     },
-    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ŵíţħ ţħé çóďé ƒřóɱ ţħé ďášħƀóářď’š Ļáƀ ţóķéñ ţíļé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_expired": "[!‮Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ħáš éẋƥířéď (ţħéý ļášţ 15 ɱíñúţéš).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_expired": "[!‮Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ħáš éẋƥířéď (ƥřóóƒš ļášţ 15 ɱíñúţéš).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "[!‮Çóñţřóļ ƥřóóƒ éẋƥířéď -- řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƀéƒóřé šáṽíñğ. Ýóúř éďíţš ářé ķéƥţ úñţíļ ýóú ďó.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "[!‮Çóñţřóļ ƥřóóƒ éẋƥířéš íñ ",
@@ -16562,12 +19907,12 @@ var Catalogs = map[string]map[string]string{
     },
     "š -- šáṽé šóóñ, óř řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ƒóř á ƒřéšħ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.control_proof_invalid": "[!‮Ţħíš ƥáğé’š çóñţřóļ ţóķéñ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š šţóřéď ļáƀ ţóķéñ ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.control_proof_missing": "[!‮Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ţóķéñ, šó ñóñé ŵáš šéñţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_invalid": "[!‮Ţħíš ƥáğé’š çóñţřóļ ƥřóóƒ ďóéš ñóţ ṽéříƒý ħéřé — ţħíš ħóšţ’š íñţéřñáļ áúţħéñţíçáţíóñ ķéý ļíķéļý ďíƒƒéřš ƒřóɱ ţħé ļáƀ’š çúřřéñţ óñé, šó řé-éñřóļļ ŵíţħ á Ļáƀ ţóķéñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.control_proof_missing": "[!‮Ţħíš ƥáğé ŵáš óƥéñéď ŵíţħóúţ á çóñţřóļ ƥřóóƒ, šó ñóñé ŵáš šéñţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.control_refused": "[!‮Çóñţřóļ řéƒúšéď.‬ ~~~~~~~]",
   "status.control_routes": "[!‮çóñţřóļ-řóúţé šéţúƥ‬ ~~~~~~~~]",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "[!‮Ţħíš ħóšţ ħáš ñó ļáƀ-áúţħ-ţóķéñ, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
+    "[!‮Ţħíš ħóšţ ħáš ñó íñţéřñáļ áúţħéñţíçáţíóñ ķéý, šó řéɱóţé çóñţřóļ íš ļóóƥƀáçķ-óñļý. Óƥéñ ţħíš ƥáğé áš ",
     {
       "arg": "address",
       "type": "token",
@@ -16585,7 +19930,7 @@ var Catalogs = map[string]map[string]string{
       "type": "token",
       "trust": "internal"
     },
-    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.control_verifier_unavailable": "[!‮Ţħíš ħóšţ’š šţáţúš šéřṽíçé çóúļď ñóţ ļóáď íţš ţóķéñ ṽéříƒíéř (çħéçķ ţéšţ/status/runtime/server.err óñ ţħé ħóšţ).‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.could_not_check_the_cycle_folder_first": "[!‮Çóúļď ñóţ çħéçķ ţħé çýçļé ƒóļďéř ƒířšţ. ‬ ~~~~~~~~~~~~~~~~]",
@@ -16841,11 +20186,11 @@ var Catalogs = map[string]map[string]string{
     },
     " ⱮɃ‬ ~~~~]"
   ],
-  "status.git_source_mirror_confirmed": "[!‮mirror.origin‬ ~~~~~~]",
-  "status.git_source_mirror_fresh": "[!‮mirror.fresh‬ ~~~~~]",
-  "status.git_source_mirror_stale": "[!‮mirror.stale‬ ~~~~~]",
-  "status.git_source_not_applicable": "[!‮not.applicable‬ ~~~~~~]",
-  "status.git_source_origin_direct": "[!‮remote.origin‬ ~~~~~~]",
+  "status.git_source_mirror_confirmed": "[!‮ɱířřóř‬ ~~~]",
+  "status.git_source_mirror_fresh": "[!‮ɱířřóř ƒřéšħ‬ ~~~~~]",
+  "status.git_source_mirror_stale": "[!‮ɱířřóř šţáļé‬ ~~~~~]",
+  "status.git_source_not_applicable": "[!‮ñóţ áƥƥļíçáƀļé‬ ~~~~~~]",
+  "status.git_source_origin_direct": "[!‮řéɱóţé‬ ~~~]",
   "status.guest_not_found": [
     "[!‮",
     {
@@ -16912,24 +20257,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "[!‮Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ĎíšƥóšéÓƀļíğáţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_elevate": "[!‮Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_grant_automation": "[!‮Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_gui_session": "[!‮Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_install_client": "[!‮Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƒřéšħ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_resume_request": "[!‮Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -Řéšúɱé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_action_start_runner": "[!‮Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_authorization_refused": [
-    "[!‮Ţħíš řéƒřéšħ ñééďš á řéƒřéšħ ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
+  "status.host_repair_action_dispose_obligations": "[!‮Ñéẋţ šţéƥ: řéṽíéŵ ţħé óúţšţáñďíñğ řéçóṽéřý íţéɱš óñ ţħé ħóšţ áñď ďíšƥóšé óƒ ţħéɱ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ĎíšƥóšéÓƀļíğáţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_elevate": "[!‮Ñéẋţ šţéƥ: ţħé řéƥáíř ñééďš áďɱíñíšţřáţóř říğħţš; řúñ íţ óñ ţħé ħóšţ ƒřóɱ áñ éļéṽáţéď šéššíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_grant_automation": "[!‮Ñéẋţ šţéƥ: áļļóŵ ţħíš ħóšţ'š áúţóɱáţíóñ áççéšš ţó ÚŢⱮ, ţħéñ řéƥáíř áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_gui_session": "[!‮Ñéẋţ šţéƥ: šíğñ íñ ţó á ďéšķţóƥ šéššíóñ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_install_client": "[!‮Ñéẋţ šţéƥ: íñšţáļļ ţħé ħýƥéřṽíšóř'š çóɱɱáñď-ļíñé çļíéñţ óñ ţħé ħóšţ, ţħéñ řéƥáíř áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_resume_request": "[!‮Ñéẋţ šţéƥ: řéšúɱé ţħíš řéʠúéšţ óñ ţħé ħóšţ ŵíţħ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -Řéšúɱé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_action_start_runner": "[!‮Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ; ñó řéçóřďéď ļáúñçħ çóúļď ƀé řéúšéď ţó řéšţářţ íţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_authorization_refused": [
+    "[!‮Ţħíš řéƥáíř ñééďš á řéƥáíř ƥřóóƒ ţħáţ ţħíš ƥáğé ďóéš ñóţ ħáṽé (",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƒřéšħ áçţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "). Úšé ţħé šţáţúš ƥáğé óñ ţħé ħóšţ íţšéļƒ, óř ţħé ƥóóļ-çóñţřóļ řéƥáíř áçţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_busy": [
-    "[!‮Áñóţħéř ħóšţ řéƒřéšħ (",
+  "status.host_repair_busy": [
+    "[!‮Áñóţħéř ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -16937,8 +20282,8 @@ var Catalogs = map[string]map[string]string{
     },
     ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_check_host": "[!‮Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "[!‮Óñ ţħé ħóšţ, řúñ ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1 -ŴħáţÍƒ ţó šéé ţħé çúřřéñţ šţáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_closed": [
     "[!‮Řéʠúéšţ ",
     {
       "arg": "requestId",
@@ -16951,10 +20296,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šţářţ á ñéŵ řéƒřéšħ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šţářţ á ñéŵ řéƥáíř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_confirm": [
-    "[!‮Řéƒřéšħ ţħíš ħóšţ, úƥ ţó ţħé ",
+  "status.host_repair_confirm": [
+    "[!‮Řéƥáíř ţħíš ħóšţ, úƥ ţó ţħé ",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -16966,20 +20311,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " ɱíñúţéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ɱíñúţéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_conflict": [
-    "[!‮Řéʠúéšţ ",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéƒřéšħ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_launcher_failed": "[!‮Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƒřéšħ ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_lost": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_launcher_failed": "[!‮Ţħé ħóšţ çóúļď ñóţ šţářţ ţħé řéƥáíř ŵóřķéř. Ţħé řéʠúéšţ íš ķéƥţ; šéļéçţ Řéţřý ţó šţářţ íţ áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_lost": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -16991,11 +20327,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƒřéšħ ħóšţ ţó šţářţ á ñéŵ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš, óř á ļáţéř řéʠúéšţ ħáš řéƥļáçéď íţš řéƥóřţ. Šéļéçţ Řéţřý ţó ášķ ţħé ħóšţ ħóŵ íţ éñďéď, óř Řéƥáíř ħóšţ ţó šţářţ á ñéŵ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_note": "[!‮Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_progress": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_note": "[!‮Řéƥáířš á šţáļļéď řúññéř óř ħýƥéřṽíšóř óñ ţħíš ħóšţ. Ğúéšţ ṼⱮš óñ ţħíš ħóšţ çáñ ƀé šúšƥéñďéď óř řéšţářţéď ŵħíļé ţħé ħýƥéřṽíšóř řéçóṽéřš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_progress": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17025,22 +20361,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "external"
     },
-    " šéçóñďš ļéƒţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš ļéƒţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_recovery_pending": "[!‮Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_rejected": [
-    "[!‮Ţħé ħóšţ řéĵéçţéď ţħé řéƒřéšħ řéʠúéšţ: ",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    },
-    "‬ ~~~~~~~~~~~~~~~~~~~]"
-  ],
-  "status.host_refresh_remote_viewer": "[!‮Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƒřéšħ ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRefresh.ps1.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_retry": "[!‮Řéţřý‬ ~~]",
-  "status.host_refresh_stale": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_recovery_pending": "[!‮Šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď řéšţóříñğ. Řéţřý řéšúɱéš ţħé šáɱé řéʠúéšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_remote_viewer": "[!‮Ţħíš ƥáğé íš óƥéñ ƒřóɱ áñóţħéř ɱáçħíñé, šó íţ çáñ ŵáţçħ á ħóšţ řéƥáíř ƀúţ ñóţ šţářţ óñé. Šţářţ íţ óñ ţħé ħóšţ: íţš óŵñ ďášħƀóářď, óř ƥŵšħ ţéšţ/lab/Invoke-HostRepair.ps1.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_retry": "[!‮Řéţřý‬ ~~]",
+  "status.host_repair_stale": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17052,14 +20379,13 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé šţóƥƥéď; çħéçķ ţħé ħóšţ ƀéƒóřé šţářţíñğ áñóţħéř řéƥáíř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_start": "[!‮Řéƒřéšħ ħóšţ‬ ~~~~~]",
-  "status.host_refresh_start_cycle_busy": "[!‮Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.host_refresh_submitting": "[!‮Šéñďíñğ ţħé řéƒřéšħ řéʠúéšţ...‬ ~~~~~~~~~~~~]",
-  "status.host_refresh_title": "[!‮Ħóšţ řéƒřéšħ‬ ~~~~~]",
-  "status.host_refresh_unavailable": [
-    "[!‮Ħóšţ řéƒřéšħ íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+  "status.host_repair_start": "[!‮Řéƥáíř ħóšţ‬ ~~~~~]",
+  "status.host_repair_start_cycle_busy": "[!‮Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.host_repair_title": "[!‮Ħóšţ řéƥáíř‬ ~~~~~]",
+  "status.host_repair_unavailable": [
+    "[!‮Ħóšţ řéƥáíř íš ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
     {
       "arg": "reason",
       "type": "identifier",
@@ -17067,8 +20393,8 @@ var Catalogs = map[string]map[string]string{
     },
     ").‬ ~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_abandoned": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17076,17 +20402,17 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áƀáñďóñéď áƒţéř řéƥéáţéď áţţéɱƥţš; íţš řéçóṽéřý řéçóřď íš ķéƥţ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_already_healthy": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš áļřéáďý ħéáļţħý, šó ñóţħíñğ ŵáš çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_failed": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_failed": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17098,10 +20424,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ").‬ ~~~~~~~~~~~~~~~~]"
+    ").‬ ~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_partial": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_partial": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17113,10 +20439,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    "); šóɱé šéřṽíçéš óř ţħé řúññéř šţíļļ ñééď áţţéñţíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_refused": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_refused": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17128,19 +20454,19 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_repaired": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_repaired": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " ƒíñíšħéď: ţħé ħóšţ ŵáš řéƥáířéď áñď ţħé řúññéř íš řéáďý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_still_unresponsive": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17148,8 +20474,8 @@ var Catalogs = map[string]map[string]string{
     },
     " éñďéď: ţħé ħýƥéřṽíšóř šţíļļ ďóéš ñóţ řéšƥóñď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_verdict_unknown": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_verdict_unknown": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17161,10 +20487,10 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_waiting": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17172,8 +20498,8 @@ var Catalogs = map[string]map[string]string{
     },
     " ŵáš áççéƥţéď; ŵáíţíñğ ƒóř ţħé ŵóřķéř'š ƒířšţ řéƥóřţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.host_refresh_waiting_long": [
-    "[!‮Řéƒřéšħ ",
+  "status.host_repair_waiting_long": [
+    "[!‮Řéƥáíř ",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -17185,8 +20511,554 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    " šéçóñďš. Ţħé ŵóřķéř ɱáý ħáṽé ƒáíļéď ţó šţářţ; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
+  "status.host_request_conflict": [
+    "[!‮Řéʠúéšţ ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " ŵáš áļřéáďý šéñţ ŵíţħ ďíƒƒéřéñţ šéţţíñğš; šţářţ á ñéŵ řéʠúéšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_rejected": [
+    "[!‮Ţħé ħóšţ řéĵéçţéď ţħé řéʠúéšţ: ",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "‬ ~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_request_submitting": "[!‮Šéñďíñğ ţħé řéʠúéšţ...‬ ~~~~~~~~~]",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "[!‮Ñéẋţ šţéƥ: çħéçķ ţħé ħóšţ áñď áçţ ţħéřé.‬ ~~~~~~~~~~~~~~~~]",
+      "end_one_shot": "[!‮Ñéẋţ šţéƥ: éñď ţħé óñé-šħóţ šéššíóñ óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮Ñéẋţ šţéƥ: ",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        ".‬ ~~~~~~~~]"
+      ],
+      "provision_elevation": "[!‮Ñéẋţ šţéƥ: ğíṽé ţħé řúññéř íţš šúďó řúļé óñ ţħé ħóšţ, ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "provision_elevation_macos": [
+        "[!‮Ñéẋţ šţéƥ: óñ ţħé ħóšţ, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď áñšŵéř íţš ƥřóɱƥţš; íţ íñšţáļļš ţħé šúďóéřš éñţřý ħóšţ úƥďáţéš úšé. Ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "read_remarks": "[!‮Ñéẋţ šţéƥ: řéáď ţħé řéɱářķš.‬ ~~~~~~~~~~~~]",
+      "reboot_host": "[!‮Ñéẋţ šţéƥ: řéšţářţ Ŵíñďóŵš óñ ţħé ħóšţ, ţħéñ šţářţ ţħé řúññéř.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "release": [
+        "[!‮Ñéẋţ šţéƥ: ţó éñď íţ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "release_diagnostic_hold": "[!‮Ñéẋţ šţéƥ: řéļéášé ţħé ṼⱮ ķéƥţ ƒóř ďíáğñóšíš, ţħéñ ƥřéšš áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "repair_checkout": "[!‮Ñéẋţ šţéƥ: řéƥáíř ţħé çħéçķóúţ óñ ţħé ħóšţ; ţħé ħóšţ ķééƥš ţřýíñğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "retry_or_drain_now": [
+        "[!‮Ñéẋţ šţéƥ: ƥřéšš áğáíñ, óř éñď ţħé çýçļé ñóŵ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "start_runner": "[!‮Ñéẋţ šţéƥ: šţářţ ţħé řúññéř óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~]",
+      "stop_runner_by_hand": "[!‮Ñéẋţ šţéƥ: šţóƥ ţħé řúññéř óñ ţħé ħóšţ ƀý ħáñď.‬ ~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_blocks": [
+    "[!‮Á ħóšţ úƥďáţé (",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "[!‮Á ħóšţ řéƥáíř (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_update": [
+        "[!‮Áñóţħéř ħóšţ úƥďáţé (",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ") íš íñ ƥřóğřéšš; šħóŵíñğ íţš ƥřóğřéšš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": "[!‮Á šţářţ-çýçļé řéʠúéšţ íš íñ ƥřóğřéšš; ţřý áğáíñ ŵħéñ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_confirm": [
+    "[!‮Úƥďáţé ħóšţ (",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    ")? Ţħé řúññéř šţóƥš ŵħéñ ţħé řúññíñğ çýçļé éñďš áñď řéšţářţš óñ çúřřéñţ çóďé; ţħé úƥďáţé ğíṽéš úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ íñšţéáď, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "[!‮Ţħé řúññéř šţářţéď ŵíţħóúţ á çóñšóļé.‬ ~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮Ţħé řúññéř'š çóñšóļé: ",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        ".‬ ~~~~~~~~~~~~~]"
+      ],
+      "tmux": [
+        "[!‮Ţó óƥéñ ţħé řúññéř'š çóñšóļé, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "window": "[!‮Ţħé řúññéř'š çóñšóļé íš á ŵíñďóŵ óƒ íţš óŵñ óñ ţħé ďéšķţóƥ óƒ ţħé ţéšţ áççóúñţ: óƥéñ íţ áţ ţħé ɱáçħíñé, óř óṽéř á řéɱóţé ďéšķţóƥ çóññéçţíóñ ţó ţħáţ šéššíóñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_countdown": [
+    "[!‮Ţħé šţáţúš šéřṽíçé íš řéšţářţíñğ; éẋƥéçţéď ƀáçķ íñ ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " šéçóñďš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_cycle_time": [
+    "[!‮Ţħé řúññíñğ çýçļé ħáš řúñ ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "; řéçéñţ çýçļéš ţóóķ áƀóúţ ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_debt": [
+    "[!‮Šţíļļ óŵéď óñ ţħé ħóšţ: ",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "[!‮Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƒáíļéď.‬ ~~~~~~~~~~~~~~~~]",
+      "other": "[!‮Ŵáíţíñğ ƒóř ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé.‬ ~~~~~~~~~~~~~~~~~~]",
+      "pass": "[!‮Ţħé ƒířšţ çýçļé áƒţéř ţħé úƥďáţé ƥáššéď.‬ ~~~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_lost": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ţħé ħóšţ ñó ļóñğéř řéƥóřţš íţ, šó íţš óúţçóɱé íš úñķñóŵñ ħéřé; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_note": [
+    "[!‮Úƥďáţéš ţħíš ħóšţ'š çóďé áñď řéšţářţš ţħé řúññéř ŵħéñ ţħé řúññíñğ çýçļé éñďš, ğíṽíñğ úƥ áƒţéř ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " ɱíñúţéš. Ţó éñď ţħé çýçļé ñóŵ, řúñ óñ ţħé ħóšţ: ",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    },
+    "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_progress": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ƥħášé ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " óƒ ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " (",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "), ƀóúñďéď áţ ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_queued": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " íš ʠúéúéď; íţ šţářţš ŵħéñ ţħé řúññíñğ çýçļé éñďš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_remarks": [
+    "[!‮Řéɱářķš: ",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    ".‬ ~~~~~~~~]"
+  ],
+  "status.host_update_remote_hint": [
+    "[!‮Úƥďáţé ħóšţ óƥéñš ƥóóļ-çóñţřóļ áţ ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    ", ŵħíçħ šíğñš ţħé řéʠúéšţ áñď ƀříñğš ýóú ƀáçķ ħéřé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "[!‮Řéíñšţáļļ ďéƥéñďéñçíéš áñď šéţţíñğš, ţħéñ řéšţářţ‬ ~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮",
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        },
+        "‬ ~~~]"
+      ],
+      "restart": "[!‮Řéšţářţ ţħé řúññéř óñ çúřřéñţ çóďé‬ ~~~~~~~~~~~~~~]"
+    }
+  },
+  "status.host_update_stale": [
+    "[!‮Ħóšţ úƥďáţé ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    ": ñó řéƥóřţ ƒóř ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " šéçóñďš; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+  ],
+  "status.host_update_start": "[!‮Úƥďáţé ħóšţ‬ ~~~~~]",
+  "status.host_update_title": "[!‮Ħóšţ úƥďáţé‬ ~~~~~]",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "[!‮Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Ţó šéţ óñé úƥ, řúñ óñ ţħé ħóšţ: ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_gate": [
+        "[!‮Á ħóšţ úƥďáţé ħóļďš ţħíš ħóšţ'š řúññéř áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ. Řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " óñçé ɱóřé ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ áñď ļéáṽé á řúññéř ţħáţ íš řúññíñğ áļóñé: ţħáţ šţářţ šţóƥš áţ ţħé řúññéř ğáţé áñď šţářţš ţħé çóñţřóļļéř, ŵħíçħ çóñţíñúéš ţħé úƥďáţé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "controller_absent_macos": [
+        "[!‮Ñó ħóšţ çóñţřóļļéř řúñš óñ ţħíš ħóšţ. Óñ ɱáçÓŠ ţħé řúññéř'š šţářţ šţářţš íţ: řúñ ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ, óř šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé áñď šţářţ íţ áğáíñ ţħáţ ŵáý. Óñ á ħóšţ ñéṽéř šéţ úƥ ƒóř ħóšţ úƥďáţéš, řúñ ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ƒířšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "host_type": "[!‮Ħóšţ úƥďáţéš ářé ñóţ ýéţ áṽáíļáƀļé óñ ţħíš ħóšţ ţýƥé.‬ ~~~~~~~~~~~~~~~~~~~~~~]",
+      "journal_unreadable": "[!‮Ţħé ħóšţ çáññóţ řéáď íţš óƥéřáţíóñ ĵóúřñáļ; çħéçķ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "listener_dependency_missing": "[!‮Ţħé šţáţúš šéřṽíçé çóúļď ñóţ ļóáď ŵħáţ ħóšţ úƥďáţéš ñééď; řéšţářţ íţ óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+      "other": [
+        "[!‮Ħóšţ úƥďáţéš ářé ñóţ áṽáíļáƀļé óñ ţħíš ħóšţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "remote": [
+        "[!‮Ƒřóɱ áñóţħéř ɱáçħíñé ţħíš ƥáğé çáñ óñļý ŵáţçħ á ħóšţ úƥďáţé; úñţíļ ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " íš íñšţáļļéď óñ ţħé ħóšţ, ƥřéšš Úƥďáţé ħóšţ ţħéřé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "scope_unavailable": "[!‮Ţħíš ħóšţ çáññóţ řúñ ţħé çħóšéñ šçóƥé ñóŵ.‬ ~~~~~~~~~~~~~~~~~]",
+      "session_unusable": [
+        "[!‮Ţħé ħóšţ çóñţřóļļéř'š šéššíóñ çáññóţ šţářţ á ŵóřķíñğ řúññéř: íţ íš ñóţ ţħé ďéšķţóƥ šéššíóñ, óř á ƥříṽáçý ğřáñţ íš ɱíššíñğ ţħéřé. Óñ ţħé ħóšţ, éñď ţħé šéššíóñ ýúřúñá-çóñţřóļļéř ŵíţħ ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " (úñďéř šçřééñ, ʠúíţ ţħé ýúřúñá-çóñţřóļļéř šéššíóñ ţħáţ ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " ļíšţš), šţóƥ á řúññíñğ řúññéř áƒţéř íţš çýçļé, áñď šţářţ ţħé řúññéř áğáíñ ƒřóɱ á ţéřɱíñáļ óƒ ţħé ďéšķţóƥ šéššíóñ ţħáţ ħóļďš ţħé ğřáñţš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ğáṽé úƥ: ţħé řúññíñğ çýçļé óúţļášţéď ţħé ŵáíţ. Ñóţħíñğ çħáñğéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "failed_restored": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ďíď ñóţ çóɱƥļéţé (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "); ţħé ħóšţ ŵáš řéšţóřéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "other": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " éñďéď ŵíţħ áñ óúţçóɱé ţħíš ƥáğé ďóéš ñóţ řéçóğñížé (",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "reboot_required": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď, ƀúţ Ŵíñďóŵš ɱúšţ řéšţářţ ƀéƒóřé ţħé ħýƥéřṽíšóř çáñ řúñ, šó ţħé řúññéř ŵáš ñóţ šţářţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ; ţħé ħóšţ ķééƥš ţřýíñğ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "recovering_without_controller": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř íš ñóţ řúññíñğ ýéţ (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "), áñď ñó ħóšţ çóñţřóļļéř íš řúññíñğ ţó ţřý áğáíñ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "refused": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéƒúšéď; ñóţħíñğ çħáñğéď (",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        ").‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "released": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš řéļéášéď óñ ţħé ħóšţ.‬ ~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "stop_failed": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ": ţħé řúññéř çóúļď ñóţ ƀé šţóƥƥéď, šó ñóţħíñğ ŵáš šţářţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "superseded": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ŵáš ţáķéñ óṽéř ƀý ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        ".‬ ~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř řúñš çúřřéñţ çóďé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_not_started": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď; ţħé řúññéř ŵáš šţóƥƥéď ƀéƒóřé íţ, šó íţ ŵáš ñóţ šţářţéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ],
+      "updated_with_remarks": [
+        "[!‮Ħóšţ úƥďáţé ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " ƒíñíšħéď ŵíţħ řéɱářķš; ţħé řúññéř řúñš çúřřéñţ çóďé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+      ]
+    }
+  },
   "status.host_value1": [
     "[!‮Ħóšţ: ",
     {
@@ -17218,7 +21090,7 @@ var Catalogs = map[string]map[string]string{
     "‬ ~~~~~~~~~~~~~]"
   ],
   "status.lab_hold_unspecified": "[!‮Ļáƀ ħóļď -- ŵáíţíñğ ƒóř á ļáƀ šéřṽíçé‬ ~~~~~~~~~~~~~~~]",
-  "status.latest_cycle": "[!‮Ļáţéšţ Çýçļé‬ ~~~~~]",
+  "status.latest_cycle": "[!‮Ļáţéšţ çýçļé‬ ~~~~~]",
   "status.latest_runs": {
     "kind": "plural",
     "selector": "count",
@@ -17444,7 +21316,7 @@ var Catalogs = map[string]map[string]string{
   "status.pill_new_vm_resource": "[!‮Ñéŵ ṼⱮ‬ ~~~]",
   "status.pill_start_guestos": "[!‮Šţářţ ÓŠ‬ ~~~~]",
   "status.pill_start_guestworkload": "[!‮Ŵóřķļóáď‬ ~~~~]",
-  "status.preflight_failed": "[!‮ƤŘÉƑĻÍĞĦŢ ƑÁÍĻÉĎ‬ ~~~~~~~]",
+  "status.preflight_failed": "[!‮Ƥřéƒļíğħţ ƒáíļéď‬ ~~~~~~~]",
   "status.process_environment_value_the_status_service_inherited_at_startup": "[!‮Ƥřóçéšš-éñṽířóñɱéñţ ṽáļúé ţħé šţáţúš šéřṽíçé íñħéříţéď áţ šţářţúƥ. Řéáď-óñļý ħéřé; ƒáļļƀáçķ šóúřçé óñļý: áţ çýçļé šţářţ ţħé vmStart.cachingProxyIp ƒíéļď áƀóṽé íš ƥřóƀéď ƒířšţ áñď ŵíñš ŵħéñ íţš :3128 áñšŵéřš. Éẋƥóřţ ţħíš íñ ţħé šħéļļ ţħáţ ļáúñçħéš Start-TestRunner.ps1 ƒóř ħóšţš ŵħóšé çóñƒíğ ƒíéļď íš éɱƥţý.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.quarantine_pinned": [
     "[!‮ʠúářáñţíñéď áƒţéř řéƥéáţéď šáɱé-çļášš ƒáíļúřéš (šķíƥƥéď úñţíļ á ñéŵ çóɱɱíţ; ƥíññéď áţ ",
@@ -17461,7 +21333,7 @@ var Catalogs = map[string]map[string]string{
   "status.recalculate": "[!‮Řéçáļçúļáţé‬ ~~~~~]",
   "status.recalculating": "[!‮Řéçáļçúļáţíñğ…‬ ~~~~~~]",
   "status.recalculating_perf_aggregates": "[!‮Řéçáļçúļáţíñğ ƥéřƒ áğğřéğáţéš…‬ ~~~~~~~~~~~~]",
-  "status.recent_cycles": "[!‮Řéçéñţ Çýçļéš‬ ~~~~~~]",
+  "status.recent_cycles": "[!‮Řéçéñţ çýçļéš‬ ~~~~~~]",
   "status.refresh": "[!‮Řéƒřéšħ‬ ~~~]",
   "status.results_folder": [
     "[!‮Óƥéñ řéšúļţš ƒóļďéř ƒóř ",
@@ -17624,14 +21496,14 @@ var Catalogs = map[string]map[string]string{
     },
     ", řéšţářţ ţħé ṼⱮ, ţħéñ řéšúɱé ţħé šéʠúéñçé‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "[!‮Á ħóšţ řéƒřéšħ (",
+  "status.start_cycle_blocked_by_repair": [
+    "[!‮Á ħóšţ řéƥáíř (",
     {
       "arg": "requestId",
       "type": "identifier",
       "trust": "external"
     },
-    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
+    ") íš íñ ƥřóğřéšš; ţħé çýçļé çáññóţ šţářţ úñţíļ íţ ƒíñíšħéš.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]"
   ],
   "status.start_cycle_cycle_restarted": "[!‮Çýçļé řéšţářţéď‬ ~~~~~~]",
   "status.start_cycle_failed": [
@@ -17715,7 +21587,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "[!‮Ţéšţíñğ çáçħíñğ-ƥřóẋý šéřṽíçé ƒřóɱ ħóšţ…‬ ~~~~~~~~~~~~~~~~]",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "[!‮Ţħé ářçħíṽé íš ƀúíļţ ƒřóɱ šéřṽéř ļóğš óñļý áñď ďóŵñļóáďéď ţó ţħíš ɱáçħíñé. Ñó ďáţá ƒřóɱ ţħíš ƀřóŵšíñğ šéššíóñ íš íñçļúďéď.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "[!‮Ţħé çóñţřóļ ƥřóóƒ éẋƥířéď. Řé-óƥéñ ţħíš ħóšţ ƒřóɱ ţħé ďášħƀóářď ļíñķ ţó ğéţ á ƒřéšħ óñé.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[!‮Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ ļáƀ-áúţħ-ţóķéñ ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "[!‮Ţħé çóñţřóļ ƥřóóƒ ŵáš řéĵéçţéď. Íţ ɱáý ħáṽé ƀééñ ɱíñţéď ŵíţħ á ďíƒƒéřéñţ íñţéřñáļ áúţħéñţíçáţíóñ ķéý ţħáñ ţħíš ħóšţ ħóļďš; řé-éñřóļļíñğ ŵíţħ ţéšţ/lab/Set-LabToken.ps1 řéáļíğñš ţħéɱ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "[!‮Ţħé ħóšţ çóúļď ñóţ ļóáď íţš çóñţřóļ-ƥřóóƒ ṽéříƒíéř; çħéçķ ţħé šţáţúš šéřṽíçé ļóğ.‬ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "[!‮Ţħé šħářé šħééţ éẋƥířéď ŵħíļé ţħé ħóšţ ƥáçķéď ţħé ƒóļďéř. ‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "[!‮Ţħíš ƀřóŵšéř çóúļď ñóţ áţţáçħ ţħé ƒíļé ţó á ɱéššáğé íţšéļƒ. ‬ ~~~~~~~~~~~~~~~~~~~~~~~~]",
@@ -17915,7 +21787,7 @@ var Catalogs = map[string]map[string]string{
   ],
   "status.working": "[!‮Ŵóřķíñğ...‬ ~~~~]",
   "status.yuruna_host_status": "[!‮Ýúřúñá ħóšţ šţáţúš‬ ~~~~~~~~]",
-  "status.yuruna_status": "[!‮Ýúřúñá Šţáţúš‬ ~~~~~~]"
+  "status.yuruna_status": "[!‮Ýúřúñá šţáţúš‬ ~~~~~~]"
 }
 `,
 	},
@@ -18482,8 +22354,8 @@ var Catalogs = map[string]map[string]string{
     },
     "的宿主机ID"
   ],
-  "pool.host_refresh_body_invalid": [
-    "刷新请求必须为JSON对象，值均为字符串，且仅包含hostId、requestId、tier和maxRung（",
+  "pool.host_repair_body_invalid": [
+    "修复请求必须为JSON对象，值均为字符串，且仅包含hostId、requestId、tier和maxRung（",
     {
       "arg": "detail",
       "type": "identifier",
@@ -18491,14 +22363,14 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "pool.host_refresh_busy": [
+  "pool.host_repair_busy": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "正在处理刷新请求",
+    "正在处理修复请求",
     {
       "arg": "activeRequestId",
       "type": "identifier",
@@ -18506,7 +22378,7 @@ var Catalogs = map[string]map[string]string{
     },
     "；请跟踪该请求，不要启动新请求。"
   ],
-  "pool.host_refresh_control_proof_unavailable": [
+  "pool.host_repair_control_proof_unavailable": [
     "无法获取宿主机",
     {
       "arg": "hostId",
@@ -18521,8 +22393,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "pool.host_refresh_field_unsupported": [
-    "刷新请求包含不支持的字段",
+  "pool.host_repair_field_unsupported": [
+    "修复请求包含不支持的字段",
     {
       "arg": "field",
       "type": "identifier",
@@ -18530,7 +22402,7 @@ var Catalogs = map[string]map[string]string{
     },
     "；远程请求一律不接受强制和硬停止选项。"
   ],
-  "pool.host_refresh_host_address_unknown": [
+  "pool.host_repair_host_address_unknown": [
     "池聚合器已知宿主机",
     {
       "arg": "hostId",
@@ -18539,15 +22411,15 @@ var Catalogs = map[string]map[string]string{
     },
     "，但没有其地址。"
   ],
-  "pool.host_refresh_host_id_invalid": "hostId必须是由32个十六进制字符组成的宿主机ID。",
-  "pool.host_refresh_host_refused": [
+  "pool.host_repair_host_id_invalid": "hostId必须是由32个十六进制字符组成的宿主机ID。",
+  "pool.host_repair_host_refused": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "拒绝了刷新（HTTP ",
+    "拒绝了修复（HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -18561,14 +22433,14 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "pool.host_refresh_host_unavailable": [
+  "pool.host_repair_host_unavailable": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "无法启动刷新（HTTP ",
+    "无法启动修复（HTTP ",
     {
       "arg": "status",
       "type": "integer",
@@ -18588,7 +22460,7 @@ var Catalogs = map[string]map[string]string{
     },
     "重试。"
   ],
-  "pool.host_refresh_host_unknown": [
+  "pool.host_repair_host_unknown": [
     "池聚合器未知宿主机",
     {
       "arg": "hostId",
@@ -18597,7 +22469,7 @@ var Catalogs = map[string]map[string]string{
     },
     "。"
   ],
-  "pool.host_refresh_host_unreachable": [
+  "pool.host_repair_host_unreachable": [
     "宿主机",
     {
       "arg": "hostId",
@@ -18612,16 +22484,16 @@ var Catalogs = map[string]map[string]string{
     },
     "重试。"
   ],
-  "pool.host_refresh_mint_failed": [
+  "pool.host_repair_mint_failed": [
     "此服务无法为宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "的刷新请求签名。"
+    "的修复请求签名。"
   ],
-  "pool.host_refresh_reply_invalid": [
+  "pool.host_repair_reply_invalid": [
     "宿主机",
     {
       "arg": "hostId",
@@ -18636,7 +22508,7 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "pool.host_refresh_request_closed": [
+  "pool.host_repair_request_closed": [
     "宿主机",
     {
       "arg": "hostId",
@@ -18661,9 +22533,9 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "）；请生成新的请求标识符以再次刷新。"
+    "）；请生成新的请求标识符以再次修复。"
   ],
-  "pool.host_refresh_request_conflict": [
+  "pool.host_repair_request_conflict": [
     "请求",
     {
       "arg": "requestId",
@@ -18672,10 +22544,10 @@ var Catalogs = map[string]map[string]string{
     },
     "已用于不同的层级或上限；请重新发送原始策略或生成新的请求标识符。"
   ],
-  "pool.host_refresh_request_id_invalid": "requestId必须是小写UUID（8-4-4-4-12），由调用方生成一次，并在每次重试时复用。",
-  "pool.host_refresh_rung_unsupported": "maxRung必须为probe、reclaim、start-if-stopped、restart-if-hung或restart-broker。",
-  "pool.host_refresh_signing_unconfigured": [
-    "远程宿主机刷新已禁用：本服务未持有刷新签名授权（",
+  "pool.host_repair_request_id_invalid": "requestId必须是小写UUID（8-4-4-4-12），由调用方生成一次，并在每次重试时复用。",
+  "pool.host_repair_rung_unsupported": "maxRung必须为probe、reclaim、start-if-stopped、restart-if-hung或restart-broker。",
+  "pool.host_repair_signing_unconfigured": [
+    "远程宿主机修复已禁用：本服务未持有修复签名授权（",
     {
       "arg": "path",
       "type": "detail",
@@ -18683,15 +22555,245 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "pool.host_refresh_tier_unsupported": "远程只能请求restart层级；full层级仅限本地使用。",
-  "pool.host_refresh_unavailable": [
+  "pool.host_repair_tier_unsupported": "远程只能请求restart层级；full层级仅限本地使用。",
+  "pool.host_repair_unavailable": [
     "宿主机",
     {
       "arg": "hostId",
       "type": "identifier",
       "trust": "external"
     },
-    "未公布远程刷新能力（",
+    "未公布远程修复能力（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_action": "更新宿主机",
+  "pool.host_update_body_invalid": [
+    "更新请求必须是一个JSON对象，且仅包含hostId、requestId、scope、drainSeconds和expectCommit，每项只出现一次（",
+    {
+      "arg": "detail",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）。"
+  ],
+  "pool.host_update_busy": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "正在处理请求",
+    {
+      "arg": "activeRequestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "；请跟踪该请求，不要启动新请求。"
+  ],
+  "pool.host_update_commit_invalid": "expectCommit必须为7到40位小写十六进制数字。",
+  "pool.host_update_commit_label": "预期提交",
+  "pool.host_update_completed": [
+    "请求",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已在宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "上结束（",
+    {
+      "arg": "verdict",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_credential_label": "操作员凭据",
+  "pool.host_update_credential_missing": "请输入操作员凭据。",
+  "pool.host_update_drain_invalid": "drainSeconds必须是60到21600之间的整数。",
+  "pool.host_update_drain_label": "排空时限",
+  "pool.host_update_drain_now_label": "立即结束当前周期",
+  "pool.host_update_drain_value": [
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒（",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 分钟）"
+  ],
+  "pool.host_update_field_forbidden": [
+    "更新请求包含",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "；本服务发出的请求从不结束正在运行的周期。要结束周期，请在宿主机的shell中运行Invoke-HostUpdate.ps1 -Drain now。"
+  ],
+  "pool.host_update_field_unsupported": [
+    "更新请求包含不受支持的字段",
+    {
+      "arg": "field",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "pool.host_update_heading": "更新宿主机",
+  "pool.host_update_host_refused": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "拒绝了更新（HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    "，",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_host_unavailable": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "无法将更新加入队列（HTTP ",
+    {
+      "arg": "status",
+      "type": "integer",
+      "trust": "external"
+    },
+    "，",
+    {
+      "arg": "hostReason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）；请使用相同的请求ID ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "重试。"
+  ],
+  "pool.host_update_intro": "此页面为下方宿主机签署一次宿主机更新并发送给它。宿主机会等待当前周期结束，然后停止运行器、将检出更新到最新并再次启动运行器；超过排空时限则放弃，不做任何更改。此页面发出的请求从不结束正在运行的周期：要结束周期，请在宿主机的shell中运行下方显示的命令。",
+  "pool.host_update_loading": "正在读取宿主机…",
+  "pool.host_update_mint_failed": [
+    "本服务无法为宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "签署更新请求。"
+  ],
+  "pool.host_update_not_offered": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "目前无法接受远程宿主机更新（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）。"
+  ],
+  "pool.host_update_open_diagnostics": "打开宿主机的诊断页面",
+  "pool.host_update_page_title": "更新宿主机 — Yuruna Pool Control",
+  "pool.host_update_request_conflict": [
+    "请求",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已以不同的范围、排空时限或预期提交使用过；请重新发送原始请求或发起新请求。"
+  ],
+  "pool.host_update_request_label": "请求ID",
+  "pool.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "重新安装依赖项和设置，然后重启",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "在当前代码上重启运行器"
+    }
+  },
+  "pool.host_update_scope_invalid": "scope必须为restart或full。",
+  "pool.host_update_scope_label": "范围",
+  "pool.host_update_sending": "正在签署并发送更新…",
+  "pool.host_update_sent": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已将更新",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "加入队列；正在打开其诊断页面。"
+  ],
+  "pool.host_update_signing_unconfigured": [
+    "远程宿主机更新已禁用：本服务未持有更新签名密钥或操作员凭据（",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    "）。"
+  ],
+  "pool.host_update_submit": "发送更新",
+  "pool.host_update_unavailable": [
+    "宿主机",
+    {
+      "arg": "hostId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "目前无法接受远程宿主机更新（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -18905,7 +23007,7 @@ var Catalogs = map[string]map[string]string{
   "pool.paused_after_cycle_and_step": "已在周期和步骤结束后暂停",
   "pool.persisted_health": "已持久化的健康状态",
   "pool.persistence_disabled": "（持久化已禁用）",
-  "pool.pid": "进程标识（pid）",
+  "pool.pid": "进程标识（PID）",
   "pool.platform": "平台",
   "pool.pool": "池",
   "pool.pool_for_host_value1": [
@@ -19554,8 +23656,8 @@ var Catalogs = map[string]map[string]string{
   "status.api_forbidden_not_served": "禁止（不是提供的文件）",
   "status.api_forbidden_probe_target_must_be_a_private_loopback_rfc1_2c763dac": "禁止访问：探测目标必须是私有地址（loopback/RFC1918/link-local）或配置的缓存IP",
   "status.api_guest_channel_key_absent": "此主机尚无来宾通道密钥；密钥会在主机首次生成来宾种子时创建",
-  "status.api_host_refresh_authorization_refused": [
-    "刷新授权被拒绝（",
+  "status.api_host_repair_authorization_refused": [
+    "修复授权被拒绝（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -19563,8 +23665,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）"
   ],
-  "status.api_host_refresh_busy": "另一个宿主机操作正在进行中",
-  "status.api_host_refresh_request_closed": [
+  "status.api_host_repair_busy": "另一个宿主机操作正在进行中",
+  "status.api_host_repair_request_closed": [
     "此请求ID已关闭（",
     {
       "arg": "state",
@@ -19573,15 +23675,36 @@ var Catalogs = map[string]map[string]string{
     },
     "）"
   ],
-  "status.api_host_refresh_request_conflict": "此请求ID已用于不同的设置",
-  "status.api_host_refresh_unavailable": [
-    "此宿主机不支持宿主机刷新（",
+  "status.api_host_repair_request_conflict": "此请求ID已用于不同的设置",
+  "status.api_host_repair_unavailable": [
+    "此宿主机不支持宿主机修复（",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "internal"
     },
     "）"
+  ],
+  "status.api_host_update_authorization_refused": [
+    "宿主机更新授权被拒绝（",
+    {
+      "arg": "reason",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "）"
+  ],
+  "status.api_host_update_busy": "此宿主机上正在进行宿主机更新",
+  "status.api_host_update_controller_absent": "此宿主机上没有正在运行的宿主机控制器；未排队任何请求",
+  "status.api_host_update_proof_missing": "来自其他机器的宿主机更新需要pool-control提供的更新证明；未加入任何队列",
+  "status.api_host_update_scope_unavailable": [
+    "宿主机控制器不运行 ",
+    {
+      "arg": "scope",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 范围；未排队任何请求"
   ],
   "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": "此宿主机未配置内部身份验证密钥",
   "status.api_internal_error": "请求在宿主机上执行失败；请查看server.err",
@@ -19761,8 +23884,8 @@ var Catalogs = map[string]map[string]string{
   "status.config": "配置",
   "status.config_field_alwaysredownload": "始终重新下载（alwaysRedownload）",
   "status.config_field_armwindowhours": "配置项armWindowHours",
-  "status.config_field_autorefreshafterstalls": "停滞后自动刷新（autoRefreshAfterStalls）",
   "status.config_field_autoremediation": "自动修复（autoRemediation）",
+  "status.config_field_autorepairafterstalls": "停滞后自动修复（autoRepairAfterStalls）",
   "status.config_field_autoseed": "配置项autoSeed",
   "status.config_field_bootdelayseconds": "启动延迟秒数（bootDelaySeconds）",
   "status.config_field_cachingproxyip": "缓存代理IP（cachingProxyIp）",
@@ -19872,7 +23995,7 @@ var Catalogs = map[string]map[string]string{
     },
     "）"
   ],
-  "status.control_host_token_missing": "此宿主机尚无实验室令牌。",
+  "status.control_host_token_missing": "此宿主机尚无内部身份验证密钥。",
   "status.control_instructions": [
     "此宿主机仅接受来自宿主机本地浏览器（",
     {
@@ -19880,7 +24003,7 @@ var Catalogs = map[string]map[string]string{
       "type": "detail",
       "trust": "external"
     },
-    "）或通过Yuruna宿主机仪表板链接打开的浏览器的控制（该链接会授予短期令牌）。要从其他计算机控制此宿主机，请通过仪表板打开；如果此宿主机从未注册，请使用仪表板“实验室令牌”卡片中的代码运行",
+    "）或通过Yuruna宿主机仪表板链接打开的浏览器的控制（该链接会授予短期控制证明）。要从其他计算机控制此宿主机，请通过仪表板打开；如果此宿主机从未注册，请使用仪表板“实验室令牌”卡片中的代码运行",
     {
       "arg": "command",
       "type": "detail",
@@ -19888,7 +24011,7 @@ var Catalogs = map[string]map[string]string{
     },
     "。"
   ],
-  "status.control_proof_expired": "此页面的控制令牌已过期（有效期为15分钟）。",
+  "status.control_proof_expired": "此页面的控制证明已过期（证明有效期为15分钟）。",
   "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": "控制凭证已过期，请在保存前通过仪表板链接重新打开此宿主机。在此之前，所做的编辑会保留。",
   "status.control_proof_expires_in_value1_s_save_soon_or_re_open_this_host_": [
     "控制凭证将在",
@@ -19899,12 +24022,12 @@ var Catalogs = map[string]map[string]string{
     },
     " s后过期，请尽快保存，或通过仪表板链接重新打开此宿主机以获取新凭证。"
   ],
-  "status.control_proof_invalid": "此页面的控制令牌在此处验证失败，此宿主机存储的实验室令牌可能与实验室当前的令牌不同，请重新注册。",
-  "status.control_proof_missing": "打开此页面时未携带控制令牌，因此未发送令牌。",
+  "status.control_proof_invalid": "此页面的控制证明在此处验证失败，此宿主机的内部身份验证密钥可能与实验室当前的密钥不同，请使用实验室令牌重新注册。",
+  "status.control_proof_missing": "打开此页面时未携带控制证明，因此未发送证明。",
   "status.control_refused": "控制请求被拒绝。",
   "status.control_routes": "控制路由设置",
   "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": [
-    "此宿主机没有lab-auth-token，因此远程控制仅限回环连接。请在宿主机上通过",
+    "此宿主机没有内部身份验证密钥，因此远程控制仅限回环连接。请在宿主机上通过",
     {
       "arg": "address",
       "type": "token",
@@ -20161,11 +24284,11 @@ var Catalogs = map[string]map[string]string{
     },
     " MB"
   ],
-  "status.git_source_mirror_confirmed": "mirror.origin",
-  "status.git_source_mirror_fresh": "mirror.fresh",
-  "status.git_source_mirror_stale": "mirror.stale",
-  "status.git_source_not_applicable": "not.applicable",
-  "status.git_source_origin_direct": "remote.origin",
+  "status.git_source_mirror_confirmed": "mirror",
+  "status.git_source_mirror_fresh": "mirror fresh",
+  "status.git_source_mirror_stale": "mirror stale",
+  "status.git_source_not_applicable": "not applicable",
+  "status.git_source_origin_direct": "remote",
   "status.guest_not_found": [
     {
       "arg": "guest",
@@ -20221,24 +24344,24 @@ var Catalogs = map[string]map[string]string{
       ]
     }
   },
-  "status.host_refresh_action_dispose_obligations": "下一步：查看宿主机上尚未完成的恢复项，并使用pwsh test/lab/Invoke-HostRefresh.ps1 -DisposeObligation进行处置。",
-  "status.host_refresh_action_elevate": "下一步：修复需要管理员权限；请在宿主机上以提升权限的会话运行修复。",
-  "status.host_refresh_action_grant_automation": "下一步：允许此宿主机的自动化程序访问UTM，然后再次刷新。",
-  "status.host_refresh_action_gui_session": "下一步：登录宿主机的桌面会话，然后再次刷新。",
-  "status.host_refresh_action_install_client": "下一步：在宿主机上安装虚拟机监控程序的命令行客户端，然后再次刷新。",
-  "status.host_refresh_action_resume_request": "下一步：在宿主机上使用pwsh test/lab/Invoke-HostRefresh.ps1 -Resume继续此请求。",
-  "status.host_refresh_action_start_runner": "下一步：在宿主机上启动运行器；没有可用于重启运行器的启动记录。",
-  "status.host_refresh_authorization_refused": [
-    "此次刷新需要刷新凭证，但此页面没有该凭证（",
+  "status.host_repair_action_dispose_obligations": "下一步：查看宿主机上尚未完成的恢复项，并使用pwsh test/lab/Invoke-HostRepair.ps1 -DisposeObligation进行处置。",
+  "status.host_repair_action_elevate": "下一步：修复需要管理员权限；请在宿主机上以提升权限的会话运行修复。",
+  "status.host_repair_action_grant_automation": "下一步：允许此宿主机的自动化程序访问UTM，然后再次修复。",
+  "status.host_repair_action_gui_session": "下一步：登录宿主机的桌面会话，然后再次修复。",
+  "status.host_repair_action_install_client": "下一步：在宿主机上安装虚拟机监控程序的命令行客户端，然后再次修复。",
+  "status.host_repair_action_resume_request": "下一步：在宿主机上使用pwsh test/lab/Invoke-HostRepair.ps1 -Resume继续此请求。",
+  "status.host_repair_action_start_runner": "下一步：在宿主机上启动运行器；没有可用于重启运行器的启动记录。",
+  "status.host_repair_authorization_refused": [
+    "此次修复需要修复证明，但此页面没有该证明（",
     {
       "arg": "reason",
       "type": "identifier",
       "trust": "external"
     },
-    "）。请使用宿主机本机上的状态页面，或pool-control刷新操作。"
+    "）。请使用宿主机本机上的状态页面，或pool-control修复操作。"
   ],
-  "status.host_refresh_busy": [
-    "另一个宿主机刷新请求（",
+  "status.host_repair_busy": [
+    "另一个宿主机修复请求（",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20246,8 +24369,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）正在进行中；正在显示其进度。"
   ],
-  "status.host_refresh_check_host": "在宿主机上运行pwsh test/lab/Invoke-HostRefresh.ps1 -WhatIf以查看当前状态。",
-  "status.host_refresh_closed": [
+  "status.host_repair_check_host": "在宿主机上运行pwsh test/lab/Invoke-HostRepair.ps1 -WhatIf以查看当前状态。",
+  "status.host_repair_closed": [
     "请求",
     {
       "arg": "requestId",
@@ -20260,16 +24383,16 @@ var Catalogs = map[string]map[string]string{
       "type": "identifier",
       "trust": "external"
     },
-    "）；请发起新的刷新。"
+    "）；请发起新的修复。"
   ],
-  "status.host_refresh_confirm": [
+  "status.host_repair_confirm": [
     "在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启，运行器也会重启。此过程最多需要",
     {
       "arg": "minutes",
       "type": "integer",
       "trust": "internal"
     },
-    "分钟。是否刷新此宿主机，最多执行到",
+    "分钟。是否修复此宿主机，最多执行到",
     {
       "arg": "ceiling",
       "type": "identifier",
@@ -20277,18 +24400,9 @@ var Catalogs = map[string]map[string]string{
     },
     "步骤？"
   ],
-  "status.host_refresh_conflict": [
-    "请求",
-    {
-      "arg": "requestId",
-      "type": "identifier",
-      "trust": "external"
-    },
-    "已使用不同的设置发送；请发起新的刷新。"
-  ],
-  "status.host_refresh_launcher_failed": "宿主机无法启动刷新工作进程。请求已保留；请选择“重试”以再次启动。",
-  "status.host_refresh_lost": [
-    "刷新",
+  "status.host_repair_launcher_failed": "宿主机无法启动修复工作进程。请求已保留；请选择“重试”以再次启动。",
+  "status.host_repair_lost": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20300,11 +24414,11 @@ var Catalogs = map[string]map[string]string{
       "type": "integer",
       "trust": "internal"
     },
-    "秒后仍无结果，或后续请求已替换其报告。选择“重试”以向宿主机查询其最终结果，或选择“刷新宿主机”以发起新的刷新。"
+    "秒后仍无结果，或后续请求已替换其报告。选择“重试”以向宿主机查询其最终结果，或选择“修复宿主机”以发起新的修复。"
   ],
-  "status.host_refresh_note": "修复此宿主机上停滞的运行器或虚拟机监控程序。在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启。",
-  "status.host_refresh_progress": [
-    "刷新",
+  "status.host_repair_note": "修复此宿主机上停滞的运行器或虚拟机监控程序。在虚拟机监控程序恢复期间，此宿主机上的客户机虚拟机可能会被挂起或重启。",
+  "status.host_repair_progress": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20336,19 +24450,11 @@ var Catalogs = map[string]map[string]string{
     },
     "秒。"
   ],
-  "status.host_refresh_recovery_pending": "服务或运行器仍需恢复。选择“重试”将继续同一请求。",
-  "status.host_refresh_rejected": [
-    "宿主机拒绝了刷新请求：",
-    {
-      "arg": "detail",
-      "type": "detail",
-      "trust": "external"
-    }
-  ],
-  "status.host_refresh_remote_viewer": "此页面是从另一台计算机打开的，因此只能观察宿主机刷新，无法启动刷新。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRefresh.ps1。",
-  "status.host_refresh_retry": "重试",
-  "status.host_refresh_stale": [
-    "刷新",
+  "status.host_repair_recovery_pending": "服务或运行器仍需恢复。选择“重试”将继续同一请求。",
+  "status.host_repair_remote_viewer": "此页面是从另一台计算机打开的，因此只能观察宿主机修复，无法启动修复。请在宿主机上启动：使用其本机仪表板，或运行pwsh test/lab/Invoke-HostRepair.ps1。",
+  "status.host_repair_retry": "重试",
+  "status.host_repair_stale": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20362,12 +24468,11 @@ var Catalogs = map[string]map[string]string{
     },
     "秒没有进度报告。工作进程可能已停止；请先检查宿主机，再发起另一次修复。"
   ],
-  "status.host_refresh_start": "刷新宿主机",
-  "status.host_refresh_start_cycle_busy": "启动周期的请求正在进行中；请在其完成后重试。",
-  "status.host_refresh_submitting": "正在发送刷新请求……",
-  "status.host_refresh_title": "宿主机刷新",
-  "status.host_refresh_unavailable": [
-    "此宿主机不支持宿主机刷新（",
+  "status.host_repair_start": "修复宿主机",
+  "status.host_repair_start_cycle_busy": "启动周期的请求正在进行中；请在其完成后重试。",
+  "status.host_repair_title": "宿主机修复",
+  "status.host_repair_unavailable": [
+    "此宿主机不支持宿主机修复（",
     {
       "arg": "reason",
       "type": "identifier",
@@ -20375,8 +24480,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_verdict_abandoned": [
-    "刷新",
+  "status.host_repair_verdict_abandoned": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20384,8 +24489,8 @@ var Catalogs = map[string]map[string]string{
     },
     "在多次尝试后已放弃；其恢复记录保留在宿主机上。"
   ],
-  "status.host_refresh_verdict_already_healthy": [
-    "刷新",
+  "status.host_repair_verdict_already_healthy": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20393,8 +24498,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已完成：宿主机原本就处于正常状态，因此未做任何更改。"
   ],
-  "status.host_refresh_verdict_failed": [
-    "刷新",
+  "status.host_repair_verdict_failed": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20408,8 +24513,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_verdict_partial": [
-    "刷新",
+  "status.host_repair_verdict_partial": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20423,8 +24528,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）；部分服务或运行器仍需处理。"
   ],
-  "status.host_refresh_verdict_refused": [
-    "刷新",
+  "status.host_repair_verdict_refused": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20438,8 +24543,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_verdict_repaired": [
-    "刷新",
+  "status.host_repair_verdict_repaired": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20447,8 +24552,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已完成：宿主机已修复，运行器已就绪。"
   ],
-  "status.host_refresh_verdict_still_unresponsive": [
-    "刷新",
+  "status.host_repair_verdict_still_unresponsive": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20456,8 +24561,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已结束：虚拟机监控程序仍无响应。"
   ],
-  "status.host_refresh_verdict_unknown": [
-    "刷新",
+  "status.host_repair_verdict_unknown": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20471,8 +24576,8 @@ var Catalogs = map[string]map[string]string{
     },
     "）。"
   ],
-  "status.host_refresh_waiting": [
-    "刷新",
+  "status.host_repair_waiting": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20480,8 +24585,8 @@ var Catalogs = map[string]map[string]string{
     },
     "已接受；正在等待工作进程的首份报告。"
   ],
-  "status.host_refresh_waiting_long": [
-    "刷新",
+  "status.host_repair_waiting_long": [
+    "修复",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20495,6 +24600,543 @@ var Catalogs = map[string]map[string]string{
     },
     "秒后仍无报告。工作进程可能未能启动；请检查宿主机。"
   ],
+  "status.host_request_conflict": [
+    "请求",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "已使用不同的设置发送；请发起新的请求。"
+  ],
+  "status.host_request_rejected": [
+    "宿主机拒绝了请求：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    }
+  ],
+  "status.host_request_submitting": "正在发送请求……",
+  "status.host_update_action": {
+    "kind": "select",
+    "selector": "action",
+    "variants": {
+      "act_at_host": "下一步：检查宿主机并在那里处理。",
+      "end_one_shot": "下一步：在宿主机上结束一次性会话，然后再按一次。",
+      "other": [
+        "下一步：",
+        {
+          "arg": "action",
+          "type": "token",
+          "trust": "external"
+        },
+        "。"
+      ],
+      "provision_elevation": "下一步：在宿主机上为运行器配置 sudo 规则，然后再按一次。",
+      "provision_elevation_macos": [
+        "下一步：在宿主机上，从桌面会话的终端运行 ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 并回答其提示；它会安装宿主机更新所用的 sudoers 条目。然后再按一次。"
+      ],
+      "read_remarks": "下一步：阅读备注。",
+      "reboot_host": "下一步：在宿主机上重启 Windows，然后启动运行器。",
+      "release": [
+        "下一步：要结束它，请在宿主机上运行：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "release_diagnostic_hold": "下一步：释放为诊断保留的 VM，然后再按一次。",
+      "repair_checkout": "下一步：修复宿主机上的代码检出；宿主机会继续尝试。",
+      "retry_or_drain_now": [
+        "下一步：再按一次，或在宿主机上立即结束周期：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "start_runner": "下一步：在宿主机上启动运行器。",
+      "stop_runner_by_hand": "下一步：在宿主机上手动停止运行器。"
+    }
+  },
+  "status.host_update_blocks": [
+    "宿主机更新（",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "）正在进行；请在其完成后重试。"
+  ],
+  "status.host_update_busy": {
+    "kind": "select",
+    "selector": "kind",
+    "variants": {
+      "host_repair": [
+        "宿主机修复（",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "）正在进行；请在其完成后重试。"
+      ],
+      "host_update": [
+        "另一个宿主机更新（",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "）正在进行；正在显示其进度。"
+      ],
+      "other": "启动周期的请求正在进行中；请在其完成后重试。"
+    }
+  },
+  "status.host_update_confirm": [
+    "更新宿主机（",
+    {
+      "arg": "scope",
+      "type": "text",
+      "trust": "internal"
+    },
+    "）？运行器会在当前周期结束时停止，并在当前代码上重启；更新在 ",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 分钟后放弃。要立即结束周期，请在宿主机上运行：",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_console": {
+    "kind": "select",
+    "selector": "console",
+    "variants": {
+      "none": "运行器启动时没有控制台。",
+      "other": [
+        "运行器的控制台：",
+        {
+          "arg": "console",
+          "type": "token",
+          "trust": "external"
+        },
+        "。"
+      ],
+      "tmux": [
+        "要打开运行器的控制台，请在宿主机上运行：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "window": "运行器的控制台是测试账户桌面上的一个独立窗口：请在本机上打开，或通过远程桌面连接到该会话打开。"
+    }
+  },
+  "status.host_update_countdown": [
+    "状态服务正在重启；预计 ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "external"
+    },
+    " 秒后恢复。"
+  ],
+  "status.host_update_cycle_time": [
+    "当前周期已运行 ",
+    {
+      "arg": "elapsed",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "；最近的周期约需 ",
+    {
+      "arg": "median",
+      "type": "duration",
+      "trust": "internal"
+    },
+    "。"
+  ],
+  "status.host_update_debt": [
+    "宿主机上仍待处理：",
+    {
+      "arg": "actions",
+      "type": "token",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "status.host_update_first_cycle": {
+    "kind": "select",
+    "selector": "result",
+    "variants": {
+      "fail": "更新后的第一个周期失败。",
+      "other": "正在等待更新后的第一个周期。",
+      "pass": "更新后的第一个周期已通过。"
+    }
+  },
+  "status.host_update_lost": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "：宿主机已不再报告它，因此这里无法得知其结果；请检查宿主机。"
+  ],
+  "status.host_update_note": [
+    "在当前周期结束时更新此宿主机的代码并重启运行器，",
+    {
+      "arg": "minutes",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 分钟后放弃。要立即结束周期，请在宿主机上运行：",
+    {
+      "arg": "command",
+      "type": "token",
+      "trust": "internal"
+    }
+  ],
+  "status.host_update_progress": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "：第 ",
+    {
+      "arg": "index",
+      "type": "integer",
+      "trust": "external"
+    },
+    " 阶段，共 ",
+    {
+      "arg": "count",
+      "type": "integer",
+      "trust": "external"
+    },
+    " 个（",
+    {
+      "arg": "phase",
+      "type": "token",
+      "trust": "external"
+    },
+    "），上限 ",
+    {
+      "arg": "bound",
+      "type": "duration",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "status.host_update_queued": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 已排队；它会在当前周期结束时开始。"
+  ],
+  "status.host_update_remarks": [
+    "备注：",
+    {
+      "arg": "remarks",
+      "type": "token",
+      "trust": "external"
+    },
+    "。"
+  ],
+  "status.host_update_remote_hint": [
+    "“更新宿主机”会打开 ",
+    {
+      "arg": "url",
+      "type": "token",
+      "trust": "external"
+    },
+    " 上的 pool-control，由它签署请求并带您返回此处。"
+  ],
+  "status.host_update_scope": {
+    "kind": "select",
+    "selector": "scope",
+    "variants": {
+      "full": "重新安装依赖和设置，然后重启",
+      "other": [
+        {
+          "arg": "scope",
+          "type": "token",
+          "trust": "external"
+        }
+      ],
+      "restart": "在当前代码上重启运行器"
+    }
+  },
+  "status.host_update_stale": [
+    "宿主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    "：已 ",
+    {
+      "arg": "seconds",
+      "type": "integer",
+      "trust": "internal"
+    },
+    " 秒没有报告；请检查宿主机。"
+  ],
+  "status.host_update_start": "更新宿主机",
+  "status.host_update_title": "宿主机更新",
+  "status.host_update_unavailable": {
+    "kind": "select",
+    "selector": "reason",
+    "variants": {
+      "controller_absent": [
+        "此宿主机上没有运行宿主机控制器。要设置一个，请在宿主机上运行：",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        }
+      ],
+      "controller_absent_gate": [
+        "一个宿主机更新占用此宿主机的运行器，且没有正在运行的宿主机控制器。请在桌面会话的终端中再运行一次 ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        "，并保持正在运行的运行器不变：该启动会停在运行器门控处并启动控制器，由控制器继续此更新。"
+      ],
+      "controller_absent_macos": [
+        "此宿主机上没有运行宿主机控制器。在 macOS 上由运行器的启动来启动它：请在桌面会话的终端中运行 ",
+        {
+          "arg": "runner",
+          "type": "token",
+          "trust": "internal"
+        },
+        "，或在正在运行的运行器完成当前周期后停止它，再以这种方式重新启动。对于从未为宿主机更新做过设置的宿主机，请先运行 ",
+        {
+          "arg": "command",
+          "type": "token",
+          "trust": "internal"
+        },
+        "。"
+      ],
+      "host_type": "此类宿主机尚不支持宿主机更新。",
+      "journal_unreadable": "宿主机无法读取其操作日志；请检查宿主机。",
+      "listener_dependency_missing": "状态服务未能加载宿主机更新所需的内容；请在宿主机上重启它。",
+      "other": [
+        "此宿主机不提供宿主机更新（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "remote": [
+        "从其他机器打开时，此页面只能查看宿主机更新；在宿主机上安装 ",
+        {
+          "arg": "file",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 之前，请在宿主机上按“更新宿主机”。"
+      ],
+      "scope_unavailable": "此宿主机目前无法运行所选范围。",
+      "session_unusable": [
+        "宿主机控制器的会话无法启动可正常工作的运行器：它不是桌面会话，或其中缺少某项隐私权限。请在宿主机上用 ",
+        {
+          "arg": "tmux",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 结束会话 yuruna-controller（使用 screen 时，结束 ",
+        {
+          "arg": "screen",
+          "type": "token",
+          "trust": "internal"
+        },
+        " 列出的 yuruna-controller 会话），在正在运行的运行器完成当前周期后停止它，然后从拥有这些权限的桌面会话终端重新启动运行器。"
+      ]
+    }
+  },
+  "status.host_update_verdict": {
+    "kind": "select",
+    "selector": "verdict",
+    "variants": {
+      "drain_timeout": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已放弃：当前周期超出了等待时间。没有任何更改。"
+      ],
+      "failed_restored": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 未完成（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）；宿主机已恢复。"
+      ],
+      "other": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 以本页面无法识别的结果结束（",
+        {
+          "arg": "verdict",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "reboot_required": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成，但必须先重启 Windows，虚拟机监控程序才能运行，因此运行器未启动。"
+      ],
+      "recovering": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "：运行器尚未运行；宿主机会继续尝试（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "recovering_without_controller": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "：运行器尚未运行（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "），且没有正在运行的宿主机控制器来重试。"
+      ],
+      "refused": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 被拒绝；没有任何更改（",
+        {
+          "arg": "reason",
+          "type": "token",
+          "trust": "external"
+        },
+        "）。"
+      ],
+      "released": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已在宿主机上释放。"
+      ],
+      "stop_failed": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        "：无法停止运行器，因此没有启动任何内容。"
+      ],
+      "superseded": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已被 ",
+        {
+          "arg": "supersededBy",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 接管。"
+      ],
+      "updated": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成；运行器运行当前代码。"
+      ],
+      "updated_not_started": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成；运行器在更新前已停止，因此未启动。"
+      ],
+      "updated_with_remarks": [
+        "宿主机更新 ",
+        {
+          "arg": "requestId",
+          "type": "identifier",
+          "trust": "external"
+        },
+        " 已完成但有备注；运行器运行当前代码。"
+      ]
+    }
+  },
   "status.host_value1": [
     "宿主机：",
     {
@@ -20864,8 +25506,8 @@ var Catalogs = map[string]map[string]string{
     },
     "的快照，重启虚拟机，然后继续执行序列"
   ],
-  "status.start_cycle_blocked_by_refresh": [
-    "宿主机刷新（",
+  "status.start_cycle_blocked_by_repair": [
+    "宿主机修复（",
     {
       "arg": "requestId",
       "type": "identifier",
@@ -20955,7 +25597,7 @@ var Catalogs = map[string]map[string]string{
   "status.testing_caching_proxy_service_from_host": "正在从宿主机测试缓存代理服务……",
   "status.the_archive_is_built_from_server_logs_only_and_downloaded_to_this": "归档文件仅由服务器日志生成，并下载到本机。不包含本次浏览会话的任何数据。",
   "status.the_control_proof_expired_re_open_this_host_from_the_dashboard_li": "控制凭证已过期。请通过仪表板链接重新打开此宿主机，以获取新凭证。",
-  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "控制凭证被拒绝。生成凭证时使用的lab-auth-token可能与此宿主机持有的不同；使用test/lab/Set-LabToken.ps1重新注册可使两者一致。",
+  "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": "控制证明被拒绝。生成证明时使用的内部身份验证密钥可能与此宿主机持有的不同；使用test/lab/Set-LabToken.ps1重新注册可使两者一致。",
   "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": "宿主机无法加载控制凭证验证器；请检查status service日志。",
   "status.the_share_sheet_expired_while_the_host_packed_the_folder": "宿主机打包文件夹期间，分享面板已过期。 ",
   "status.this_browser_could_not_attach_the_file_to_a_message_itself": "此浏览器无法自动将文件附加到消息中。 ",

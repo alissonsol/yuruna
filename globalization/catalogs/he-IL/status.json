@@ -116,7 +116,8 @@
       "message": "מצב מארח Yuruna"
     },
     "status.yuruna_status": {
-      "sourceHash": "3f18d89f931e700c90035cedd6786c0fdcbade6a2ad9292c0efca8a1b6c60be4",
+      "sourceHash": "09b2b85f2656cd9756956b1d50ad61b84027765f42e22414d616263240052d51",
+      "origin": "machine",
       "message": "מצב Yuruna"
     },
     "status.config_loading": {
@@ -144,16 +145,16 @@
       "message": "מחרוזת ({count})"
     },
     "status.control_host_token_missing": {
-      "sourceHash": "833ac232619bca6ec8cee4677274d137587d7433d33b8c6d88e3fd51fcf5d61e",
-      "message": "למארח זה אין עדיין אסימון מעבדה."
+      "sourceHash": "45a4288a3b6a5f129ea596a4d6a80cfdad9532e04b8b4eacc8c483deb720f626",
+      "message": "למארח זה אין עדיין מפתח אימות פנימי."
     },
     "status.control_instructions": {
-      "sourceHash": "e7de24780be991e1f083826f2e55174cac676ea56b7a848c0f5b9bcb88cabc0f",
-      "message": "מארח זה מקבל פקודות שליטה רק מדפדפן במארח עצמו ({address}), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק אסימון לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו {command} עם הקוד מאריח אסימון המעבדה בלוח הבקרה."
+      "sourceHash": "7f7873410d10199dd5d72bfd02bb923dab30149be1db983a0c6021f974d6bc73",
+      "message": "מארח זה מקבל פקודות שליטה רק מדפדפן במארח עצמו ({address}), או מדפדפן שנפתח דרך הקישור בלוח הבקרה של מארחי Yuruna (המעניק הוכחת שליטה לזמן קצר). כדי לשלוט בו ממחשב אחר, פתחו אותו דרך לוח הבקרה; אם מארח זה מעולם לא נרשם, הריצו {command} עם הקוד מאריח אסימון המעבדה בלוח הבקרה."
     },
     "status.control_proof_expired": {
-      "sourceHash": "8d7dce508c18371637b1a6a75db30047f70bad4806fbeec429babe767b34a1a8",
-      "message": "פג תוקפו של אסימון השליטה בדף זה (תוקף האסימונים הוא 15 דקות)."
+      "sourceHash": "8d79d356599649edccdaba3094dcb215139c327cdc4dfb81e692ffc7271225b9",
+      "message": "פג תוקפה של הוכחת השליטה בדף זה (תוקף ההוכחות הוא 15 דקות)."
     },
     "status.control_proof_expired_re_open_this_host_from_the_dashboard_link_b": {
       "sourceHash": "0d197e08ba938ec94cfc0572a94847b17715659413a9c21f590d5856efc38f1f",
@@ -164,12 +165,12 @@
       "message": "תוקפה של הוכחת השליטה יפוג בעוד {value1}s -- שמרו בקרוב, או פתחו מחדש את המארח דרך הקישור בלוח הבקרה לקבלת הוכחה חדשה."
     },
     "status.control_proof_invalid": {
-      "sourceHash": "1e75f93926ee04e48e8ee6c49cdb4a020177a07d7d61fc11a6ef54c741a270d9",
-      "message": "לא ניתן לאמת כאן את אסימון השליטה של דף זה — אסימון המעבדה השמור במארח כנראה שונה מהאסימון הנוכחי של המעבדה, לכן רשמו את המארח מחדש."
+      "sourceHash": "ec5d2068339b6088f055fb5c416e732170a894e1fd018fda5cde7ccbeede4a3d",
+      "message": "לא ניתן לאמת כאן את הוכחת השליטה של דף זה — מפתח האימות הפנימי של מארח זה כנראה שונה מהמפתח הנוכחי של המעבדה, לכן רשמו את המארח מחדש באמצעות אסימון מעבדה."
     },
     "status.control_proof_missing": {
-      "sourceHash": "ee80d08833c5ecb26090580f2a9823cb63017f871179c16d368cb547d1d9b303",
-      "message": "דף זה נפתח ללא אסימון שליטה, ולכן לא נשלח אסימון."
+      "sourceHash": "b285eb18756e5272ab196e196bb0ca3f750aa2bfadd32872a3310963025cde0c",
+      "message": "דף זה נפתח ללא הוכחת שליטה, ולכן לא נשלחה הוכחה."
     },
     "status.control_refused": {
       "sourceHash": "b98b8caf73b0dbbc2153ecd87a6b6b369d664318736fe8d2b6cf0f87653f111a",
@@ -180,8 +181,8 @@
       "message": "הגדרת נתיבי שליטה"
     },
     "status.control_this_host_has_no_lab_auth_token_so_remote_control_is_l_f0440f80": {
-      "sourceHash": "726c76fd6a7223d4d029d5b36ee65997c67b29d37bd4fa550a0a3c96e829ab07",
-      "message": "למארח זה אין lab-auth-token, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת {address} במארח, או רשמו אותו: {command} ⁦<code from the dashboard’s Lab token tile>⁩. עיינו ב־{documentation}"
+      "sourceHash": "f3754c5ce41e55366dc86a79e833bc4c8a12112afbeab102569ee23c7689b673",
+      "message": "למארח זה אין מפתח אימות פנימי, ולכן השליטה מרחוק מוגבלת לממשק הלולאה המקומית. פתחו דף זה בכתובת {address} במארח, או רשמו אותו: {command} ⁦<code from the dashboard’s Lab token tile>⁩. עיינו ב־{documentation}"
     },
     "status.control_verifier_unavailable": {
       "sourceHash": "25ab697d01992ffcc393c0ea27744f1c68a2aa3181b970821211d5818052105b",
@@ -314,7 +315,7 @@
       }
     },
     "status.api_admission_unavailable": {
-      "sourceHash": "88f2f1665f9c5f7df475af36ea910017c1407b871256badf4cebde9ae9fa236f",
+      "sourceHash": "cb17a645fa218a5ce86e12f0da654697943c1951604a441feefb62155d6b441b",
       "message": "המארח לא הצליח לרשום את הבקשה ({reason})"
     },
     "status.api_another_start_cycle_request_is_in_progress_3f51d139": {
@@ -385,25 +386,47 @@
       "sourceHash": "42bcc1931e637027625c17f035b3b735fc21af4d4e7b226115b7886a028b0fe8",
       "message": "הגישה אסורה: כותרת הבקשה X-Yuruna חסרה (הגנה מפני בקשות בין אתרים)"
     },
-    "status.api_host_refresh_authorization_refused": {
-      "sourceHash": "f793591c7563d3b843f464cfbd3df28d3684e7fd5e863bc085ea41754d75779d",
-      "message": "ההרשאה לרענון נדחתה ({reason})"
+    "status.api_host_repair_authorization_refused": {
+      "sourceHash": "8dc6b79d408cbe68a2a742a75380f4e9196534b10345dd73c6c06b0812a2ca0b",
+      "message": "ההרשאה לתיקון נדחתה ({reason})"
     },
-    "status.api_host_refresh_busy": {
-      "sourceHash": "a185926eefe4934ed8a85d387b12af84e363d095167fa67f63547409ed32196e",
+    "status.api_host_repair_busy": {
+      "sourceHash": "e03e68699bd00a9c6a948e16aef8f33579650a98d21f6ae8ee0d957cee62954b",
       "message": "פעולה אחרת במארח נמצאת בביצוע"
     },
-    "status.api_host_refresh_request_closed": {
-      "sourceHash": "99681fb11c3ecd473723e55b4d9f64b4fc421b616349578f9f2c4ca3b6ade4f4",
+    "status.api_host_repair_request_closed": {
+      "sourceHash": "543c37d8fb74c65251ea3a98db40e3b6ea85716f30ff880346b290d47c1be761",
       "message": "מזהה הבקשה הזה כבר סגור ({state})"
     },
-    "status.api_host_refresh_request_conflict": {
-      "sourceHash": "9f9e4d4be06c66558bf2115cda5471c8f9995288222b38aef15a2ed388b06709",
+    "status.api_host_repair_request_conflict": {
+      "sourceHash": "cfde329042d48587ca2ba60d3457353b975822ed7576958d493bca7635cffbf9",
       "message": "מזהה הבקשה הזה כבר שימש עם הגדרות אחרות"
     },
-    "status.api_host_refresh_unavailable": {
-      "sourceHash": "c939f9097fa4068b1e720faa677d751a8d2fe909a45dff9a9d5f463066508089",
-      "message": "רענון המארח אינו זמין במארח זה ({reason})"
+    "status.api_host_repair_unavailable": {
+      "sourceHash": "d2cf39a69b71ab74b2a22fa8a68af6d16c98701bc1b1d49dc0fb6eb4f4a9162d",
+      "message": "תיקון המארח אינו זמין במארח זה ({reason})"
+    },
+    "status.api_host_update_busy": {
+      "sourceHash": "6ef3c79c4a1a01d4ae4caa989c43c789e713997d898ddc7cf1536733c080d450",
+      "message": "עדכון מארח מתבצע במארח זה"
+    },
+    "status.api_host_update_controller_absent": {
+      "sourceHash": "05342aaa0a3a28d87b77bc18831244acc994231b712ed0e60635ea55e7048cf1",
+      "message": "אין בקר מארח פועל במארח זה; דבר לא נוסף לתור"
+    },
+    "status.api_host_update_proof_missing": {
+      "sourceHash": "ca7d5db83f36dd802719f37560af94d4c2d13f048b064ce15deb58c624f2f90f",
+      "origin": "machine",
+      "message": "עדכון מארח ממכונה אחרת דורש הוכחת עדכון מ-pool-control; דבר לא נוסף לתור"
+    },
+    "status.api_host_update_authorization_refused": {
+      "sourceHash": "bf033579d8fe70956ed361df770661547a995e164e737f86ed68dc63a9926ccb",
+      "origin": "machine",
+      "message": "הרשאת עדכון המארח נדחתה ({reason})"
+    },
+    "status.api_host_update_scope_unavailable": {
+      "sourceHash": "744d4e5f6712275d67213c757fdede2dd31e03f84a59d6217be8300671172891",
+      "message": "בקר המארח אינו מריץ את ההיקף {scope}; דבר לא נוסף לתור"
     },
     "status.api_internal_authentication_key_not_configured_on_this_hos_db3031f0": {
       "sourceHash": "633aaafa885d71ff38403bac3bd2f6e64885805e955c2371ef0d732dcd7cca28",
@@ -414,7 +437,7 @@
       "message": "JSON לא תקין: {detail}"
     },
     "status.api_listener_busy": {
-      "sourceHash": "030963685ca1cbbc9b35def6bdf5545f7630032a310db9fe1f683784a0c41dac",
+      "sourceHash": "66de8e4488dd15c7ee738026b0f9e88123c5b03f054453140a82357e33e2a531",
       "message": "יותר מדי גופי בקשות נקראים כעת; נסו שוב בקרוב"
     },
     "status.api_method_not_allowed_be4fb6a2": {
@@ -474,7 +497,7 @@
       "message": "מטען הנתונים גדול מדי (>256 KB)"
     },
     "status.api_payload_too_large_4_kb": {
-      "sourceHash": "ab47184a0e20ddc2160e8b26ecbb4dd72f997768434226cd614e705a8f7be3b6",
+      "sourceHash": "e0f5dc6fbd77614bcc0f3b0ebf0c69c2461424c47f8a96949702694f122b62a1",
       "message": "מטען הנתונים גדול מדי (4 KB לכל היותר)"
     },
     "status.api_payload_too_large_4_mb_3455f869": {
@@ -506,11 +529,11 @@
       "message": "נדרשת בקשת PUT או POST"
     },
     "status.api_request_body_invalid": {
-      "sourceHash": "fb38a27aa5d71053c8ef2f3c2347dd88e6c23de4ca92ff310458ec65344e4b08",
+      "sourceHash": "2f759cc4377c758c89ef8bd76aa80b1a9e60fd26a1c4f7eed03e006ec23b5db1",
       "message": "גוף בקשה לא תקין: {reason} ({field})"
     },
     "status.api_request_body_timeout": {
-      "sourceHash": "98ddcf47e7950d633f96b81c92a063151c32656dabb31260e0c6f603bb06b5fa",
+      "sourceHash": "9b062f633c59cc65afa4be45101f54a73f6700767c89fc335db6d4c15c7ca86d",
       "message": "גוף הבקשה לא הגיע בתוך 2 שניות"
     },
     "status.api_runner_script_missing": {
@@ -534,7 +557,7 @@
       "message": "לא ניתן לטעון את ⁦Test.PoolStorage⁩ / ⁦Test.Config⁩ במרחב ההרצה של השרת (עיינו ב-runtime⁦/server.err⁩)"
     },
     "status.api_unsupported_media_type": {
-      "sourceHash": "afcb4e55e721fc04d420f489813e33168b3f72a65afd4495dfe66463312d6e3c",
+      "sourceHash": "cfdca8e94b3d6a242819bccb73e9658630afd50e46e60853a633ab457d7ca9bd",
       "message": "הערך של ⁦Content-Type⁩ חייב להיות application⁦/json⁩"
     },
     "status.api_user_nonce_and_proof_query_parameters_are_required_1a7f21f9": {
@@ -546,7 +569,7 @@
       "message": "המשתמש אינו מופיע בתצורת networkStorage של מארח זה"
     },
     "status.api_worker_launcher_failed": {
-      "sourceHash": "aea77d2b1dca40319f3d5deee6b0d5b43b56a6e5cbdd5d0b3c3b75996fc346fa",
+      "sourceHash": "550d307cad79a8df1bb806936bd237e570f0bd337c90542707e12348540ef170",
       "message": "לא ניתן להפעיל את תהליך העבודה ({reason}); ניתן לנסות שוב את הבקשה"
     },
     "status.api_write_failed_detail_c07681e1": {
@@ -775,153 +798,312 @@
         }
       }
     },
-    "status.host_refresh_action_dispose_obligations": {
-      "sourceHash": "9a76de0bc8b101254982bf07a5cfd2afb2e3b1ac82ceb908848322b344db0a9a",
-      "message": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-DisposeObligation⁩."
+    "status.host_repair_action_dispose_obligations": {
+      "sourceHash": "3626ab4b57cc39f46bdafbb752d2ca4db064f3dbd0b09fa3ccd984a4f37c617a",
+      "message": "השלב הבא: סקרו את פריטי השחזור שטרם טופלו במארח וסלקו אותם באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-DisposeObligation⁩."
     },
-    "status.host_refresh_action_elevate": {
-      "sourceHash": "ee4e76642b0018d511eece8dd6d3c7765c54d1786aa138b9a1123fbb83cdbd8d",
+    "status.host_repair_action_elevate": {
+      "sourceHash": "4d95fc74a166de44e3353d4ef39fcbfc9e941da6d8ed6f4034d38773985f2e07",
       "message": "השלב הבא: התיקון דורש הרשאות מנהל; הריצו אותו במארח מתוך הפעלה עם הרשאות מוגברות."
     },
-    "status.host_refresh_action_grant_automation": {
-      "sourceHash": "0c85dd0306f7cd48c2ef3c093311adc02db37fe2716bd3573425abb3ffac2c3b",
-      "message": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז רעננו שוב."
+    "status.host_repair_action_grant_automation": {
+      "sourceHash": "7cebd3086bd4d4a8a28c15dbaba9896ac2379989f476e4badb23aa68611fe946",
+      "message": "השלב הבא: אפשרו לאוטומציה של מארח זה גישה אל UTM, ואז תקנו שוב."
     },
-    "status.host_refresh_action_gui_session": {
-      "sourceHash": "ab53cf784ab25a4dfbf21cf1d5de0c0e52e1d847d064b6bb80a28f461d57d365",
-      "message": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז רעננו שוב."
+    "status.host_repair_action_gui_session": {
+      "sourceHash": "1aee61c544bfc1a620d1284829e661e6076ceebff61ad8b8af5df744be9f7bf6",
+      "message": "השלב הבא: היכנסו להפעלת שולחן עבודה במארח, ואז תקנו שוב."
     },
-    "status.host_refresh_action_install_client": {
-      "sourceHash": "359681126bbea61c9185c269c2d247539276e2388cc6c1c242402ad1bc7cb9f2",
-      "message": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז רעננו שוב."
+    "status.host_repair_action_install_client": {
+      "sourceHash": "3b304256e86d7aeadded73ac00bb57a3654be6a3da126cfc62dc15c6cb7e9b1a",
+      "message": "השלב הבא: התקינו במארח את לקוח שורת הפקודה של מנהל המכונות הווירטואליות, ואז תקנו שוב."
     },
-    "status.host_refresh_action_resume_request": {
-      "sourceHash": "f9a1d4c3bbc9bb2e83f89401d975b272cb0ca9a51e6d3d2d6066dcb39f1934bb",
-      "message": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-Resume⁩."
+    "status.host_repair_action_resume_request": {
+      "sourceHash": "5e27f6225d59d5aab032a81ea6a7c8b2b489427dac5c3e2a2306f1743d921f6f",
+      "message": "השלב הבא: המשיכו בקשה זו במארח באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-Resume⁩."
     },
-    "status.host_refresh_action_start_runner": {
-      "sourceHash": "1cd17614d0f7d168ae043ab3776fa593265eff6508052dd150fd4e567847d360",
+    "status.host_repair_action_start_runner": {
+      "sourceHash": "80b9acec07028bfc1631959585911a73b970e4e2607256c2b7435c6818c58340",
       "message": "השלב הבא: הפעילו את רכיב ההרצה במארח; לא נמצאה הפעלה מתועדת שניתן להשתמש בה להפעלתו מחדש."
     },
-    "status.host_refresh_authorization_refused": {
-      "sourceHash": "bc616071f68187cb02cd0fdf802f51b22b68cdff1ec47a17b577723d68098e36",
-      "message": "רענון זה דורש הוכחת הרשאה לרענון שאינה קיימת בדף זה ({reason}). השתמשו בדף המצב במארח עצמו, או בפעולת הרענון של בקרת המאגר."
+    "status.host_repair_authorization_refused": {
+      "sourceHash": "ed65330437db0e0466a931712c095c95ad307732cec06fbe4931d840c43af223",
+      "message": "תיקון זה דורש הוכחת תיקון שאינה קיימת בדף זה ({reason}). השתמשו בדף המצב במארח עצמו, או בפעולת התיקון של בקרת המאגר."
     },
-    "status.host_refresh_busy": {
-      "sourceHash": "7cf0dd5bf96f819d4824123d90f3c396f1c6d61ae3af8c4f94eccf85d12f7e25",
-      "message": "רענון מארח אחר ({requestId}) מתבצע כעת; התקדמותו מוצגת."
+    "status.host_repair_busy": {
+      "sourceHash": "d87a43b80ae07a3e48e62acfbd4b6f6c76f13490c38c522a2d6fb6bf917f25b7",
+      "message": "תיקון מארח אחר ({requestId}) מתבצע כעת; התקדמותו מוצגת."
     },
-    "status.host_refresh_check_host": {
-      "sourceHash": "559cf785a80fadc87b7d963e23841e0a8c1dd624f55913d87612765b9456e32e",
-      "message": "הריצו במארח pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי."
+    "status.host_repair_check_host": {
+      "sourceHash": "659c5327da85ee79077b96637dfdd4b3f59b10bb77eefc80de421cd9187fd8cd",
+      "message": "הריצו במארח pwsh test⁦/lab/Invoke-HostRepair.ps1⁩ ⁦-WhatIf⁩ כדי לראות את המצב הנוכחי."
     },
-    "status.host_refresh_closed": {
-      "sourceHash": "c49538118d42f49cad0d0b9b3399c35ca1efdedbd9d658ebff00049131417dae",
-      "message": "בקשה {requestId} כבר סגורה ({state}); התחילו רענון חדש."
+    "status.host_repair_closed": {
+      "sourceHash": "baae55105a8aa087f6b6ff1b49f6c071ababbbe41d1adeeea47e0763a0482935",
+      "message": "בקשה {requestId} כבר סגורה ({state}); התחילו תיקון חדש."
     },
-    "status.host_refresh_confirm": {
-      "sourceHash": "6dae5956200014040f9dd965beb3bd2376e34b7ff782b34ce644e8bba9f83b23",
-      "message": "מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש, ורכיב ההרצה מופעל מחדש. התהליך עשוי להימשך עד {minutes} דקות. לרענן מארח זה עד לשלב {ceiling}?"
+    "status.host_repair_confirm": {
+      "sourceHash": "ead7f8a4194abc01685cb12d72775490267140c462f57d77287f29c257dfda7c",
+      "message": "מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש, ורכיב ההרצה מופעל מחדש. התהליך עשוי להימשך עד {minutes} דקות. לתקן מארח זה עד לשלב {ceiling}?"
     },
-    "status.host_refresh_conflict": {
-      "sourceHash": "6366e45e764b8bd907e4c22d9ae1de2ba9d54286eaec0a1f8a4bf6e611023836",
-      "message": "בקשה {requestId} כבר נשלחה עם הגדרות שונות; התחילו רענון חדש."
+    "status.host_request_conflict": {
+      "sourceHash": "5b355c49f1237c7f73556c4d8f848df51528e3916d9526e48df3742dd0d63803",
+      "message": "בקשה {requestId} כבר נשלחה עם הגדרות שונות; התחילו בקשה חדשה."
     },
-    "status.host_refresh_launcher_failed": {
-      "sourceHash": "951c587d039276d53cc474891f3bb1b196792ec3304a240dfffe3b49eff0050e",
-      "message": "המארח לא הצליח להפעיל את תהליך הרענון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב."
+    "status.host_repair_launcher_failed": {
+      "sourceHash": "994f497817540e04cff3769e9d0fdbca447b5e904c14849e36887da45b5f2cde",
+      "message": "המארח לא הצליח להפעיל את תהליך התיקון. הבקשה נשמרה; בחרו בניסיון חוזר כדי להפעיל אותו שוב."
     },
-    "status.host_refresh_lost": {
-      "sourceHash": "ef4234b56c9b61ed0a42ef85c8f80aa5eb0bce9416615ea95f7b355ba2f2bfcb",
-      "message": "רענון {requestId}: אין תוצאה לאחר {seconds} שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או ברענון המארח כדי להתחיל רענון חדש."
+    "status.host_repair_lost": {
+      "sourceHash": "9176ee0a54140eee431554c5683b0cffd1ca49beac3071776d65189dffab2403",
+      "message": "תיקון {requestId}: אין תוצאה לאחר {seconds} שניות, או שבקשה מאוחרת יותר החליפה את הדוח שלו. בחרו בניסיון חוזר כדי לברר במארח כיצד הסתיים, או בתיקון המארח כדי להתחיל תיקון חדש."
     },
-    "status.host_refresh_note": {
-      "sourceHash": "ff4a991c377f474f23e75005f4dfb72c289a85546a83d2f80d406deddf69c152",
+    "status.host_repair_note": {
+      "sourceHash": "fa82cecdb5d604a7286426a49de9308af9d5a5908b26b70783e4505b767a8b84",
       "message": "מתקן רכיב הרצה או מנהל מכונות וירטואליות שנתקע במארח זה. מכונות וירטואליות אורחות במארח זה עשויות להיות מושהות או מופעלות מחדש בזמן שמנהל המכונות הווירטואליות מתאושש."
     },
-    "status.host_refresh_progress": {
-      "sourceHash": "f4070f825719d309006f68db81e14c31c0539d1df577f3328073338e73164f63",
-      "message": "רענון {requestId}: שלב {step} מתוך {count} ({stepName}), נותרו עד {remainingSeconds} שניות."
+    "status.host_repair_progress": {
+      "sourceHash": "94b666f914742f7e4ee236debf13bd30430756593042fcb196e029d643d5e1f4",
+      "message": "תיקון {requestId}: שלב {step} מתוך {count} ({stepName}), נותרו עד {remainingSeconds} שניות."
     },
-    "status.host_refresh_recovery_pending": {
-      "sourceHash": "fdffa422bcdf33e553308a1ee2811d9d03c5020e5bc1ffb68344ce7430b24cc9",
+    "status.host_repair_recovery_pending": {
+      "sourceHash": "632685d9060f0e984594d41435c2d9dac5d7acfe23ff715be3f8fecda1123e37",
       "message": "עדיין נדרש שחזור של שירותים או של רכיב ההרצה. ניסיון חוזר ממשיך את אותה בקשה."
     },
-    "status.host_refresh_rejected": {
-      "sourceHash": "36d39c63373a68279a159e35c7e503fbece467ea263e58588c95e81a3a8e10b7",
-      "message": "המארח דחה את בקשת הרענון: {detail}"
+    "status.host_request_rejected": {
+      "sourceHash": "a46fd1a4373dc23c184d1ac4dfd709f7772a9902eee894939601b9a8a345811c",
+      "message": "המארח דחה את הבקשה: {detail}"
     },
-    "status.host_refresh_remote_viewer": {
-      "sourceHash": "c3e7bea03101a96f1efc6bd91514653375ab2912dc28f925be2a457e67ea5a91",
-      "message": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו ברענון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRefresh.ps1⁩."
+    "status.host_repair_remote_viewer": {
+      "sourceHash": "03188d168ded1c28fa55c36fb920d01be68a1e4a9747c91a87ffba6a0a2cec47",
+      "message": "דף זה פתוח ממחשב אחר, ולכן ניתן לצפות בו בתיקון מארח אך לא להפעיל אותו. הפעילו אותו במארח עצמו: בלוח המחוונים שלו, או באמצעות pwsh test⁦/lab/Invoke-HostRepair.ps1⁩."
     },
-    "status.host_refresh_retry": {
-      "sourceHash": "0652202c1a5f16f4b6edf8ce72290f62b7c19495dbaf4b9e33d051c0c15e9ff7",
+    "status.host_repair_retry": {
+      "sourceHash": "85499c834e1c6b41da78a818252db2db03db53badde315db54d00b08fdacc1e2",
       "message": "ניסיון חוזר"
     },
-    "status.host_refresh_stale": {
-      "sourceHash": "9c37138e39a2370139984ac58a67e01d78c7f7404a97b6eb8a4d57f040a2661f",
-      "message": "רענון {requestId}: אין דיווח התקדמות זה {seconds} שניות. ייתכן שתהליך הרענון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
+    "status.host_repair_stale": {
+      "sourceHash": "1d73bfe180882e2a2fa2998768751746238af2dc797c7f021a8117feab1295f3",
+      "message": "תיקון {requestId}: אין דיווח התקדמות זה {seconds} שניות. ייתכן שתהליך התיקון נעצר; בדקו את המארח לפני התחלת תיקון נוסף."
     },
-    "status.host_refresh_start": {
-      "sourceHash": "27b87fc90c23120cebb056358cfeb8658af53847046cf53c28ebc704dea8e134",
-      "message": "רענון המארח"
+    "status.host_repair_start": {
+      "sourceHash": "410a3c507e856517fee16e200e4a93b9e9fd91f4e52bcdf69572dde63ab93f73",
+      "message": "תיקון המארח"
     },
-    "status.host_refresh_start_cycle_busy": {
-      "sourceHash": "96b34d90f4619bc989f3c72999e183edfbe58819920becd934aa930ed1b59ae5",
+    "status.host_repair_start_cycle_busy": {
+      "sourceHash": "3ed6818034b78d6c553e79912085682dfcf93337ead8d496f49c6d9d4428a74f",
       "message": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים."
     },
-    "status.host_refresh_submitting": {
-      "sourceHash": "517542e0aa19065c72df764f40d46adf463b73cf020696a7b3a7bd81e5e55978",
-      "message": "בקשת הרענון נשלחת..."
+    "status.host_request_submitting": {
+      "sourceHash": "ee2c84a12e83d91ddcb5622672b9895441e110e0ec0cf6fe275b47e77c86c8b6",
+      "message": "הבקשה נשלחת..."
     },
-    "status.host_refresh_title": {
-      "sourceHash": "d77727e001caaccb24b397e414affbd5b5629b4dd149987a5d08720e307d0ca2",
-      "message": "רענון המארח"
+    "status.host_repair_title": {
+      "sourceHash": "1052330dd9405c2db5e87a2db36bd84eadb88f64cd3e42ae386c974197ce467e",
+      "message": "תיקון המארח"
     },
-    "status.host_refresh_unavailable": {
-      "sourceHash": "54e71ffc2ae26845eec8bed3469f074c777e142faf0761131d6320ab19051b9c",
-      "message": "רענון המארח אינו זמין במארח זה ({reason})."
+    "status.host_repair_unavailable": {
+      "sourceHash": "7aedf6fa35db3f3e2ecd99e7034d979f708cd8f9c8839b2e1d16ab4c4117ad97",
+      "message": "תיקון המארח אינו זמין במארח זה ({reason})."
     },
-    "status.host_refresh_verdict_abandoned": {
-      "sourceHash": "15274dc45a970e00ec860d5f0d83fcfa8075758860933b665f7f07cad204100a",
-      "message": "רענון {requestId} נזנח לאחר ניסיונות חוזרים; רשומת השחזור שלו נשמרת במארח."
+    "status.host_repair_verdict_abandoned": {
+      "sourceHash": "ef252fdf2668508a3a41b314e0fb73d5c65f179ffa7324ef2d6d8bb8f26d186c",
+      "message": "תיקון {requestId} נזנח לאחר ניסיונות חוזרים; רשומת השחזור שלו נשמרת במארח."
     },
-    "status.host_refresh_verdict_already_healthy": {
-      "sourceHash": "512c1744f283a09d8f5848855cd8b1a0e23f5cc7dd915d4e74c04bd498b3913e",
-      "message": "רענון {requestId} הסתיים: המארח כבר היה תקין, ולכן לא בוצעו שינויים."
+    "status.host_repair_verdict_already_healthy": {
+      "sourceHash": "eac5b2d59af889aa14bc3273020adaa6a5f1fcf625d1fedd2f3adff3ddda930f",
+      "message": "תיקון {requestId} הסתיים: המארח כבר היה תקין, ולכן לא בוצעו שינויים."
     },
-    "status.host_refresh_verdict_failed": {
-      "sourceHash": "70e923c1b5df48d2aa779a70c3b178a152a3fb0e34fd980303de12210333338f",
-      "message": "רענון {requestId} נכשל ({reason})."
+    "status.host_repair_verdict_failed": {
+      "sourceHash": "28cdc32b23487f7455cded4d0068d48f50e8e1c2d7cc6bdb0a1c3f162eccc552",
+      "message": "תיקון {requestId} נכשל ({reason})."
     },
-    "status.host_refresh_verdict_partial": {
-      "sourceHash": "7ec24ee6933b95015b229b937272a1ea000911ba932831fc13ac8014862dbc53",
-      "message": "רענון {requestId} הסתיים ללא השלמה ({reason}); חלק מהשירותים או רכיב ההרצה עדיין דורשים טיפול."
+    "status.host_repair_verdict_partial": {
+      "sourceHash": "3a0ee9fee4add5465625869c3de7be6eb8721a154013e3dec4407c57cdc34071",
+      "message": "תיקון {requestId} הסתיים ללא השלמה ({reason}); חלק מהשירותים או רכיב ההרצה עדיין דורשים טיפול."
     },
-    "status.host_refresh_verdict_refused": {
-      "sourceHash": "e4861c26e35c89e46beca88b22fb2752f8ed11474acd445bcd27e988e80cea18",
-      "message": "רענון {requestId} נדחה לפני ביצוע שינוי כלשהו ({reason})."
+    "status.host_repair_verdict_refused": {
+      "sourceHash": "c092ca374a5d6635f46e5a26d125fa6d3f1f3a9b7c9b168130277e2f996d3629",
+      "message": "תיקון {requestId} נדחה לפני ביצוע שינוי כלשהו ({reason})."
     },
-    "status.host_refresh_verdict_repaired": {
-      "sourceHash": "63ed8dc658f67612c9960e246669a08bd976be588b76079fea2c4fac3537ef50",
-      "message": "רענון {requestId} הסתיים: המארח תוקן ורכיב ההרצה מוכן."
+    "status.host_repair_verdict_repaired": {
+      "sourceHash": "81da0fe8852721597970647747dcb168e4e5f544639290e3e2cee0c3fc7a37ef",
+      "message": "תיקון {requestId} הסתיים: המארח תוקן ורכיב ההרצה מוכן."
     },
-    "status.host_refresh_verdict_still_unresponsive": {
-      "sourceHash": "6c20d4b5e9d4d9e24bbb2705d2b504185dcbe260b909b7b1aee8ff674363f431",
-      "message": "רענון {requestId} הסתיים: מנהל המכונות הווירטואליות עדיין אינו מגיב."
+    "status.host_repair_verdict_still_unresponsive": {
+      "sourceHash": "f18f4a7c10469962b6d01d1876133fcaa0d3acab904ccfeb0c9ab15e38f31f89",
+      "message": "תיקון {requestId} הסתיים: מנהל המכונות הווירטואליות עדיין אינו מגיב."
     },
-    "status.host_refresh_verdict_unknown": {
-      "sourceHash": "5f03881897779c9885487edb448fac62b64974d577215d7d38532012b81d2a32",
-      "message": "רענון {requestId} הסתיים בתוצאה שדף זה אינו מזהה ({verdict})."
+    "status.host_repair_verdict_unknown": {
+      "sourceHash": "8004e636a79b633329f9b32f0bd9e973376fbca1672d337bfebb188b559f7f3e",
+      "message": "תיקון {requestId} הסתיים בתוצאה שדף זה אינו מזהה ({verdict})."
     },
-    "status.host_refresh_waiting": {
-      "sourceHash": "c8a793b93748a78c11e2a49d45b020be9971edffe2a43bbed62860fc4e58ab15",
-      "message": "רענון {requestId} התקבל; ממתינים לדיווח הראשון מתהליך הרענון."
+    "status.host_repair_waiting": {
+      "sourceHash": "574e1ef800ac38535993036b6a60e9bad110e21676bb3b698d95c5f5a93ef9cb",
+      "message": "תיקון {requestId} התקבל; ממתינים לדיווח הראשון מתהליך התיקון."
     },
-    "status.host_refresh_waiting_long": {
-      "sourceHash": "ebfb71153041df44ffd6e31c1c58f38115e179c8bbc1253f23cf31f506284909",
-      "message": "רענון {requestId}: אין דיווח לאחר {seconds} שניות. ייתכן שהפעלת תהליך הרענון נכשלה; בדקו את המארח."
+    "status.host_repair_waiting_long": {
+      "sourceHash": "59ddef9d78cff8a81bb57b1e9e1047f5257a3e9e2308c8c2db727c66d2d897c6",
+      "message": "תיקון {requestId}: אין דיווח לאחר {seconds} שניות. ייתכן שהפעלת תהליך התיקון נכשלה; בדקו את המארח."
+    },
+    "status.host_update_title": {
+      "sourceHash": "457ab3a744fa8aed5c01f6cc2f3922d8656e541b4c521a18767768f1c4f82a3b",
+      "message": "עדכון המארח"
+    },
+    "status.host_update_start": {
+      "sourceHash": "99b7a407492d238f226e7a82acdbb7535dc1b7864a5cc961e3f9eb462b35c376",
+      "message": "עדכון המארח"
+    },
+    "status.host_update_note": {
+      "sourceHash": "ab2f57fa5cf99daff768d77d014cd8e0006c2fae4c7d73d2c1810034dae69f80",
+      "message": "מעדכן את הקוד של מארח זה ומפעיל מחדש את רכיב ההרצה כשהמחזור הנוכחי מסתיים, ומוותר לאחר {minutes} דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: {command}"
+    },
+    "status.host_update_scope": {
+      "sourceHash": "70038c64afb34be670b3ab0f1ba816fe5743a14330a2dce47698fd5168bb4e3b",
+      "select": {
+        "variants": {
+          "restart": "הפעלה מחדש של רכיב ההרצה על הקוד הנוכחי",
+          "full": "התקנה מחדש של תלויות והגדרות, ואז הפעלה מחדש",
+          "other": "{scope}"
+        }
+      }
+    },
+    "status.host_update_confirm": {
+      "sourceHash": "265a74272b8e163fc92cee9f1afff1d8b765ff3ac23e18d93f07bfa287c09a09",
+      "message": "לעדכן את המארח ({scope})? רכיב ההרצה ייעצר כשהמחזור הנוכחי יסתיים ויופעל מחדש על הקוד הנוכחי; העדכון מוותר לאחר {minutes} דקות. כדי לסיים את המחזור עכשיו, הריצו במארח: {command}"
+    },
+    "status.host_update_cycle_time": {
+      "sourceHash": "83e63e4fa54ff026a08ba00526ccab706f4ec2a01567196c32f6b9a10f2ab78b",
+      "message": "המחזור הנוכחי רץ כבר {elapsed}; מחזורים אחרונים נמשכו כ-{median}."
+    },
+    "status.host_update_unavailable": {
+      "sourceHash": "52bf3a198ce310729249e78b8950bcf39b4b1d0e1f608dd5bae438d56d063877",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "controller_absent": "אין בקר מארח שרץ במארח זה. כדי להגדיר אחד, הריצו במארח: {command}",
+          "controller_absent_macos": "אין בקר מארח שרץ במארח זה. ב-macOS הפעלת רכיב ההרצה מפעילה אותו: הריצו {runner} ממסוף של הפעלת שולחן העבודה, או עצרו רכיב הרצה פועל אחרי המחזור שלו והפעילו אותו שוב בדרך זו. במארח שמעולם לא הוכן לעדכוני מארח, הריצו קודם את {command}.",
+          "controller_absent_gate": "עדכון מארח מחזיק את רכיב ההרצה של מארח זה ואין בקר מארח פועל. הריצו {runner} פעם נוספת ממסוף של הפעלת שולחן העבודה והשאירו כמו שהוא רכיב הרצה שפועל: הפעלה זו נעצרת בשער המריץ ומפעילה את הבקר, שממשיך את העדכון.",
+          "host_type": "עדכוני מארח עדיין אינם זמינים בסוג מארח זה.",
+          "journal_unreadable": "המארח אינו יכול לקרוא את יומן הפעולות שלו; בדקו את המארח.",
+          "session_unusable": "ההפעלה של בקר המארח אינה יכולה להפעיל רכיב הרצה תקין: היא אינה הפעלת שולחן העבודה, או שחסרה בה הרשאת פרטיות. במארח, סיימו את ההפעלה yuruna-controller באמצעות {tmux} (תחת screen, סיימו את ההפעלה yuruna-controller ש-{screen} מציג), עצרו רכיב הרצה פועל אחרי המחזור שלו, והפעילו שוב את רכיב ההרצה ממסוף של הפעלת שולחן העבודה שיש לו את ההרשאות.",
+          "listener_dependency_missing": "שירות הסטטוס לא טען את מה שעדכוני מארח צריכים; הפעילו אותו מחדש במארח.",
+          "remote": "ממכונה אחרת הדף הזה רק עוקב אחר עדכון מארח; עד ש-{file} יותקן במארח, לחצו שם על עדכון המארח.",
+          "scope_unavailable": "המארח אינו יכול להריץ כעת את ההיקף שנבחר.",
+          "other": "עדכוני מארח אינם זמינים במארח זה ({reason})."
+        }
+      }
+    },
+    "status.host_update_remote_hint": {
+      "sourceHash": "89a579480f7e6d9ab82e97bc62bb9ccbd91f5d149d0601d7c662ea1502026c33",
+      "origin": "machine",
+      "message": "עדכון המארח פותח את pool-control בכתובת {url}, שחותם על הבקשה ומחזיר אתכם לכאן."
+    },
+    "status.host_update_busy": {
+      "sourceHash": "bb34582769153c86cb9ca71b0e953e376c1179614a0d986cdc03a1b078a6c5a8",
+      "select": {
+        "variants": {
+          "host_update": "עדכון מארח אחר ({requestId}) מתבצע; מוצגת ההתקדמות שלו.",
+          "host_repair": "תיקון מארח ({requestId}) מתבצע; נסו שוב לאחר שיסתיים.",
+          "other": "בקשה להתחלת מחזור מתבצעת כעת; נסו שוב לאחר שתסתיים."
+        }
+      }
+    },
+    "status.host_update_blocks": {
+      "sourceHash": "d3cc897255a6cb0108ae9c1e284dcad9d868fa9815eb3cca3be1698b9d150c36",
+      "message": "עדכון מארח ({requestId}) מתבצע; נסו שוב לאחר שיסתיים."
+    },
+    "status.host_update_queued": {
+      "sourceHash": "473c787be3d6c5584ea2d5fe007c7d119eea2fccb675f8241a91a5f5577e3af5",
+      "message": "עדכון המארח {requestId} ממתין בתור; הוא יתחיל כשהמחזור הנוכחי יסתיים."
+    },
+    "status.host_update_progress": {
+      "sourceHash": "e85fd925020af7e2190a6c8f60bfdf79726f32926525823730937b4e39650043",
+      "message": "עדכון המארח {requestId}: שלב {index} מתוך {count} ({phase}), מוגבל ל-{bound}."
+    },
+    "status.host_update_stale": {
+      "sourceHash": "e41cbc66b300a3f3a9f716e75720c48c4d291fe787a85c95372fe9a2a6286632",
+      "message": "עדכון המארח {requestId}: אין דיווח זה {seconds} שניות; בדקו את המארח."
+    },
+    "status.host_update_lost": {
+      "sourceHash": "b44daaa38cc437cfa71ef3c0dc7dd9b8711e9244093290f877518fa00a3b397d",
+      "message": "עדכון המארח {requestId}: המארח כבר אינו מדווח עליו, ולכן תוצאתו אינה ידועה כאן; בדקו את המארח."
+    },
+    "status.host_update_countdown": {
+      "sourceHash": "3c4f26eabdfe1300a811c4dafd6ff97d7a614316dec4e27a590e92c35b33f91d",
+      "message": "שירות הסטטוס מופעל מחדש; צפוי לחזור בעוד {seconds} שניות."
+    },
+    "status.host_update_verdict": {
+      "sourceHash": "1e517ff2584e6acb88a7bbf7a4b2ed08f9fc9e2d98dc41e2265880a6c3af0983",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "refused": "עדכון המארח {requestId} נדחה; דבר לא השתנה ({reason}).",
+          "drain_timeout": "עדכון המארח {requestId} ויתר: המחזור הנוכחי נמשך יותר מזמן ההמתנה. דבר לא השתנה.",
+          "stop_failed": "עדכון המארח {requestId}: לא ניתן היה לעצור את רכיב ההרצה, ולכן דבר לא הופעל.",
+          "recovering": "עדכון המארח {requestId}: רכיב ההרצה עדיין אינו רץ; המארח ממשיך לנסות ({reason}).",
+          "recovering_without_controller": "עדכון המארח {requestId}: רכיב ההרצה עדיין אינו רץ ({reason}), ואין בקר מארח פועל שינסה שוב.",
+          "released": "עדכון המארח {requestId} שוחרר במארח.",
+          "superseded": "עדכון המארח {requestId} הוחלף על ידי {supersededBy}.",
+          "failed_restored": "עדכון המארח {requestId} לא הושלם ({reason}); המארח שוחזר.",
+          "reboot_required": "עדכון המארח {requestId} הסתיים, אבל יש להפעיל מחדש את Windows לפני שה-hypervisor יוכל לרוץ, ולכן רכיב ההרצה לא הופעל.",
+          "updated_not_started": "עדכון המארח {requestId} הסתיים; רכיב ההרצה נעצר לפניו, ולכן לא הופעל.",
+          "updated_with_remarks": "עדכון המארח {requestId} הסתיים עם הערות; רכיב ההרצה מריץ את הקוד הנוכחי.",
+          "updated": "עדכון המארח {requestId} הסתיים; רכיב ההרצה מריץ את הקוד הנוכחי.",
+          "other": "עדכון המארח {requestId} הסתיים בתוצאה שהדף הזה אינו מזהה ({verdict})."
+        }
+      }
+    },
+    "status.host_update_action": {
+      "sourceHash": "0649f69cf0cd5a07eb4270eb0a4e9aa37873f04e336102880fcf417fb34884ad",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "end_one_shot": "הצעד הבא: סיימו את ההפעלה החד-פעמית במארח, ואז לחצו שוב.",
+          "release_diagnostic_hold": "הצעד הבא: שחררו את ה-VM שנשמרה לאבחון, ואז לחצו שוב.",
+          "provision_elevation": "הצעד הבא: תנו לרכיב ההרצה את כלל ה-sudo שלו במארח, ואז לחצו שוב.",
+          "provision_elevation_macos": "הצעד הבא: במארח, הריצו {command} ממסוף של הפעלת שולחן העבודה וענו על השאלות שלו; הוא מתקין את רשומת ה-sudoers שעדכוני מארח משתמשים בה. לאחר מכן לחצו שוב.",
+          "retry_or_drain_now": "הצעד הבא: לחצו שוב, או סיימו את המחזור עכשיו במארח: {command}",
+          "stop_runner_by_hand": "הצעד הבא: עצרו את רכיב ההרצה במארח ידנית.",
+          "repair_checkout": "הצעד הבא: תקנו את עותק הקוד במארח; המארח ממשיך לנסות.",
+          "act_at_host": "הצעד הבא: בדקו את המארח ופעלו בו.",
+          "release": "הצעד הבא: כדי לסיים אותו, הריצו במארח: {command}",
+          "read_remarks": "הצעד הבא: קראו את ההערות.",
+          "start_runner": "הצעד הבא: הפעילו את רכיב ההרצה במארח.",
+          "reboot_host": "הצעד הבא: הפעילו מחדש את Windows במארח, ואז הפעילו את רכיב ההרצה.",
+          "other": "הצעד הבא: {action}."
+        }
+      }
+    },
+    "status.host_update_remarks": {
+      "sourceHash": "6dfc6eb9691387028fb1e593b89f760b3f330f178b63a4353fca85f37188bbc0",
+      "message": "הערות: {remarks}."
+    },
+    "status.host_update_debt": {
+      "sourceHash": "2addd8adba8d184c8d3ca6dcdb6907192590feb70e7bfcebb686b0a0147c7aaa",
+      "message": "עדיין נדרש במארח: {actions}."
+    },
+    "status.host_update_console": {
+      "sourceHash": "0ea8ad31f0339fc53aef263e63ae8e769a2e0901965135c54da4eb2d2bea13fc",
+      "origin": "machine",
+      "select": {
+        "variants": {
+          "tmux": "כדי לפתוח את המסוף של רכיב ההרצה, הריצו במארח: {command}",
+          "window": "המסוף של רכיב ההרצה הוא חלון משלו בשולחן העבודה של חשבון הבדיקה: פתחו אותו ליד המכונה, או דרך חיבור לשולחן עבודה מרוחק להפעלה זו.",
+          "none": "רכיב ההרצה הופעל ללא מסוף.",
+          "other": "המסוף של רכיב ההרצה: {console}."
+        }
+      }
+    },
+    "status.host_update_first_cycle": {
+      "sourceHash": "2e2ec057c48ea5983c2aec84af5dfe45e7307be14c6c38a9b88c11fbde4714aa",
+      "select": {
+        "variants": {
+          "pass": "המחזור הראשון לאחר העדכון עבר.",
+          "fail": "המחזור הראשון לאחר העדכון נכשל.",
+          "other": "ממתין למחזור הראשון לאחר העדכון."
+        }
+      }
     },
     "status.host_value1": {
       "sourceHash": "e326622ecab09052f451a6732c375a8fc251a8114a555d22b8961853dd722e00",
@@ -948,7 +1130,8 @@
       "message": "המתנה למעבדה -- ממתינים לשירות מעבדה"
     },
     "status.latest_cycle": {
-      "sourceHash": "c33f561d6bdd662ea7f707d03853528726cd25bcb928b87fa16baea4f846738d",
+      "sourceHash": "12bb49e74a3016c83f1710a1f32cf130f5bde26addf021fb1e9920d3daab0f54",
+      "origin": "machine",
       "message": "המחזור האחרון"
     },
     "status.latest_runs": {
@@ -1198,7 +1381,8 @@
       "message": "מתבצע חישוב מחדש של נתוני הביצועים המצטברים…"
     },
     "status.recent_cycles": {
-      "sourceHash": "dff430e202db83017c889038d53d24089f32c6088b4fe86d6f13ffe8975dc63a",
+      "sourceHash": "d29d46deca931e21ccc62aa3462743401bdd9b7a48cfb1c4e5c206584703d1ae",
+      "origin": "machine",
       "message": "מחזורים אחרונים"
     },
     "status.refresh": {
@@ -1317,9 +1501,9 @@
       "sourceHash": "d1c28b77f604a192d8dc21775ab43b94bc9ac9cd1e56ffddda8d07a187cd7957",
       "message": "שחזרו את תמונת המצב שמזההּ {snapshot}, הפעילו מחדש את המכונה הווירטואלית ואז המשיכו את הרצף"
     },
-    "status.start_cycle_blocked_by_refresh": {
-      "sourceHash": "3897b3a96059016fb7fb36fe7f1ffb9aa9de34ec5ec7e7071353437bae5eedb4",
-      "message": "רענון מארח ({requestId}) מתבצע; לא ניתן להתחיל את המחזור עד לסיומו."
+    "status.start_cycle_blocked_by_repair": {
+      "sourceHash": "679089f9cee1945f16f08320fed398d6f100cd9bea9b85dedbf5e6bb1d3d7ab8",
+      "message": "תיקון מארח ({requestId}) מתבצע; לא ניתן להתחיל את המחזור עד לסיומו."
     },
     "status.start_cycle_cycle_restarted": {
       "sourceHash": "777f87538467b94b76119cfba7f06cf9b399e88621f084591bfdcc89ec5b5eba",
@@ -1394,8 +1578,8 @@
       "message": "תוקף הוכחת השליטה פג. פתחו מחדש את המארח הזה דרך הקישור בלוח הבקרה כדי לקבל הוכחה חדשה."
     },
     "status.the_control_proof_was_rejected_it_may_have_been_minted_with_a_dif": {
-      "sourceHash": "d688961646f44e84b7b9389b5eab8bec98a6b22edcd87c98b0d65150748e1110",
-      "message": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות lab-auth-token שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם."
+      "sourceHash": "3b55d5593c5b0a089fde510d9978ff59dd79243e75ab1a48fdef6547f7da484d",
+      "message": "הוכחת השליטה נדחתה. ייתכן שנוצרה באמצעות מפתח אימות פנימי שונה מזה שבידי המארח הזה; רישום מחדש באמצעות test⁦/lab/Set-LabToken.ps1⁩ מסנכרן ביניהם."
     },
     "status.the_host_could_not_load_its_control_proof_verifier_check_the_stat": {
       "sourceHash": "aaa1a44999bf9f16cb012cace5db71c1438dd84227754648967732a66bd8b859",
@@ -1531,9 +1715,9 @@
         }
       }
     },
-    "status.config_field_autorefreshafterstalls": {
-      "sourceHash": "27e878f22e3647c23b4b53d711dc5b6826e27177c57c4490e65198d795327c31",
-      "message": "רענון אוטומטי לאחר תקיעות (autoRefreshAfterStalls)"
+    "status.config_field_autorepairafterstalls": {
+      "sourceHash": "99f6efebe46c49d3fdc47bb3824ea53a81d46ba77b713823f280f5b5c23d7959",
+      "message": "תיקון אוטומטי לאחר תקיעות (autoRepairAfterStalls)"
     },
     "status.config_field_autoremediation": {
       "sourceHash": "6bb8e0c2e87ca41c03715f5a8759b3b43ba9ed339ec09f80bdd735cd560459cf",
@@ -1716,7 +1900,7 @@
       "message": "אסור: יעד הבדיקה חייב להיות כתובת פרטית (loopback⁦/RFC1918/link-local⁩) או כתובת IP המוגדרת עבור המטמון"
     },
     "status.api_internal_error": {
-      "sourceHash": "bfe48a2f94a6554ed148551b776368a32930c18d6409356671df30256d2942f7",
+      "sourceHash": "6893746abc9c8de601e7570d4dd42cf0d860bcbf0a9c3a4d58d810b089541897",
       "message": "הבקשה נכשלה במארח; עיינו בקובץ ⁦server.err⁩"
     },
     "status.api_invalid_upload_path_must_end_in_log_txt_json_err_crash_7020967c": {
@@ -1764,7 +1948,8 @@
       "message": "הצלחות לפני דריכה מחדש"
     },
     "status.preflight_failed": {
-      "sourceHash": "25b9509846e9875002e2839c39fbc6ac2589b0d6033595e4e86e366994ecb5f0",
+      "sourceHash": "a843b2f63689b9e6da8f590b6d6d89351a1c608a00afe197aad2e6b610af8f0f",
+      "origin": "machine",
       "message": "בדיקה מקדימה נכשלה"
     },
     "status.runner_attempts_title": {
@@ -1784,24 +1969,29 @@
       "message": "היסטוריית ניסיונות ההרצה אינה זמינה."
     },
     "status.git_source_mirror_confirmed": {
-      "sourceHash": "fac6f4fe1d5880d4888ea1d9d2c093b70f8b6bf838abd976521f56f96bf9f8e2",
-      "message": "⁦mirror.origin⁩"
+      "sourceHash": "f38fd90765626a1007d70d481897b93e867abadda54dc4cfef7d8e4404ac651b",
+      "origin": "machine",
+      "message": "⁦mirror⁩"
     },
     "status.git_source_mirror_stale": {
-      "sourceHash": "edc9ae7cd03e6100d6d0ef6a68713ddf85efd2823b663d74df8f6131b4a7091e",
-      "message": "⁦mirror.stale⁩"
+      "sourceHash": "637a40d9c185d570bd730149a8b2e0ba4c025e35a776f8bed3b8a53d146a3b06",
+      "origin": "machine",
+      "message": "⁦mirror stale⁩"
     },
     "status.git_source_origin_direct": {
-      "sourceHash": "465d52d0a2dc68d6c416899ca29f6dbab5eeec1ce42958a8d67cd1136467fc03",
-      "message": "⁦remote.origin⁩"
+      "sourceHash": "f9a8df9544a6c32d6cc83db834d47310ebefb2c8324675a22c62c84c78343cd6",
+      "origin": "machine",
+      "message": "⁦remote⁩"
     },
     "status.git_source_not_applicable": {
-      "sourceHash": "e12c116f88d0f81329f9d9846b12041b478402c2ffabe8d49f8194dd0cf733f3",
-      "message": "⁦not.applicable⁩"
+      "sourceHash": "c49f6189f0b466dd920e2eae6fdc65d867c23bed2341f944662548afcc71a0b7",
+      "origin": "machine",
+      "message": "⁦not applicable⁩"
     },
     "status.git_source_mirror_fresh": {
-      "sourceHash": "2e62b6db2caa115b2d04e6793e072b9e3b1f18aea522e01483293bd438ca33fe",
-      "message": "⁦mirror.fresh⁩"
+      "sourceHash": "b6fe61002a32fdfd3c46020094204b52654bd9ffb6b8056179c68ca85c77ef23",
+      "origin": "machine",
+      "message": "⁦mirror fresh⁩"
     },
     "status.banner_unguarded": {
       "sourceHash": "394fbed24b4960662a7b9c8bb6cedd3c22522edf75f1be81da46f9e6621968eb",

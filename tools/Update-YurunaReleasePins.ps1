@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 428d9261-f6c4-49d0-94e9-7a19661cc048
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,7 @@
 
     It also repoints the release pins that are still hard-coded -- the README
     verified-path snippets' signed-download URLs and the pinned convenience
-    form of the macOS refresh dispatch -- to `refs/tags/<VERSION>`.
+    form of the macOS repair dispatch -- to `refs/tags/<VERSION>`.
     The installers themselves carry no baked version: -PinVersion / PIN_VERSION
     reads the repo's VERSION file at install time, and the clone DEFAULT stays on
     the moving `main` branch so normal installs auto-update. The pin is rewritten
@@ -282,7 +282,7 @@ function Publish-VerifiedManifestPair {
 
 function Update-ReleasePin {
     # Repoint every tagged URL in install/README.md -- the verified-path snippets'
-    # signed-download URLs and the refresh convenience form -- from
+    # signed-download URLs and the repair convenience form -- from
     # refs/tags/<calver> to refs/tags/<Version>. The installers do NOT
     # carry a baked version: -PinVersion / PIN_VERSION reads the repo's VERSION
     # file at install time, and the clone DEFAULT stays on the moving 'main'
@@ -295,9 +295,9 @@ function Update-ReleasePin {
     $calver = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'
     $edits = @(
         # Three README URLs carry a tag: the signed-download base of the
-        # Windows and of the bash verified-path snippet, and the refresh
-        # convenience form, which has to name a refresh-capable release because
-        # an older installer ignores --refresh and runs a full install. One
+        # Windows and of the bash verified-path snippet, and the repair
+        # convenience form, which has to name a repair-capable release because
+        # an older installer ignores --repair and runs a full install. One
         # replace repoints all three. The install convenience one-liners
         # deliberately stay on refs/heads/main (unverified latest).
         @{ file = 'install/README.md';           pat = '(alissonsol/yuruna/)refs/tags/' + $calver; rep = '${1}refs/tags/' + $Version }

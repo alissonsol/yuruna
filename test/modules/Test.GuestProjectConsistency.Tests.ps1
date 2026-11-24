@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42bc0016-f193-426d-a72c-0c102ad1e5f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,7 @@ BeforeAll {
     function git { }
     function docker { }
     function cleanmgr { }
+    Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Force -DisableNameChecking
 }
 Describe 'Windows guest archive failure handling' {
     BeforeEach {
@@ -674,6 +675,49 @@ exit "$YURUNA_HTTP_EXIT"
                 $step.descriptionLocalized[$locale] | Should -Not -Match 'ubuntu\.server\.26'
             }
         }
+    }
+
+    It 'the website page sequence chains on the SSH deployment with the same guest identity' {
+        $page = ConvertFrom-File (Join-Path $script:ProjectRoot 'example/website/test/workload.guest.ubuntu.server.26.k8s.website.page.ssh.yml')
+        $ssh = ConvertFrom-File (Join-Path $script:ProjectRoot 'example/website/test/workload.guest.ubuntu.server.26.k8s.website.ssh.yml')
+        $chain = @($page.resource['ubuntu.server.26'])
+        $chain.Count | Should -Be 1
+        $chain[0] | Should -BeExactly 'workload.guest.ubuntu.server.26.k8s.website.ssh'
+        $page.variables.username | Should -BeExactly $ssh.variables.username
+        $page.variables.hostname | Should -BeExactly $ssh.variables.hostname
+        $page.keystrokeMechanism | Should -BeExactly 'ssh'
+        @($page.component)[0].action | Should -BeExactly 'sshWaitReady'
+        # The page check builds on the SSH deployment; it repeats none of its steps.
+        foreach ($step in @($page.component) + @($page.workload)) {
+            [string]$step.command | Should -Not -BeLike '*workload.k8s.website.sh*'
+            [string]$step.command | Should -Not -BeLike '*test-localhost.sh*'
+        }
+    }
+
+    It 'the website page sequence expands to the web verbs through the framework vocabulary' {
+        $fixture = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+        $library = Join-Path $fixture 'test/sequences'
+        $testFolder = Join-Path $fixture 'project/example/website/test'
+        $null = New-Item -ItemType Directory -Force -Path $library, $testFolder
+        foreach ($name in '_phrases.yml', '_snippets.yml') {
+            Copy-Item -LiteralPath (Join-Path $script:RepoRoot "test/sequences/$name") -Destination $library
+        }
+        $source = Join-Path $script:ProjectRoot 'example/website/test/workload.guest.ubuntu.server.26.k8s.website.page.ssh.yml'
+        $copy = Join-Path $testFolder 'workload.guest.ubuntu.server.26.k8s.website.page.ssh.yml'
+        Copy-Item -LiteralPath $source -Destination $copy
+        # The walk from the copy finds the fixture's test/sequences, so the copied
+        # library resolves the sentences whatever the fallback would choose.
+        $steps = @((Read-SequenceFile -Path $copy -NoCache).steps)
+        ($steps | ForEach-Object { $_.action }) -join ',' |
+            Should -BeExactly 'sshWaitReady,sshFetchAndExecute,webOpen,webExpect,webClick,webExpect'
+        foreach ($step in $steps) { $step.Keys | Should -Not -Contain 'step' }
+        $steps[2].url | Should -BeExactly 'http://localhost/Privacy'
+        $authored = @((ConvertFrom-File $source).workload | ForEach-Object { $_.description })
+        $authored.Count | Should -Be 4
+        ($steps[2..5] | ForEach-Object { $_.description }) -join "`n" | Should -BeExactly ($authored -join "`n")
+        $installer = ($steps[1].command -split 'fetch-and-execute\.sh ', 2)[1]
+        $installer | Should -Not -BeNullOrEmpty
+        Join-Path $script:RepoRoot $installer | Should -Exist
     }
 }
 

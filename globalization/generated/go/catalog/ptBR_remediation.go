@@ -73,10 +73,10 @@ const DataptBRremediation = `{
     " foi perdida: o supervisor do convidado respondeu, mas não soube dar conta dela; o processo deixou de existir, e reconectar não o traz de volta."
   ],
   "remediation.hypervisor_unresponsive_action_evidence": "Leia utm-control-snapshot.*.json e utm-log-show.*.txt na pasta do ciclo: um PID ou horário de início do UTM que mudou no meio do ciclo indica uma falha seguida de reinicialização, e o trecho do log unificado mostra o que a precedeu",
-  "remediation.hypervisor_unresponsive_action_restart": "Reinicie o aplicativo de controle do hipervisor na máquina: no macOS, encerre o UTM.app na sessão da área de trabalho (ou execute test/lab/Invoke-HostRefresh.ps1) e confirme que ` + "`" + `utmctl stop` + "`" + ` em uma VM parada retorna imediatamente",
+  "remediation.hypervisor_unresponsive_action_restart": "Reinicie o aplicativo de controle do hipervisor na máquina: no macOS, encerre o UTM.app na sessão da área de trabalho (ou execute test/lab/Invoke-HostRepair.ps1) e confirme que ` + "`" + `utmctl stop` + "`" + ` em uma VM parada retorna imediatamente",
   "remediation.hypervisor_unresponsive_action_resume": "Retome o executor quando um verbo de ciclo de vida voltar a responder; o próximo ciclo sonda o canal de controle antes de construir qualquer coisa",
   "remediation.hypervisor_unresponsive_rationale": [
-    "hypervisor_unresponsive: o canal de controle do hipervisor parou de atender às solicitações de ciclo de vida, embora continue respondendo a consultas de estado; assim, cada início, parada e exclusão de VM espera até o fim do seu tempo limite, e nada que um ciclo faça consegue recuperá-lo. Repetir só reproduz os mesmos tempos limite; o aplicativo dono do canal precisa ser reiniciado na máquina, o que só uma sessão da área de trabalho ou uma atualização da máquina pode fazer.",
+    "hypervisor_unresponsive: o canal de controle do hipervisor parou de atender às solicitações de ciclo de vida, embora continue respondendo a consultas de estado; assim, cada início, parada e exclusão de VM espera até o fim do seu tempo limite, e nada que um ciclo faça consegue recuperá-lo. Repetir só reproduz os mesmos tempos limite; o aplicativo dono do canal precisa ser reiniciado na máquina, o que só uma sessão da área de trabalho ou um reparo do hospedeiro pode fazer.",
     {
       "arg": "detail",
       "type": "detail",
@@ -833,6 +833,37 @@ const DataptBRremediation = `{
       "trust": "internal"
     },
     " nunca chegou ao estado parado que a etapa esperava: o convidado ignorou o pedido de desligamento, e esperar de novo não muda isso. Desligar a VM pelo hospedeiro muda."
+  ],
+  "remediation.web_account_action": "Este passo controlava uma página: kind e detail em causeDetail.web de last_failure.json dizem o que falhou no caminho até a página",
+  "remediation.web_step_failed_action_evidence": "Leia causeDetail.web em last_failure.json: kind diz como o passo terminou, locator o que buscou, candidates o que a página ofereceu, effect se a entrada chegou à página",
+  "remediation.web_step_failed_action_repair": "Corrija role, name, match ou nth do passo, ou espere antes pelo estado de que ele precisa; para expectation e navigation verifique o site; para unsupported e page_lost remova do fluxo o diálogo, a nova janela ou a falha",
+  "remediation.web_step_failed_action_rerun": "Repita com test/Debug-TestSequence.ps1 após a mudança; quando effect for applied ou uncertain, restaure antes um estado conhecido do convidado",
+  "remediation.web_step_failed_rationale": [
+    "web_step_failed em ",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    ": um passo de página terminou pelo que a página mostrou (kind: ",
+    {
+      "arg": "kind",
+      "type": "token",
+      "trust": "internal"
+    },
+    "; buscado: ",
+    {
+      "arg": "target",
+      "type": "detail",
+      "trust": "external"
+    },
+    "; página: ",
+    {
+      "arg": "url",
+      "type": "detail",
+      "trust": "external"
+    },
+    "). Não é repetido sem supervisão: o teste ou o site precisa mudar antes."
   ]
 }
 `

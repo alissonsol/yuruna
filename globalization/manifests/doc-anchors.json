@@ -949,8 +949,13 @@
         },
         {
           "id": "42185271-0011",
-          "heading": "POST /control/host-refresh",
-          "slug": "post-controlhost-refresh"
+          "heading": "POST /control/host-repair",
+          "slug": "post-controlhost-repair"
+        },
+        {
+          "id": "42185271-0014",
+          "heading": "POST /control/host-update",
+          "slug": "post-controlhost-update"
         },
         {
           "id": "42185271-0012",
@@ -1550,6 +1555,11 @@
           "id": "42fffc2c-0011",
           "heading": "Why stdio for the core, and only stdio",
           "slug": "why-stdio-for-the-core-and-only-stdio"
+        },
+        {
+          "id": "42fffc2c-001f",
+          "heading": "The workload MCP server",
+          "slug": "the-workload-mcp-server"
         },
         {
           "id": "42fffc2c-0012",
@@ -2508,23 +2518,23 @@
         },
         {
           "id": "4213a0b3-008a",
-          "heading": "test/modules/Test.HostRefresh.psm1: Host refresh: the repair-ladder declaration, the local repair worker and",
-          "slug": "testmodulestesthostrefreshpsm1-host-refresh-the-repair-ladder-declaration-the-local-repair-worker-and"
+          "heading": "test/modules/Test.HostRepair.psm1: Host repair: the repair-ladder declaration, the local repair worker and",
+          "slug": "testmodulestesthostrepairpsm1-host-repair-the-repair-ladder-declaration-the-local-repair-worker-and"
         },
         {
           "id": "4213a0b3-008b",
-          "heading": "test/modules/Test.HostRefreshAuth.psm1: Write-HostRefreshSecretFile",
-          "slug": "testmodulestesthostrefreshauthpsm1-write-hostrefreshsecretfile"
+          "heading": "test/modules/Test.HostRepairAuth.psm1: Write-HostRepairSecretFile",
+          "slug": "testmodulestesthostrepairauthpsm1-write-hostrepairsecretfile"
         },
         {
           "id": "4213a0b3-008c",
-          "heading": "test/modules/Test.HostRefreshIntent.psm1: The private request journal for host refresh: who asked for a repair, with",
-          "slug": "testmodulestesthostrefreshintentpsm1-the-private-request-journal-for-host-refresh-who-asked-for-a-repair-with"
+          "heading": "test/modules/Test.HostOperationJournal.psm1: The private request journal for host repair: who asked for a repair, with",
+          "slug": "testmodulestesthostoperationjournalpsm1-the-private-request-journal-for-host-repair-who-asked-for-a-repair-with"
         },
         {
           "id": "4213a0b3-008d",
-          "heading": "test/modules/Test.HostRefreshTrigger.psm1: The automatic host-refresh policy: when the resident runner may start a",
-          "slug": "testmodulestesthostrefreshtriggerpsm1-the-automatic-host-refresh-policy-when-the-resident-runner-may-start-a"
+          "heading": "test/modules/Test.HostRepairTrigger.psm1: The automatic host-repair policy: when the resident runner may start a",
+          "slug": "testmodulestesthostrepairtriggerpsm1-the-automatic-host-repair-policy-when-the-resident-runner-may-start-a"
         },
         {
           "id": "4213a0b3-008e",
@@ -3873,8 +3883,8 @@
         },
         {
           "id": "4213a0b3-019b",
-          "heading": "install/macos.utm.sh: Refresh dispatch",
-          "slug": "installmacosutmsh-refresh-dispatch"
+          "heading": "install/macos.utm.sh: Repair dispatch",
+          "slug": "installmacosutmsh-repair-dispatch"
         },
         {
           "id": "4213a0b3-019c",
@@ -4151,6 +4161,11 @@
           "id": "42ec97cd-0011",
           "heading": "PostgreSQL",
           "slug": "postgresql"
+        },
+        {
+          "id": "42ec97cd-001c",
+          "heading": "Browser",
+          "slug": "browser"
         },
         {
           "id": "42ec97cd-0012",
@@ -4622,8 +4637,8 @@
         },
         {
           "id": "42e5cdfd-003d",
-          "heading": "test/service/Start-StatusService.ps1: Startup serialization and the refresh-safe outcome",
-          "slug": "testservicestart-statusserviceps1-startup-serialization-and-the-refresh-safe-outcome"
+          "heading": "test/service/Start-StatusService.ps1: Startup serialization and the non-destructive outcome",
+          "slug": "testservicestart-statusserviceps1-startup-serialization-and-the-non-destructive-outcome"
         },
         {
           "id": "42e5cdfd-003e",
@@ -6332,6 +6347,26 @@
           "slug": "why-the-replay-counts-only-complete-lines"
         },
         {
+          "id": "4220a755-005f",
+          "heading": "The yuruna-web-browser launcher",
+          "slug": "the-yuruna-web-browser-launcher"
+        },
+        {
+          "id": "4220a755-0060",
+          "heading": "Defining the yuruna-web-browser launcher",
+          "slug": "defining-the-yuruna-web-browser-launcher"
+        },
+        {
+          "id": "4220a755-0061",
+          "heading": "Why the tunnel holds the browser",
+          "slug": "why-the-tunnel-holds-the-browser"
+        },
+        {
+          "id": "4220a755-0062",
+          "heading": "Why the session folder is short and under /tmp",
+          "slug": "why-the-session-folder-is-short-and-under-tmp"
+        },
+        {
           "id": "4220a755-003c",
           "heading": "Driving a guest over SSH across an address change",
           "slug": "driving-a-guest-over-ssh-across-an-address-change"
@@ -6963,7 +6998,7 @@
         },
         {
           "id": "4207d71a-0010",
-          "heading": "Pool Status — pausing and continuing every member at once",
+          "heading": "Pool status — pausing and continuing every member at once",
           "slug": "pool-status--pausing-and-continuing-every-member-at-once"
         },
         {
@@ -6983,8 +7018,8 @@
         },
         {
           "id": "4207d71a-001f",
-          "heading": "Remote host refresh",
-          "slug": "remote-host-refresh"
+          "heading": "Remote host repair",
+          "slug": "remote-host-repair"
         },
         {
           "id": "4207d71a-0020",
@@ -6998,8 +7033,13 @@
         },
         {
           "id": "4207d71a-0022",
-          "heading": "Asking a host to refresh",
-          "slug": "asking-a-host-to-refresh"
+          "heading": "Asking a host to repair itself",
+          "slug": "asking-a-host-to-repair-itself"
+        },
+        {
+          "id": "4207d71a-0027",
+          "heading": "Remote host update",
+          "slug": "remote-host-update"
         },
         {
           "id": "4207d71a-0013",
@@ -7299,8 +7339,8 @@
         },
         {
           "id": "422226cb-0007",
-          "heading": "Cycle outcome over time (host x UTC time)",
-          "slug": "cycle-outcome-over-time-host-x-utc-time"
+          "heading": "Host state over time (host x UTC time)",
+          "slug": "host-state-over-time-host-x-utc-time"
         },
         {
           "id": "422226cb-0008",
@@ -7517,8 +7557,8 @@
         },
         {
           "id": "42010605-000e",
-          "heading": "Derive GuestKey from the sequence's baseline map",
-          "slug": "derive-guestkey-from-the-sequences-baseline-map"
+          "heading": "Derive GuestKey from the sequence's resource map",
+          "slug": "derive-guestkey-from-the-sequences-resource-map"
         },
         {
           "id": "42010605-000f",
@@ -7722,8 +7762,8 @@
         },
         {
           "id": "42010605-0037",
-          "heading": "Host-refresh gate at startup",
-          "slug": "host-refresh-gate-at-startup"
+          "heading": "Runner gate at startup",
+          "slug": "runner-gate-at-startup"
         },
         {
           "id": "42010605-0038",
@@ -8067,8 +8107,8 @@
         },
         {
           "id": "42010605-007c",
-          "heading": "Provision the secrets remote host refresh needs: the signing authority and operator credential for p",
-          "slug": "provision-the-secrets-remote-host-refresh-needs-the-signing-authority-and-operator-credential-for-p"
+          "heading": "Provision the secrets remote host repair needs: the signing authority and operator credential for p",
+          "slug": "provision-the-secrets-remote-host-repair-needs-the-signing-authority-and-operator-credential-for-p"
         },
         {
           "id": "42010605-007d",
@@ -8712,13 +8752,13 @@
         },
         {
           "id": "42f909ad-0022",
-          "heading": "Host refresh and the runner",
-          "slug": "host-refresh-and-the-runner"
+          "heading": "Host repair and the runner",
+          "slug": "host-repair-and-the-runner"
         },
         {
           "id": "42f909ad-0023",
-          "heading": "The refresh gate",
-          "slug": "the-refresh-gate"
+          "heading": "The runner gate",
+          "slug": "the-runner-gate"
         },
         {
           "id": "42f909ad-0024",
@@ -8732,8 +8772,18 @@
         },
         {
           "id": "42f909ad-0026",
-          "heading": "A runner restarted by a refresh",
-          "slug": "a-runner-restarted-by-a-refresh"
+          "heading": "A runner restarted by a handoff",
+          "slug": "a-runner-restarted-by-a-handoff"
+        },
+        {
+          "id": "42f909ad-002b",
+          "heading": "Host update and the runner's console",
+          "slug": "host-update-and-the-runners-console"
+        },
+        {
+          "id": "42f909ad-002c",
+          "heading": "The runner's console",
+          "slug": "the-runners-console"
         },
         {
           "id": "42f909ad-0010",
@@ -9387,8 +9437,8 @@
         },
         {
           "id": "42b11c32-0012",
-          "heading": "testCycle.autoRefreshAfterStalls -- automatic host refresh (default off)",
-          "slug": "testcycleautorefreshafterstalls----automatic-host-refresh-default-off"
+          "heading": "testCycle.autoRepairAfterStalls -- automatic host repair (default off)",
+          "slug": "testcycleautorepairafterstalls----automatic-host-repair-default-off"
         },
         {
           "id": "42b11c32-000e",
@@ -9767,6 +9817,26 @@
           "slug": "firstloginprime"
         },
         {
+          "id": "428e4df6-003c",
+          "heading": "Step sentences",
+          "slug": "step-sentences"
+        },
+        {
+          "id": "428e4df6-003d",
+          "heading": "Writing a sentence step",
+          "slug": "writing-a-sentence-step"
+        },
+        {
+          "id": "428e4df6-003e",
+          "heading": "Starter vocabulary",
+          "slug": "starter-vocabulary"
+        },
+        {
+          "id": "428e4df6-003f",
+          "heading": "Phrase libraries",
+          "slug": "phrase-libraries"
+        },
+        {
           "id": "428e4df6-000e",
           "heading": "Action reference",
           "slug": "action-reference"
@@ -9857,6 +9927,11 @@
           "slug": "savedisksnapshot"
         },
         {
+          "id": "428e4df6-003a",
+          "heading": "saveGuestClockSnapshot",
+          "slug": "saveguestclocksnapshot"
+        },
+        {
           "id": "428e4df6-001e",
           "heading": "saveSystemDiagnostic",
           "slug": "savesystemdiagnostic"
@@ -9910,6 +9985,46 @@
           "id": "428e4df6-0028",
           "heading": "waitForTextWithNudge",
           "slug": "waitfortextwithnudge"
+        },
+        {
+          "id": "428e4df6-0040",
+          "heading": "Page steps",
+          "slug": "page-steps"
+        },
+        {
+          "id": "428e4df6-0041",
+          "heading": "webClick",
+          "slug": "webclick"
+        },
+        {
+          "id": "428e4df6-0042",
+          "heading": "webClose",
+          "slug": "webclose"
+        },
+        {
+          "id": "428e4df6-0043",
+          "heading": "webExpect",
+          "slug": "webexpect"
+        },
+        {
+          "id": "428e4df6-0044",
+          "heading": "webFill",
+          "slug": "webfill"
+        },
+        {
+          "id": "428e4df6-0045",
+          "heading": "webOpen",
+          "slug": "webopen"
+        },
+        {
+          "id": "428e4df6-0046",
+          "heading": "webPress",
+          "slug": "webpress"
+        },
+        {
+          "id": "428e4df6-0047",
+          "heading": "webSelect",
+          "slug": "webselect"
         },
         {
           "id": "428e4df6-0029",
@@ -9990,11 +10105,6 @@
           "id": "428e4df6-0038",
           "heading": "Naming collisions to watch",
           "slug": "naming-collisions-to-watch"
-        },
-        {
-          "id": "428e4df6-003a",
-          "heading": "saveGuestClockSnapshot",
-          "slug": "saveguestclocksnapshot"
         }
       ]
     },
@@ -10898,8 +11008,8 @@
         },
         {
           "id": "420f54a5-0008",
-          "heading": "Refresh an installed macOS host",
-          "slug": "refresh-an-installed-macos-host"
+          "heading": "Repair an installed macOS host",
+          "slug": "repair-an-installed-macos-host"
         },
         {
           "id": "420f54a5-0007",

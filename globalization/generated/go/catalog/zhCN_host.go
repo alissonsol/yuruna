@@ -566,6 +566,7 @@ const DatazhCNhost = `{
   ],
   "host.enable_automation_no_prompt_confirm_conflict": "Enable-TestAutomation：-NoOperatorPrompt不能与-Confirm同时使用，后者会在每次更改前询问；未记录或更改任何内容。",
   "host.enable_automation_no_prompt_mode": "Enable-TestAutomation：正在以-NoOperatorPrompt运行，不显示同意对话框、不重启程序坞或屏幕保护程序、不安装模块、不显示sudo提示，也不询问networkStorage配置。需要操作员处理的设置将报告为仍未满足。",
+  "host.enable_automation_no_prompt_mode_host": "Enable-TestAutomation：正在以 -NoOperatorPrompt 运行 -- 不提供软件包安装，不安装模块，不提示输入 sudo 密码，不运行 networkStorage 问卷，也不更改主机控制器的注册。需要操作员处理的设置会报告为仍未满足。",
   "host.enable_automation_no_prompt_unsupported": "Enable-TestAutomation：-NoOperatorPrompt需要Set-MacHostConditionSet -NoGuiDisruption，但当前检出的代码不提供此功能；未记录或更改任何内容。请在有人值守的会话中运行，并去掉-NoOperatorPrompt。",
   "host.forwarder_identity_unverified": [
     "Stop-CachingProxyServiceForwarder：未能在时限内读取pid ",
@@ -576,6 +577,334 @@ const DatazhCNhost = `{
     },
     "；已保留进程ID文件，未发送任何信号。"
   ],
+  "host.host_controller_deployed_macos": [
+    "  主机控制器：已部署 shim 和快照 ",
+    {
+      "arg": "snapshot",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。macOS 不注册任何作业：从桌面会话的终端正常启动运行器即可启动控制器。"
+  ],
+  "host.host_controller_files_failed": [
+    "  主机控制器：无法在 ~/.yuruna/host-repair/host-controller 下部署 shim 或代码快照（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），因此未注册 yuruna-host-controller.service。"
+  ],
+  "host.host_controller_files_failed_macos": [
+    "  主机控制器：无法在 ~/.yuruna/host-repair/host-controller 下部署 shim 或代码快照（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），因此任何运行器启动都无法启动控制器。"
+  ],
+  "host.host_controller_files_kept": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 下的主机控制器文件（停止 30 秒后仍有控制器持有其锁；保持原样）"
+  ],
+  "host.host_controller_files_not_removed": [
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 下的主机控制器文件（未删除：",
+    {
+      "arg": "message",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）"
+  ],
+  "host.host_controller_files_removed": [
+    "已删除 ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    " 下的主机控制器文件（shim、快照、工作文件夹）"
+  ],
+  "host.host_controller_group_missing": [
+    "  主机控制器：组 '",
+    {
+      "arg": "grp",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 不存在，因此 yuruna-host-controller.service 无法启动（其 SupplementaryGroups 指定了该组）。请安装 libvirt 软件包，然后重新运行此脚本。"
+  ],
+  "host.host_controller_no_sudo": "  yuruna-host-controller.service 未以此检出的单元安装、启用并运行，且此处 sudo 无法免密码运行，因此仅做了检查。请从可以回答 sudo 提示的终端重新运行此脚本。",
+  "host.host_controller_not_running": "  主机控制器：15 秒内没有控制器获得其锁。请查看 'systemctl status yuruna-host-controller' 和 'journalctl -u yuruna-host-controller' 以了解原因。",
+  "host.host_controller_not_verified": [
+    "  主机控制器：已部署的控制器不是此检出所部署的版本（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "）；-NoOperatorPrompt 保持其注册不变。请不带 -NoOperatorPrompt 运行 Enable-TestAutomation.ps1 以重新注册。"
+  ],
+  "host.host_controller_running": [
+    "  主机控制器：正从快照 ",
+    {
+      "arg": "snapshot",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 运行（yuruna-host-controller.service）"
+  ],
+  "host.host_controller_session_end_failed": "  主机控制器：无法结束其会话 yuruna-controller，因此它会一直使用启动时的 shim，直到会话结束。结束方法：tmux -L yuruna-controller kill-session -t yuruna-controller（或在 screen 下：先运行 screen -ls，再运行 screen -S <pid>.yuruna-controller -X quit）",
+  "host.host_controller_session_ended": "已结束主机控制器会话 yuruna-controller",
+  "host.host_controller_session_ended_claimed": [
+    "  主机控制器：在结束其会话 yuruna-controller 时，主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 被认领，因此现在没有控制器继续它。请从桌面会话的终端启动运行器以再次启动控制器，由它继续此更新；或使用以下命令结束此更新：pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "host.host_controller_session_ended_unknown": [
+    "  主机控制器：其会话 yuruna-controller 已结束，但随后主机更新日志读取结果为 ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，因此无法排除在此期间有主机更新被认领。请从桌面会话的终端启动运行器以启动新的控制器，由它继续任何此类更新。"
+  ],
+  "host.host_controller_session_kept": [
+    "  主机控制器：shim 已更改，但其会话 yuruna-controller 正在运行主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "，因此保持运行。新的 shim 在该会话结束后生效；请在更新结束后再次运行此脚本。"
+  ],
+  "host.host_controller_session_kept_unknown": [
+    "  主机控制器：其会话 yuruna-controller 可能仍在运行已被替换的 shim，但主机更新日志读取结果为 ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，因此无法判断该会话是否正在运行主机更新，已保持其运行。请在日志可以读取后再次运行此脚本；届时它会结束该会话。"
+  ],
+  "host.host_controller_session_not_ended": "主机控制器会话 yuruna-controller（未结束；结束方法：tmux -L yuruna-controller kill-session -t yuruna-controller，或先运行 screen -ls，再运行 screen -S <pid>.yuruna-controller -X quit）",
+  "host.host_controller_session_restart_pending": "  主机控制器：其会话 yuruna-controller 运行的是已被替换的 shim，已被结束；下一次从桌面会话终端启动运行器时将启动新的 shim。",
+  "host.host_controller_sudo_failed": "  主机控制器：某个特权步骤失败（见上方警告），因此 yuruna-host-controller.service 可能未注册。请重新运行此脚本。",
+  "host.host_controller_task_action": "注册并启动主机控制器任务",
+  "host.host_controller_task_claimed_not_restarted": [
+    "计划任务 Yuruna Host Controller（在主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    },
+    " 进行期间被停止，且未再次启动：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。任务和控制器文件已保留。请使用以下命令重新启动：Start-ScheduledTask -TaskName 'Yuruna Host Controller'，或使用以下命令结束更新：pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "external"
+    }
+  ],
+  "host.host_controller_task_failed": [
+    "  主机控制器：无法注册或启动计划任务 Yuruna Host Controller（",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。请重新运行此脚本。"
+  ],
+  "host.host_controller_task_files_failed": [
+    "  主机控制器：无法在 %ProgramData%\\yuruna\\host-controller 下部署 shim 或代码快照（",
+    {
+      "arg": "reason",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），因此未注册计划任务 Yuruna Host Controller。"
+  ],
+  "host.host_controller_task_not_removed": [
+    "计划任务 Yuruna Host Controller（未删除：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）"
+  ],
+  "host.host_controller_task_not_running": [
+    "  主机控制器：15 秒内没有控制器获取其锁。请查看 ",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "internal"
+    },
+    " 下的 shim.log 和 controller.log 以了解原因。"
+  ],
+  "host.host_controller_task_registered": "  Yuruna Host Controller（计划任务）：已注册",
+  "host.host_controller_task_removed": "已停止并删除计划任务 Yuruna Host Controller",
+  "host.host_controller_task_replaced": "  Yuruna Host Controller（计划任务）：已替换",
+  "host.host_controller_task_running": [
+    "  主机控制器：正从快照 ",
+    {
+      "arg": "snapshot",
+      "type": "token",
+      "trust": "internal"
+    },
+    " 运行（计划任务 Yuruna Host Controller）"
+  ],
+  "host.host_controller_task_unknown_not_restarted": [
+    "计划任务 Yuruna Host Controller（已停止，随后主机更新日志读取结果为 ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，因此无法排除在此期间有主机更新被认领；未能重新启动：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。已保留该任务和控制器文件。使用以下命令重新启动它：Start-ScheduledTask -TaskName 'Yuruna Host Controller'，然后在日志可以读取后再次运行此脚本。"
+  ],
+  "host.host_controller_unit_installed": "  yuruna-host-controller.service：已安装",
+  "host.host_controller_unit_not_removed": [
+    "yuruna-host-controller.service（未删除：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）"
+  ],
+  "host.host_controller_unit_removed": "已停止、禁用并删除 yuruna-host-controller.service",
+  "host.host_controller_unit_replaced": "  yuruna-host-controller.service：已替换",
+  "host.host_controller_update_claimed": [
+    "此主机上正在进行主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "，现在停止其控制器会使运行器停止且没有任何东西来启动它。请等待其结束。当它处于恢复中，或者已没有控制器在运行时，使用以下命令结束它：pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。未做任何更改。"
+  ],
+  "host.host_controller_update_claimed_not_restarted": [
+    "yuruna-host-controller.service（在主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 进行期间被停止，且未能重新启动：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。已保留该单元和控制器文件。使用以下命令重新启动它：sudo systemctl start yuruna-host-controller.service，或使用以下命令结束该更新：pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    }
+  ],
+  "host.host_controller_update_claimed_session_ended": [
+    "在结束主机控制器会话时，主机更新 ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    " 被认领，因此现在没有控制器继续它。控制器文件和 sudoers 条目已保留。请从桌面会话的终端启动运行器以再次启动控制器，由它继续此更新；或使用以下命令结束此更新：pwsh test/lab/Invoke-HostUpdate.ps1 -Release ",
+    {
+      "arg": "requestId",
+      "type": "identifier",
+      "trust": "internal"
+    },
+    "。然后再次运行此脚本。"
+  ],
+  "host.host_controller_update_unknown": [
+    "主机更新日志读取结果为 ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，因此无法判断此主机上是否有主机更新正在进行；如果在更新期间停止其控制器，运行器将保持停止且没有任何东西能启动它。未做任何更改。请在日志可以读取后再次运行此脚本。"
+  ],
+  "host.host_controller_update_unknown_not_restarted": [
+    "yuruna-host-controller.service（已停止，随后主机更新日志读取结果为 ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，因此无法排除在此期间有主机更新被认领；未能重新启动：",
+    {
+      "arg": "detail",
+      "type": "detail",
+      "trust": "external"
+    },
+    "）。已保留该单元和控制器文件。使用以下命令重新启动它：sudo systemctl start yuruna-host-controller.service，然后在日志可以读取后再次运行此脚本。"
+  ],
+  "host.host_controller_update_unknown_session_ended": [
+    "结束主机控制器会话后，主机更新日志读取结果为 ",
+    {
+      "arg": "status",
+      "type": "token",
+      "trust": "internal"
+    },
+    "，因此无法排除在此期间有主机更新被认领。控制器文件和 sudoers 条目已保留。请从桌面会话的终端启动运行器以再次启动控制器，由它继续任何此类更新；然后在日志可以读取后再次运行此脚本。"
+  ],
+  "host.host_update_access_entry_failed": [
+    "  主机更新提权：无法安装 /etc/sudoers.d/yuruna-host-update-access（",
+    {
+      "arg": "detail",
+      "type": "token",
+      "trust": "internal"
+    },
+    "），因此此主机只提供主机更新的 restart 范围。请在可以响应 sudo 提示的终端中重新运行此脚本。"
+  ],
+  "host.host_update_access_entry_installed": "  /etc/sudoers.d/yuruna-host-update-access：已安装（它允许主机控制器写入和删除完整主机更新的临时 sudo 规则）",
+  "host.host_update_access_entry_kept": "/etc/sudoers.d/yuruna-host-update-access 以及任何临时规则 /etc/sudoers.d/yuruna-host-update（在主机控制器可能仍在运行时保留；在其结束后再次运行此脚本）",
+  "host.host_update_access_entry_not_removed": "/etc/sudoers.d/yuruna-host-update-access（未删除；删除方法：sudo rm -f /etc/sudoers.d/yuruna-host-update-access）",
+  "host.host_update_access_entry_removed": "已删除 /etc/sudoers.d/yuruna-host-update-access（主机更新提权条目）",
+  "host.host_update_access_entry_replaced": "  /etc/sudoers.d/yuruna-host-update-access：已替换（其文本与此检出安装的文本不同）",
+  "host.host_update_access_entry_unchanged": "  /etc/sudoers.d/yuruna-host-update-access：未更改",
+  "host.host_update_rule_not_removed": "/etc/sudoers.d/yuruna-host-update（未删除；请使用以下命令删除：sudo rm -f /etc/sudoers.d/yuruna-host-update）",
   "host.hyperv_bounded_call_no_answer": [
     "Hyper-V 调用结束时未返回结果（子进程退出代码：",
     {
@@ -839,6 +1168,21 @@ const DatazhCNhost = `{
     },
     "发送信号；请为/bin/kill安装sudoers规则，或手动停止该域。"
   ],
+  "host.kvm_frame_size_unreadable": [
+    "Get-VMScreenshot：无法从 '",
+    {
+      "arg": "path",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 读取帧尺寸；已丢弃 '",
+    {
+      "arg": "vmName",
+      "type": "detail",
+      "trust": "external"
+    },
+    "' 的窗口截图。"
+  ],
   "host.kvm_journal_group_missing": "组'systemd-journal'不存在，因此测试运行器的诊断功能无法读取系统日志或上一次启动的内核日志。systemd会根据sysusers.d创建该组；请运行'sudo systemd-sysusers'恢复该组，然后重新运行此脚本。",
   "host.kvm_journal_group_session_stale": "  /etc/group中已有'systemd-journal'组成员关系；当前shell的组集合尚未更新。请注销并重新登录，然后从该新会话启动测试运行器，以便其诊断功能能够读取系统日志。",
   "host.kvm_rename_destination_dir_exists": [
@@ -920,27 +1264,6 @@ const DatazhCNhost = `{
       "trust": "external"
     },
     "。"
-  ],
-  "host.operator_00de7e0959068c8c": [
-    "host.ubuntu.kvm上的Send-Click：尚未实现（目前仅支持Hyper-V）。请在KVM上使用SSH模式的工作负载。（vm='",
-    {
-      "arg": "vMName",
-      "type": "detail",
-      "trust": "external"
-    },
-    "'，已忽略x=",
-    {
-      "arg": "x",
-      "type": "detail",
-      "trust": "external"
-    },
-    " y=",
-    {
-      "arg": "y",
-      "type": "detail",
-      "trust": "external"
-    },
-    "）"
   ],
   "host.operator_00df328f839cec6c": "重新连接vmconnect",
   "host.operator_00e0e35404f36e5b": [
@@ -2330,7 +2653,7 @@ const DatazhCNhost = `{
     }
   ],
   "host.operator_266b54d6b96583f4": "  正在移除未完成构建的网桥，以便netplan回退方案（或重新运行）从干净状态开始。",
-  "host.operator_2679edd915af22f8": "不会更改任何内容：Enable涉及的所有macOS设置都已存在，因此在没有先前值记录的情况下，无法安全恢复任何设置。",
+  "host.operator_2679edd915af22f8": "不会恢复任何设置：Enable 改动的每个 macOS 设置项都是预先存在的设置，没有其先前值的记录就没有可以安全恢复的内容。主机控制器、其文件及其 sudoers 条目仍会被删除。",
   "host.operator_26843e669bc191ba": [
     "无法解析默认路由InterfaceIndex ",
     {
@@ -4329,7 +4652,7 @@ const DatazhCNhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "）；将使用空令牌构建：代理不会生成控制证明，推送摄取保持禁用，仪表板不会显示实验室令牌，直至配置令牌并重新构建代理。"
+    "）；将使用空密钥构建：代理不会生成控制证明，推送摄取保持禁用，仪表板不会显示实验室令牌，直至配置密钥并重新构建代理。"
   ],
   "host.operator_641d4bde8dc788c6": "  6. 点击“64位下载”按钮",
   "host.operator_6424990f88c7f7bc": [
@@ -9905,7 +10228,7 @@ const DatazhCNhost = `{
       "type": "detail",
       "trust": "external"
     },
-    "'。utmctl仍能连接到UTM.app进行状态查询，因此应用程序仍在运行，但不再执行start、stop或delete，重试只会再增加一次超时。请在此宿主机上重新启动UTM.app（从桌面会话退出它，或运行test/lab/Invoke-HostRefresh.ps1），然后重新启动该虚拟机。该虚拟机从未启动，其磁盘也未被改动。"
+    "'。utmctl仍能连接到UTM.app进行状态查询，因此应用程序仍在运行，但不再执行start、stop或delete，重试只会再增加一次超时。请在此宿主机上重新启动UTM.app（从桌面会话退出它，或运行test/lab/Invoke-HostRepair.ps1），然后重新启动该虚拟机。该虚拟机从未启动，其磁盘也未被改动。"
   ],
   "host.utm_start_dropped": [
     "“",

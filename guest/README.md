@@ -35,7 +35,9 @@ SHA-256 before running a local body or delegate to the installed fetcher with th
 digest. `tools/Sync-GuestWorkflows.py` reads `VERSION` and regenerates the
 entrypoints after a shared body or version stamp changes; the pre-commit hook
 runs it and stages the twelve entrypoints automatically. Run it directly when
-working outside the hook; `--check` detects stale wrappers. The fetcher
+working outside the hook; `--check` detects stale wrappers. The browser workload,
+`guest/shared/ubuntu.browser.sh`, is fetched by that path on both releases and
+has no entrypoint. The fetcher
 preserves script arguments. Existing baked retry-library fallbacks remain in
 the shared bodies.
 
@@ -95,6 +97,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

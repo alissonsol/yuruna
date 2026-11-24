@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,12 +29,24 @@
     systemd-journal group membership requires a new login session before the
     test runner can use it.
 
+.PARAMETER NoOperatorPrompt
+    Apply the settings with nobody at the keyboard, as the enable phase of a
+    host update runs it. Nothing is asked: no package offer, no PSGallery
+    install, no sudo password prompt and no networkStorage questionnaire (it
+    implies -SkipPoolStorage). The host controller's deployment is verified,
+    never registered or replaced, because the controller running this update
+    is the one it would restart. A setting that needs a person is counted as
+    unmet (exit 2). YURUNA_NONINTERACTIVE is 1 for this script's lifetime and
+    restored afterwards. Refuses with exit 1, before capturing or changing
+    anything, when -Confirm asks for a prompt before each change.
+
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
 
 .EXAMPLE
     pwsh ./Enable-TestAutomation.ps1
     pwsh ./Enable-TestAutomation.ps1 -WhatIf
+    pwsh ./Enable-TestAutomation.ps1 -SkipPoolStorage -NoOperatorPrompt
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -42,7 +54,8 @@ param(
     # Settings-only run: skip the interactive networkStorage questionnaire at the
     # end. install/setup.ps1 configures storage itself, in its own order, and
     # would otherwise ask the same questions twice.
-    [switch]$SkipPoolStorage
+    [switch]$SkipPoolStorage,
+    [switch]$NoOperatorPrompt
 )
 
 Import-Module (Join-Path $PSScriptRoot '../../automation/Yuruna.Globalization.psm1') -DisableNameChecking
@@ -54,6 +67,24 @@ if (-not $IsLinux) {
     exit 1
 }
 
+# --- REGION: No-prompt mode
+# -NoOperatorPrompt is a promise made before anything runs; -Confirm asks for a
+# prompt per change, the opposite request, so the combination refuses before
+# the capture or any setting is touched. Every prompt predicate this run's
+# modules and children use reads YURUNA_NONINTERACTIVE; the caller's value is
+# put back when the script ends.
+$savedNonInteractive = [Environment]::GetEnvironmentVariable('YURUNA_NONINTERACTIVE')
+if ($NoOperatorPrompt) {
+    if ($PSBoundParameters.ContainsKey('Confirm') -and [bool]$PSBoundParameters['Confirm']) {
+        Write-Error -Message (Format-YurunaOperatorMessage -Key 'host.enable_automation_no_prompt_confirm_conflict') -ErrorAction Continue
+        exit 1
+    }
+    $env:YURUNA_NONINTERACTIVE = '1'
+    $ConfirmPreference = 'None'
+    $SkipPoolStorage = $true
+}
+try {
+
 # --- REGION: Initialize host setup
 # See https://yuruna.link/42e5cdfd-000b
 # Prime sudo before module installation so a long wait cannot hide the prompt.
@@ -61,12 +92,18 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 # Test-YurunaCanPrompt: the one predicate for "can a question reach a person".
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SudoCacheReason @(
-    'systemctl enable + start libvirtd / virtlogd',
-    'virsh net-{list,start,autostart} default',
-    'create the networkStorage pool SMB mount point (localPath) when its parent is root-owned',
-    'read host hardware fingerprint (/sys/class/dmi product_uuid + board_serial) to register/reclaim this host pool identity'
-)
+if ($NoOperatorPrompt) {
+    Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SkipModuleInstall -Confirm:$false
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.enable_automation_no_prompt_mode_host')
+} else {
+    Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters -SudoCacheReason @(
+        'systemctl enable + start libvirtd / virtlogd',
+        'virsh net-{list,start,autostart} default',
+        'create the networkStorage pool SMB mount point (localPath) when its parent is root-owned',
+        'read host hardware fingerprint (/sys/class/dmi product_uuid + board_serial) to register/reclaim this host pool identity',
+        'write, enable and start yuruna-host-controller.service, the system unit that runs the host controller'
+    )
+}
 
 # --- REGION: Script-local helpers
 # --- REGION: Test-AptPackageInstalled
@@ -185,14 +222,26 @@ function Invoke-HostSudo {
     #>
     [CmdletBinding()]
     [OutputType([bool])]
-    param([Parameter(Mandatory)][string[]]$Argument)
+    param(
+        [Parameter(Mandatory)][string[]]$Argument,
+        # Standard input for the command (a file body for tee). PowerShell
+        # ends text piped to a program with a newline of its own, so one
+        # final newline is taken off first and the program reads exactly
+        # this text.
+        [string]$InputText
+    )
     # Pinned locally: this function reports a failed step through its return
     # value, and the caller turns that into a named unmet condition. With
     # $PSNativeCommandUseErrorActionPreference true the non-zero exit throws
     # first, which Invoke-Step catches as a generic step failure -- losing both
     # the command that failed and the count the exit code is built from.
     $PSNativeCommandUseErrorActionPreference = $false
-    $out = & sudo -n @Argument 2>&1
+    $out = if ($PSBoundParameters.ContainsKey('InputText')) {
+        $stdin = if ($InputText.EndsWith("`n", [StringComparison]::Ordinal)) { $InputText.Substring(0, $InputText.Length - 1) } else { $InputText }
+        $stdin | & sudo -n @Argument 2>&1
+    } else {
+        & sudo -n @Argument 2>&1
+    }
     if ($LASTEXITCODE -eq 0) { return $true }
     Write-Warning ("sudo {0} failed (exit {1}): {2}" -f ($Argument -join ' '), $LASTEXITCODE, ("$($out | Out-String)".Trim()))
     return $false
@@ -334,11 +383,11 @@ if (Test-Path -LiteralPath $statusConfigPath) {
 $configPort = (Resolve-ConfigServiceStart -Config $statusTc).Port
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.StatusFirewall.psm1') -Force
 Invoke-Step -Description "Allow inbound TCP :$statusPort (status service) through the host firewall (ufw)" -Action {
-    $fwResult = Set-YurunaStatusFirewallRule -Port $statusPort
+    $fwResult = Set-YurunaStatusFirewallRule -Port $statusPort -NonInteractive:$NoOperatorPrompt
     Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_5bd7d6a7c4fb4e88' -Arguments @{ message = "$($fwResult.Message)" })
 }
 Invoke-Step -Description "Allow inbound TCP :$configPort (config service) through the host firewall (ufw)" -Action {
-    $fwResult = Set-YurunaStatusFirewallRule -Port $configPort
+    $fwResult = Set-YurunaStatusFirewallRule -Port $configPort -NonInteractive:$NoOperatorPrompt
     Write-Output (Format-YurunaOperatorMessage -Key 'host.kvm_config_port_firewall' -Arguments @{ message = "$($fwResult.Message)" })
 }
 
@@ -502,13 +551,122 @@ if ($SkipPoolStorage) {
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }
 
+# --- REGION: Host controller
+# See https://yuruna.link/42f909ad-002b
+# The host controller runs as a system unit, outside the runner and the
+# listener, so a host update can stop and start both. The unit is generated
+# from the template on every run and replaced when it differs; an operator's
+# own settings belong in a drop-in under yuruna-host-controller.service.d/,
+# which this script never touches. A module imported inside another one is
+# not visible here, so each module this region calls is imported by name.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.SingleFlightLock.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostOperationJournal.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostUpdate.psm1') -Force -DisableNameChecking
+$controllerUnit = 'yuruna-host-controller.service'
+$controllerUnitPath = '/etc/systemd/system/yuruna-host-controller.service'
+Invoke-Step -Description "Deploy the host controller and register $controllerUnit" -Action {
+    # SupplementaryGroups names both groups; a unit whose group does not
+    # exist fails every start with status 216/GROUP.
+    $missingGroup = @('libvirt', 'kvm' | Where-Object { -not (& getent group $_ 2>$null) })
+    if ($missingGroup.Count -gt 0) {
+        foreach ($grp in $missingGroup) { Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_group_missing' -Arguments @{ grp = "$grp" }) }
+        $Script:Unmet.Add('host controller not registered')
+        return
+    }
+    if ($NoOperatorPrompt) {
+        $files = [pscustomobject]@{ Snapshot = $null; Shim = (Get-HostUpdateControllerShimPath); ShimChanged = $false; Reason = 'verify-only' }
+        if (-not $files.Shim) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_not_verified' -Arguments @{ reason = 'root-unavailable' })
+            $Script:Unmet.Add('host controller differs from this checkout')
+            return
+        }
+    } else {
+        $files = Install-HostUpdateControllerFile -RepoRoot $RepoRoot -Confirm:$false
+    }
+    # The snapshot is staged before current is written, so a failure to
+    # write current still names one; only these two reasons leave a
+    # deployment the shim can start.
+    if (-not $NoOperatorPrompt -and $files.Reason -notin @('installed', 'unchanged')) {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_files_failed' -Arguments @{ reason = "$($files.Reason)" })
+        $Script:Unmet.Add('host controller not registered')
+        return
+    }
+    $unitText = Get-HostUpdateControllerUnitText -TemplatePath (Join-Path $RepoRoot 'host/ubuntu.kvm/host-controller/yuruna-host-controller.service') `
+        -Account "$env:USER" -ShimPath $files.Shim
+    $installedText = $null
+    if ([System.IO.File]::Exists($controllerUnitPath)) {
+        try { $installedText = [System.IO.File]::ReadAllText($controllerUnitPath) } catch { Write-Verbose "$controllerUnitPath unreadable: $($_.Exception.Message)" }
+    }
+    $unitChanged = $installedText -cne $unitText
+    if ($NoOperatorPrompt) {
+        # Verified, never registered: the controller running this update is
+        # the one a restart of the unit would end.
+        $deployment = Test-HostUpdateControllerDeployment -RepoRoot $RepoRoot -Definition $unitText -InstalledDefinition $installedText
+        $enabled = "$(& systemctl is-enabled $controllerUnit 2>$null)".Trim()
+        if ($deployment -eq 'ready' -and $enabled -ne 'enabled') { $deployment = 'not-enabled' }
+        if ($deployment -ne 'ready') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_not_verified' -Arguments @{ reason = "$deployment" })
+            $Script:Unmet.Add('host controller differs from this checkout')
+        }
+        return
+    }
+    if (-not $canSudo) {
+        $enabled = "$(& systemctl is-enabled $controllerUnit 2>$null)".Trim()
+        $active = "$(& systemctl is-active $controllerUnit 2>$null)".Trim()
+        if ($unitChanged -or $enabled -ne 'enabled' -or $active -ne 'active') {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_no_sudo')
+            $Script:Unmet.Add("$controllerUnit not registered")
+            return
+        }
+    } else {
+        $registered = $true
+        if ($unitChanged) {
+            $registered = (Invoke-HostSudo -Argument @('tee', $controllerUnitPath) -InputText $unitText) -and
+                (Invoke-HostSudo -Argument @('systemctl', 'daemon-reload'))
+            if ($registered) {
+                $key = if ($null -eq $installedText) { 'host.host_controller_unit_installed' } else { 'host.host_controller_unit_replaced' }
+                Write-Output (Format-YurunaOperatorMessage -Key $key)
+            }
+        }
+        # KillMode=process: a restart signals only the shim, so the runner,
+        # the listener and the console the controller started keep running.
+        $verb = if ($unitChanged -or $files.ShimChanged) { 'restart' } else { 'start' }
+        $registered = $registered -and (Invoke-HostSudo -Argument @('systemctl', 'enable', $controllerUnit)) -and
+            (Invoke-HostSudo -Argument @('systemctl', $verb, $controllerUnit))
+        if (-not $registered) {
+            Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_sudo_failed')
+            $Script:Unmet.Add("$controllerUnit not registered")
+            return
+        }
+    }
+    # The controller holds its lock for as long as it runs; the lock, not
+    # the unit state, says that one started.
+    $lockState = Get-HostUpdateControllerLockState
+    for ($i = 0; $i -lt 30 -and $lockState -ne 'held'; $i++) {
+        Start-Sleep -Milliseconds 500
+        $lockState = Get-HostUpdateControllerLockState
+    }
+    if ($lockState -ne 'held') {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_not_running')
+        $Script:Unmet.Add('host controller not running')
+        return
+    }
+    Write-Output (Format-YurunaOperatorMessage -Key 'host.host_controller_running' -Arguments @{ snapshot = "$($files.Snapshot)" })
+}
+
 Write-Output (Format-YurunaOperatorMessage -Key 'host.operator_3f17fafb77a9c9cb')
 
 # --- REGION: Outcome
 # See https://yuruna.link/42e220c4-0004 for the shared 0/1/2 host-setup contract.
-if ($WhatIfPreference) { exit 0 }
-if ($Script:Unmet.Count -gt 0) {
+$exitCode = 0
+if (-not $WhatIfPreference -and $Script:Unmet.Count -gt 0) {
     Write-Warning (Format-YurunaOperatorMessage -Key 'host.operator_0de8f302c3df063e' -Arguments @{ count = "$($Script:Unmet.Count)"; join = "$($Script:Unmet -join ', ')" })
-    exit 2
+    $exitCode = 2
 }
-exit 0
+} finally {
+    if ($NoOperatorPrompt) {
+        if ($null -eq $savedNonInteractive) { Remove-Item -LiteralPath 'Env:YURUNA_NONINTERACTIVE' -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_NONINTERACTIVE = $savedNonInteractive }
+    }
+}
+exit $exitCode

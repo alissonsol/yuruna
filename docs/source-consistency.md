@@ -23,9 +23,9 @@ Use short labels such as `Install log`, `Configuration`, `Remove existing VM`,
 exception at the affected block, with a link to its durable rationale.
 
 Other comment syntaxes keep the same label in their native form: `<!-- REGION: <label> -->`
-in XML, HTML and plist templates, `/* REGION: <label> */` in CSS, and `-- --- REGION: <label>`
-in SQL. A rationale link in a file header is an ordinary `See https://yuruna.link/...` line,
-because no block follows it.
+in XML, HTML and plist templates, `/* REGION: <label> */` in CSS, `-- --- REGION: <label>`
+in SQL, and `@REM --- REGION: <label>` in Windows batch files. A rationale link in a
+file header is an ordinary `See https://yuruna.link/...` line, because no block follows it.
 
 Treat region labels as shared vocabulary, not prose to paraphrase. Recurring
 host phases use `Log level from environment`, `Import host modules`, `Seek the
@@ -40,8 +40,10 @@ dependencies`, `Locate the daemon source`, `Build`, `Install the binary`, `Stora
 readiness` in that order; service-specific regions may sit between those shared
 phases. Reuse labels exactly, including case, whenever a block has the same
 role; do not introduce synonyms such as `Install logging`, `Storage dirs`,
-`Cleanup temporary files`, `Elevation notice` (for `Elevation announcement`), or
-`Newer versions report` (for `Newer versions available`).
+`Cleanup temporary files`, `Elevation notice` (for `Elevation announcement`),
+`Newer versions report` (for `Newer versions available`), a bare `Initialize`
+(for `Initialize host setup`), a mechanism parenthetical after `Single-instance
+lock`, or `pointer transport` (for `mouse transport`).
 
 When a region introduces a standard marker, use that marker's exact name and
 case: the YAML key, plist key, XML/HTML element name, or bracketed systemd/INI
@@ -1524,15 +1526,15 @@ server child just when an operator needs `/control/start-cycle`; Unix reparents
 the server, and the config service is owned by a different process. Starting it
 from the outer runner gives it a stable parent. Invoke the starter directly so
 a transient port conflict is logged without exiting the outer runner, and wait
-for the host-refresh gate before allowing a starter that can replace a port
+for the runner gate before allowing a starter that can replace a port
 owner.
 
 At a fresh outer-runner start, recover stale incomplete cycle markers, dead
-inner PID files, abandoned break markers, and pause flags before claiming the
+inner pidfiles, abandoned break markers, and pause flags before claiming the
 runner PID. PID cleanup removes only proven-dead processes, leaving a legitimate
 concurrent runner to the single-instance gate. If the prior state belongs to a
 different run and is not idle, initialize the state machine with an explicit
-fault-to-idle transition. A host-refresh resume preserves the operator's pauses,
+fault-to-idle transition. A handoff resume preserves the operator's pauses,
 holds, and restart request; it archives only the reclaimed inner generation and
 delays the recovery sweep until it owns the runner PID.
 
@@ -1685,7 +1687,7 @@ Test.CachingProxyService, loaded by the CachingProxyService kind at file top.
 The start is on record, and this service's operation lock held, before the
 bring-up lock and before anything is torn down or built: a Stop issued
 meanwhile waits for the lock instead of removing a half-built cache, and the
-reboot sweep and a host refresh see the request. The operation lock comes
+reboot sweep and a host repair see the request. The operation lock comes
 first, the same order Stop-CachingProxyServiceVM.ps1 takes them in, so the two
 scripts can never each hold the lock the other waits for. A request that
 cannot be recorded changes nothing.
@@ -1718,7 +1720,7 @@ would reject.
 The child echoes its PID via `echo $!`. Verify that value parsed to an
 integer AND the process is still alive right after launch: a serve process
 that dies immediately (module-import error, port already bound) never opens
-$Port, so without this check we would record a PID file pointing at a dead
+$Port, so without this check we would record a pidfile pointing at a dead
 process and then burn the full readiness timeout on a port that will never
 accept. If it is already gone, surface the captured startup log now.
 
@@ -1726,7 +1728,7 @@ accept. If it is already gone, surface the captured startup log now.
 
 The start is on record, and this service's operation lock held, before
 anything is built: a Stop issued meanwhile waits for the lock instead of
-tearing down a half-built guest, and the reboot sweep and a host refresh see
+tearing down a half-built guest, and the reboot sweep and a host repair see
 the request. Taken after the group relaunch, because a lock taken in the
 parent would block the relaunched child. A request that cannot be recorded
 changes nothing.
@@ -1745,7 +1747,7 @@ duplicate. The sibling services advertise the bare form as well.
 
 The stop is on record, and this service's operation lock held, before the
 first change (the bring-up lock clear below): the reboot sweep and a host
-refresh then honor the request, and a concurrent Start cannot rebuild the
+repair then honor the request, and a concurrent Start cannot rebuild the
 cache mid-teardown. Taken before the sudo priming so a busy service refuses
 before anything is asked of the operator. A request that cannot be recorded
 changes nothing.
@@ -2783,8 +2785,8 @@ pulls latest main, not a release tag`, `Clone / update the repo`, `Renormalize
 line endings under .gitattributes`, `Pin to the current release`, `Seed
 test.config.yml from template`, `Baseline reset: remove test-* VMs`, `Test
 modules`, `Host configuration`, `Done summary`, and `Installation summary`.
-Platform regions sit between them. macOS runs `Refresh dispatch` before every
-region so a refresh request never reaches a mutation. Windows elevates through a
+Platform regions sit between them. macOS runs `Repair dispatch` before every
+region so a repair request never reaches a mutation. Windows elevates through a
 UAC relaunch, so it has no session-group preflight, and it checks its Hyper-V
 edition before system requirements. macOS verifies UTM before installing
 PowerShell modules and repairs version floors before `Host configuration`, so
@@ -2801,6 +2803,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42566df9-1f3e-a604-b789-3ec5dfc0e347
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,10 +83,10 @@
         ' was lost: the guest''s supervisor answered but could not account for it, so the process is gone and reconnecting cannot bring it back.'
     )
     'remediation.hypervisor_unresponsive_action_evidence' = 'Read utm-control-snapshot.*.json and utm-log-show.*.txt in the cycle folder: a UTM pid or start time that changed mid-cycle is a crash and relaunch, and the unified-log excerpt names what preceded it'
-    'remediation.hypervisor_unresponsive_action_restart' = 'Restart the hypervisor control application on the host: on macOS quit UTM.app from the desktop session (or run test/lab/Invoke-HostRefresh.ps1), then confirm that `utmctl stop` on a stopped VM returns at once'
+    'remediation.hypervisor_unresponsive_action_restart' = 'Restart the hypervisor control application on the host: on macOS quit UTM.app from the desktop session (or run test/lab/Invoke-HostRepair.ps1), then confirm that `utmctl stop` on a stopped VM returns at once'
     'remediation.hypervisor_unresponsive_action_resume' = 'Resume the runner once a lifecycle verb answers again; the next cycle probes the control channel before it builds anything'
     'remediation.hypervisor_unresponsive_rationale' = @(
-        'hypervisor_unresponsive: the hypervisor''s control channel stopped acting on lifecycle requests while still answering state queries, so every VM start, stop and delete waits out its timeout and nothing a cycle does can recover it. Retrying repeats the same timeouts; the application that owns the channel has to be restarted on the host, which only a desktop session or a host refresh can do.'
+        'hypervisor_unresponsive: the hypervisor''s control channel stopped acting on lifecycle requests while still answering state queries, so every VM start, stop and delete waits out its timeout and nothing a cycle does can recover it. Retrying repeats the same timeouts; the application that owns the channel has to be restarted on the host, which only a desktop session or a host repair can do.'
         @{
             'arg' = 'detail'
             'type' = 'detail'
@@ -845,5 +845,36 @@
             'trust' = 'internal'
         }
         ' never reached the stopped state the step waited for: the guest ignored the shutdown request, and waiting again cannot change that. Powering it off from the host can.'
+    )
+    'remediation.web_account_action' = 'This step drove a page: kind and detail in causeDetail.web of last_failure.json name what failed on the way to the page'
+    'remediation.web_step_failed_action_evidence' = 'Read causeDetail.web in last_failure.json: kind says how the step ended, locator what it sought, candidates what the page offered, effect whether input reached the page'
+    'remediation.web_step_failed_action_repair' = 'Correct the step''s role, name, match or nth, or wait for the state it needs first; for expectation and navigation check the site; for unsupported and page_lost remove the dialog, new window or crash from the flow'
+    'remediation.web_step_failed_action_rerun' = 'Replay with test/Debug-TestSequence.ps1 after the change; when effect is applied or uncertain, restore a known guest state first'
+    'remediation.web_step_failed_rationale' = @(
+        'web_step_failed on '
+        @{
+            'arg' = 'vmName'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        ': a page step ended on what its page showed (kind: '
+        @{
+            'arg' = 'kind'
+            'type' = 'token'
+            'trust' = 'internal'
+        }
+        '; sought: '
+        @{
+            'arg' = 'target'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '; page: '
+        @{
+            'arg' = 'url'
+            'type' = 'detail'
+            'trust' = 'external'
+        }
+        '). It is not retried unattended: the test or the site has to change first.'
     )
 }

@@ -129,7 +129,7 @@ func TestAuditEventsCannotReplacePublishStatus(t *testing.T) {
 	now := time.Now()
 	s := New(t.TempDir(), now)
 	s.Record(now, AuditEntry{Publish: true, TimeUTC: now.UTC().Format(time.RFC3339), Action: "new-pool", OK: true})
-	for _, action := range []string{"unlock", "refresh-credential", "scan"} {
+	for _, action := range []string{"unlock", "operator-credential", "scan"} {
 		s.Record(now.Add(time.Minute), AuditEntry{TimeUTC: now.Add(time.Minute).UTC().Format(time.RFC3339), Action: action, OK: false})
 	}
 	got := s.Health()

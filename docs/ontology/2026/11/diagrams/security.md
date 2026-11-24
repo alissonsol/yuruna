@@ -34,6 +34,7 @@ security:CertificatePinning((security:CertificatePinning)) -- subClassOf --> y:P
 security:CertificateTrustFailure((security:CertificateTrustFailure)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
 security:ChecksumVerification((security:ChecksumVerification)) -- subClassOf --> r_ChecksumVerification_verifiesArtifact_Artifact_((Anonymous class))
 security:ChecksumVerification((security:ChecksumVerification)) -- subClassOf --> y:Process[y:Process]
+security:ConfigCA((security:ConfigCA)) -- subClassOf --> security:CertificateAuthority((security:CertificateAuthority))
 security:ControlProof((security:ControlProof)) -- subClassOf --> security:Credential((security:Credential))
 security:Credential((security:Credential)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 security:CredentialExpiredFailure((security:CredentialExpiredFailure)) -- subClassOf --> diagnostics:Failure[diagnostics:Failure]
@@ -50,13 +51,21 @@ security:InternalServiceKey((security:InternalServiceKey)) -- subClassOf --> sec
 security:JSONWebToken((security:JSONWebToken)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 security:LabToken((security:LabToken)) -- subClassOf --> security:Credential((security:Credential))
 security:LabToken((security:LabToken)) -- subClassOf --> security:Secret((security:Secret))
+security:MirrorSigningKey((security:MirrorSigningKey)) -- subClassOf --> security:Secret((security:Secret))
 security:MutualTLSAuthentication((security:MutualTLSAuthentication)) -- subClassOf --> security:Authentication((security:Authentication))
 security:Nonconformity((security:Nonconformity)) -- subClassOf --> security:AssessmentCondition((security:AssessmentCondition))
+security:OperatorCredential((security:OperatorCredential)) -- subClassOf --> security:Credential((security:Credential))
+security:OperatorCredential((security:OperatorCredential)) -- subClassOf --> security:Secret((security:Secret))
 security:Patch((security:Patch)) -- subClassOf --> security:AssessmentCondition((security:AssessmentCondition))
 security:ProjectAccessDeniedFailure((security:ProjectAccessDeniedFailure)) -- subClassOf --> diagnostics:InfrastructureFailure[diagnostics:InfrastructureFailure]
 security:RegistryAuthentication((security:RegistryAuthentication)) -- subClassOf --> y:Process[y:Process]
+security:RepairProof((security:RepairProof)) -- subClassOf --> security:Credential((security:Credential))
+security:RepairSigningAuthority((security:RepairSigningAuthority)) -- subClassOf --> security:Secret((security:Secret))
+security:RepairVerifierKey((security:RepairVerifierKey)) -- subClassOf --> security:Credential((security:Credential))
+security:RepairVerifierKey((security:RepairVerifierKey)) -- subClassOf --> security:Secret((security:Secret))
 security:SSHHostKey((security:SSHHostKey)) -- subClassOf --> security:Credential((security:Credential))
 security:SSHKeyPair((security:SSHKeyPair)) -- subClassOf --> security:Credential((security:Credential))
+security:SSLBumpCA((security:SSLBumpCA)) -- subClassOf --> security:CertificateAuthority((security:CertificateAuthority))
 security:ScreenRecordingPermission((security:ScreenRecordingPermission)) -- subClassOf --> y:Policy[y:Policy]
 security:Secret((security:Secret)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 security:Shortfall((security:Shortfall)) -- subClassOf --> security:AssessmentCondition((security:AssessmentCondition))
@@ -64,6 +73,7 @@ security:SignatureVerification((security:SignatureVerification)) -- subClassOf -
 security:SignatureVerification((security:SignatureVerification)) -- subClassOf --> y:Process[y:Process]
 security:SourceIntegrityFailure((security:SourceIntegrityFailure)) -- subClassOf --> diagnostics:InfrastructureFailure[diagnostics:InfrastructureFailure]
 security:StorageCredential((security:StorageCredential)) -- subClassOf --> security:Credential((security:Credential))
+security:SudoersRule((security:SudoersRule)) -- subClassOf --> y:Policy[y:Policy]
 security:TLSCertificate((security:TLSCertificate)) -- subClassOf --> y:InformationArtifact[y:InformationArtifact]
 security:TrustStore((security:TrustStore)) -- subClassOf --> y:ConfigurationArtifact[y:ConfigurationArtifact]
 security:Unavailability((security:Unavailability)) -- subClassOf --> security:AssessmentCondition((security:AssessmentCondition))
@@ -86,6 +96,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.11.16
+Last review: 2026.11.23
 
 Back to [Yuruna ontology diagrams](../../../README.md#425aed30-0005)

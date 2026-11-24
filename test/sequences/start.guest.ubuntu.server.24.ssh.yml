@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 42bfcca2-e31d-4879-90e2-c3a034eba8bd
-sequenceRevision: 1
+sequenceRevision: 2
 
 description: "Ubuntu Server 24.04 (SSH): blind-keystroke-dismiss GRUB (OCR-free), then drive everything else over SSH once cloud-init has finished bringing up sshd."
 keystrokeMechanism: ssh
@@ -14,6 +14,8 @@ resource:
   ubuntu.server.24: []
 variables:
   username: yuuser24
+  currentPassword: ${ext:authentication.GetPassword(${username})}
+  newPassword: ${ext:authentication.NewRandomPassword()}
 
 # --- REGION: component
 component:
@@ -37,6 +39,32 @@ component:
     name: Enter
     description: "Blind-dismiss the GRUB boot menu (retry)"
 
+  # The seed delivers autoinstall on the CIDATA disk rather than the kernel
+  # command line, so subiquity asks "Continue with autoinstall? (yes|no)" a
+  # few seconds into the live installer, asks once, and moves only on a
+  # literal yes. With no console to read, type it blind about 150 s after
+  # the VM started, then again about 150 s later for a slow boot. A yes that
+  # arrives after the confirmation lands on the installer's log screen and
+  # does nothing.
+  - action: waitForSeconds
+    seconds: 137
+    description: "Let the live installer reach the autoinstall question"
+
+  - action: inputTextAndEnter
+    text: "yes"
+    description: "Blind-confirm autoinstall (first attempt)"
+
+  - action: waitForSeconds
+    seconds: 148
+    description: "Pause before the backstop confirmation"
+
+  - action: inputTextAndEnter
+    text: "yes"
+    description: "Blind-confirm autoinstall (backstop for a slow boot)"
+
+  # The seed expires the account's password (passwd --expire), and a key
+  # login then runs no command until it changes. The step changes it over
+  # SSH the first time the guest answers that way and keeps waiting.
   - action: sshWaitReady
     timeoutSeconds: 2400
     # Fast-fail OCR scan: if subiquity aborts the installer drops to a shell and
@@ -47,11 +75,21 @@ component:
       - "install_fail.crash"
       - "Press enter to start a shell"
       - "An error occurred"
-    description: "Wait for SSH after autoinstall (fast-fail on subiquity crash)"
+    currentPassword: "${currentPassword}"
+    newPassword: "${newPassword}"
+    description: "Wait for SSH after autoinstall, rotating the expired password (fast-fail on subiquity crash)"
 
   - action: sshExec
     command: "whoami && hostname"
     description: "Smoke test: whoami/hostname"
+
+  # Persist only after the shell has proved that the rotated login completed.
+  - action: callExtension
+    method: authentication.SetPassword
+    args:
+      Username: "${username}"
+      NewPassword: "${newPassword}"
+    description: "Commit confirmed new password to auth system"
 
 # --- REGION: workload
 workload:

@@ -370,7 +370,7 @@ proxy is not imported yet, and the Process.Start spawn does not redirect stderr)
 also mirror it to outer.log via Write-InnerLog where it stays durable and
 diagnosable next to the outer/watchdog entries.
 The start record goes first, so a reader never pairs a new PID with an old
-start time: inner.start + inner.pid are the exact identity a host refresh
+start time: inner.start + inner.pid are the exact identity a host repair
 checks before it may reclaim this inner.
 
 <a id="4213a0b3-0018"></a>
@@ -2225,13 +2225,13 @@ minute after the deadline is found by the next cycle's presence check.
 
 <a id="4213a0b3-008a"></a>
 
-## test/modules/Test.HostRefresh.psm1: Host refresh: the repair-ladder declaration, the local repair worker and
+## test/modules/Test.HostRepair.psm1: Host repair: the repair-ladder declaration, the local repair worker and
 
-Host refresh: the repair-ladder declaration, the local repair worker and
+Host repair: the repair-ladder declaration, the local repair worker and
 everything a caller needs around it (budget, verdict and exit code, public
 progress projection, context and identity resolution, command closure).
 
-The module holds no driver import. The generated status-server child loads
+The module holds no driver import. The generated status-service child loads
 it through Import-RouteModule to advertise the capability without ever
 calling Initialize-YurunaHost; loading a driver there would force-import
 Test.CachingProxyService and run that driver's contract-coverage check
@@ -2241,7 +2241,7 @@ missing one is a structured refusal or a skipped rung, never a crash.
 
 <a id="4213a0b3-008b"></a>
 
-## test/modules/Test.HostRefreshAuth.psm1: Write-HostRefreshSecretFile
+## test/modules/Test.HostRepairAuth.psm1: Write-HostRepairSecretFile
 
 Writes one or more secret lines owner-only from the first byte. Each
 temporary file is created beside its destination with mode 0600 (Unix)
@@ -2255,19 +2255,19 @@ each temporary file not yet renamed.
 
 <a id="4213a0b3-008c"></a>
 
-## test/modules/Test.HostRefreshIntent.psm1: The private request journal for host refresh: who asked for a repair, with
+## test/modules/Test.HostOperationJournal.psm1: The private request journal for host repair: who asked for a repair, with
 
-The private request journal for host refresh: who asked for a repair, with
+The private request journal for host repair: who asked for a repair, with
 which immutable policy, what each attempt did, what it disrupted and still
 owes, and which request ids are closed for good.
 
-  * Everything lives under the private state root ($HOME/.yuruna/host-refresh),
+  * Everything lives under the private state root ($HOME/.yuruna/host-repair),
     which is outside every tree the status service serves; the public
     progress file in the runtime directory is a projection and never
     authoritative.
   * One checksummed, generation-numbered record (Test.CriticalRecord) holds
     the whole journal, and every read-modify-write happens under one short
-    admission lock. The lock order is the lifetime repair lock, then the
+    admission lock. The lock order is the lifetime host-operation lock, then the
     admission lock, and never the reverse: a worker claims under both, the
     listener and the outer runner take only the admission lock.
   * Age never evicts anything alive. Liveness is decided by process identity
@@ -2279,9 +2279,9 @@ owes, and which request ids are closed for good.
 
 <a id="4213a0b3-008d"></a>
 
-## test/modules/Test.HostRefreshTrigger.psm1: The automatic host-refresh policy: when the resident runner may start a
+## test/modules/Test.HostRepairTrigger.psm1: The automatic host-repair policy: when the resident runner may start a
 
-The automatic host-refresh policy: when the resident runner may start a
+The automatic host-repair policy: when the resident runner may start a
 hypervisor repair on its own, and how it proves the repair ran.
 
 Three processes are involved and only files cross between them. The inner
@@ -2304,8 +2304,8 @@ Every platform is declared unqualified until a native canary proves the
 repair on it; the runner still reads the knob, counts the evidence and says
 once why it does not act. The module joins no entry-point module set: the
 resident outer and the inner import it guarded at their call sites, and
-everything heavy (the repair journal, the lock, the critical record, the
-private-root helpers, the refresh-gate reader the journal's admission
+everything heavy (the host-operation journal, the lock, the critical record, the
+private-root helpers, the runner-gate reader the journal's admission
 consults) resolves lazily by name, so a missing piece yields a
 structured 'dependency-missing:<module>' refusal instead of an exception in
 a loop that must keep running.
@@ -2336,7 +2336,7 @@ Why a helper module:
   a quoting-edge-case fix in one would not reach the others.
 
 Start-YurunaDetachedProcess launches a worker that must outlive its
-launcher -- a host-refresh worker, a restarted runner -- with -File, one
+launcher -- a host-repair worker, a restarted runner -- with -File, one
 argument per element, -NonInteractive, and all three streams detached from
 the launcher. On POSIX the stream paths travel in the environment and every
 argument is a positional parameter of a fixed `set -m; nohup "$@"` body, so
@@ -4425,7 +4425,7 @@ new-cycle step's Gate #1 thinks a break is still active --
 hanging the cycle on a non-existent marker. Status-service
 startup also sweeps this file but the runner can start
 without the status service; clean here so both startup paths
-agree. Not in a preflight cycle: a refresh archives a reclaimed
+agree. Not in a preflight cycle: a repair archives a reclaimed
 inner's marker itself and leaves a surviving inner's alone.
 
 <a id="4213a0b3-010e"></a>
@@ -4741,7 +4741,9 @@ synthesizes a mouse click at that box's center.
 Coordinate contract: the captured image and the click target share the
 same pixel space. On Hyper-V we use PrintWindow on the vmconnect client
 area so image (x,y) == vmconnect client (x,y), and ClientToScreen maps
-it to a SetCursorPos + mouse_event sequence.
+it to a SetCursorPos + mouse_event sequence. On KVM the capture is the
+guest framebuffer, so image (x,y) is the guest pixel, and Send-ClickKvm
+scales it to the QEMU monitor's axis from the size of that capture.
 
 <a id="4213a0b3-0121"></a>
 
@@ -5444,8 +5446,8 @@ Registered in per-host singular-noun modules:
 Each module owns only its Register-HostIOProvider calls; the
 function bodies (Send-KeyHyperV / Send-KeyVNC / Send-KeyUTM /
 Send-KeyKvm / Send-TextHyperV / Send-TextVNC / Send-TextUTM /
-Send-TextKvm / Send-ClickHyperV / Send-ClickUtm) live in
-Test.Transport.psm1. The startup capability matrix reads
+Send-TextKvm / Send-ClickHyperV / Send-ClickUtm / Send-ClickKvm) live
+in Test.Transport.psm1. The startup capability matrix reads
 Get-HostIOProviderMatrix so the operator sees which actions are
 wired on the current host before the cycle starts. See docs/host-io.md.
 
@@ -5551,7 +5553,7 @@ script_error names a thing that does not exist.
 ## test/modules/Test.SequenceFailureState.psm1: New-SequenceFailureRecord
 
 repro: a copy-paste command that re-runs the failing sequence (and its
-baseline chain) to reproduce the failure deterministically. The command
+resource chain) to reproduce the failure deterministically. The command
 deliberately OMITS -StartStep: stepNumber is file-local (1-based within
 this sequence file), but Debug-TestSequence's -StartStep is chain-GLOBAL, so a
 naive -StartStep would mis-target a leaf that still has an unbuilt
@@ -5946,7 +5948,7 @@ which lifecycle operation an operator last asked for, and who may start or
 stop a service right now.
 
 Four things live here and nowhere else, all under the private state root
-($HOME/.yuruna/host-refresh, never inside a served tree):
+($HOME/.yuruna/host-repair, never inside a served tree):
 
   * service-census.record -- one checksummed, generation-numbered record
     (Test.CriticalRecord) holding per-service evidence and the newest
@@ -5955,7 +5957,7 @@ Four things live here and nowhere else, all under the private state root
     held while waiting for a longer lock, so it cannot deadlock a service
     operation.
   * service-operation.<key>.lock -- one per logical service (rank
-    ServiceKey). Start and Stop scripts, the reboot sweep and the refresh
+    ServiceKey). Start and Stop scripts, the reboot sweep and the repair
     worker all take it, in ordinal key order, before touching a service.
   * the capability table -- which uses of census evidence a platform has
     earned, as a pure declaration.
@@ -6295,13 +6297,13 @@ history entry.
 ## test/modules/Test.Status.psm1: New-CycleHistoryEntry
 
 Per-sequence rollup, parallel to guestSummary. The dashboard's Recent
-Cycles table renders one button per sequence (the test.runner.yml
+cycles table renders one button per sequence (the test.runner.yml
 entries this cycle ran), each linking to that sequence's results
 folder. Built from the cycle's ordered sequences[] joined to the
 per-guest status + folder URL already gathered in $guestSummary. The
 status rank mirrors the dashboard's aggregateStatus
 (fail > running > pass > skipped > pending) so a sequence row's badge
-matches the Latest Cycle sequence card. A 1:1 sequence links straight
+matches the Latest cycle sequence card. A 1:1 sequence links straight
 to its guest's per-VM folder; a sequence that fans out to >1 guest
 links to the cycle folder so every guest subfolder stays reachable.
 
@@ -6823,24 +6825,24 @@ break is ever emitted.
 
 <a id="4213a0b3-019b"></a>
 
-## install/macos.utm.sh: Refresh dispatch
+## install/macos.utm.sh: Repair dispatch
 
-`--refresh` hands off to the already-installed checkout's own host-refresh
+`--repair` hands off to the already-installed checkout's own host-repair
 entry script instead of running the installer. The dispatch sits ahead of
 every gate and mutation that follows (Homebrew, the checkout rewrite, VM
-cleanup), so a malformed or partial refresh signal terminates on the spot
+cleanup), so a malformed or partial repair signal terminates on the spot
 rather than falling through into an ordinary install run under a misread
 intent.
 
-Both the `--refresh` token and `YURUNA_REFRESH=1` are required together.
+Both the `--repair` token and `YURUNA_REPAIR=1` are required together.
 Either alone refuses: a stray leftover environment variable must not
-silently switch an ordinary install into refresh, and a token with no
+silently switch an ordinary install into a repair, and a token with no
 environment variable must not either. The token is checked in `$0` too: a
 copy-pasted one-liner that drops the `_` placeholder (the `$0` slot `bash -c`
-gives its script text) puts `--refresh` there instead of in `"$@"`.
+gives its script text) puts `--repair` there instead of in `"$@"`.
 
 The convenience form and the verified-download form are documented under
-[Refresh an installed macOS host](https://yuruna.link/420f54a5-0008).
+[Repair an installed macOS host](https://yuruna.link/420f54a5-0008).
 
 <a id="4213a0b3-019c"></a>
 

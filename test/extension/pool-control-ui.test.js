@@ -443,7 +443,7 @@ async function statusBarrier() {
     const keyListeners = input.listeners('keydown');
     select.value = 'pause-after-step';
     fire(select, 'change');
-    assert.strictEqual(barriers(env).length, 1, outcome + ': choosing Pool Status blocks immediately');
+    assert.strictEqual(barriers(env).length, 1, outcome + ': choosing Pool status blocks immediately');
     await settle();
     assert.strictEqual(requests.length, 1);
     assert.strictEqual(requests[0].url, '/api/pool/host-control');
@@ -485,7 +485,7 @@ async function statusBarrier() {
     assert.strictEqual(barriers(env).length, 0, outcome + ': terminal completion releases the page');
     assert.strictEqual(env.byId['footer-busy'].hidden, true, outcome + ': completion also releases read progress');
     assert.strictEqual(input.listeners('keydown'), keyListeners, outcome + ': modal key handlers do not leak');
-    assert.ok(statusSelect(env) && !statusSelect(env).disabled, outcome + ': Pool Status can be used again');
+    assert.ok(statusSelect(env) && !statusSelect(env).disabled, outcome + ': Pool status can be used again');
     assert.ok(env.body.contains(env.box.document.activeElement), outcome + ': focus returns to a connected control');
     assert.strictEqual(observed.notice().kind, ['success', 'read-rejected'].includes(outcome) ? 'ok' : 'error', outcome + ': outcome survives repaint');
     if (outcome === 'partial') assert.ok(observed.notice().message.includes('host is offline'), 'partial failure names the refused host');
@@ -734,5 +734,5 @@ async function diagnosticRefreshAndTimeout() {
   assert.ok(report.byId['check-rows'].children.length, 'failed checks remain visible');
 }
 Promise.resolve().then(boardGenerations).then(confirmationsAndBudgets).then(repositoryColumn).then(hostsRunnerColumn).then(statusBarrier).then(statusUnlockAndTimeout).then(statusOlderRead).then(blockingFocusLifetimes).then(dialogCleanup).then(focusAndBusyLifetimes).then(diagnosticRefreshAndTimeout).then(() => {
-  console.log('PASS: pool request budgets, latest board generation, mutation confirmation, current-row feedback, Pool Status blocking, the Framework / Project column and the Runner column');
+  console.log('PASS: pool request budgets, latest board generation, mutation confirmation, current-row feedback, Pool status blocking, the Framework / Project column and the Runner column');
 }).catch(error => { console.error(error.stack); process.exitCode = 1; });

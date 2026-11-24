@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1470,7 +1470,7 @@ function Test-ConfigSyncReferenceFreshness {
 .PARAMETER RequireReferenceCredential
     Do not accept a networkStorage vault entry the reference host did not supply.
     Without it, an entry that is already present survives when nothing can be
-    fetched -- correct for a host refreshing its config, and wrong for one
+    fetched -- correct for a host repairing its config, and wrong for one
     converting away from standalone, where the surviving entry is the password
     this host minted for a share it used to serve itself. The unconverged users
     come back in CredentialResult; this switch does not fail the run on its own.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42639d1d-6649-49d9-82a8-a37f8410ebbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,9 @@
     Restores values captured in status/runtime/host.pre-automation.json and
     removes Yuruna-owned additions. Missing captured values are reported and
     left unchanged. Refuses to restore settings during an active test cycle.
-    Service shutdown is opt-in. See https://yuruna.link/42e220c4-0004.
+    Service shutdown is opt-in. Removes the scheduled task "Yuruna Host
+    Controller" and the controller files, and refuses while a host update is
+    in progress. See https://yuruna.link/42e220c4-0004.
 
 .PARAMETER StopServices
     Also stop the caching-proxy, stash, pool-control and download-agent VMs
@@ -61,6 +63,30 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.Config.psm1')             
 # blanking capture mid-run for a reason nothing in the transcript explains.
 if (-not (Assert-SafeToDisable)) { exit 1 }
 
+# --- REGION: Host update in progress
+# A claimed host update has stopped the runner, or is about to start it, and
+# only its controller finishes that. Stopping the controller here would leave
+# the host with no runner and nothing to start one. A queued update is no
+# reason to refuse: once the controller is stopped nothing claims it, and it
+# expires on its own. The controller can still claim it before the stop, so
+# the queue is read again once the controller is stopped. A journal that
+# cannot be read can hide a claimed update, so it refuses too.
+# A module imported inside another one is not visible here, so each module
+# this script calls is imported by name.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.SingleFlightLock.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostOperationJournal.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostUpdate.psm1') -Force -DisableNameChecking
+$journalReadable = @('ok', 'absent', 'recovered-previous')
+$queue = Get-HostUpdateQueue
+if ($queue.Status -notin $journalReadable) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_unknown' -Arguments @{ status = "$($queue.Status)" })
+    exit 1
+}
+if ($queue.Claimed) {
+    Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_claimed' -Arguments @{ requestId = "$($queue.Claimed['requestId'])" })
+    exit 1
+}
+
 # --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if ($state) {
@@ -88,6 +114,57 @@ function Restore-Knob {
     )
     Invoke-HostKnobRestore -State $state -Name $Name -Description $Description `
         -Apply $Apply -Absent $Absent -Cmdlet $Script:DisableCmdlet -Restored $restored -Skipped $skipped
+}
+
+# --- REGION: Host controller
+# See https://yuruna.link/42f909ad-002b
+# Removed with or without a capture: Enable generates the task and deploys the
+# controller files, so nothing of the operator's is in them. The stop file
+# makes the shim end its controller alone and exit, so ending the task then
+# ends nothing the controller started. The controller files go only once
+# nobody holds the controller lock.
+$controllerTask = 'Yuruna Host Controller'
+$controllerRoot = Get-HostUpdateControllerRoot -NoCreate
+$stopPath = if ($controllerRoot) { Join-Path $controllerRoot 'stop' } else { '' }
+$task = Unregister-HostUpdateControllerTask -TaskName $controllerTask -StopPath $stopPath -WhatIf:$WhatIfPreference -Confirm:$false
+$keepController = $task.Outcome -in @('claimed', 'claimed-not-restarted', 'unknown', 'unknown-not-restarted', 'preview')
+switch ($task.Outcome) {
+    'removed' { $restored.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_task_removed')) }
+    'failed' { $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_task_not_removed' -Arguments @{ detail = "$($task.Detail)" })) }
+    'claimed' {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_claimed' -Arguments @{ requestId = "$($task.RequestId)" })
+        exit 1
+    }
+    'claimed-not-restarted' {
+        $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_task_claimed_not_restarted' -Arguments @{
+                    requestId = "$($task.RequestId)"; detail = "$($task.Detail)" }))
+    }
+    'unknown' {
+        Write-Warning (Format-YurunaOperatorMessage -Key 'host.host_controller_update_unknown' -Arguments @{ status = "$($task.Status)" })
+        exit 1
+    }
+    'unknown-not-restarted' {
+        $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_task_unknown_not_restarted' -Arguments @{
+                    status = "$($task.Status)"; detail = "$($task.Detail)" }))
+    }
+}
+if (-not $keepController -and $controllerRoot -and [System.IO.Directory]::Exists($controllerRoot) -and
+    $PSCmdlet.ShouldProcess($controllerRoot, (Format-YurunaOperatorMessage -Key 'host.operator_f61cceb0afee5ae4'))) {
+    $lockState = Get-HostUpdateControllerLockState
+    for ($i = 0; $i -lt 60 -and $lockState -notin @('free', 'absent'); $i++) {
+        Start-Sleep -Milliseconds 500
+        $lockState = Get-HostUpdateControllerLockState
+    }
+    if ($lockState -notin @('free', 'absent')) {
+        $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_kept' -Arguments @{ path = "$controllerRoot" }))
+    } else {
+        try {
+            [System.IO.Directory]::Delete($controllerRoot, $true)
+            $restored.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_removed' -Arguments @{ path = "$controllerRoot" }))
+        } catch {
+            $skipped.Add((Format-YurunaOperatorMessage -Key 'host.host_controller_files_not_removed' -Arguments @{ path = "$controllerRoot"; message = "$($_.Exception.Message)" }))
+        }
+    }
 }
 
 # --- REGION: Power settings

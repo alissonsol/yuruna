@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42aaece2-9ccd-4d9f-b467-c4468bc981ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -965,7 +965,7 @@ function Get-OneShotCycleExitCode {
         A cycle that ran reports its own exit code -- the inner's, including the
         degraded and configuration-gate codes -- and so does one whose outcome
         went unrecorded. A dispatch that held or stopped the cycle before it
-        reached a verdict (a drained or paused pool, a host refresh, the
+        reached a verdict (a drained or paused pool, a host repair, the
         operator's Ctrl+C) is cannot-run; one that could not start the cycle and
         carries no code of its own is a failure.
     .PARAMETER Result
@@ -976,7 +976,7 @@ function Get-OneShotCycleExitCode {
     param([Parameter(Mandatory)][AllowNull()]$Result)
     if ($null -eq $Result) { return (Get-StepExitCode -Outcome Failure) }
     $outcome = [string]$Result.Outcome
-    if ($outcome -cin @('drain', 'paused', 'refresh-gated', 'refresh-preflight', 'shutdown')) {
+    if ($outcome -cin @('drain', 'paused', 'gate-held', 'handoff-preflight', 'shutdown')) {
         return (Get-StepExitCode -Outcome CannotRun)
     }
     $code = [int]$Result.ExitCode
@@ -1066,10 +1066,10 @@ function Resolve-CycleReplayStep {
         step result.
     .DESCRIPTION
         Wraps Resolve-WarmResumeReplayPlan. Ok means the replay is safe; when it
-        is not, Reason is one of no-restore-point, restore-point-missing or
-        safety-check-unavailable and the caller keeps the original failure. When
-        the planner is not loaded the answer is the last of those: an unanswered
-        safety question is not a yes.
+        is not, Reason is one of no-restore-point, restore-point-missing,
+        safety-check-unavailable or page-session-ended and the caller keeps the
+        original failure. When the planner is not loaded the answer is
+        safety-check-unavailable: an unanswered safety question is not a yes.
     .PARAMETER Decision
         The warm-resume decision (ResumeSequence).
     .PARAMETER Checkpoint
@@ -1122,7 +1122,7 @@ function ConvertTo-RunnerRecoveryResult {
         The typed result of one runner cycle, from the dispatch result and the
         records the cycle left, or $null for an outcome that is not a verdict.
     .DESCRIPTION
-        drain, refresh-gated, refresh-preflight, paused and shutdown say the loop
+        drain, gate-held, handoff-preflight, paused and shutdown say the loop
         did not run a cycle to a conclusion, so they produce no result. Every
         other outcome maps to exactly one of the result outcomes:
 
@@ -1155,7 +1155,7 @@ function ConvertTo-RunnerRecoveryResult {
         [hashtable]$Recovery = @{}
     )
     $name = [string]$Dispatch.Outcome
-    if ($name -in @('drain', 'refresh-gated', 'refresh-preflight', 'paused', 'shutdown')) { return $null }
+    if ($name -in @('drain', 'gate-held', 'handoff-preflight', 'paused', 'shutdown')) { return $null }
     $exitCode = [int]$Dispatch.ExitCode
     $property = { param([string]$Key) $p = $Dispatch.PSObject.Properties[$Key]; if ($p -and $null -ne $p.Value) { [string]$p.Value } else { '' } }
     $fact = Get-LastFailureFact -LogDir $LogDir -CycleGeneration $CycleGeneration

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.11.16
+# Version: 2026.11.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # GUID: 426b4671-5d78-44e6-b6d7-77924967ec88
@@ -142,6 +142,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
     # --- REGION: yuruna_install_pwsh_tarball
     # See https://yuruna.link/42d69dfa-0036
     # Preserve the checksum gate when the baked retry library lacks this helper.
+    # The label, name and body match the function in automation/yuruna-retry.sh.
     yuruna_install_pwsh_tarball() (
         local arch="$1" ps_arch tag version package url want got
         case "$arch" in x86_64) ps_arch=x64;; aarch64) ps_arch=arm64;; *) return 1;; esac

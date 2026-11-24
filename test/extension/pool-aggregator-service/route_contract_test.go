@@ -178,7 +178,7 @@ func TestPoolStatusWireKeys(t *testing.T) {
 		t.Fatalf("hosts=%d announcedExtensions=%d, want 1 and 1", len(out.Hosts), len(out.AnnouncedExtensions))
 	}
 	assertKeys(t, "hosts[0]", out.Hosts[0], "hostId", "currentIp", "baseUrl", "reachable", "lastSeenUnixMs",
-		"activeExtensions", "extensionTargets", "stashBaseUrl", "previousHostIds", "refresh")
+		"activeExtensions", "extensionTargets", "stashBaseUrl", "previousHostIds", "repair")
 	var host struct {
 		StashBaseURL    string   `json:"stashBaseUrl"`
 		PreviousHostIDs []string `json:"previousHostIds"`
@@ -574,34 +574,34 @@ func TestMetricsCountsFailuresInsideTheConfiguredCrossWindow(t *testing.T) {
 	}
 }
 
-// A host's refresh reading stays available for the configured observation
+// A host's repair reading stays available for the configured observation
 // window, which pool-status and the exposition both read, not for the floor.
-func TestPoolStatusAndMetricsReadTheConfiguredRefreshWindow(t *testing.T) {
+func TestPoolStatusAndMetricsReadTheConfiguredRepairWindow(t *testing.T) {
 	s := newPoolState("default", 8080)
-	s.refreshTTL = 10 * time.Minute
+	s.repairTTL = 10 * time.Minute
 	const hid = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	s.view().Hosts[hid] = &hostView{HostId: hid, CurrentIP: "192.0.2.10", Reachable: true, LastSeenUnixMs: time.Now().UnixMilli(),
-		Refresh: sdkpool.HostRefresh{Protocol: 1, Availability: sdkpool.RefreshAvailable, Ceiling: sdkpool.RungStartIfStopped,
-			Remote: sdkpool.RefreshRemoteProvisioned, State: sdkpool.RefreshStateIdle,
+		Repair: sdkpool.HostRepair{Protocol: 1, Availability: sdkpool.RepairAvailable, Ceiling: sdkpool.RungStartIfStopped,
+			Remote: sdkpool.RepairRemoteProvisioned, State: sdkpool.RepairStateIdle,
 			ObservedUnixMs: time.Now().Add(-5 * time.Minute).UnixMilli()}}
 
 	rec := httptest.NewRecorder()
 	s.handlePoolStatus(rec, httptest.NewRequest(http.MethodGet, routePoolStatus, nil))
 	var out struct {
 		Hosts []struct {
-			Refresh sdkpool.HostRefresh `json:"refresh"`
+			Repair sdkpool.HostRepair `json:"repair"`
 		} `json:"hosts"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || len(out.Hosts) != 1 {
 		t.Fatalf("pool-status = %s (%v)", rec.Body.String(), err)
 	}
-	if got := out.Hosts[0].Refresh; got.Availability != sdkpool.RefreshAvailable {
-		t.Errorf("pool-status refresh = %+v, want available inside the configured window", got)
+	if got := out.Hosts[0].Repair; got.Availability != sdkpool.RepairAvailable {
+		t.Errorf("pool-status repair = %+v, want available inside the configured window", got)
 	}
 	m := httptest.NewRecorder()
 	s.handleMetrics(m, metricsRequest())
-	want := fmt.Sprintf("yuruna_pool_host_refresh_available{pool=%q,hostId=%q,hostIdDashed=%q,state=%q} 1\n",
-		"default", hid, poolstate.DashedHostID(hid), sdkpool.RefreshStateIdle)
+	want := fmt.Sprintf("yuruna_pool_host_repair_available{pool=%q,hostId=%q,hostIdDashed=%q,state=%q} 1\n",
+		"default", hid, poolstate.DashedHostID(hid), sdkpool.RepairStateIdle)
 	if !strings.Contains(m.Body.String(), want) {
 		t.Errorf("exposition does not read the reading as available:\n%s", m.Body.String())
 	}

@@ -11,7 +11,9 @@ import (
 	"errors"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -103,6 +105,60 @@ func TestMirrorCommandDiagnosticsReportStartFailures(t *testing.T) {
 	var failure *mirrorFailure
 	if !errors.As(err, &failure) || failure.diagnostic.ExitCode != -1 || failure.diagnostic.Failure != "git-not-found" {
 		t.Fatalf("missing executable was not diagnosed safely: %v", err)
+	}
+}
+
+func TestMirrorCommandDiagnosticsReportWaitDelay(t *testing.T) {
+	directory := t.TempDir()
+	release := filepath.Join(directory, "release")
+	done := filepath.Join(directory, "done")
+	gitExitedSuccessfully := false
+	t.Cleanup(func() {
+		if err := os.WriteFile(release, nil, 0600); err != nil {
+			t.Error(err)
+			return
+		}
+		// Unix stops the failed command's entire process group. On Windows
+		// an exited Git parent cannot reclaim the alias's detached child.
+		if !gitExitedSuccessfully || runtime.GOOS != "windows" {
+			return
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(done); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Error("Git output fixture did not close its inherited pipe")
+	})
+	const secret = "SENSITIVE_GIT_WAIT_OUTPUT_NEVER_LOG"
+	g := &mirrorGit{options: mirrorOptions{Limits: defaultMirrorLimits()}, env: []string{
+		"YURUNA_MIRROR_WAIT_RELEASE=" + filepath.ToSlash(release),
+		"YURUNA_MIRROR_WAIT_DONE=" + filepath.ToSlash(done),
+		"YURUNA_MIRROR_WAIT_SECRET=" + secret,
+	}}
+	g.options.Limits.CancelGrace = 50 * time.Millisecond
+	// The successful alias leaves a descendant holding its output pipe until
+	// cleanup releases it; no scheduler-dependent sleep decides the outcome.
+	alias := `!f() { printf '%s\n' "$YURUNA_MIRROR_WAIT_SECRET" >&2; (while test ! -f "$YURUNA_MIRROR_WAIT_RELEASE"; do sleep 0.01; done; : > "$YURUNA_MIRROR_WAIT_DONE") </dev/null & }; f`
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err := g.command(ctx, "", nil, "-c", "alias.yuruna-wait-fixture="+alias, "yuruna-wait-fixture")
+	err = mirrorWithPhase("fetch", err)
+	var failure *mirrorFailure
+	if errors.As(err, &failure) {
+		gitExitedSuccessfully = failure.diagnostic.ExitCode == 0
+	}
+	if !gitExitedSuccessfully || failure.diagnostic.Failure != "git-output-wait-expired" {
+		t.Fatalf("successful Git with an unclosed output pipe was not diagnosed: %v", err)
+	}
+	if outcome, detail := mirrorOutcome(err); outcome != "local-error" || detail != "git-local-error" {
+		t.Fatalf("output wait changed the wire outcome: %s/%s", outcome, detail)
+	}
+	encoded, _ := json.Marshal(failure.diagnostic)
+	if strings.Contains(string(encoded)+err.Error(), secret) {
+		t.Fatal("Git output leaked through wait diagnostics")
 	}
 }
 

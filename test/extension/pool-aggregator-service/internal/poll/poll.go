@@ -133,35 +133,35 @@ func New(cfg Config) *Poller {
 	}
 }
 
-// mergeRefresh folds one poll's reading into what the host view holds. A host
+// mergeRepair folds one poll's reading into what the host view holds. A host
 // that answered replaces the reading outright -- with unavailable,
 // not_advertised when it no longer carries the field. A host that did not
 // answer keeps the previous detail for display but is demoted to unavailable:
 // the legacy Control verdict's indefinite last-known value must not be copied
 // onto a capability that authorizes a disruptive action.
-func mergeRefresh(prev sdkpool.HostRefresh, obs *sdkpool.HostRefresh, answered bool, now time.Time) sdkpool.HostRefresh {
+func mergeRepair(prev sdkpool.HostRepair, obs *sdkpool.HostRepair, answered bool, now time.Time) sdkpool.HostRepair {
 	if !answered {
-		return demoteRefresh(prev, sdkpool.RefreshReasonControlStatusUnreadable)
+		return demoteRepair(prev, sdkpool.RepairReasonControlStatusUnreadable)
 	}
 	if obs == nil {
-		return sdkpool.HostRefresh{Availability: sdkpool.RefreshUnavailable, Reason: sdkpool.RefreshReasonNotAdvertised,
-			Remote: sdkpool.RefreshRemoteUnknown, State: sdkpool.RefreshStateUnknown, ObservedUnixMs: now.UnixMilli()}
+		return sdkpool.HostRepair{Availability: sdkpool.RepairUnavailable, Reason: sdkpool.RepairReasonNotAdvertised,
+			Remote: sdkpool.RepairRemoteUnknown, State: sdkpool.RepairStateUnknown, ObservedUnixMs: now.UnixMilli()}
 	}
 	out := *obs
 	out.ObservedUnixMs, out.AgeSeconds = now.UnixMilli(), 0
 	return out
 }
 
-// demoteRefresh marks a reading unavailable for reason while keeping the rest
+// demoteRepair marks a reading unavailable for reason while keeping the rest
 // of its detail, which is display-only once the reading is not current.
-func demoteRefresh(prev sdkpool.HostRefresh, reason string) sdkpool.HostRefresh {
+func demoteRepair(prev sdkpool.HostRepair, reason string) sdkpool.HostRepair {
 	out := prev
-	out.Availability, out.Reason = sdkpool.RefreshUnavailable, reason
+	out.Availability, out.Reason = sdkpool.RepairUnavailable, reason
 	if out.Remote == "" {
-		out.Remote = sdkpool.RefreshRemoteUnknown
+		out.Remote = sdkpool.RepairRemoteUnknown
 	}
 	if out.State == "" {
-		out.State = sdkpool.RefreshStateUnknown
+		out.State = sdkpool.RepairStateUnknown
 	}
 	return out
 }
@@ -351,22 +351,22 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 	type probeResult struct {
 		ip         string
 		st         *hostStatus
-		ring       RingRows             // completed cycles the framework canary ring counts, parsed from the same body
-		errMsg     string               // non-empty when the probe failed: the reason, keyed onto the unreachable host's LastError
-		version    string               // framework VERSION ("" = not fetched this poll; caller keeps prior)
-		regOK      bool                 // host.registration.json was fetched + parsed this poll
-		poolID     string               // poolId from the registration record ("" = unpooled/not-yet-derived)
-		poolGuid   string               // poolGuid from the registration record ("" = unpooled/not-yet-derived)
-		gating     *gatingPolicy        // authored gating policy from the record (nil = pool did not author one)
-		activeExt  []string             // extension areas the host is actively running (registration activeExtensions)
-		extTargets map[string]string    // per-area deep-link URLs the host advertises (registration extensionTargets)
-		control    string               // classified control state ("" = not fetched this poll; caller keeps prior)
-		refresh    *sdkpool.HostRefresh // refresh capability from control-status (nil = the host answered without one)
-		refreshOK  bool                 // control-status answered this poll (false = transport, oversize or parse failure)
-		stepParked bool                 // current-action sidecar says the runner is sitting at a step boundary
-		parkedOK   bool                 // the sidecar was read this poll (false = keep the prior reading)
-		runner     runnerStatus         // runner-status: whether the outer runner is verifiably gone, lost mid-cycle, and how it ended
-		runnerOK   bool                 // runner-status answered this poll (false = keep the prior reading)
+		ring       RingRows            // completed cycles the framework canary ring counts, parsed from the same body
+		errMsg     string              // non-empty when the probe failed: the reason, keyed onto the unreachable host's LastError
+		version    string              // framework VERSION ("" = not fetched this poll; caller keeps prior)
+		regOK      bool                // host.registration.json was fetched + parsed this poll
+		poolID     string              // poolId from the registration record ("" = unpooled/not-yet-derived)
+		poolGuid   string              // poolGuid from the registration record ("" = unpooled/not-yet-derived)
+		gating     *gatingPolicy       // authored gating policy from the record (nil = pool did not author one)
+		activeExt  []string            // extension areas the host is actively running (registration activeExtensions)
+		extTargets map[string]string   // per-area deep-link URLs the host advertises (registration extensionTargets)
+		control    string              // classified control state ("" = not fetched this poll; caller keeps prior)
+		repair     *sdkpool.HostRepair // repair capability from control-status (nil = the host answered without one)
+		repairOK   bool                // control-status answered this poll (false = transport, oversize or parse failure)
+		stepParked bool                // current-action sidecar says the runner is sitting at a step boundary
+		parkedOK   bool                // the sidecar was read this poll (false = keep the prior reading)
+		runner     runnerStatus        // runner-status: whether the outer runner is verifiably gone, lost mid-cycle, and how it ended
+		runnerOK   bool                // runner-status answered this poll (false = keep the prior reading)
 	}
 	// This proxy's own token tag, computed once per poll: the value every host's
 	// published tag is compared against. "" when no internal authentication key is configured,
@@ -400,12 +400,12 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 				// failure leaves pr.control "" and keeps the prior verdict; a host that
 				// answers, even an older build with no such route, replaces it. Classified
 				// here against the poll's clock so the skew reading excludes the poll's own
-				// duration. The refresh capability rides the same answer but is demoted, not
+				// duration. The repair capability rides the same answer but is demoted, not
 				// kept, on a failed or oversize read.
 				// See https://yuruna.link/42c29d04-000e.
 				if cs, cerr := hostpoll.FetchControlStatus(client, base); cerr == nil {
 					pr.control = ClassifyControl(proxyTag, cs, now)
-					pr.refresh, pr.refreshOK = cs.Refresh, true
+					pr.repair, pr.repairOK = cs.Repair, true
 				}
 				// Best-effort: is anything still driving this host? status.json
 				// alone cannot say -- it is a record of what ran, and it reads
@@ -504,7 +504,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 			if r.control != "" {
 				hv.Control = r.control
 			}
-			hv.Refresh = mergeRefresh(hv.Refresh, r.refresh, r.refreshOK, now)
+			hv.Repair = mergeRepair(hv.Repair, r.repair, r.repairOK, now)
 			// Keep the prior runner verdict when the route did not answer this tick, the
 			// same guard as Control: a missed probe is not a runner that started.
 			if r.runnerOK {
@@ -575,7 +575,7 @@ func (s *Poller) Once(client *http.Client, squidLog, lokiURL string, now time.Ti
 		for hid, hv := range view.Hosts {
 			if !refreshed[hid] {
 				hv.Reachable = false
-				hv.Refresh = demoteRefresh(hv.Refresh, sdkpool.RefreshReasonHostUnreachable)
+				hv.Repair = demoteRepair(hv.Repair, sdkpool.RepairReasonHostUnreachable)
 				// Surface WHY this tick's probe of the host's last-known IP failed, so
 				// /api/v1/pool-status says why a host is unreachable. Left
 				// as-is when the IP was not a candidate this tick (no fresh reason).

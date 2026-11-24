@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.11.16
+.VERSION 2026.11.23
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -287,6 +287,9 @@ function Test-CyclePlanCapability {
           missingHostIO  = @(...)      # required by some action, not registered on this host
           missingHostCommand = @(...)  # host commands a step's handler runs that this host lacks,
                                        # each @{ command; steps = @(@{ sequence; step; action }) }
+          missingOcrEngine = @(...)    # OCR engines a step's handler calls by name that this host
+                                       # lacks (Test-OcrProviderAvailable), in ordinal order,
+                                       # each @{ engine; steps = @(@{ sequence; step; action }) }
           ocrRequired    = $true | $false
           ocrAvailable   = $true | $false
         }
@@ -307,6 +310,8 @@ function Test-CyclePlanCapability {
     $hostIOReq  = New-Object System.Collections.Generic.HashSet[string]
     # Host command -> the verbs whose handlers run it.
     $hostCommandReq = @{}
+    # OCR engine -> the verbs whose handlers call it by name.
+    $ocrEngineReq = @{}
     $ocrReq     = $false
     foreach ($v in $verbs) {
         if (-not $reqMap.Contains($v)) {
@@ -318,6 +323,11 @@ function Test-CyclePlanCapability {
         foreach ($command in $req.HostCommand) {
             if (-not $hostCommandReq.ContainsKey($command)) { $hostCommandReq[$command] = [System.Collections.Generic.List[string]]::new() }
             $hostCommandReq[$command].Add($v)
+        }
+        foreach ($engine in @($req.OcrEngine)) {
+            if (-not $engine) { continue }
+            if (-not $ocrEngineReq.ContainsKey($engine)) { $ocrEngineReq[$engine] = [System.Collections.Generic.List[string]]::new() }
+            $ocrEngineReq[$engine].Add($v)
         }
         if ($req.OcrRequired) { $ocrReq = $true }
     }
@@ -338,11 +348,25 @@ function Test-CyclePlanCapability {
             }
         }
     })
+    # A handler that calls an engine by name needs that engine whatever other
+    # providers are enabled, so ocrAvailable alone cannot answer for it.
+    $canAskEngine = [bool](Get-Command Test-OcrProviderAvailable -ErrorAction SilentlyContinue)
+    [string[]]$engines = @($ocrEngineReq.Keys)
+    [Array]::Sort($engines, [StringComparer]::Ordinal)
+    $missingOcrEngine = @(foreach ($engine in $engines) {
+        if (-not ($canAskEngine -and (Test-OcrProviderAvailable -Name $engine) -eq $true)) {
+            [ordered]@{
+                engine = $engine
+                steps  = @($steps | Where-Object { $ocrEngineReq[$engine] -contains $_.action })
+            }
+        }
+    })
     $ocrAvailable = $false
     if (Get-Command Get-EnabledOcrProvider -ErrorAction SilentlyContinue) {
         $ocrAvailable = @(Get-EnabledOcrProvider).Count -gt 0
     }
-    $supported = ($missingHostIO.Count -eq 0) -and ($missingHostCommand.Count -eq 0) -and (-not ($ocrReq -and -not $ocrAvailable))
+    $supported = ($missingHostIO.Count -eq 0) -and ($missingHostCommand.Count -eq 0) -and ($missingOcrEngine.Count -eq 0) -and
+        (-not ($ocrReq -and -not $ocrAvailable))
     return @{
         supported      = $supported
         hostType       = $HostType
@@ -350,6 +374,7 @@ function Test-CyclePlanCapability {
         unknownActions = @($unknown | Sort-Object)
         missingHostIO  = @($missingHostIO | Sort-Object)
         missingHostCommand = $missingHostCommand
+        missingOcrEngine = $missingOcrEngine
         ocrRequired    = $ocrReq
         ocrAvailable   = $ocrAvailable
     }
@@ -412,7 +437,7 @@ function Test-CyclePlanCapabilityFromPlan {
     if (-not $paths -or $paths.Count -eq 0) {
         # No paths means an empty plan; treat as supported so the cycle
         # falls through to whatever Get-GuestList-based legacy path exists.
-        return @{ supported = $true; hostType = $HostType; actionsUsed = @(); unknownActions = @(); missingHostIO = @(); missingHostCommand = @(); ocrRequired = $false; ocrAvailable = $false }
+        return @{ supported = $true; hostType = $HostType; actionsUsed = @(); unknownActions = @(); missingHostIO = @(); missingHostCommand = @(); missingOcrEngine = @(); ocrRequired = $false; ocrAvailable = $false }
     }
     return (Test-CyclePlanCapability -SequencePath $paths -HostType $HostType)
 }
